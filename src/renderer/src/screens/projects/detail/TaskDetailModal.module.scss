@@ -1,0 +1,125 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(15, 23, 42, 0.34);
+}
+
+.shell {
+  position: fixed;
+  inset: 2vh 2vw;
+  z-index: 40;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 680px;
+  overflow: hidden;
+  border: 1px solid #dfe7f2;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 24px 90px rgba(15, 23, 42, 0.18);
+}
+
+.header {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid #edf2f7;
+  background: #fff;
+  padding: 0 14px 0 18px;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.headerTitle {
+  color: #7a8ca8;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.iconButton {
+  width: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: #52657f;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    border-color: #dce5f1;
+    background: #f7f9fc;
+    color: #172033;
+  }
+}
+
+.iconButtonActive {
+  border-color: #dce5f1;
+  background: #f3f6fb;
+  color: #172033;
+}
+
+.menuWrap {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 5;
+  width: 220px;
+  overflow: hidden;
+  border: 1px solid #dce5f1;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 18px 55px rgba(15, 23, 42, 0.18);
+  padding: 6px;
+
+  button {
+    width: 100%;
+    min-height: 36px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: #253650;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 10px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    text-align: left;
+
+    &:hover {
+      background: #f5f8fc;
+    }
+  }
+}
+
+.dangerAction {
+  color: #b4233a !important;
+}
+
+@media (width <= 900px) {
+  .shell {
+    inset: 1.5vh 1.5vw;
+    min-height: 0;
+    border-radius: 12px;
+  }
+}

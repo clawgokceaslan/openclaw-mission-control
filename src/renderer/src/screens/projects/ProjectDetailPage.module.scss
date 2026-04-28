@@ -1188,12 +1188,18 @@
   min-height: 0;
   overflow: auto;
   padding: 8px 16px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 0;
-  align-content: start;
+
+  &::before {
+    content: '';
+    margin-top: auto;
+  }
 }
 
 .commentItem {
+  flex: 0 0 auto;
   border-bottom: 1px solid #edf2fa;
   padding: 11px 0;
   background: transparent;
@@ -1330,13 +1336,24 @@
 
 .titleInput {
   width: 100%;
-  border: 1px solid var(--omc-border);
-  border-radius: 10px;
-  min-height: 38px;
-  padding: 0 10px;
-  color: #20314a;
-  font-size: 1.06rem;
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+  background: transparent;
+  margin: 0;
+  padding: 0;
+  color: #1d2a40;
+  font-size: 2.65rem;
+  line-height: 1.08;
   font-weight: 700;
+  letter-spacing: -0.01em;
+
+  &:focus {
+    border: 0;
+    outline: 0;
+    box-shadow: none;
+    background: transparent;
+  }
 }
 
 .editingField {

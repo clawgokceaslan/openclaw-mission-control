@@ -27,6 +27,7 @@ import { ProjectBoardView } from './detail/ProjectBoardView'
 import { ProjectListView } from './detail/ProjectListView'
 import { ProjectTableView } from './detail/ProjectTableView'
 import { CreateTaskModal } from './detail/CreateTaskModal'
+import { TaskDetailModal } from './detail/TaskDetailModal'
 import { PROJECT_STATUS_COLUMNS } from './detail/status'
 import styles from './ProjectDetailPage.module.scss'
 
@@ -1109,6 +1110,22 @@ export function ProjectDetailPage() {
     await refresh()
   }
 
+  const deleteSelectedTask = async () => {
+    if (!selectedTask) return
+    const response = await invokeBridge<{ id: string }>(IPC_CHANNELS.tasks.remove, {
+      actorToken: token,
+      id: selectedTask.id
+    })
+    if (!response.ok) {
+      setError(response.error?.message ?? 'Unable to delete task')
+      return
+    }
+    setSelectedTaskId(null)
+    setSelectedSubtaskId(null)
+    setDetailViewMode('task')
+    await refresh()
+  }
+
   const splitTemplate = `${Math.round(detailRatio * 100)}% 6px minmax(${MIN_COMMENTS_WIDTH}px, 1fr)`
 
   if (projectLoadError) {
@@ -1488,22 +1505,18 @@ export function ProjectDetailPage() {
 
       {selectedTask ? (
         <>
-          <div className={styles.modalBackdrop} onClick={() => setSelectedTaskId(null)} />
-          <section className={styles.modalShell} role="dialog" aria-modal="true" aria-label="Task detail">
-            <header className={styles.modalHeader}>
-              <h2>TASK DETAIL</h2>
-              <div className={styles.modalHeaderActions}>
-                <button
-                  type="button"
-                  className={styles.activityTrigger}
-                  onClick={() => setIsActivityModalOpen(true)}
-                >
-                  <LuHistory size={14} />
-                  Activity
-                </button>
-                <button type="button" onClick={() => setSelectedTaskId(null)} aria-label="Close task modal">×</button>
-              </div>
-            </header>
+          <TaskDetailModal
+            taskId={selectedTask.id}
+            onClose={() => setSelectedTaskId(null)}
+            onOpenActivity={() => setIsActivityModalOpen(true)}
+            onEditTitle={() => {
+              setDetailViewMode('task')
+              setSelectedSubtaskId(null)
+              setTitleDraft(selectedTask.title)
+              setIsTitleEditing(true)
+            }}
+            onDeleteTask={() => void deleteSelectedTask()}
+          >
             <div className={styles.modalBody} ref={modalBodyRef} style={{ gridTemplateColumns: splitTemplate }}>
               <div className={styles.detailPane}>
                 <section className={styles.breadcrumbRow}>
@@ -2165,7 +2178,7 @@ export function ProjectDetailPage() {
                 </section>
               </aside>
             </div>
-          </section>
+          </TaskDetailModal>
 
           {isActivityModalOpen ? (
             <>
