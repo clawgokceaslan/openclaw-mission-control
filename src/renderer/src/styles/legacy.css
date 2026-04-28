@@ -1,0 +1,41 @@
+body {
+  margin: 0;
+  font-family: Inter, Arial, system-ui, sans-serif;
+  background: #0b1020;
+  color: #e5e9ff;
+}
+
+a {
+  color: #81a1ff;
+  text-decoration: none;
+}
+
+main {
+  padding: 24px;
+}
+
+input,
+button {
+  font: inherit;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: rgba(13, 20, 38, 0.95);
+  padding: 18px;
+  border-right: 1px solid #2b3b6a;
+}
+
+.content {
+  padding: 24px;
+}
+
+.list-page ul {
+  margin: 0;
+  padding: 0 0 0 20px;
+}

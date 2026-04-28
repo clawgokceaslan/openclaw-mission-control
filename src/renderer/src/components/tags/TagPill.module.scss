@@ -1,0 +1,31 @@
+.tagPill {
+  max-width: 140px;
+  min-height: 23px;
+  border: 1px solid rgba(20, 37, 62, 0.08);
+  border-radius: 999px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  color: var(--tag-fg, #20324b);
+  background: var(--tag-bg, #eef3fb);
+  font-size: 0.76rem;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24);
+}
+
+.compact {
+  max-width: 120px;
+  min-height: 22px;
+  font-size: 0.74rem;
+  font-weight: 760;
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

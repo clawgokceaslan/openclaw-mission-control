@@ -1,0 +1,66 @@
+.page {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.7rem;
+  color: var(--omc-text);
+}
+
+.status {
+  margin: 0;
+  color: var(--omc-text-muted);
+}
+
+.error {
+  margin: 0;
+  border: 1px solid #f3c3cb;
+  background: #fff1f4;
+  color: #ab2f43;
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+
+.form {
+  display: grid;
+  gap: 10px;
+
+  label {
+    font-size: 0.9rem;
+    color: #506280;
+    font-weight: 600;
+  }
+
+  textarea {
+    resize: vertical;
+  }
+}
+
+.list {
+  display: grid;
+  gap: 0;
+}
+
+.tableName {
+  color: #2249a1;
+  font-weight: 700;
+}
+
+.spacedBottom {
+  margin-bottom: 16px;
+}
+
+.spacedTop {
+  margin-top: 8px;
+}
+
+.spacedLeft {
+  margin-left: 8px;
+}
+
+.spacedRight {
+  margin-right: 8px;
+}

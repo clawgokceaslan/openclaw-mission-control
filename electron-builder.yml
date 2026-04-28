@@ -1,0 +1,14 @@
+appId: com.openmissioncontrol.desktop
+productName: OpenMissionControl
+directories:
+  output: dist/release
+files:
+  - dist/renderer/**
+  - dist/main/**
+  - package.json
+  - node_modules
+  - docs/**
+extraMetadata:
+  main: dist/main/index.js
+asar: true
+publish: []

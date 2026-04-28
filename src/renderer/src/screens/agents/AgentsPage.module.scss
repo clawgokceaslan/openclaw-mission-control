@@ -1,0 +1,419 @@
+.page {
+  display: grid;
+  gap: 18px;
+  align-content: start;
+}
+
+.header {
+  margin: -22px -30px 14px;
+  padding: 28px 30px;
+  border-bottom: 1px solid var(--omc-border);
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+
+  h1 {
+    margin: 0;
+    color: #17233a;
+    font-size: 1.75rem;
+    font-weight: 850;
+    letter-spacing: -0.03em;
+  }
+
+  p {
+    margin: 6px 0 0;
+    color: #61738f;
+    font-size: 0.98rem;
+  }
+}
+
+.primaryButton,
+.secondaryButton,
+.dangerButton {
+  min-height: 40px;
+  border-radius: 11px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 850;
+}
+
+.primaryButton {
+  border: none;
+  background: #2d5fda;
+  color: #fff;
+
+  &:disabled {
+    opacity: 0.65;
+  }
+}
+
+.secondaryButton {
+  border: 1px solid #d9e3f2;
+  background: #fff;
+  color: #253852;
+}
+
+.dangerButton {
+  border: none;
+  background: #d92d45;
+  color: #fff;
+}
+
+.error,
+.formError {
+  margin: 0;
+  border: 1px solid #f3c3cb;
+  border-radius: 10px;
+  background: #fff1f4;
+  color: #ab2f43;
+  padding: 10px 12px;
+}
+
+.tableCard {
+  border: 1px solid #dce5f1;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(24, 43, 77, 0.05);
+  overflow-x: auto;
+  overflow-y: hidden;
+  cursor: grab;
+  user-select: none;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.dragging {
+  cursor: grabbing;
+}
+
+.tableHead,
+.tableRow {
+  min-width: 1120px;
+  display: grid;
+  grid-template-columns: minmax(190px, 1.15fr) minmax(220px, 1.2fr) 140px 100px 120px 130px 96px;
+  gap: 16px;
+  align-items: center;
+}
+
+.tableHead {
+  min-height: 44px;
+  background: #f8fafd;
+  color: #7183a0;
+  font-size: 0.82rem;
+  font-weight: 850;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 0 24px;
+}
+
+.tableRow {
+  min-height: 68px;
+  border-top: 1px solid #e7eef8;
+  color: #344661;
+  padding: 0 24px;
+  font-size: 0.94rem;
+
+  > span {
+    min-width: 0;
+  }
+}
+
+.agentCell {
+  display: grid;
+  gap: 4px;
+
+  strong {
+    color: #17243b;
+    font-weight: 850;
+  }
+
+  small {
+    color: #6b7f9d;
+    font-weight: 650;
+  }
+}
+
+.mutedCell {
+  color: #586c89;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reasoningPill,
+.statusPill {
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.reasoning_low,
+.status_offline {
+  background: #eef3fb;
+  color: #526783;
+}
+
+.reasoning_medium,
+.status_idle {
+  background: #e9f1ff;
+  color: #2855b8;
+}
+
+.reasoning_high,
+.status_busy {
+  background: #fff3d8;
+  color: #986600;
+}
+
+.reasoning_extra_high {
+  background: #fff1f4;
+  color: #b83245;
+}
+
+.actionsCell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.iconButton {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #d9e3f2;
+  border-radius: 10px;
+  background: #fff;
+  color: #526783;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    background: #f4f8ff;
+    color: #2d5fda;
+  }
+}
+
+.dangerIconButton:hover {
+  border-color: #f1b8c0;
+  background: #fff1f4;
+  color: #b83245;
+}
+
+.emptyRow {
+  min-height: 92px;
+  border-top: 1px solid #e7eef8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #667895;
+  font-weight: 700;
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(25, 35, 52, 0.42);
+}
+
+.agentModal {
+  position: fixed;
+  z-index: 121;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(780px, calc(100vw - 36px));
+  max-height: min(86vh, 860px);
+  border: 1px solid #dce5f1;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(14, 28, 52, 0.24);
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.confirmModal {
+  width: min(520px, calc(100vw - 36px));
+}
+
+.modalHeader {
+  min-height: 58px;
+  border-bottom: 1px solid #e6edf7;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  h2 {
+    margin: 0;
+    color: #17233a;
+    font-size: 1rem;
+    font-weight: 850;
+  }
+
+  button {
+    width: 32px;
+    height: 32px;
+    border: 1px solid #d9e3f2;
+    border-radius: 10px;
+    background: #fff;
+    color: #526783;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+.agentForm {
+  padding: 20px;
+  display: grid;
+  gap: 16px;
+  overflow: auto;
+
+  label {
+    display: grid;
+    gap: 8px;
+  }
+
+  label > span {
+    color: #7184a2;
+    font-size: 0.78rem;
+    font-weight: 850;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  input,
+  textarea {
+    width: 100%;
+    border: 1px solid #d9e3f2;
+    border-radius: 10px;
+    background: #fff;
+    color: #1d2c44;
+    padding: 10px 12px;
+    outline: none;
+
+    &:focus {
+      border-color: #9db5ee;
+      box-shadow: 0 0 0 3px rgba(45, 95, 218, 0.1);
+    }
+  }
+
+  textarea {
+    resize: vertical;
+  }
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.stepsBlock {
+  border: 1px solid #e1e9f5;
+  border-radius: 14px;
+  background: #fbfdff;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+
+  > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+  }
+
+  h3,
+  p {
+    margin: 0;
+  }
+
+  h3 {
+    color: #17233a;
+    font-size: 0.98rem;
+    font-weight: 850;
+  }
+
+  p {
+    color: #61738f;
+    font-size: 0.9rem;
+  }
+}
+
+.stepCard {
+  border: 1px solid #e3ebf6;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.stepNumber {
+  color: #2d5fda;
+  font-size: 0.78rem;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.stepRemoveButton {
+  justify-self: start;
+  border: none;
+  background: transparent;
+  color: #b83245;
+  padding: 0;
+  font-weight: 800;
+}
+
+.emptySteps {
+  margin: 0;
+  color: #667895;
+  font-weight: 700;
+}
+
+.modalFooter {
+  border-top: 1px solid #e6edf7;
+  padding-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirmBody {
+  padding: 20px;
+
+  p {
+    margin: 0 0 18px;
+    color: #405571;
+    line-height: 1.55;
+  }
+}
+
+@media (width <= 760px) {
+  .header,
+  .stepsBlock > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+}
