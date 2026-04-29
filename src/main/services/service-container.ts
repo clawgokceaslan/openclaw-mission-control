@@ -5,6 +5,7 @@ import { SqliteAdapter } from '../../db/adapter/sqlite.js'
 import { AuthRepository } from '../../db/repositories/auth-repo.js'
 import { ProjectRepository } from '../../db/repositories/project-repo.js'
 import { TaskRepository, TaskSkillRepository, TaskSubtaskRepository, TaskTagRepository } from '../../db/repositories/task-repo.js'
+import { TaskTemplateRepository } from '../../db/repositories/task-template-repo.js'
 import { AgentRepository } from '../../db/repositories/agent-repo.js'
 import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
 import { WebhookRepository } from '../../db/repositories/webhook-repo.js'
@@ -18,6 +19,7 @@ import { OutputFormatRepository } from '../../db/repositories/output-format-repo
 import { AuthService } from './auth.service.js'
 import { ProjectService } from './project.service.js'
 import { TaskService } from './task.service.js'
+import { TaskTemplateService } from './task-template.service.js'
 import { AgentService } from './agent.service.js'
 import { GatewayService } from './gateway/index.js'
 import { OpenClawGatewayRuntimeRegistry } from './gateway/index.js'
@@ -35,6 +37,7 @@ export interface AppServices {
   projects: ProjectService
   statuses: StatusService
   tasks: TaskService
+  taskTemplates: TaskTemplateService
   agents: AgentService
   gateways: GatewayService
   webhooks: WebhookService
@@ -61,6 +64,7 @@ export async function createAppContext(): Promise<AppContext> {
   const authRepo = new AuthRepository(db)
   const projectRepo = new ProjectRepository(db)
   const taskRepo = new TaskRepository(db)
+  const taskTemplateRepo = new TaskTemplateRepository(db)
   const taskSubtaskRepo = new TaskSubtaskRepository(db)
   const taskTagRepo = new TaskTagRepository(db)
   const taskSkillRepo = new TaskSkillRepository(db)
@@ -84,6 +88,7 @@ export async function createAppContext(): Promise<AppContext> {
     projects: new ProjectService(auth, projectRepo),
     statuses: new StatusService(auth, statusRepo, projectRepo),
     tasks: new TaskService(auth, taskRepo, taskSubtaskRepo, taskTagRepo, taskSkillRepo, projectRepo, tagRepo, skillRepo, agentRepo, statusRepo),
+    taskTemplates: new TaskTemplateService(auth, taskTemplateRepo),
     agents: new AgentService(auth, agentRepo),
     gateways: new GatewayService(auth, gatewayRepo, eventBus, gatewayRuntime),
     webhooks: new WebhookService(auth, webhookRepo),

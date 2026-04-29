@@ -55,7 +55,9 @@ export function resolveMigrations(basePath: string): MigrationPlan[] {
     '007_projects_rename.sql',
     '008_task_skills.sql',
     '009_project_statuses.sql',
-    '010_output_formats.sql'
+    '010_output_formats.sql',
+    '011_output_format_instructions.sql',
+    '012_task_templates.sql'
   ]
   return filenames.map((filename) => {
     const searchPaths = [

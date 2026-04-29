@@ -1,15 +1,16 @@
-import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { LuCheck, LuChevronRight, LuPencil, LuPlus, LuTrash2, LuX } from 'react-icons/lu'
+import { CSSProperties, KeyboardEvent, MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { zipSync, strToU8 } from 'fflate'
+import { LuCheck, LuChevronRight, LuDownload, LuFileText, LuPencil, LuPlus, LuSave, LuTrash2, LuX } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { AgentOutputFormatField, OutputFormat } from '@shared/types/entities'
 import { invokeBridge, loadList } from '@renderer/utils/api'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import styles from './OutputFormatsPage.module.scss'
 
-const FIELD_TYPES: NonNullable<AgentOutputFormatField['valueType']>[] = ['string', 'number', 'boolean', 'array']
+const FIELD_TYPES: NonNullable<AgentOutputFormatField['valueType']>[] = ['string', 'number', 'boolean', 'array', 'enum']
 const AUTOSAVE_DELAY_MS = 700
 
-type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'failed'
+type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'failed' | 'draft'
 
 interface FieldNode {
   field: AgentOutputFormatField
@@ -37,9 +38,10 @@ function normalizeFields(fields: AgentOutputFormatField[]): AgentOutputFormatFie
       description: field.description.trim(),
       defaultValue: field.defaultValue?.trim() ?? '',
       valueType: FIELD_TYPES.includes(field.valueType ?? 'string') ? field.valueType ?? 'string' : 'string',
+      enumValues: (field.enumValues ?? []).map((value) => value.trim()).filter(Boolean),
       children: normalizeFields(field.children ?? [])
     }))
-    .filter((field) => field.key || field.description || field.defaultValue || field.children.length)
+    .filter((field) => field.key || field.description || field.defaultValue || field.enumValues?.length || field.children.length)
 }
 
 function fieldCount(fields: AgentOutputFormatField[]): number {
@@ -83,8 +85,13 @@ function previewValue(field: AgentOutputFormatField): unknown {
     }
     if (valueType === 'boolean') return field.defaultValue === 'true'
     if (valueType === 'array') return field.defaultValue.split(',').map((item) => item.trim()).filter(Boolean)
+    if (valueType === 'enum') {
+      const enumValues = field.enumValues ?? []
+      return enumValues.includes(field.defaultValue) ? field.defaultValue : enumValues[0] ?? field.defaultValue
+    }
     return field.defaultValue
   }
+  if (valueType === 'enum') return field.enumValues?.[0] ?? field.description
   if (valueType === 'number') return field.description || 0
   if (valueType === 'boolean') return field.description || false
   if (valueType === 'array') return []
@@ -114,6 +121,134 @@ function yamlPreview(fields: AgentOutputFormatField[], depth = 0): string {
       return `${indent}${field.key}: "${value}"`
     }).join('\n')
     : ''
+}
+
+type ExportFormat = 'json' | 'yaml'
+
+function sampleValue(field: AgentOutputFormatField): unknown {
+  const children = field.children ?? []
+  if (children.length > 0) {
+    const childObject = fieldsToSampleObject(children)
+    return field.valueType === 'array' ? [childObject] : childObject
+  }
+
+  const defaultValue = field.defaultValue?.trim() ?? ''
+  const description = field.description?.trim() ?? ''
+  const valueType = field.valueType ?? 'string'
+  if (valueType === 'enum') {
+    const enumValues = field.enumValues ?? []
+    return defaultValue && enumValues.includes(defaultValue) ? defaultValue : enumValues[0] ?? ''
+  }
+  if (defaultValue) {
+    if (valueType === 'number') {
+      const numericValue = Number(defaultValue)
+      return Number.isFinite(numericValue) ? numericValue : defaultValue
+    }
+    if (valueType === 'boolean') return defaultValue === 'true'
+    if (valueType === 'array') return defaultValue.split(',').map((item) => item.trim()).filter(Boolean)
+    return defaultValue
+  }
+  if (description) return description
+  if (valueType === 'number') return 0
+  if (valueType === 'boolean') return false
+  if (valueType === 'array') return []
+  return ''
+}
+
+function fieldsToSampleObject(fields: AgentOutputFormatField[]): Record<string, unknown> {
+  return normalizeFields(fields).reduce<Record<string, unknown>>((acc, field) => {
+    if (field.key) acc[field.key] = sampleValue(field)
+    return acc
+  }, {})
+}
+
+function markdownCell(value: unknown): string {
+  const text = String(value ?? '').trim()
+  return text ? text.replace(/\|/g, '\\|').replace(/\n/g, '<br>') : '-'
+}
+
+function flattenFieldRows(fields: AgentOutputFormatField[], prefix = ''): Array<{ path: string; field: AgentOutputFormatField; sample: unknown }> {
+  return normalizeFields(fields).flatMap((field) => {
+    const path = prefix ? `${prefix}.${field.key || 'untitled'}` : field.key || 'untitled'
+    return [
+      { path, field, sample: sampleValue(field) },
+      ...flattenFieldRows(field.children ?? [], path)
+    ]
+  })
+}
+
+function buildInstructionsMarkdown(format: Pick<OutputFormat, 'name' | 'description' | 'fields'>): string {
+  const rows = flattenFieldRows(format.fields)
+  const contractRows = rows.length > 0
+    ? rows.map(({ path, field, sample }) => `| ${markdownCell(path)} | ${markdownCell(field.valueType ?? 'string')} | ${field.required ? 'yes' : 'no'} | ${markdownCell((field.enumValues ?? []).join(', '))} | ${markdownCell(typeof sample === 'object' ? JSON.stringify(sample) : sample)} | ${markdownCell(field.description)} |`).join('\n')
+    : '| - | - | no | - | - | - |'
+
+  return `# Output Format Instructions: ${format.name}
+
+## Metadata
+| Field | Value |
+| --- | --- |
+| Name | ${markdownCell(format.name)} |
+| Description | ${markdownCell(format.description)} |
+| Type | output-format |
+
+## Generation Rules
+- Return only valid data matching the sample file format.
+- Do not include Markdown fences or explanations.
+- Include all required fields.
+- Use only allowed values for enum fields.
+- Preserve the sample file structure and field keys.
+
+## Field Contract
+| Path | Type | Required | Allowed Values | Default/Sample | Description |
+| --- | --- | --- | --- | --- | --- |
+${contractRows}
+`
+}
+
+function toYamlValue(value: unknown): string {
+  if (value === null || value === undefined) return 'null'
+  if (typeof value === 'string') return JSON.stringify(value)
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return JSON.stringify(String(value))
+}
+
+function toYaml(value: unknown, indent = 0): string {
+  const padding = '  '.repeat(indent)
+  if (value === null || value === undefined || ['string', 'number', 'boolean'].includes(typeof value)) return `${padding}${toYamlValue(value)}`
+  if (Array.isArray(value)) {
+    if (value.length === 0) return `${padding}[]`
+    return value
+      .map((item) => {
+        if (item !== null && typeof item === 'object') {
+          return `${padding}-\n${toYaml(item, indent + 1)}`
+        }
+        return `${padding}- ${toYamlValue(item)}`
+      })
+      .join('\n')
+  }
+  const objectEntries = Object.entries(value as Record<string, unknown>)
+  if (objectEntries.length === 0) return `${padding}{}`
+  return objectEntries
+    .map(([key, fieldValue]) => {
+      if (fieldValue === null || ['string', 'number', 'boolean'].includes(typeof fieldValue)) {
+        return `${padding}${key}: ${toYamlValue(fieldValue)}`
+      }
+      if (Array.isArray(fieldValue) && fieldValue.length === 0) {
+        return `${padding}${key}: []`
+      }
+      return `${padding}${key}:\n${toYaml(fieldValue, indent + 1)}`
+    })
+    .join('\n')
+}
+
+function toDownloadFileName(value: string, extension: string) {
+  const safe = value.toLowerCase().trim().replace(/[^a-z0-9]+/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+  return `${safe || 'output-format'}-output-format.${extension}`
+}
+
+function toSafeFileBase(value: string) {
+  return value.toLowerCase().trim().replace(/[^a-z0-9]+/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'output-format'
 }
 
 function updateFieldTree(fields: AgentOutputFormatField[], id: string, patch: Partial<AgentOutputFormatField>): AgentOutputFormatField[] {
@@ -164,11 +299,20 @@ export function OutputFormatsPage() {
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [draftWarning, setDraftWarning] = useState<string | null>(null)
+  const [closeNotice, setCloseNotice] = useState<string | null>(null)
+  const [exportTarget, setExportTarget] = useState<OutputFormat | null>(null)
+  const [instructionsTarget, setInstructionsTarget] = useState<OutputFormat | null>(null)
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('json')
   const tableRef = useRef<HTMLElement | null>(null)
+  const formatModalRef = useRef<HTMLElement | null>(null)
   const dragScrollRef = useRef({ active: false, startX: 0, scrollLeft: 0 })
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const closeNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const saveQueuedRef = useRef(false)
   const latestDraftRef = useRef({ name: '', description: '', fields: [] as AgentOutputFormatField[] })
   const autosaveReadyRef = useRef(false)
+  const saveTaskRef = useRef<Promise<boolean> | null>(null)
 
   const fieldNodes = useMemo(() => flattenFields(fields), [fields])
   const selectedField = useMemo(() => findField(fields, selectedFieldId), [fields, selectedFieldId])
@@ -195,15 +339,25 @@ export function OutputFormatsPage() {
     if (!editingFormat || !autosaveReadyRef.current) return
     setSaveState('dirty')
     setSaveError(null)
+    setDraftWarning(null)
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
       void saveDraft()
     }, AUTOSAVE_DELAY_MS)
-  }, [name, description, fields, editingFormat])
+  }, [name, description, fields])
 
   useEffect(() => () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    if (closeNoticeTimerRef.current) clearTimeout(closeNoticeTimerRef.current)
   }, [])
+
+  const showCloseNotice = (message: string) => {
+    if (closeNoticeTimerRef.current) clearTimeout(closeNoticeTimerRef.current)
+    setCloseNotice(message)
+    closeNoticeTimerRef.current = setTimeout(() => {
+      setCloseNotice(null)
+    }, 3000)
+  }
 
   const openBuilder = (format: OutputFormat) => {
     autosaveReadyRef.current = false
@@ -214,10 +368,12 @@ export function OutputFormatsPage() {
     setSelectedFieldId(format.fields?.[0]?.id ?? null)
     setFormError(null)
     setSaveError(null)
+    setDraftWarning(null)
     setSaveState('saved')
     latestDraftRef.current = { name: format.name, description: format.description ?? '', fields: format.fields ?? [] }
     window.setTimeout(() => {
       autosaveReadyRef.current = true
+      formatModalRef.current?.focus()
     }, 0)
   }
 
@@ -238,54 +394,110 @@ export function OutputFormatsPage() {
     openBuilder(response.data)
   }
 
-  const saveDraft = async () => {
-    if (!editingFormat) return
+  const persistFormat = async (): Promise<boolean> => {
+    if (!editingFormat) return true
     const draft = latestDraftRef.current
     if (!draft.name.trim()) {
       setSaveState('failed')
       setSaveError('Output format name is required.')
-      return
+      setDraftWarning(null)
+      return false
     }
+
     const normalized = normalizeFields(draft.fields)
     const validationError = validateFields(normalized)
-    if (validationError) {
-      setSaveState('failed')
-      setSaveError(validationError)
-      return
-    }
+    setDraftWarning(validationError ? `Saved as draft: ${validationError}` : null)
 
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current)
       saveTimerRef.current = null
     }
     setSaveState('saving')
-    const response = await invokeBridge<OutputFormat>(IPC_CHANNELS.outputFormats.update, {
-      actorToken: token,
-      id: editingFormat.id,
-      name: draft.name.trim(),
-      description: draft.description.trim() || undefined,
-      fields: normalized
-    })
-    if (!response.ok || !response.data) {
-      setSaveState('failed')
-      setSaveError(response.error?.message ?? 'Unable to save output format')
-      return
-    }
-    setEditingFormat(response.data)
-    setItems((current) => current.map((item) => item.id === response.data!.id ? response.data! : item))
-    setSaveState('saved')
     setSaveError(null)
+
+    try {
+      const response = await invokeBridge<OutputFormat>(IPC_CHANNELS.outputFormats.update, {
+        actorToken: token,
+        id: editingFormat.id,
+        name: draft.name.trim(),
+        description: draft.description.trim() || undefined,
+        fields: normalized
+      })
+      if (!response.ok || !response.data) {
+        setSaveState('failed')
+        setSaveError(response.error?.message ?? 'Unable to save output format')
+        return false
+      }
+
+      setEditingFormat(response.data)
+      setItems((current) => current.map((item) => item.id === response.data!.id ? response.data! : item))
+      setSaveState(validationError ? 'draft' : 'saved')
+      setSaveError(null)
+      return true
+    } catch {
+      setSaveState('failed')
+      setSaveError('Unable to save output format')
+      return false
+    }
   }
 
-  const closeBuilder = () => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    if (editingFormat && saveState === 'dirty') void saveDraft()
+  const saveDraft = async (): Promise<boolean> => {
+    if (!editingFormat) return true
+
+    if (saveTaskRef.current) {
+      saveQueuedRef.current = true
+      return await saveTaskRef.current
+    }
+
+    const task = (async () => {
+      let persisted = true
+      do {
+        saveQueuedRef.current = false
+        persisted = await persistFormat()
+      } while (saveQueuedRef.current && persisted)
+      saveQueuedRef.current = false
+      return persisted
+    })()
+
+    saveTaskRef.current = task
+    const result = await task
+    saveTaskRef.current = null
+    return result
+  }
+
+  const requestCloseBuilder = async (forceClose = false) => {
+    const shouldPersist = editingFormat && saveState !== 'idle' && saveState !== 'saved'
+    if (shouldPersist) {
+      const didPersist = await saveDraft()
+      if (!didPersist) {
+        const message = saveError ? `Could not save: ${saveError}` : 'Could not save output format before closing.'
+        if (!forceClose) return
+        showCloseNotice(message)
+      }
+    }
+
     autosaveReadyRef.current = false
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     setEditingFormat(null)
+    setFields([])
+    setName('')
+    setDescription('')
     setSelectedFieldId(null)
     setFormError(null)
     setSaveError(null)
+    setDraftWarning(null)
     setSaveState('idle')
+  }
+
+  const closeBuilder = () => {
+    void requestCloseBuilder(true)
+  }
+
+  const handleBuilderKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      void requestCloseBuilder(true)
+    }
   }
 
   const updateField = (id: string, patch: Partial<AgentOutputFormatField>) => {
@@ -306,8 +518,37 @@ export function OutputFormatsPage() {
   }
 
   const removeField = (id: string) => {
+    const removedNode = fieldNodes.find((entry) => entry.field.id === id)
+    const parentId = removedNode?.parentId ?? null
+    const siblingsAtLevel = fieldNodes.filter((entry) => entry.parentId === parentId)
+    const removedSiblingIndex = siblingsAtLevel.findIndex((entry) => entry.field.id === id)
+    const fallbackSibling =
+      removedSiblingIndex > 0
+        ? siblingsAtLevel[removedSiblingIndex - 1]?.field.id
+        : removedSiblingIndex > -1 && removedSiblingIndex + 1 < siblingsAtLevel.length
+          ? siblingsAtLevel[removedSiblingIndex + 1]?.field.id
+          : null
+    const rootFallback = fieldNodes.find((entry) => entry.parentId === null && entry.field.id !== id)?.field.id ?? null
+    const isSelectedInRemovedSubtree = (() => {
+      let cursor = selectedFieldId
+      while (cursor) {
+        if (cursor === id) return true
+        const parent = fieldNodes.find((entry) => entry.field.id === cursor)?.parentId ?? null
+        if (!parent) return false
+        cursor = parent
+      }
+      return false
+    })()
+
+    const nextSelectedId = isSelectedInRemovedSubtree
+      ? (parentId && findField(fields, parentId)
+        ? parentId
+        : fallbackSibling ?? rootFallback)
+      : selectedFieldId
+
     setFields((current) => removeFieldTree(current, id))
-    if (selectedFieldId === id) setSelectedFieldId(null)
+
+    setSelectedFieldId(nextSelectedId)
   }
 
   const removeFormat = async () => {
@@ -322,7 +563,10 @@ export function OutputFormatsPage() {
       setError(response.error?.message ?? 'Unable to delete output format')
       return
     }
-    if (editingFormat?.id === deleteFormat.id) closeBuilder()
+    if (editingFormat?.id === deleteFormat.id) {
+      await requestCloseBuilder(true)
+      if (editingFormat?.id === deleteFormat.id) return
+    }
     setItems((current) => current.filter((item) => item.id !== deleteFormat.id))
     setDeleteFormat(null)
   }
@@ -346,7 +590,54 @@ export function OutputFormatsPage() {
     tableRef.current?.classList.remove(styles.dragging)
   }
 
-  const saveLabel = saveState === 'saving' ? 'Saving...' : saveState === 'dirty' ? 'Unsaved changes' : saveState === 'failed' ? 'Save failed' : saveState === 'saved' ? 'Saved' : 'Ready'
+  const saveLabel = saveState === 'saving'
+    ? 'Saving...'
+    : saveState === 'dirty'
+      ? 'Unsaved changes'
+      : saveState === 'failed'
+        ? 'Save failed'
+        : saveState === 'draft'
+          ? 'Saved as draft'
+          : saveState === 'saved'
+        ? 'Saved'
+        : 'Ready'
+
+  const isDraftFormat = (format: OutputFormat) => Boolean(validateFields(format.fields))
+
+  const openExport = (format: OutputFormat) => {
+    setExportTarget(format)
+    setExportFormat('json')
+  }
+
+  const downloadExport = () => {
+    if (!exportTarget) return
+
+    try {
+      const isJson = exportFormat === 'json'
+      const safeBase = toSafeFileBase(exportTarget.name)
+      const sampleContent = isJson
+        ? JSON.stringify(fieldsToSampleObject(exportTarget.fields), null, 2)
+        : toYaml(fieldsToSampleObject(exportTarget.fields))
+      const instructionsContent = exportTarget.instructionsMarkdown || buildInstructionsMarkdown(exportTarget)
+      const archive = zipSync({
+        [`${safeBase}-sample.${isJson ? 'json' : 'yaml'}`]: strToU8(sampleContent),
+        [`${safeBase}-instruct.md`]: strToU8(instructionsContent)
+      })
+      const blob = new Blob([archive], { type: 'application/zip' })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = toDownloadFileName(exportTarget.name, 'zip')
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(url)
+      setExportTarget(null)
+      showCloseNotice(`Downloaded ${exportTarget.name} ZIP.`)
+    } catch {
+      setError('Unable to export output format')
+    }
+  }
 
   return (
     <section className={styles.page}>
@@ -362,120 +653,170 @@ export function OutputFormatsPage() {
       </header>
 
       {error ? <p className={styles.error}>{error}</p> : null}
+      {closeNotice ? <p className={styles.closeNotice}>{closeNotice}</p> : null}
 
       {editingFormat ? (
-        <section className={styles.builderShell}>
-          <header className={styles.builderHeader}>
-            <div>
-              <span className={styles.eyebrow}>Schema builder</span>
-              <input className={styles.builderTitleInput} value={name} onChange={(event) => setName(event.target.value)} placeholder="Output format name" />
-              <input className={styles.builderDescriptionInput} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Optional description" />
-            </div>
-            <div className={styles.builderActions}>
-              <span className={`${styles.saveStatus} ${styles[saveState]}`}>
-                {saveState === 'saved' ? <LuCheck size={14} /> : null}
-                {saveLabel}
-              </span>
-              <button type="button" className={styles.secondaryButton} onClick={closeBuilder}>Close builder</button>
-            </div>
-          </header>
-          {saveError ? <p className={styles.formError}>{saveError}</p> : null}
-          {formError ? <p className={styles.formError}>{formError}</p> : null}
-
-          <div className={styles.builderGrid}>
-            <aside className={styles.treePanel}>
-              <header>
-                <div>
-                  <h2>Field tree</h2>
-                  <p>{fieldCount(fields)} fields</p>
-                </div>
-                <button type="button" className={styles.compactButton} onClick={addRootField}>
-                  <LuPlus size={14} />
-                  Root
+        <>
+          <div className={styles.modalBackdrop} onMouseDown={(event) => {
+            if (event.target === event.currentTarget) void requestCloseBuilder(true)
+          }} />
+          <section
+            className={`${styles.formatModal} ${styles.formatBuilderModal}`}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Edit output format ${name}`}
+            tabIndex={-1}
+            ref={formatModalRef}
+            onKeyDown={handleBuilderKeyDown}
+          >
+            <header className={styles.builderHeader}>
+              <div>
+                <span className={styles.eyebrow}>Schema builder</span>
+                <input className={styles.builderTitleInput} value={name} onChange={(event) => setName(event.target.value)} placeholder="Output format name" />
+                <input className={styles.builderDescriptionInput} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Optional description" />
+              </div>
+              <div className={styles.builderActions}>
+                <span className={`${styles.saveStatus} ${styles[saveState]}`}>
+                  {saveState === 'saved' ? <LuCheck size={14} /> : null}
+                  {saveLabel}
+                </span>
+                <button type="button" className={styles.primaryButton} onClick={() => void saveDraft()} disabled={saveState === 'saving'}>
+                  <LuSave size={14} />
+                  {saveState === 'draft' ? 'Save as draft' : 'Save'}
                 </button>
-              </header>
-              <div className={styles.treeList}>
-                {fieldNodes.length > 0 ? fieldNodes.map(({ field, depth }) => {
-                  const cappedDepth = Math.min(depth, 4)
-                  return (
-                    <button
-                      key={field.id}
-                      type="button"
-                      className={`${styles.treeNode} ${selectedFieldId === field.id ? styles.selectedNode : ''}`}
-                      style={{ '--level': cappedDepth } as React.CSSProperties}
-                      onClick={() => setSelectedFieldId(field.id)}
-                    >
-                      <span className={styles.levelBadge}>L{depth + 1}</span>
-                      <span className={styles.nodeMain}>
-                        <strong>{field.key || 'Untitled field'}</strong>
-                        <small>{field.valueType ?? 'string'}{field.required ? ' / required' : ''}</small>
-                      </span>
-                      {field.children?.length ? <span className={styles.childCount}>{field.children.length}</span> : null}
-                      <LuChevronRight size={15} />
-                    </button>
-                  )
-                }) : <p className={styles.emptyFields}>No fields yet. Add a root field to start.</p>}
+                <button type="button" className={styles.secondaryButton} onClick={closeBuilder}>Close</button>
               </div>
-            </aside>
+            </header>
+            {saveError ? <p className={styles.formError}>{saveError}</p> : null}
+            {formError ? <p className={styles.formError}>{formError}</p> : null}
 
-            <section className={styles.detailPanel}>
-              {selectedField ? (
-                <>
-                  <header className={styles.detailHeader}>
+            <div className={styles.formatBuilderBody}>
+              <div className={styles.builderGrid}>
+                <aside className={styles.treePanel}>
+                  <header>
                     <div>
-                      <span className={styles.eyebrow}>Selected field</span>
-                      <h2>{selectedField.key || 'Untitled field'}</h2>
+                      <h2>Field tree</h2>
+                      <p>{fieldCount(fields)} fields</p>
                     </div>
-                    <div className={styles.detailActions}>
-                      <button type="button" className={styles.secondaryButton} onClick={() => addChildField(selectedField.id)}>
-                        <LuPlus size={14} />
-                        Add child
-                      </button>
-                      <button type="button" className={`${styles.iconButton} ${styles.dangerIconButton}`} onClick={() => removeField(selectedField.id)} aria-label={`Remove ${selectedField.key || 'field'}`}>
-                        <LuTrash2 size={15} />
-                      </button>
-                    </div>
-                  </header>
-                  <div className={styles.fieldEditorGrid}>
-                    <label><span>Key *</span><input value={selectedField.key} onChange={(event) => updateField(selectedField.id, { key: event.target.value })} placeholder="summary" /></label>
-                    <label><span>Type</span><select value={selectedField.valueType ?? 'string'} onChange={(event) => updateField(selectedField.id, { valueType: event.target.value as AgentOutputFormatField['valueType'] })}>{FIELD_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
-                    <label>
-                      <span>Default value</span>
-                      <input
-                        value={selectedField.defaultValue ?? ''}
-                        onChange={(event) => updateField(selectedField.id, { defaultValue: event.target.value })}
-                        placeholder={selectedField.children?.length ? 'Locked while nested fields exist' : 'Optional'}
-                        disabled={Boolean(selectedField.children?.length)}
-                      />
-                    </label>
-                    <label className={styles.requiredToggle}><input type="checkbox" checked={Boolean(selectedField.required)} onChange={(event) => updateField(selectedField.id, { required: event.target.checked })} /> Required field</label>
-                    <label className={styles.fullSpan}><span>Description</span><textarea value={selectedField.description} onChange={(event) => updateField(selectedField.id, { description: event.target.value })} placeholder="Explain what this value should contain" /></label>
-                  </div>
-                  {selectedField.valueType === 'array' || selectedField.children?.length ? (
-                    <button type="button" className={styles.addNestedCallout} onClick={() => addChildField(selectedField.id)}>
-                      <LuPlus size={15} />
-                      Add nested field inside this {selectedField.children?.length && selectedField.valueType !== 'array' ? 'object' : selectedField.valueType}
+                    <button type="button" className={styles.compactButton} onClick={addRootField}>
+                      <LuPlus size={14} />
+                      Root
                     </button>
-                  ) : null}
-                </>
-              ) : (
-                <div className={styles.emptyDetail}>
-                  <h2>Select a field or add root field</h2>
-                  <p>Use the tree to edit nested schema fields without horizontal drift.</p>
-                  <button type="button" className={styles.primaryButton} onClick={addRootField}>
-                    <LuPlus size={16} />
-                    Add root field
-                  </button>
-                </div>
-              )}
+                  </header>
+                  <div className={styles.treeList}>
+                    {fieldNodes.length > 0 ? fieldNodes.map(({ field, depth }) => {
+                      const cappedDepth = Math.min(depth, 4)
+                      return (
+                        <div
+                          key={field.id}
+                          role="button"
+                          tabIndex={0}
+                          className={`${styles.treeNode} ${selectedFieldId === field.id ? styles.selectedNode : ''}`}
+                          style={{ '--level': cappedDepth } as CSSProperties}
+                          onClick={() => setSelectedFieldId(field.id)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              setSelectedFieldId(field.id)
+                            }
+                          }}
+                        >
+                          <span className={styles.levelBadge}>L{depth + 1}</span>
+                          <span className={styles.nodeMain}>
+                            <strong>{field.key || 'Untitled field'}</strong>
+                            <small>{field.valueType ?? 'string'}{field.required ? ' / required' : ''}</small>
+                          </span>
+                          {field.children?.length ? <span className={styles.childCount}>{field.children.length}</span> : null}
+                          <button
+                            type="button"
+                            className={styles.treeActionButton}
+                            onClick={(event) => {
+                              event.preventDefault()
+                              event.stopPropagation()
+                              removeField(field.id)
+                            }}
+                            aria-label={`Remove ${field.key || 'field'}`}
+                          >
+                            <LuTrash2 size={14} />
+                          </button>
+                          <LuChevronRight size={15} />
+                        </div>
+                      )
+                    }) : <p className={styles.emptyFields}>No fields yet. Add a root field to start.</p>}
+                  </div>
+                </aside>
 
-              <div className={styles.previewGrid}>
-                <pre>{jsonPreview(fields) || '{ }'}</pre>
-                <pre>{yamlPreview(fields) || '# YAML preview'}</pre>
+                <section className={styles.detailPanel}>
+                  {selectedField ? (
+                    <>
+                      <header className={styles.detailHeader}>
+                        <div>
+                          <span className={styles.eyebrow}>Selected field</span>
+                          <h2>{selectedField.key || 'Untitled field'}</h2>
+                        </div>
+                        <div className={styles.detailActions}>
+                          <button type="button" className={styles.secondaryButton} onClick={() => addChildField(selectedField.id)}>
+                            <LuPlus size={14} />
+                            Add child
+                          </button>
+                          <button type="button" className={`${styles.iconButton} ${styles.dangerIconButton}`} onClick={() => removeField(selectedField.id)} aria-label={`Remove ${selectedField.key || 'field'}`}>
+                            <LuTrash2 size={15} />
+                          </button>
+                        </div>
+                      </header>
+                      <div className={styles.fieldEditorGrid}>
+                        <label><span>Key *</span><input value={selectedField.key} onChange={(event) => updateField(selectedField.id, { key: event.target.value })} placeholder="summary" /></label>
+                        <label><span>Type</span><select value={selectedField.valueType ?? 'string'} onChange={(event) => updateField(selectedField.id, { valueType: event.target.value as AgentOutputFormatField['valueType'] })}>{FIELD_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+                        {selectedField.valueType === 'enum' ? (
+                          <label className={styles.fullSpan}>
+                            <span>Enum values</span>
+                            <input
+                              value={(selectedField.enumValues ?? []).join(', ')}
+                              onChange={(event) => updateField(selectedField.id, { enumValues: event.target.value.split(',').map((value) => value.trim()).filter(Boolean) })}
+                              placeholder="ready, blocked, done"
+                            />
+                          </label>
+                        ) : null}
+                        <label>
+                          <span>Default value</span>
+                          <input
+                            value={selectedField.defaultValue ?? ''}
+                            onChange={(event) => updateField(selectedField.id, { defaultValue: event.target.value })}
+                            placeholder={selectedField.valueType === 'enum' ? 'Must match one enum value' : selectedField.children?.length ? 'Locked while nested fields exist' : 'Optional'}
+                            disabled={Boolean(selectedField.children?.length)}
+                          />
+                        </label>
+                        <label className={styles.requiredToggle}><input type="checkbox" checked={Boolean(selectedField.required)} onChange={(event) => updateField(selectedField.id, { required: event.target.checked })} /> Required field</label>
+                        <label className={styles.fullSpan}><span>Description</span><textarea value={selectedField.description} onChange={(event) => updateField(selectedField.id, { description: event.target.value })} placeholder="Explain what this value should contain" /></label>
+                      </div>
+                      {selectedField.valueType === 'array' || selectedField.children?.length ? (
+                        <button type="button" className={styles.addNestedCallout} onClick={() => addChildField(selectedField.id)}>
+                          <LuPlus size={15} />
+                          Add nested field inside this {selectedField.children?.length && selectedField.valueType !== 'array' ? 'object' : selectedField.valueType}
+                        </button>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className={styles.emptyDetail}>
+                      <h2>Select a field or add root field</h2>
+                      <p>Use the tree to edit nested schema fields without horizontal drift.</p>
+                      <button type="button" className={styles.primaryButton} onClick={addRootField}>
+                        <LuPlus size={16} />
+                        Add root field
+                      </button>
+                    </div>
+                  )}
+
+                  <div className={styles.previewGrid}>
+                    {draftWarning ? <p className={styles.formNotice}>{draftWarning}</p> : null}
+                    <pre>{jsonPreview(fields) || '{ }'}</pre>
+                    <pre>{yamlPreview(fields) || '# YAML preview'}</pre>
+                  </div>
+                </section>
               </div>
-            </section>
-          </div>
-        </section>
+            </div>
+          </section>
+        </>
       ) : null}
 
       <section ref={tableRef} className={styles.tableCard} onMouseDown={startTableDrag} onMouseMove={moveTableDrag} onMouseUp={endTableDrag} onMouseLeave={endTableDrag}>
@@ -488,7 +829,10 @@ export function OutputFormatsPage() {
         </div>
         {items.length > 0 ? items.map((item) => (
           <div key={item.id} className={styles.tableRow}>
-            <span className={styles.formatName}>{item.name}</span>
+            <span className={styles.formatNameContainer}>
+              <span className={styles.formatName}>{item.name}</span>
+              {isDraftFormat(item) ? <span className={styles.draftBadge}>Draft</span> : null}
+            </span>
             <span className={styles.descriptionCell}>{item.description || 'No description.'}</span>
             <span className={styles.fieldChips}>
               {item.fields.length > 0 ? item.fields.slice(0, 2).map((field) => <span key={field.id}>{field.key}</span>) : <em>No fields</em>}
@@ -497,6 +841,8 @@ export function OutputFormatsPage() {
             <span className={styles.mutedCell}>{new Date(item.updatedAt).toLocaleDateString()}</span>
             <span className={styles.actionsCell}>
               <button type="button" className={styles.iconButton} onClick={() => openBuilder(item)} aria-label={`Edit ${item.name}`}><LuPencil size={15} /></button>
+              <button type="button" className={styles.iconButton} onClick={() => setInstructionsTarget(item)} aria-label={`View instructions for ${item.name}`}><LuFileText size={15} /></button>
+              <button type="button" className={styles.iconButton} onClick={() => openExport(item)} aria-label={`Export ${item.name}`}><LuDownload size={15} /></button>
               <button type="button" className={`${styles.iconButton} ${styles.dangerIconButton}`} onClick={() => setDeleteFormat(item)} aria-label={`Delete ${item.name}`}><LuTrash2 size={15} /></button>
             </span>
           </div>
@@ -519,6 +865,77 @@ export function OutputFormatsPage() {
                 <button type="button" className={styles.secondaryButton} onClick={() => setDeleteFormat(null)}>Cancel</button>
                 <button type="button" className={styles.dangerButton} onClick={() => void removeFormat()} disabled={loading}>Delete</button>
               </footer>
+            </div>
+          </section>
+        </>
+      ) : null}
+
+      {exportTarget ? (
+        <>
+          <div
+            className={styles.modalBackdrop}
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setExportTarget(null)
+            }}
+          />
+          <section
+            className={`${styles.formatModal} ${styles.exportModal}`}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Export ${exportTarget.name}`}
+            tabIndex={-1}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setExportTarget(null)
+            }}
+          >
+            <header className={styles.modalHeader}>
+              <h2>Export output format</h2>
+              <button type="button" onClick={() => setExportTarget(null)} aria-label="Close export modal"><LuX size={16} /></button>
+            </header>
+            <div className={styles.confirmBody}>
+              <p>Export <strong>{exportTarget.name}</strong> as a ZIP with sample data and AI instructions.</p>
+              <div className={styles.exportControls}>
+                <label className={styles.exportField}>
+                  <span>Format</span>
+                  <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as ExportFormat)}>
+                    <option value="json">JSON</option>
+                    <option value="yaml">YAML</option>
+                  </select>
+                </label>
+              </div>
+              <footer className={styles.modalFooter}>
+                <button type="button" className={styles.secondaryButton} onClick={() => setExportTarget(null)}>Cancel</button>
+                <button type="button" className={styles.primaryButton} onClick={downloadExport}>Download</button>
+              </footer>
+            </div>
+          </section>
+        </>
+      ) : null}
+
+      {instructionsTarget ? (
+        <>
+          <div
+            className={styles.modalBackdrop}
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setInstructionsTarget(null)
+            }}
+          />
+          <section
+            className={`${styles.formatModal} ${styles.instructionsModal}`}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Instructions for ${instructionsTarget.name}`}
+            tabIndex={-1}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setInstructionsTarget(null)
+            }}
+          >
+            <header className={styles.modalHeader}>
+              <h2>AI instructions</h2>
+              <button type="button" onClick={() => setInstructionsTarget(null)} aria-label="Close instructions modal"><LuX size={16} /></button>
+            </header>
+            <div className={styles.instructionsBody}>
+              <pre>{instructionsTarget.instructionsMarkdown || buildInstructionsMarkdown(instructionsTarget)}</pre>
             </div>
           </section>
         </>

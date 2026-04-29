@@ -103,6 +103,36 @@ export interface TaskSubtask {
   updatedAt: number
 }
 
+export interface TaskTemplatePayload {
+  title?: string
+  description?: string
+  status?: string
+  agentId?: string | null
+  tagIds?: string[]
+  skillIds?: string[]
+  customFieldValues?: Record<string, unknown>
+  checklistItems?: TaskChecklistItem[]
+  outputFormatId?: string | null
+  subtasks?: Array<{
+    title?: string
+    status?: string
+    payload?: Record<string, unknown>
+    agentId?: string | null
+    dueAt?: number
+    outputFormatId?: string | null
+  }>
+}
+
+export interface TaskTemplate {
+  id: string
+  organizationId: string
+  name: string
+  description?: string
+  template: TaskTemplatePayload
+  createdAt: number
+  updatedAt: number
+}
+
 export interface Agent {
   id: string
   organizationId: string
@@ -114,7 +144,6 @@ export interface Agent {
   trainingMarkdown?: string
   steps?: AgentStep[]
   reasoningLevel?: AgentReasoningLevel
-  outputFormatId?: string | null
   createdAt: number
   updatedAt: number
 }
@@ -126,8 +155,9 @@ export interface AgentOutputFormatField {
   key: string
   description: string
   defaultValue?: string
-  valueType?: 'string' | 'number' | 'boolean' | 'array'
+  valueType?: 'string' | 'number' | 'boolean' | 'array' | 'enum'
   required?: boolean
+  enumValues?: string[]
   children?: AgentOutputFormatField[]
 }
 
@@ -137,6 +167,7 @@ export interface OutputFormat {
   name: string
   description?: string
   fields: AgentOutputFormatField[]
+  instructionsMarkdown?: string
   createdAt: number
   updatedAt: number
 }

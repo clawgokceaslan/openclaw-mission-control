@@ -39,6 +39,12 @@ export const IPC_CHANNELS = {
     commentRemove: 'tasks:comment:remove',
     skillsSet: 'tasks:skills:set'
   },
+  taskTemplates: {
+    list: 'task-templates:list',
+    create: 'task-templates:create',
+    update: 'task-templates:update',
+    remove: 'task-templates:remove'
+  },
   agents: {
     list: 'agents:list',
     get: 'agents:get',
@@ -302,6 +308,7 @@ export const SERVICE_MAP = {
   projects: ['list', 'get', 'create', 'update', 'remove'],
   statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
   tasks: ['list', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet'],
+  taskTemplates: ['list', 'create', 'update', 'remove'],
   agents: ['list', 'get', 'create', 'update', 'remove'],
   gateways: ['list', 'get', 'create', 'update', 'remove', 'status', 'sessions', 'commands', 'commandsHistory', 'templates', 'sendCommand', 'connect', 'disconnect', 'pairDevice', 'resetPairing', 'testConnection', 'testMessage', 'rpcMethods', 'rpcCall', 'chatSend', 'chatHistory', 'sessionsPatch', 'sessionsDelete', 'openClawBoards', 'openClawAgents', 'openClawSkills', 'openClawTags'],
   webhooks: ['list', 'create', 'update', 'remove'],
@@ -547,6 +554,36 @@ export const SERVICE_ROUTING: {
       action: 'skillsSet',
       method: 'skillsSet',
       channel: IPC_CHANNELS.tasks.skillsSet,
+      requiresAuth: true
+    }
+  },
+  taskTemplates: {
+    list: {
+      domain: 'taskTemplates',
+      action: 'list',
+      method: 'list',
+      channel: IPC_CHANNELS.taskTemplates.list,
+      requiresAuth: true
+    },
+    create: {
+      domain: 'taskTemplates',
+      action: 'create',
+      method: 'create',
+      channel: IPC_CHANNELS.taskTemplates.create,
+      requiresAuth: true
+    },
+    update: {
+      domain: 'taskTemplates',
+      action: 'update',
+      method: 'update',
+      channel: IPC_CHANNELS.taskTemplates.update,
+      requiresAuth: true
+    },
+    remove: {
+      domain: 'taskTemplates',
+      action: 'remove',
+      method: 'remove',
+      channel: IPC_CHANNELS.taskTemplates.remove,
       requiresAuth: true
     }
   },

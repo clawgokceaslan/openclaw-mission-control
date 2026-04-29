@@ -3,7 +3,7 @@ import { LuPencil, LuPlus, LuTrash2, LuX } from 'react-icons/lu'
 import styles from './AgentsPage.module.scss'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
-import { Agent, AgentReasoningLevel, AgentStep, OutputFormat } from '@shared/types/entities'
+import { Agent, AgentReasoningLevel, AgentStep } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 
@@ -40,7 +40,6 @@ function formatDate(timestamp: number) {
 export function AgentsPage() {
   const { token } = useAuth()
   const [items, setItems] = useState<Agent[]>([])
-  const [outputFormats, setOutputFormats] = useState<OutputFormat[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -52,7 +51,6 @@ export function AgentsPage() {
   const [trainingMarkdown, setTrainingMarkdown] = useState('')
   const [status, setStatus] = useState<Agent['status']>('idle')
   const [reasoningLevel, setReasoningLevel] = useState<AgentReasoningLevel>('medium')
-  const [outputFormatId, setOutputFormatId] = useState('')
   const [steps, setSteps] = useState<AgentStep[]>([])
   const [formError, setFormError] = useState<string | null>(null)
   const tableRef = useRef<HTMLElement | null>(null)
@@ -75,22 +73,7 @@ export function AgentsPage() {
     void refresh()
   }, [token])
 
-  useEffect(() => {
-    const loadOutputFormats = async () => {
-      const response = await loadList<OutputFormat[]>(IPC_CHANNELS.outputFormats.list, token)
-      if (!response.ok) {
-        setError(response.error?.message ?? 'Unable to load output formats')
-        setOutputFormats([])
-        return
-      }
-      setOutputFormats(Array.isArray(response.data) ? response.data : [])
-    }
-
-    void loadOutputFormats()
-  }, [token])
-
   const sortedItems = useMemo(() => [...items].sort((a, b) => b.updatedAt - a.updatedAt), [items])
-  const outputFormatById = useMemo(() => new Map(outputFormats.map((format) => [format.id, format])), [outputFormats])
 
   const resetForm = () => {
     setName('')
@@ -98,7 +81,6 @@ export function AgentsPage() {
     setTrainingMarkdown('')
     setStatus('idle')
     setReasoningLevel('medium')
-    setOutputFormatId('')
     setSteps([])
     setFormError(null)
   }
@@ -118,7 +100,6 @@ export function AgentsPage() {
     setTrainingMarkdown(agent.trainingMarkdown ?? '')
     setStatus(agent.status)
     setReasoningLevel(agent.reasoningLevel ?? 'medium')
-    setOutputFormatId(agent.outputFormatId ?? '')
     setSteps([...(agent.steps ?? [])].sort((a, b) => a.sortOrder - b.sortOrder))
     setFormError(null)
     setIsModalOpen(true)
@@ -157,7 +138,6 @@ export function AgentsPage() {
       trainingMarkdown,
       status,
       reasoningLevel,
-      outputFormatId: outputFormatId || null,
       steps: normalizedSteps
     })
     setLoading(false)
@@ -236,7 +216,6 @@ export function AgentsPage() {
           <span>Agent</span>
           <span>Title</span>
           <span>Reasoning</span>
-          <span>Output</span>
           <span>Steps</span>
           <span>Status</span>
           <span>Updated</span>
@@ -250,13 +229,6 @@ export function AgentsPage() {
             </span>
             <span className={styles.mutedCell}>{agent.title || 'No title'}</span>
             <span><span className={`${styles.reasoningPill} ${styles[`reasoning_${agent.reasoningLevel ?? 'medium'}`]}`}>{reasoningLabel(agent.reasoningLevel)}</span></span>
-            <span className={styles.outputCell}>
-              {agent.outputFormatId && outputFormatById.get(agent.outputFormatId) ? (
-                <span>{outputFormatById.get(agent.outputFormatId)?.name}</span>
-              ) : (
-                <em>No output format</em>
-              )}
-            </span>
             <span className={styles.mutedCell}>{(agent.steps ?? []).length}</span>
             <span><span className={`${styles.statusPill} ${styles[`status_${agent.status}`]}`}>{agent.status}</span></span>
             <span className={styles.mutedCell}>{formatDate(agent.updatedAt)}</span>
@@ -314,17 +286,6 @@ export function AgentsPage() {
                       if (option?.value === 'low' || option?.value === 'medium' || option?.value === 'high' || option?.value === 'extra_high') setReasoningLevel(option.value)
                     }}
                   />
-                </label>
-                <label>
-                  <span>Output format</span>
-                  <select value={outputFormatId} onChange={(event) => setOutputFormatId(event.target.value)}>
-                    <option value="">No output format</option>
-                    {outputFormats.map((format) => (
-                      <option key={format.id} value={format.id}>
-                        {format.name}
-                      </option>
-                    ))}
-                  </select>
                 </label>
               </div>
               <label>

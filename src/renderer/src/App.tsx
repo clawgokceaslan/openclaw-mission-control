@@ -22,6 +22,7 @@ import { ProjectGroupNewPage } from '@renderer/screens/project-groups/ProjectGro
 import { ProjectGroupDetailPage } from '@renderer/screens/project-groups/ProjectGroupDetailPage'
 import { CustomFieldsPage } from '@renderer/screens/custom-fields/CustomFieldsPage'
 import { OutputFormatsPage } from '@renderer/screens/output-formats/OutputFormatsPage'
+import { TaskTemplatesPage } from '@renderer/screens/task-templates/TaskTemplatesPage'
 import { StatusesPage } from '@renderer/screens/statuses/StatusesPage'
 import { TagsPage } from '@renderer/screens/tags/TagsPage'
 import { TagAddPage } from '@renderer/screens/tags/TagAddPage'
@@ -54,6 +55,7 @@ const SIGNED_IN_ROUTES: RouteConfig[] = [
   { path: APP_ROUTES.PROJECT_GROUP_DETAIL, element: <ProjectGroupDetailPage /> },
   { path: APP_ROUTES.CUSTOM_FIELDS, element: <CustomFieldsPage /> },
   { path: APP_ROUTES.OUTPUT_FORMATS, element: <OutputFormatsPage /> },
+  { path: APP_ROUTES.TASK_TEMPLATES, element: <TaskTemplatesPage /> },
   { path: APP_ROUTES.STATUSES, element: <StatusesPage /> },
   { path: APP_ROUTES.TAGS, element: <TagsPage /> },
   { path: APP_ROUTES.TAG_ADD, element: <TagAddPage /> },

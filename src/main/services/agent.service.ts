@@ -21,6 +21,11 @@ function normalizeSteps(value: unknown): AgentStep[] {
   }).filter((item) => item.title.trim() || item.description.trim())
 }
 
+function withoutOutputFormatId(config: Record<string, unknown>): Record<string, unknown> {
+  const { outputFormatId: _outputFormatId, ...rest } = config
+  return rest
+}
+
 type AgentWritePayload = {
   actorToken?: string
   id?: string
@@ -31,7 +36,6 @@ type AgentWritePayload = {
   trainingMarkdown?: string
   steps?: AgentStep[]
   reasoningLevel?: AgentReasoningLevel
-  outputFormatId?: string | null
 }
 
 export class AgentService {
@@ -58,12 +62,11 @@ export class AgentService {
     const actor = await this.auth.requireActor(payload?.actorToken)
     if (!payload?.name) return errorResponse(ErrorCodes.Validation, 'Agent name required')
     const config = {
-      ...(payload.config ?? {}),
+      ...withoutOutputFormatId(payload.config ?? {}),
       title: payload.title ?? '',
       trainingMarkdown: payload.trainingMarkdown ?? '',
       steps: normalizeSteps(payload.steps),
-      reasoningLevel: normalizeReasoning(payload.reasoningLevel),
-      outputFormatId: payload.outputFormatId || null
+      reasoningLevel: normalizeReasoning(payload.reasoningLevel)
     }
     const created = await this.repo.create({
       organizationId: actor.user.organizationId,
@@ -81,13 +84,12 @@ export class AgentService {
     if (!current) return errorResponse(ErrorCodes.NotFound, 'Agent not found')
     if (current.organizationId !== actor.user.organizationId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
     const config = {
-      ...(current.config ?? {}),
-      ...(payload.config ?? {}),
+      ...withoutOutputFormatId(current.config ?? {}),
+      ...withoutOutputFormatId(payload.config ?? {}),
       ...(payload.title !== undefined ? { title: payload.title } : {}),
       ...(payload.trainingMarkdown !== undefined ? { trainingMarkdown: payload.trainingMarkdown } : {}),
       ...(payload.steps !== undefined ? { steps: normalizeSteps(payload.steps) } : {}),
-      ...(payload.reasoningLevel !== undefined ? { reasoningLevel: normalizeReasoning(payload.reasoningLevel) } : {}),
-      ...(payload.outputFormatId !== undefined ? { outputFormatId: payload.outputFormatId || null } : {})
+      ...(payload.reasoningLevel !== undefined ? { reasoningLevel: normalizeReasoning(payload.reasoningLevel) } : {})
     }
     const updated = await this.repo.update(payload.id, {
       name: payload.name ?? current.name,

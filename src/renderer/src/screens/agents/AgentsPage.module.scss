@@ -96,9 +96,9 @@
 
 .tableHead,
 .tableRow {
-  min-width: 1260px;
+  min-width: 1080px;
   display: grid;
-  grid-template-columns: minmax(190px, 1.1fr) minmax(190px, 1fr) 130px minmax(180px, 1fr) 90px 110px 120px 96px;
+  grid-template-columns: minmax(190px, 1.1fr) minmax(190px, 1fr) 130px 90px 110px 120px 96px;
   gap: 16px;
   align-items: center;
 }

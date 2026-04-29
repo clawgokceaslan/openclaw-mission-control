@@ -18,7 +18,7 @@ import {
 } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
-import { Agent, CustomField, Project, ProjectStatus, ProjectStatusCategory, Skill, Tag, TaskChecklistItem, TaskComment, TaskEntity, TaskSubtask } from '@shared/types/entities'
+import { Agent, CustomField, OutputFormat, Project, ProjectStatus, ProjectStatusCategory, Skill, Tag, TaskChecklistItem, TaskComment, TaskEntity, TaskSubtask, TaskTemplate } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { TagPill } from '@renderer/components/tags/TagPill'
@@ -39,7 +39,7 @@ const MIN_DETAIL_WIDTH = 420
 const MIN_COMMENTS_WIDTH = 320
 
 type DetailViewMode = 'task' | 'subtask'
-type DetailTab = 'subtasks' | 'customFields' | 'checklist'
+type DetailTab = 'subtasks' | 'customFields' | 'checklist' | 'outputFormat' | 'details'
 type ProjectPromptTab = 'context' | 'prompt' | 'output'
 type ProjectViewMode = 'list' | 'table' | 'board'
 
@@ -114,6 +114,17 @@ function getSubtaskAgentId(subtask: TaskSubtask | null): string | undefined {
   if (typeof payload.agentId === 'string' && payload.agentId.trim()) return payload.agentId
   if (typeof payload.assigneeId === 'string' && payload.assigneeId.trim()) return payload.assigneeId
   return subtask.assigneeId
+}
+
+function getTaskOutputFormatId(task: TaskEntity | null): string | undefined {
+  const value = task?.payload?.outputFormatId
+  return typeof value === 'string' && value ? value : undefined
+}
+
+function getSubtaskOutputFormatId(subtask: TaskSubtask | null): string | undefined {
+  if (!subtask) return undefined
+  const value = getSubtaskPayload(subtask).outputFormatId
+  return typeof value === 'string' && value ? value : undefined
 }
 
 function getSubtaskDueAt(subtask: TaskSubtask): number | undefined {
@@ -222,6 +233,8 @@ export function ProjectDetailPage() {
   const [tags, setTags] = useState<Tag[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
   const [customFields, setCustomFields] = useState<CustomField[]>([])
+  const [outputFormats, setOutputFormats] = useState<OutputFormat[]>([])
+  const [taskTemplates, setTaskTemplates] = useState<TaskTemplate[]>([])
   const [projectStatuses, setProjectStatuses] = useState<ProjectStatus[]>([])
   const [viewMode, setViewMode] = useState<ProjectViewMode>('board')
   const [taskTitle, setTaskTitle] = useState('')
@@ -283,13 +296,15 @@ export function ProjectDetailPage() {
 
   const refresh = async () => {
     if (!projectId) return
-    const [projectResponse, taskResponse, tagsResponse, skillsResponse, customFieldsResponse, agentsResponse, statusesResponse] = await Promise.all([
+    const [projectResponse, taskResponse, tagsResponse, skillsResponse, customFieldsResponse, agentsResponse, outputFormatsResponse, taskTemplatesResponse, statusesResponse] = await Promise.all([
       invokeBridge<Project>(IPC_CHANNELS.projects.get, { actorToken: token, id: projectId }),
       invokeBridge<TaskEntity[]>(IPC_CHANNELS.tasks.list, { actorToken: token, projectId }),
       loadList<Tag[]>(IPC_CHANNELS.customFields.tagsList, token),
       loadList<Skill[]>(IPC_CHANNELS.skills.list, token),
       loadList<CustomField[]>(IPC_CHANNELS.customFields.list, token),
       loadList<Agent[]>(IPC_CHANNELS.agents.list, token),
+      loadList<OutputFormat[]>(IPC_CHANNELS.outputFormats.list, token),
+      loadList<TaskTemplate[]>(IPC_CHANNELS.taskTemplates.list, token),
       invokeBridge<ProjectStatus[]>(IPC_CHANNELS.statuses.getProjectStatuses, { actorToken: token, projectId })
     ])
 
@@ -305,8 +320,16 @@ export function ProjectDetailPage() {
     setSkills(Array.isArray(skillsResponse.data) ? skillsResponse.data : [])
     setCustomFields(Array.isArray(customFieldsResponse.data) ? customFieldsResponse.data : [])
     setAgents(Array.isArray(agentsResponse.data) ? agentsResponse.data : [])
+    setOutputFormats(Array.isArray(outputFormatsResponse.data) ? outputFormatsResponse.data : [])
+    setTaskTemplates(Array.isArray(taskTemplatesResponse.data) ? taskTemplatesResponse.data : [])
     setProjectStatuses(Array.isArray(statusesResponse.data) ? statusesResponse.data : [])
-    setError(taskResponse.ok ? null : (taskResponse.error?.message ?? 'Unable to load tasks'))
+    setError(!taskResponse.ok
+      ? taskResponse.error?.message ?? 'Unable to load tasks'
+      : !outputFormatsResponse.ok
+        ? outputFormatsResponse.error?.message ?? 'Unable to load output formats'
+        : !taskTemplatesResponse.ok
+          ? taskTemplatesResponse.error?.message ?? 'Unable to load task templates'
+          : null)
   }
 
   useEffect(() => {
@@ -413,6 +436,7 @@ export function ProjectDetailPage() {
         if (detailViewMode === 'subtask') {
           setDetailViewMode('task')
           setSelectedSubtaskId(null)
+          setDetailTab('subtasks')
           return
         }
         setSelectedTaskId(null)
@@ -534,11 +558,26 @@ export function ProjectDetailPage() {
       .map((agent) => ({ value: agent.id, label: agent.name }))
   }, [agents])
 
+  const outputFormatOptions: AppSelectOption[] = useMemo(() => {
+    return [...outputFormats]
+      .sort((a, b) => a.name.localeCompare(b.name, 'tr'))
+      .map((format) => ({ value: format.id, label: format.name }))
+  }, [outputFormats])
+
+  const outputFormatById = useMemo(() => new Map(outputFormats.map((format) => [format.id, format])), [outputFormats])
+
   const selectedTaskAgentOption: AppSelectOption | null = useMemo(() => {
     if (!selectedTask?.agentId) return null
     const agent = agents.find((item) => item.id === selectedTask.agentId)
     return agent ? { value: agent.id, label: agent.name } : null
   }, [agents, selectedTask])
+
+  const selectedTaskOutputFormatOption: AppSelectOption | null = useMemo(() => {
+    const outputFormatId = getTaskOutputFormatId(selectedTask)
+    if (!outputFormatId) return null
+    const format = outputFormatById.get(outputFormatId)
+    return format ? { value: format.id, label: format.name } : null
+  }, [outputFormatById, selectedTask])
 
   const selectedSubtaskAgentOption: AppSelectOption | null = useMemo(() => {
     const agentId = getSubtaskAgentId(selectedSubtask)
@@ -546,6 +585,13 @@ export function ProjectDetailPage() {
     const agent = agents.find((item) => item.id === agentId)
     return agent ? { value: agent.id, label: agent.name } : null
   }, [agents, selectedSubtask])
+
+  const selectedSubtaskOutputFormatOption: AppSelectOption | null = useMemo(() => {
+    const outputFormatId = getSubtaskOutputFormatId(selectedSubtask)
+    if (!outputFormatId) return null
+    const format = outputFormatById.get(outputFormatId)
+    return format ? { value: format.id, label: format.name } : null
+  }, [outputFormatById, selectedSubtask])
 
   const resolveSubtaskAgentName = (subtask: TaskSubtask) => {
     const agentId = getSubtaskAgentId(subtask)
@@ -681,14 +727,20 @@ export function ProjectDetailPage() {
     setIsCreateTaskOpen(true)
   }
 
-  const handleCreateTask = async (input: { title: string; description: string; status: TaskEntity['status']; tagIds: string[]; agentId?: string | null }) => {
+  const handleCreateTask = async (input: { title: string; description: string; status: TaskEntity['status']; tagIds: string[]; agentId?: string | null; templateId?: string | null }) => {
     if (!projectId || !input.title.trim()) return
     setBusy(true)
+    const selectedTemplate = input.templateId ? taskTemplates.find((template) => template.id === input.templateId) : null
+    const templatePayload = selectedTemplate?.template
+    const normalizeTemplateStatus = (value?: string | null) => {
+      if (value && statusColumns.some((column) => column.status === value)) return value as TaskEntity['status']
+      return defaultStatus
+    }
     const response = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.create, {
       actorToken: token,
       projectId,
       title: input.title.trim(),
-      status: input.status,
+      status: normalizeTemplateStatus(input.status),
       description: input.description,
       agentId: input.agentId ?? null
     })
@@ -705,6 +757,76 @@ export function ProjectDetailPage() {
       })
       if (!tagResponse.ok) {
         setError(tagResponse.error?.message ?? 'Task created, but tags could not be applied')
+      }
+    }
+    if (templatePayload) {
+      const payloadPatch: Record<string, unknown> = {}
+      if (typeof templatePayload.outputFormatId === 'string' && templatePayload.outputFormatId) {
+        payloadPatch.outputFormatId = templatePayload.outputFormatId
+      }
+      const hasTaskPatch = Object.keys(payloadPatch).length > 0
+        || Boolean(templatePayload.customFieldValues && typeof templatePayload.customFieldValues === 'object' && !Array.isArray(templatePayload.customFieldValues))
+        || Array.isArray(templatePayload.checklistItems)
+      if (hasTaskPatch) {
+        const updateResponse = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
+          actorToken: token,
+          id: response.data.id,
+          payload: payloadPatch,
+          customFieldValues: templatePayload.customFieldValues,
+          checklistItems: templatePayload.checklistItems
+        })
+        if (!updateResponse.ok) {
+          setError(updateResponse.error?.message ?? 'Task created, but template details could not be applied')
+        }
+      }
+      if (Array.isArray(templatePayload.skillIds) && templatePayload.skillIds.length > 0) {
+        const skillResponse = await invokeBridge<Skill[]>(IPC_CHANNELS.tasks.skillsSet, {
+          actorToken: token,
+          taskId: response.data.id,
+          skillIds: templatePayload.skillIds
+        })
+        if (!skillResponse.ok) {
+          setError(skillResponse.error?.message ?? 'Task created, but template skills could not be applied')
+        }
+      }
+      if (Array.isArray(templatePayload.subtasks)) {
+        for (const templateSubtask of templatePayload.subtasks) {
+          const subtaskTitle = templateSubtask.title?.trim()
+          if (!subtaskTitle) continue
+          const subtaskResponse = await invokeBridge<TaskSubtask>(IPC_CHANNELS.tasks.subtasksCreate, {
+            actorToken: token,
+            taskId: response.data.id,
+            title: subtaskTitle,
+            status: normalizeTemplateStatus(templateSubtask.status)
+          })
+          if (!subtaskResponse.ok || !subtaskResponse.data) {
+            setError(subtaskResponse.error?.message ?? 'Task created, but a template subtask could not be applied')
+            continue
+          }
+          const subtaskPayload = templateSubtask.payload && typeof templateSubtask.payload === 'object' && !Array.isArray(templateSubtask.payload)
+            ? { ...templateSubtask.payload }
+            : {}
+          if (typeof templateSubtask.agentId === 'string') {
+            subtaskPayload.agentId = templateSubtask.agentId
+            subtaskPayload.assigneeId = templateSubtask.agentId
+          }
+          if (typeof templateSubtask.dueAt === 'number') {
+            subtaskPayload.dueAt = templateSubtask.dueAt
+          }
+          if (typeof templateSubtask.outputFormatId === 'string' && templateSubtask.outputFormatId) {
+            subtaskPayload.outputFormatId = templateSubtask.outputFormatId
+          }
+          if (Object.keys(subtaskPayload).length > 0) {
+            const subtaskUpdateResponse = await invokeBridge<TaskSubtask>(IPC_CHANNELS.tasks.subtasksUpdate, {
+              actorToken: token,
+              id: subtaskResponse.data.id,
+              payload: subtaskPayload
+            })
+            if (!subtaskUpdateResponse.ok) {
+              setError(subtaskUpdateResponse.error?.message ?? 'Task created, but template subtask details could not be applied')
+            }
+          }
+        }
       }
     }
     setBusy(false)
@@ -908,6 +1030,40 @@ export function ProjectDetailPage() {
     })
     if (!response.ok) {
       setError(response.error?.message ?? 'Unable to update subtask agent')
+      return
+    }
+    await refresh()
+  }
+
+  const setTaskOutputFormat = async (outputFormatId: string | null) => {
+    if (!selectedTask) return
+    const response = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
+      actorToken: token,
+      id: selectedTask.id,
+      payload: {
+        ...(selectedTask.payload ?? {}),
+        outputFormatId: outputFormatId ?? ''
+      }
+    })
+    if (!response.ok) {
+      setError(response.error?.message ?? 'Unable to update task output format')
+      return
+    }
+    await refresh()
+  }
+
+  const setSubtaskOutputFormat = async (outputFormatId: string | null) => {
+    if (!selectedSubtask) return
+    const response = await invokeBridge<TaskSubtask>(IPC_CHANNELS.tasks.subtasksUpdate, {
+      actorToken: token,
+      id: selectedSubtask.id,
+      payload: {
+        ...getSubtaskPayload(selectedSubtask),
+        outputFormatId: outputFormatId ?? ''
+      }
+    })
+    if (!response.ok) {
+      setError(response.error?.message ?? 'Unable to update subtask output format')
       return
     }
     await refresh()
@@ -1177,6 +1333,7 @@ export function ProjectDetailPage() {
   const openSubtaskDetail = (subtaskId: string) => {
     setSelectedSubtaskId(subtaskId)
     setDetailViewMode('subtask')
+    setDetailTab('details')
   }
 
   const removeSubtask = async (subtaskId: string, refreshAfter = true) => {
@@ -1418,6 +1575,7 @@ export function ProjectDetailPage() {
         project={project}
         tags={tags}
         agents={agents}
+        templates={taskTemplates}
         statusColumns={statusColumns}
         defaultStatus={createTaskStatus}
         busy={busy}
@@ -1649,6 +1807,7 @@ export function ProjectDetailPage() {
                     onClick={() => {
                       setDetailViewMode('task')
                       setSelectedSubtaskId(null)
+                      setDetailTab('subtasks')
                     }}
                   >
                     {selectedTask.title}
@@ -1728,6 +1887,14 @@ export function ProjectDetailPage() {
                           placeholder="Select agent"
                         />
                       </div>
+                    </div>
+                    <div className={styles.metaCell}>
+                      <span className={styles.metaLabel}>Output format</span>
+                      <span className={styles.metaValue}>
+                        {detailViewMode === 'task'
+                          ? selectedTaskOutputFormatOption?.label ?? 'No output format'
+                          : selectedSubtaskOutputFormatOption?.label ?? 'No output format'}
+                      </span>
                     </div>
                     <div className={styles.metaCell}>
                       <span className={styles.metaLabel}>Dates</span>
@@ -1832,36 +1999,63 @@ export function ProjectDetailPage() {
                 <section className={styles.drawerSection}>
                   {detailViewMode === 'subtask' && selectedSubtask ? (
                     <>
-                      <h4>Subtask details</h4>
-                      <div className={styles.subtaskDetailGrid}>
-                        <div className={styles.subtaskField}>
-                          <span className={styles.metaLabel}>Status</span>
-                          <AppSelect
-                            mode="single"
-                            variant="borderless"
-                            value={{
-                              value: selectedSubtask.status,
-                              label: resolveColumnByStatus(selectedSubtask.status).title,
-                              color: resolveColumnByStatus(selectedSubtask.status).accent
-                            }}
-                            options={statusColumns.map((column) => ({ value: column.status, label: column.title, color: column.accent }))}
-                            onChange={(option) => {
-                              if (!Array.isArray(option) && option?.value) {
-                                void updateSubtaskStatus(selectedSubtask, option.value as TaskSubtask['status'])
-                              }
-                            }}
-                          />
-                        </div>
-                        <div className={styles.subtaskField}>
-                          <span className={styles.metaLabel}>Due</span>
-                          <Form.Control
-                            type="date"
-                            value={subtaskDueDraft}
-                            onChange={(event) => setSubtaskDueDraft(event.target.value)}
-                            onBlur={() => void saveSubtaskDetail()}
-                          />
-                        </div>
+                      <div className={styles.tabRow}>
+                        <button
+                          type="button"
+                          className={detailTab === 'details' ? styles.tabActive : styles.tabBtn}
+                          onClick={() => setDetailTab('details')}
+                        >
+                          Details
+                        </button>
+                        <button
+                          type="button"
+                          className={detailTab === 'customFields' ? styles.tabActive : styles.tabBtn}
+                          onClick={() => setDetailTab('customFields')}
+                        >
+                          Custom fields
+                        </button>
+                        <button
+                          type="button"
+                          className={detailTab === 'outputFormat' ? styles.tabActive : styles.tabBtn}
+                          onClick={() => setDetailTab('outputFormat')}
+                        >
+                          Output format
+                        </button>
                       </div>
+                      {detailTab === 'details' ? (
+                        <>
+                          <h4>Subtask details</h4>
+                          <div className={styles.subtaskDetailGrid}>
+                            <div className={styles.subtaskField}>
+                              <span className={styles.metaLabel}>Status</span>
+                              <AppSelect
+                                mode="single"
+                                variant="borderless"
+                                value={{
+                                  value: selectedSubtask.status,
+                                  label: resolveColumnByStatus(selectedSubtask.status).title,
+                                  color: resolveColumnByStatus(selectedSubtask.status).accent
+                                }}
+                                options={statusColumns.map((column) => ({ value: column.status, label: column.title, color: column.accent }))}
+                                onChange={(option) => {
+                                  if (!Array.isArray(option) && option?.value) {
+                                    void updateSubtaskStatus(selectedSubtask, option.value as TaskSubtask['status'])
+                                  }
+                                }}
+                              />
+                            </div>
+                            <div className={styles.subtaskField}>
+                              <span className={styles.metaLabel}>Due</span>
+                              <Form.Control
+                                type="date"
+                                value={subtaskDueDraft}
+                                onChange={(event) => setSubtaskDueDraft(event.target.value)}
+                                onBlur={() => void saveSubtaskDetail()}
+                              />
+                            </div>
+                          </div>
+                        </>
+                      ) : detailTab === 'customFields' ? (
                       <div className={styles.subtaskCustomFields}>
                         <div className={styles.detailSectionHeader}>
                           <div>
@@ -1995,6 +2189,26 @@ export function ProjectDetailPage() {
                           )}
                         </div>
                       </div>
+                      ) : (
+                        <div className={styles.customFieldPanel}>
+                          <div className={styles.detailSectionHeader}>
+                            <div>
+                              <h4>Output format</h4>
+                              <p>{selectedSubtaskOutputFormatOption?.label ?? 'No output format'}</p>
+                            </div>
+                          </div>
+                          <div className={styles.customFieldAddRow}>
+                            <AppSelect
+                              mode="single"
+                              value={selectedSubtaskOutputFormatOption}
+                              options={outputFormatOptions}
+                              onChange={(option) => void setSubtaskOutputFormat(option?.value ?? null)}
+                              placeholder="Select output format..."
+                              isClearable
+                            />
+                          </div>
+                        </div>
+                      )}
                     </>
                   ) : (
                     <>
@@ -2019,6 +2233,13 @@ export function ProjectDetailPage() {
                           onClick={() => setDetailTab('checklist')}
                         >
                           Checklist
+                        </button>
+                        <button
+                          type="button"
+                          className={detailTab === 'outputFormat' ? styles.tabActive : styles.tabBtn}
+                          onClick={() => setDetailTab('outputFormat')}
+                        >
+                          Output format
                         </button>
                       </div>
                       {detailTab === 'subtasks' ? (
@@ -2295,7 +2516,7 @@ export function ProjectDetailPage() {
                             )}
                           </div>
                         </>
-                      ) : (
+                      ) : detailTab === 'checklist' ? (
                         <>
                           <div className={styles.detailSectionHeader}>
                             <div>
@@ -2349,6 +2570,25 @@ export function ProjectDetailPage() {
                             )}
                           </div>
                         </>
+                      ) : (
+                        <div className={styles.customFieldPanel}>
+                          <div className={styles.detailSectionHeader}>
+                            <div>
+                              <h4>Output format</h4>
+                              <p>{selectedTaskOutputFormatOption?.label ?? 'No output format'}</p>
+                            </div>
+                          </div>
+                          <div className={styles.customFieldAddRow}>
+                            <AppSelect
+                              mode="single"
+                              value={selectedTaskOutputFormatOption}
+                              options={outputFormatOptions}
+                              onChange={(option) => void setTaskOutputFormat(option?.value ?? null)}
+                              placeholder="Select output format..."
+                              isClearable
+                            />
+                          </div>
+                        </div>
                       )}
                     </>
                   )}
