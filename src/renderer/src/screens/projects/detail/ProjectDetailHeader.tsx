@@ -12,6 +12,8 @@ interface ProjectDetailHeaderProps {
   onTaskTitleChange: (value: string) => void
   onQuickCreate: () => void
   onOpenCreateTask: () => void
+  onOpenProjectPrompts: () => void
+  onOpenStatusSettings: () => void
   onViewModeChange: (mode: ProjectViewMode) => void
 }
 
@@ -23,6 +25,8 @@ export function ProjectDetailHeader({
   onTaskTitleChange,
   onQuickCreate,
   onOpenCreateTask,
+  onOpenProjectPrompts,
+  onOpenStatusSettings,
   onViewModeChange
 }: ProjectDetailHeaderProps) {
   return (
@@ -43,15 +47,22 @@ export function ProjectDetailHeader({
                 onQuickCreate()
               }
             }}
-            placeholder="New task title..."
+            placeholder="New task"
           />
           <button type="button" className={styles.plusBtn} onClick={onOpenCreateTask} disabled={busy}>
             <LuPlus size={18} />
           </button>
           <button type="button" className={styles.iconBtn}><LuColumns3 size={16} /></button>
-          <button type="button" className={styles.iconBtn}><LuMessageSquare size={16} /></button>
+          <button
+            type="button"
+            className={styles.iconBtn}
+            onClick={onOpenProjectPrompts}
+            aria-label="Project prompt settings"
+          >
+            <LuMessageSquare size={16} />
+          </button>
           <button type="button" className={styles.iconBtn}><LuSignal size={16} /></button>
-          <button type="button" className={styles.iconBtn}><LuSettings2 size={16} /></button>
+          <button type="button" className={styles.iconBtn} onClick={onOpenStatusSettings} aria-label="Project status settings"><LuSettings2 size={16} /></button>
         </div>
       </div>
       <ProjectViewBar viewMode={viewMode} onViewModeChange={onViewModeChange} />

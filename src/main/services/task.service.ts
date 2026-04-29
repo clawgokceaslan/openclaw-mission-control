@@ -9,17 +9,19 @@ import type {
   UpdateTaskSubtaskRequest,
   UpdateTaskCommentRequest
 } from '../../shared/contracts/ipc.js'
-import type { Skill, Tag, TaskComment, TaskEntity, TaskSubtask } from '../../shared/types/entities.js'
+import type { Skill, Tag, TaskChecklistItem, TaskComment, TaskEntity, TaskSubtask } from '../../shared/types/entities.js'
 import { AuthService } from './auth.service.js'
 import { TaskRepository, TaskSkillRepository, TaskSubtaskRepository, TaskTagRepository } from '../../db/repositories/task-repo.js'
 import { ProjectRepository } from '../../db/repositories/project-repo.js'
 import { TagRepository } from '../../db/repositories/custom-field-repo.js'
 import { SkillRepository } from '../../db/repositories/skill-repo.js'
 import { AgentRepository } from '../../db/repositories/agent-repo.js'
+import { StatusRepository } from '../../db/repositories/status-repo.js'
 
 type TaskPayload = Record<string, unknown> & {
   description?: string
   comments?: TaskComment[]
+  checklist?: TaskChecklistItem[]
   customFields?: Record<string, unknown>
 }
 
@@ -42,6 +44,26 @@ function asComments(value: unknown): TaskComment[] {
     })
   }
   return comments
+}
+
+function asChecklistItems(value: unknown): TaskChecklistItem[] {
+  if (!Array.isArray(value)) return []
+  const items: TaskChecklistItem[] = []
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object') continue
+    const item = raw as Record<string, unknown>
+    const title = typeof item.title === 'string' ? item.title.trim() : ''
+    if (!title) continue
+    const now = Date.now()
+    items.push({
+      id: typeof item.id === 'string' && item.id.trim() ? item.id : randomUUID(),
+      title,
+      checked: item.checked === true,
+      createdAt: typeof item.createdAt === 'number' ? item.createdAt : now,
+      updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt : now
+    })
+  }
+  return items
 }
 
 function enrichSubtask(item: TaskSubtask): TaskSubtask {
@@ -72,7 +94,8 @@ export class TaskService {
     private readonly projects: ProjectRepository,
     private readonly tags: TagRepository,
     private readonly skills: SkillRepository,
-    private readonly agents: AgentRepository
+    private readonly agents: AgentRepository,
+    private readonly statuses: StatusRepository
   ) {}
 
   private async findProjectOrg(projectId: string): Promise<string | undefined> {
@@ -98,6 +121,27 @@ export class TaskService {
     return okResponse(agent.id)
   }
 
+  private async normalizeStatus(projectId: string, orgId: string, status: unknown): Promise<ServiceResponse<string>> {
+    const statuses = await this.statuses.ensureProjectDefaults(projectId, orgId)
+    const fallback = statuses.find((item) => item.category === 'not_started') ?? statuses[0]
+    if (!fallback) return errorResponse(ErrorCodes.Validation, 'Project has no statuses')
+    if (status === undefined || status === null || status === '') return okResponse(fallback.id)
+    if (typeof status !== 'string') return errorResponse(ErrorCodes.Validation, 'Status is invalid')
+    const legacy: Record<string, string> = {
+      pending: 'not_started',
+      running: 'active',
+      failed: 'active',
+      completed: 'done'
+    }
+    const legacyCategory = legacy[status]
+    if (legacyCategory) {
+      return okResponse((statuses.find((item) => item.category === legacyCategory) ?? fallback).id)
+    }
+    const found = statuses.find((item) => item.id === status)
+    if (!found) return errorResponse(ErrorCodes.Validation, 'Status is not part of this project')
+    return okResponse(found.id)
+  }
+
   private async enrichTasks(tasks: TaskEntity[]): Promise<TaskEntity[]> {
     const ids = tasks.map((task) => task.id)
     const [tagsByTaskId, skillsByTaskId, subtasksByTaskId] = await Promise.all([
@@ -108,6 +152,7 @@ export class TaskService {
     return tasks.map((task) => {
       const payload = asPayload(task.payload)
       const comments = asComments(payload.comments)
+      const checklistItems = asChecklistItems(payload.checklist)
       const description = typeof payload.description === 'string' ? payload.description : ''
       const customFieldValues = asPayload(payload.customFields)
       return {
@@ -118,6 +163,7 @@ export class TaskService {
         tags: tagsByTaskId[task.id] ?? [],
         skills: skillsByTaskId[task.id] ?? [],
         subtasks: (subtasksByTaskId[task.id] ?? []).map(enrichSubtask),
+        checklistItems,
         customFieldValues
       }
     })
@@ -154,10 +200,12 @@ export class TaskService {
     if (!projectOrg || projectOrg !== actor.user.organizationId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
     const agentIdResponse = await this.normalizeAgentId(actor.user.organizationId, payload.agentId)
     if (!agentIdResponse.ok) return agentIdResponse as ServiceResponse<TaskEntity>
+    const statusResponse = await this.normalizeStatus(payload.projectId, actor.user.organizationId, payload.status)
+    if (!statusResponse.ok) return statusResponse as ServiceResponse<TaskEntity>
     const row = await this.repo.create({
       projectId: payload.projectId,
       title: payload.title,
-      status: payload.status ?? 'pending',
+      status: statusResponse.data ?? 'pending',
       agentId: agentIdResponse.data ?? undefined,
       payload: { description: payload.description ?? '', comments: [] },
       result: {}
@@ -167,7 +215,17 @@ export class TaskService {
   }
 
   async update(
-    payload: { actorToken?: string; id?: string; status?: TaskEntity['status']; title?: string; agentId?: string | null; description?: string; customFieldValues?: Record<string, unknown>; payload?: Record<string, unknown> },
+    payload: {
+      actorToken?: string
+      id?: string
+      status?: TaskEntity['status']
+      title?: string
+      agentId?: string | null
+      description?: string
+      customFieldValues?: Record<string, unknown>
+      checklistItems?: TaskChecklistItem[]
+      payload?: Record<string, unknown>
+    },
     _meta?: Record<string, unknown>
   ): Promise<ServiceResponse<TaskEntity>> {
     if (!payload?.id) return errorResponse(ErrorCodes.Validation, 'Task id required')
@@ -184,6 +242,9 @@ export class TaskService {
     if (payload.customFieldValues && typeof payload.customFieldValues === 'object' && !Array.isArray(payload.customFieldValues)) {
       nextPayload.customFields = payload.customFieldValues
     }
+    if (Array.isArray(payload.checklistItems)) {
+      nextPayload.checklist = asChecklistItems(payload.checklistItems)
+    }
     const hasAgentPatch = Object.prototype.hasOwnProperty.call(payload, 'agentId')
     let nextAgentId = current.agentId
     if (hasAgentPatch) {
@@ -191,9 +252,11 @@ export class TaskService {
       if (!agentIdResponse.ok) return agentIdResponse as ServiceResponse<TaskEntity>
       nextAgentId = agentIdResponse.data
     }
+    const nextStatusResponse = await this.normalizeStatus(current.projectId, access.data.actorOrgId, payload.status ?? current.status)
+    if (!nextStatusResponse.ok) return nextStatusResponse as ServiceResponse<TaskEntity>
     const updated = await this.repo.update(payload.id, {
       title: payload.title ?? current.title,
-      status: payload.status ?? current.status,
+      status: nextStatusResponse.data ?? current.status,
       agentId: nextAgentId,
       payload: nextPayload
     })
@@ -223,11 +286,13 @@ export class TaskService {
   ): Promise<ServiceResponse<TaskSubtask>> {
     if (!payload?.taskId || !payload?.title?.trim()) return errorResponse(ErrorCodes.Validation, 'Task id and title required')
     const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
-    if (!access.ok) return access as ServiceResponse<TaskSubtask>
+    if (!access.ok || !access.data) return access as ServiceResponse<TaskSubtask>
+    const statusResponse = await this.normalizeStatus(access.data.task.projectId, access.data.actorOrgId, payload.status)
+    if (!statusResponse.ok) return statusResponse as ServiceResponse<TaskSubtask>
     const created = await this.subtaskRepo.create({
       taskId: payload.taskId,
       title: payload.title.trim(),
-      status: payload.status ?? 'pending'
+      status: statusResponse.data ?? ''
     })
     return okResponse(created)
   }
@@ -238,6 +303,12 @@ export class TaskService {
     if (!existing) return errorResponse(ErrorCodes.NotFound, 'Subtask not found')
     const access = await this.ensureTaskAccess(payload.actorToken, existing.taskId)
     if (!access.ok || !access.data) return access as ServiceResponse<TaskSubtask>
+    let nextStatus = payload.status
+    if (Object.prototype.hasOwnProperty.call(payload, 'status')) {
+      const statusResponse = await this.normalizeStatus(access.data.task.projectId, access.data.actorOrgId, payload.status)
+      if (!statusResponse.ok) return statusResponse as ServiceResponse<TaskSubtask>
+      nextStatus = statusResponse.data
+    }
     let nextPayload = payload.payload
     if (nextPayload && Object.prototype.hasOwnProperty.call(nextPayload, 'agentId')) {
       const agentIdResponse = await this.normalizeAgentId(access.data.actorOrgId, nextPayload.agentId)
@@ -250,7 +321,7 @@ export class TaskService {
     }
     const updated = await this.subtaskRepo.update(payload.id, {
       title: payload.title,
-      status: payload.status,
+      status: nextStatus,
       sortOrder: payload.sortOrder,
       payload: nextPayload
     })

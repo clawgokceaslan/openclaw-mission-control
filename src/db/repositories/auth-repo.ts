@@ -12,6 +12,8 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
     `SELECT id, organization_id, email, name, password_hash, role, created_at FROM users WHERE email = @email`
   )
   private updateUserName = this.db.prepare('UPDATE users SET name = @name WHERE id = @userId')
+  private updateUserProfile = this.db.prepare('UPDATE users SET name = @name, email = @email, role = @role WHERE id = @userId')
+  private updateMembershipRole = this.db.prepare('UPDATE memberships SET role = @role WHERE organization_id = @orgId AND user_id = @userId')
   private sessionsInsert = this.db.prepare(
     `INSERT INTO sessions (id, user_id, token, expires_at, created_at) VALUES (@id, @userId, @token, @expiresAt, @createdAt)`
   )
@@ -44,6 +46,11 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
 
   async setName(userId: string, name: string): Promise<void> {
     await this.updateUserName.run({ userId, name })
+  }
+
+  async setProfile(userId: string, orgId: string, input: { name: string; email: string; role: User['role'] }): Promise<void> {
+    await this.updateUserProfile.run({ userId, name: input.name, email: input.email, role: input.role })
+    await this.updateMembershipRole.run({ userId, orgId, role: input.role })
   }
 
   async ensureDefaultOwner(email: string): Promise<{ id: string; organization_id: string; email: string; name: string; password_hash: string; role: string } | undefined> {

@@ -112,6 +112,7 @@ export class AgentRepository extends BaseRepository<Agent> {
       trainingMarkdown: typeof config.trainingMarkdown === 'string' ? config.trainingMarkdown : '',
       steps: parseSteps(config.steps),
       reasoningLevel: parseReasoning(config.reasoningLevel),
+      outputFormatId: typeof config.outputFormatId === 'string' ? config.outputFormatId : null,
       createdAt: row.created_at,
       updatedAt: row.updated_at
     }

@@ -2,6 +2,7 @@ import { BaseRepository } from './base-repo.js'
 import { randomUUID } from 'node:crypto'
 import { SqliteAdapter } from '../adapter/sqlite.js'
 import type { CustomField, Tag } from '../../shared/types/entities.js'
+import { resolveTagColor } from './tag-color.js'
 
 export class CustomFieldRepository extends BaseRepository<CustomField> {
   constructor(db: SqliteAdapter) {
@@ -162,7 +163,7 @@ export class TagRepository extends BaseRepository<Tag> {
       id: row.id,
       organizationId: row.organization_id,
       name: row.name,
-      color: row.color,
+      color: resolveTagColor(row.color, row.name),
       description: row.description,
       updatedAt: row.updated_at ?? row.created_at,
       taskCount: Number(row.task_count ?? 0)
@@ -171,7 +172,8 @@ export class TagRepository extends BaseRepository<Tag> {
 
   async create(input: Omit<Tag, 'id'>): Promise<Tag> {
     const now = Date.now()
-    const row: Tag = { id: randomUUID(), ...input }
+    const color = resolveTagColor(input.color, input.name)
+    const row: Tag = { id: randomUUID(), ...input, color }
     await this.db
       .prepare(`
         INSERT INTO tags (id, organization_id, name, color, description, created_at, updated_at)
@@ -181,7 +183,7 @@ export class TagRepository extends BaseRepository<Tag> {
         id: row.id,
         organizationId: row.organizationId,
         name: row.name,
-        color: row.color,
+        color,
         description: row.description,
         createdAt: now,
         updatedAt: now
@@ -191,6 +193,7 @@ export class TagRepository extends BaseRepository<Tag> {
 
   async update(input: { id: string; organizationId: string; name: string; color?: string; description?: string }): Promise<Tag | null> {
     const updatedAt = Date.now()
+    const color = resolveTagColor(input.color, input.name)
     const result = await this.db
       .prepare(`
         UPDATE tags
@@ -204,7 +207,7 @@ export class TagRepository extends BaseRepository<Tag> {
         id: input.id,
         organizationId: input.organizationId,
         name: input.name,
-        color: input.color,
+        color,
         description: input.description,
         updatedAt
       })

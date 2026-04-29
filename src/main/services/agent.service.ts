@@ -31,6 +31,7 @@ type AgentWritePayload = {
   trainingMarkdown?: string
   steps?: AgentStep[]
   reasoningLevel?: AgentReasoningLevel
+  outputFormatId?: string | null
 }
 
 export class AgentService {
@@ -61,7 +62,8 @@ export class AgentService {
       title: payload.title ?? '',
       trainingMarkdown: payload.trainingMarkdown ?? '',
       steps: normalizeSteps(payload.steps),
-      reasoningLevel: normalizeReasoning(payload.reasoningLevel)
+      reasoningLevel: normalizeReasoning(payload.reasoningLevel),
+      outputFormatId: payload.outputFormatId || null
     }
     const created = await this.repo.create({
       organizationId: actor.user.organizationId,
@@ -84,7 +86,8 @@ export class AgentService {
       ...(payload.title !== undefined ? { title: payload.title } : {}),
       ...(payload.trainingMarkdown !== undefined ? { trainingMarkdown: payload.trainingMarkdown } : {}),
       ...(payload.steps !== undefined ? { steps: normalizeSteps(payload.steps) } : {}),
-      ...(payload.reasoningLevel !== undefined ? { reasoningLevel: normalizeReasoning(payload.reasoningLevel) } : {})
+      ...(payload.reasoningLevel !== undefined ? { reasoningLevel: normalizeReasoning(payload.reasoningLevel) } : {}),
+      ...(payload.outputFormatId !== undefined ? { outputFormatId: payload.outputFormatId || null } : {})
     }
     const updated = await this.repo.update(payload.id, {
       name: payload.name ?? current.name,

@@ -19,17 +19,45 @@ export interface Project {
   organizationId: string
   name: string
   description?: string
+  generalContext?: string
+  generalPrompt?: string
+  defaultOutput?: string
   archived: boolean
   metrics?: Record<string, unknown>
   createdAt: number
   updatedAt: number
 }
 
+export type ProjectStatusCategory = 'not_started' | 'active' | 'done' | 'closed'
+
+export interface ProjectStatus {
+  id: string
+  organizationId: string
+  projectId?: string
+  templateId?: string
+  name: string
+  category: ProjectStatusCategory
+  color: string
+  sortOrder: number
+  isDefault: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface StatusTemplate {
+  id: string
+  organizationId: string
+  name: string
+  createdAt: number
+  updatedAt: number
+  items?: ProjectStatus[]
+}
+
 export interface TaskEntity {
   id: string
   projectId: string
   title: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
+  status: string
   agentId?: string | null
   payload?: Record<string, unknown>
   result?: Record<string, unknown>
@@ -39,7 +67,16 @@ export interface TaskEntity {
   tags?: Tag[]
   skills?: Skill[]
   subtasks?: TaskSubtask[]
+  checklistItems?: TaskChecklistItem[]
   customFieldValues?: Record<string, unknown>
+  createdAt: number
+  updatedAt: number
+}
+
+export interface TaskChecklistItem {
+  id: string
+  title: string
+  checked: boolean
   createdAt: number
   updatedAt: number
 }
@@ -55,7 +92,7 @@ export interface TaskSubtask {
   id: string
   taskId: string
   title: string
-  status: 'pending' | 'completed'
+  status: string
   sortOrder: number
   payload?: Record<string, unknown>
   description?: string
@@ -77,11 +114,32 @@ export interface Agent {
   trainingMarkdown?: string
   steps?: AgentStep[]
   reasoningLevel?: AgentReasoningLevel
+  outputFormatId?: string | null
   createdAt: number
   updatedAt: number
 }
 
 export type AgentReasoningLevel = 'low' | 'medium' | 'high' | 'extra_high'
+
+export interface AgentOutputFormatField {
+  id: string
+  key: string
+  description: string
+  defaultValue?: string
+  valueType?: 'string' | 'number' | 'boolean' | 'array'
+  required?: boolean
+  children?: AgentOutputFormatField[]
+}
+
+export interface OutputFormat {
+  id: string
+  organizationId: string
+  name: string
+  description?: string
+  fields: AgentOutputFormatField[]
+  createdAt: number
+  updatedAt: number
+}
 
 export interface AgentStep {
   id: string

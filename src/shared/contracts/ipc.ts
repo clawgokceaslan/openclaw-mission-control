@@ -13,6 +13,16 @@ export const IPC_CHANNELS = {
     update: 'projects:update',
     remove: 'projects:remove'
   },
+  statuses: {
+    list: 'statuses:list',
+    listTemplates: 'statuses:list-templates',
+    createTemplate: 'statuses:create-template',
+    updateTemplate: 'statuses:update-template',
+    removeTemplate: 'statuses:remove-template',
+    getProjectStatuses: 'statuses:get-project-statuses',
+    updateProjectStatuses: 'statuses:update-project-statuses',
+    applyTemplateToProject: 'statuses:apply-template-to-project'
+  },
   tasks: {
     list: 'tasks:list',
     get: 'tasks:get',
@@ -99,6 +109,12 @@ export const IPC_CHANNELS = {
     tagsCreate: 'custom-fields:tags:create',
     tagsUpdate: 'custom-fields:tags:update',
     tagsRemove: 'custom-fields:tags:remove'
+  },
+  outputFormats: {
+    list: 'output-formats:list',
+    create: 'output-formats:create',
+    update: 'output-formats:update',
+    remove: 'output-formats:remove'
   },
   jobs: {
     list: 'jobs:list',
@@ -203,6 +219,17 @@ export interface RemoveSkillRequest {
   id?: string
 }
 
+export interface UpdateProjectRequest {
+  actorToken?: string
+  id?: string
+  name?: string
+  description?: string
+  archived?: boolean
+  generalContext?: string
+  generalPrompt?: string
+  defaultOutput?: string
+}
+
 export interface PaginatedResponse<T> {
   rows: T[]
   total: number
@@ -221,7 +248,7 @@ export interface UpdateTaskSubtaskRequest {
   actorToken?: string
   id?: string
   title?: string
-  status?: 'pending' | 'completed'
+  status?: string
   sortOrder?: number
   payload?: Record<string, unknown>
 }
@@ -273,6 +300,7 @@ export interface ServiceMapEntry<TDomain extends ServiceDomain = ServiceDomain, 
 export const SERVICE_MAP = {
   auth: ['login', 'logout', 'me', 'inviteValidate', 'updateProfile'],
   projects: ['list', 'get', 'create', 'update', 'remove'],
+  statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
   tasks: ['list', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet'],
   agents: ['list', 'get', 'create', 'update', 'remove'],
   gateways: ['list', 'get', 'create', 'update', 'remove', 'status', 'sessions', 'commands', 'commandsHistory', 'templates', 'sendCommand', 'connect', 'disconnect', 'pairDevice', 'resetPairing', 'testConnection', 'testMessage', 'rpcMethods', 'rpcCall', 'chatSend', 'chatHistory', 'sessionsPatch', 'sessionsDelete', 'openClawBoards', 'openClawAgents', 'openClawSkills', 'openClawTags'],
@@ -281,6 +309,7 @@ export const SERVICE_MAP = {
   organization: ['me', 'listMembers', 'createInvite'],
   projectGroups: ['list', 'create', 'update', 'remove'],
   customFields: ['list', 'create', 'update', 'remove', 'tagsList', 'tagsCreate', 'tagsUpdate', 'tagsRemove'],
+  outputFormats: ['list', 'create', 'update', 'remove'],
   jobs: ['list', 'metrics']
 } as const
 
@@ -360,6 +389,64 @@ export const SERVICE_ROUTING: {
       action: 'remove',
       method: 'remove',
       channel: IPC_CHANNELS.projects.remove,
+      requiresAuth: true
+    }
+  },
+  statuses: {
+    list: {
+      domain: 'statuses',
+      action: 'list',
+      method: 'list',
+      channel: IPC_CHANNELS.statuses.list,
+      requiresAuth: true
+    },
+    listTemplates: {
+      domain: 'statuses',
+      action: 'listTemplates',
+      method: 'listTemplates',
+      channel: IPC_CHANNELS.statuses.listTemplates,
+      requiresAuth: true
+    },
+    createTemplate: {
+      domain: 'statuses',
+      action: 'createTemplate',
+      method: 'createTemplate',
+      channel: IPC_CHANNELS.statuses.createTemplate,
+      requiresAuth: true
+    },
+    updateTemplate: {
+      domain: 'statuses',
+      action: 'updateTemplate',
+      method: 'updateTemplate',
+      channel: IPC_CHANNELS.statuses.updateTemplate,
+      requiresAuth: true
+    },
+    removeTemplate: {
+      domain: 'statuses',
+      action: 'removeTemplate',
+      method: 'removeTemplate',
+      channel: IPC_CHANNELS.statuses.removeTemplate,
+      requiresAuth: true
+    },
+    getProjectStatuses: {
+      domain: 'statuses',
+      action: 'getProjectStatuses',
+      method: 'getProjectStatuses',
+      channel: IPC_CHANNELS.statuses.getProjectStatuses,
+      requiresAuth: true
+    },
+    updateProjectStatuses: {
+      domain: 'statuses',
+      action: 'updateProjectStatuses',
+      method: 'updateProjectStatuses',
+      channel: IPC_CHANNELS.statuses.updateProjectStatuses,
+      requiresAuth: true
+    },
+    applyTemplateToProject: {
+      domain: 'statuses',
+      action: 'applyTemplateToProject',
+      method: 'applyTemplateToProject',
+      channel: IPC_CHANNELS.statuses.applyTemplateToProject,
       requiresAuth: true
     }
   },
@@ -873,6 +960,36 @@ export const SERVICE_ROUTING: {
       action: 'tagsRemove',
       method: 'tagsRemove',
       channel: IPC_CHANNELS.customFields.tagsRemove,
+      requiresAuth: true
+    }
+  },
+  outputFormats: {
+    list: {
+      domain: 'outputFormats',
+      action: 'list',
+      method: 'list',
+      channel: IPC_CHANNELS.outputFormats.list,
+      requiresAuth: true
+    },
+    create: {
+      domain: 'outputFormats',
+      action: 'create',
+      method: 'create',
+      channel: IPC_CHANNELS.outputFormats.create,
+      requiresAuth: true
+    },
+    update: {
+      domain: 'outputFormats',
+      action: 'update',
+      method: 'update',
+      channel: IPC_CHANNELS.outputFormats.update,
+      requiresAuth: true
+    },
+    remove: {
+      domain: 'outputFormats',
+      action: 'remove',
+      method: 'remove',
+      channel: IPC_CHANNELS.outputFormats.remove,
       requiresAuth: true
     }
   },

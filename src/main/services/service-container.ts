@@ -13,6 +13,8 @@ import { OrganizationRepository } from '../../db/repositories/org-repo.js'
 import { GroupRepository } from '../../db/repositories/group-repo.js'
 import { CustomFieldRepository, TagRepository } from '../../db/repositories/custom-field-repo.js'
 import { JobRepository } from '../../db/repositories/job-repo.js'
+import { StatusRepository } from '../../db/repositories/status-repo.js'
+import { OutputFormatRepository } from '../../db/repositories/output-format-repo.js'
 import { AuthService } from './auth.service.js'
 import { ProjectService } from './project.service.js'
 import { TaskService } from './task.service.js'
@@ -25,10 +27,13 @@ import { OrganizationService } from './organization.service.js'
 import { ProjectGroupService } from './project-group.service.js'
 import { CustomFieldService } from './custom-field.service.js'
 import { JobService } from './job.service.js'
+import { StatusService } from './status.service.js'
+import { OutputFormatService } from './output-format.service.js'
 
 export interface AppServices {
   auth: AuthService
   projects: ProjectService
+  statuses: StatusService
   tasks: TaskService
   agents: AgentService
   gateways: GatewayService
@@ -37,6 +42,7 @@ export interface AppServices {
   organization: OrganizationService
   projectGroups: ProjectGroupService
   customFields: CustomFieldService
+  outputFormats: OutputFormatService
   jobs: JobService
 }
 
@@ -69,12 +75,15 @@ export async function createAppContext(): Promise<AppContext> {
   const customFieldRepo = new CustomFieldRepository(db)
   const tagRepo = new TagRepository(db)
   const jobRepo = new JobRepository(db)
+  const statusRepo = new StatusRepository(db)
+  const outputFormatRepo = new OutputFormatRepository(db)
 
   const auth = new AuthService(authRepo, eventBus)
   const services: AppServices = {
     auth,
     projects: new ProjectService(auth, projectRepo),
-    tasks: new TaskService(auth, taskRepo, taskSubtaskRepo, taskTagRepo, taskSkillRepo, projectRepo, tagRepo, skillRepo, agentRepo),
+    statuses: new StatusService(auth, statusRepo, projectRepo),
+    tasks: new TaskService(auth, taskRepo, taskSubtaskRepo, taskTagRepo, taskSkillRepo, projectRepo, tagRepo, skillRepo, agentRepo, statusRepo),
     agents: new AgentService(auth, agentRepo),
     gateways: new GatewayService(auth, gatewayRepo, eventBus, gatewayRuntime),
     webhooks: new WebhookService(auth, webhookRepo),
@@ -82,6 +91,7 @@ export async function createAppContext(): Promise<AppContext> {
     organization: new OrganizationService(auth, orgRepo, authRepo),
     projectGroups: new ProjectGroupService(auth, groupRepo, projectRepo),
     customFields: new CustomFieldService(auth, customFieldRepo, tagRepo),
+    outputFormats: new OutputFormatService(auth, outputFormatRepo),
     jobs: new JobService(auth, jobRepo)
   }
 

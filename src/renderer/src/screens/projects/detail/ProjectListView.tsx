@@ -23,7 +23,7 @@ export function ProjectListView({ columns, tasksByStatus, agents, collapsedStatu
   return (
     <section className={styles.listView}>
       {columns.map((column) => {
-        const rows = tasksByStatus[column.status]
+        const rows = tasksByStatus[column.status] ?? []
         const collapsed = collapsedStatuses.includes(column.status)
         return (
           <article

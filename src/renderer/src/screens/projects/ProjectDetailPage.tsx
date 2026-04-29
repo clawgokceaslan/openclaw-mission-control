@@ -1,6 +1,7 @@
-import { FormEvent, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react'
 import { useParams } from 'react-router-dom'
 import {
+  LuCheck,
   LuCalendarPlus,
   LuChevronDown,
   LuColumns3,
@@ -17,7 +18,7 @@ import {
 } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
-import { Agent, CustomField, Project, Skill, Tag, TaskComment, TaskEntity, TaskSubtask } from '@shared/types/entities'
+import { Agent, CustomField, Project, ProjectStatus, ProjectStatusCategory, Skill, Tag, TaskChecklistItem, TaskComment, TaskEntity, TaskSubtask } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { TagPill } from '@renderer/components/tags/TagPill'
@@ -27,23 +28,10 @@ import { ProjectBoardView } from './detail/ProjectBoardView'
 import { ProjectListView } from './detail/ProjectListView'
 import { ProjectTableView } from './detail/ProjectTableView'
 import { CreateTaskModal } from './detail/CreateTaskModal'
+import { AddSubtaskModal } from './detail/AddSubtaskModal'
 import { TaskDetailModal } from './detail/TaskDetailModal'
-import { PROJECT_STATUS_COLUMNS } from './detail/status'
+import { PROJECT_STATUS_COLUMNS, columnsFromProjectStatuses, resolveProjectStatusColumn } from './detail/status'
 import styles from './ProjectDetailPage.module.scss'
-
-type KanbanColumn = {
-  key: 'inbox' | 'inProgress' | 'review' | 'done'
-  title: string
-  status: TaskEntity['status']
-  accent: string
-}
-
-const COLUMNS: KanbanColumn[] = [
-  { key: 'inbox', title: 'Inbox', status: 'pending', accent: '#8a99b4' },
-  { key: 'inProgress', title: 'In Progress', status: 'running', accent: '#a45ded' },
-  { key: 'review', title: 'Review', status: 'failed', accent: '#6d76f0' },
-  { key: 'done', title: 'Done', status: 'completed', accent: '#29b764' }
-]
 
 const DETAIL_RATIO_KEY = 'omc:task-modal:detail-ratio'
 const DEFAULT_DETAIL_RATIO = 0.7
@@ -51,6 +39,8 @@ const MIN_DETAIL_WIDTH = 420
 const MIN_COMMENTS_WIDTH = 320
 
 type DetailViewMode = 'task' | 'subtask'
+type DetailTab = 'subtasks' | 'customFields' | 'checklist'
+type ProjectPromptTab = 'context' | 'prompt' | 'output'
 type ProjectViewMode = 'list' | 'table' | 'board'
 
 function formatDate(timestamp: number) {
@@ -64,6 +54,7 @@ function withTaskMeta(task: TaskEntity): TaskEntity {
     comments: Array.isArray(task.comments) ? task.comments : [],
     skills: Array.isArray(task.skills) ? task.skills : [],
     subtasks: Array.isArray(task.subtasks) ? task.subtasks : [],
+    checklistItems: Array.isArray(task.checklistItems) ? task.checklistItems : [],
     customFieldValues: task.customFieldValues && typeof task.customFieldValues === 'object' ? task.customFieldValues : {}
   }
 }
@@ -129,6 +120,12 @@ function getSubtaskDueAt(subtask: TaskSubtask): number | undefined {
   const payload = getSubtaskPayload(subtask)
   if (typeof payload.dueAt === 'number') return payload.dueAt
   return subtask.dueAt
+}
+
+function createLocalId() {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
 type TaskHistoryItem = {
@@ -225,12 +222,23 @@ export function ProjectDetailPage() {
   const [tags, setTags] = useState<Tag[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
   const [customFields, setCustomFields] = useState<CustomField[]>([])
+  const [projectStatuses, setProjectStatuses] = useState<ProjectStatus[]>([])
   const [viewMode, setViewMode] = useState<ProjectViewMode>('board')
-  const [taskTitle, setTaskTitle] = useState('New task')
+  const [taskTitle, setTaskTitle] = useState('')
   const [listCreateStatus, setListCreateStatus] = useState<TaskEntity['status'] | null>(null)
   const [listCreateTitle, setListCreateTitle] = useState('')
   const [tableCreateActive, setTableCreateActive] = useState(false)
   const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false)
+  const [isStatusEditorOpen, setIsStatusEditorOpen] = useState(false)
+  const [isProjectPromptSettingsOpen, setIsProjectPromptSettingsOpen] = useState(false)
+  const [projectPromptTab, setProjectPromptTab] = useState<ProjectPromptTab>('context')
+  const [projectPromptContext, setProjectPromptContext] = useState('')
+  const [projectPromptPrompt, setProjectPromptPrompt] = useState('')
+  const [projectPromptOutput, setProjectPromptOutput] = useState('')
+  const [projectPromptError, setProjectPromptError] = useState<string | null>(null)
+  const [isProjectPromptSaving, setIsProjectPromptSaving] = useState(false)
+  const [statusDrafts, setStatusDrafts] = useState<ProjectStatus[]>([])
+  const [statusMapping, setStatusMapping] = useState<Record<string, string>>({})
   const [createTaskStatus, setCreateTaskStatus] = useState<TaskEntity['status']>('pending')
   const [collapsedStatuses, setCollapsedStatuses] = useState<TaskEntity['status'][]>([])
   const [error, setError] = useState<string | null>(null)
@@ -241,7 +249,7 @@ export function ProjectDetailPage() {
   const [titleDraft, setTitleDraft] = useState('')
   const [isDescriptionEditing, setIsDescriptionEditing] = useState(false)
   const [isDescriptionSaving, setIsDescriptionSaving] = useState(false)
-  const [detailTab, setDetailTab] = useState<'subtasks' | 'customFields'>('subtasks')
+  const [detailTab, setDetailTab] = useState<DetailTab>('subtasks')
   const [detailViewMode, setDetailViewMode] = useState<DetailViewMode>('task')
   const [selectedSubtaskId, setSelectedSubtaskId] = useState<string | null>(null)
   const [descriptionDraft, setDescriptionDraft] = useState('')
@@ -250,7 +258,8 @@ export function ProjectDetailPage() {
   const [subtaskDueDraft, setSubtaskDueDraft] = useState('')
   const [commentDraft, setCommentDraft] = useState('')
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
-  const [newSubtaskTitle, setNewSubtaskTitle] = useState('')
+  const [isAddSubtaskOpen, setIsAddSubtaskOpen] = useState(false)
+  const [checklistDraft, setChecklistDraft] = useState('')
   const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null)
   const [subtaskDraft, setSubtaskDraft] = useState('')
   const [selectedCustomFieldOption, setSelectedCustomFieldOption] = useState<AppSelectOption | null>(null)
@@ -259,6 +268,7 @@ export function ProjectDetailPage() {
   const [customFieldError, setCustomFieldError] = useState<string | null>(null)
   const [pendingDeleteSubtaskId, setPendingDeleteSubtaskId] = useState<string | null>(null)
   const [selectedSubtaskIds, setSelectedSubtaskIds] = useState<string[]>([])
+  const [subtaskStatusMenu, setSubtaskStatusMenu] = useState<{ subtaskId: string; left: number; top: number } | null>(null)
   const [history, setHistory] = useState<TaskHistoryItem[]>([])
   const [localActivityEntries, setLocalActivityEntries] = useState<ThreadEntry[]>([])
   const [detailRatio, setDetailRatio] = useState(loadInitialRatio)
@@ -266,19 +276,21 @@ export function ProjectDetailPage() {
 
   const modalBodyRef = useRef<HTMLDivElement | null>(null)
   const activityFeedRef = useRef<HTMLDivElement | null>(null)
+  const subtaskStatusMenuRef = useRef<HTMLDivElement | null>(null)
   const keepActivityBottomRef = useRef(true)
 
   const projectLoadError = projectId ? null : 'Project id not found.'
 
   const refresh = async () => {
     if (!projectId) return
-    const [projectResponse, taskResponse, tagsResponse, skillsResponse, customFieldsResponse, agentsResponse] = await Promise.all([
+    const [projectResponse, taskResponse, tagsResponse, skillsResponse, customFieldsResponse, agentsResponse, statusesResponse] = await Promise.all([
       invokeBridge<Project>(IPC_CHANNELS.projects.get, { actorToken: token, id: projectId }),
       invokeBridge<TaskEntity[]>(IPC_CHANNELS.tasks.list, { actorToken: token, projectId }),
       loadList<Tag[]>(IPC_CHANNELS.customFields.tagsList, token),
       loadList<Skill[]>(IPC_CHANNELS.skills.list, token),
       loadList<CustomField[]>(IPC_CHANNELS.customFields.list, token),
-      loadList<Agent[]>(IPC_CHANNELS.agents.list, token)
+      loadList<Agent[]>(IPC_CHANNELS.agents.list, token),
+      invokeBridge<ProjectStatus[]>(IPC_CHANNELS.statuses.getProjectStatuses, { actorToken: token, projectId })
     ])
 
     if (!projectResponse.ok || !projectResponse.data) {
@@ -293,6 +305,7 @@ export function ProjectDetailPage() {
     setSkills(Array.isArray(skillsResponse.data) ? skillsResponse.data : [])
     setCustomFields(Array.isArray(customFieldsResponse.data) ? customFieldsResponse.data : [])
     setAgents(Array.isArray(agentsResponse.data) ? agentsResponse.data : [])
+    setProjectStatuses(Array.isArray(statusesResponse.data) ? statusesResponse.data : [])
     setError(taskResponse.ok ? null : (taskResponse.error?.message ?? 'Unable to load tasks'))
   }
 
@@ -305,9 +318,20 @@ export function ProjectDetailPage() {
     window.localStorage.setItem(DETAIL_RATIO_KEY, String(detailRatio))
   }, [detailRatio])
 
+  const hydratedTasks = useMemo(() => {
+    const tagById = new Map(tags.map((tag) => [tag.id, tag]))
+    return tasks.map((task) => ({
+      ...task,
+      tags: (task.tags ?? []).map((taskTag) => {
+        const source = tagById.get(taskTag.id)
+        return source ? { ...taskTag, ...source } : taskTag
+      })
+    }))
+  }, [tasks, tags])
+
   const selectedTask = useMemo(
-    () => tasks.find((task) => task.id === selectedTaskId) ?? null,
-    [tasks, selectedTaskId]
+    () => hydratedTasks.find((task) => task.id === selectedTaskId) ?? null,
+    [hydratedTasks, selectedTaskId]
   )
 
   useEffect(() => {
@@ -315,7 +339,8 @@ export function ProjectDetailPage() {
     setDescriptionDraft(selectedTask?.description ?? '')
     setCommentDraft('')
     setEditingCommentId(null)
-    setNewSubtaskTitle('')
+    setIsAddSubtaskOpen(false)
+    setChecklistDraft('')
     setEditingSubtaskId(null)
     setSubtaskDraft('')
     setSelectedCustomFieldOption(null)
@@ -428,7 +453,27 @@ export function ProjectDetailPage() {
     }
   }, [isResizingSplit])
 
-  const visibleTasks = useMemo(() => tasks, [tasks])
+  useEffect(() => {
+    if (!subtaskStatusMenu) return
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      if (target && subtaskStatusMenuRef.current?.contains(target)) return
+      setSubtaskStatusMenu(null)
+    }
+    document.addEventListener('pointerdown', closeOnOutsidePointer)
+    return () => document.removeEventListener('pointerdown', closeOnOutsidePointer)
+  }, [subtaskStatusMenu])
+
+  const visibleTasks = useMemo(() => hydratedTasks, [hydratedTasks])
+  const statusColumns = useMemo(() => columnsFromProjectStatuses(projectStatuses), [projectStatuses])
+  const defaultStatus = useMemo(
+    () => statusColumns.find((column) => column.category === 'not_started')?.status ?? statusColumns[0]?.status ?? PROJECT_STATUS_COLUMNS[0].status,
+    [statusColumns]
+  )
+  const completedStatusIds = useMemo(
+    () => new Set(statusColumns.filter((column) => column.category === 'done' || column.category === 'closed').map((column) => column.status)),
+    [statusColumns]
+  )
 
   const tableTasks = useMemo(() => {
     return visibleTasks
@@ -443,16 +488,17 @@ export function ProjectDetailPage() {
   }, [visibleTasks])
 
   const tasksByStatus = useMemo(() => {
-    return COLUMNS.reduce<Record<TaskEntity['status'], TaskEntity[]>>((acc, column) => {
-      acc[column.status] = visibleTasks.filter((task) => task.status === column.status)
+    const grouped = statusColumns.reduce<Record<TaskEntity['status'], TaskEntity[]>>((acc, column) => {
+      acc[column.status] = []
       return acc
-    }, {
-      pending: [],
-      running: [],
-      failed: [],
-      completed: []
-    })
-  }, [visibleTasks])
+    }, {})
+    const fallback = defaultStatus
+    for (const task of visibleTasks) {
+      const target = grouped[task.status] ? task.status : fallback
+      grouped[target] = [...(grouped[target] ?? []), task]
+    }
+    return grouped
+  }, [defaultStatus, statusColumns, visibleTasks])
 
   const selectedTaskTagOptions: AppSelectOption[] = useMemo(() => {
     if (!selectedTask) return []
@@ -619,18 +665,18 @@ export function ProjectDetailPage() {
       actorToken: token,
       projectId,
       title: taskTitle.trim(),
-      status: 'pending'
+      status: defaultStatus
     })
     setBusy(false)
     if (!response.ok) {
       setError(response.error?.message ?? 'Task create failed')
       return
     }
-    setTaskTitle('New task')
+    setTaskTitle('')
     await refresh()
   }
 
-  const openCreateTask = (status: TaskEntity['status'] = 'pending') => {
+  const openCreateTask = (status: TaskEntity['status'] = defaultStatus) => {
     setCreateTaskStatus(status)
     setIsCreateTaskOpen(true)
   }
@@ -692,8 +738,95 @@ export function ProjectDetailPage() {
     ))
   }
 
-  const resolveColumnByStatus = (status: TaskEntity['status']) => {
-    return COLUMNS.find((column) => column.status === status) ?? COLUMNS[0]
+  const resolveColumnByStatus = (status: TaskEntity['status']) => resolveProjectStatusColumn(status, statusColumns)
+
+  const openStatusEditor = () => {
+    setStatusDrafts(projectStatuses)
+    setStatusMapping({})
+    setIsStatusEditorOpen(true)
+  }
+
+  const openProjectPromptSettings = () => {
+    if (!project) return
+    setProjectPromptTab('context')
+    setProjectPromptContext(project.generalContext ?? '')
+    setProjectPromptPrompt(project.generalPrompt ?? '')
+    setProjectPromptOutput(project.defaultOutput ?? '')
+    setProjectPromptError(null)
+    setIsProjectPromptSettingsOpen(true)
+  }
+
+  const saveProjectPromptSettings = async () => {
+    if (!project) return
+    setIsProjectPromptSaving(true)
+    setProjectPromptError(null)
+    const response = await invokeBridge<Project>(IPC_CHANNELS.projects.update, {
+      actorToken: token,
+      id: project.id,
+      generalContext: projectPromptContext,
+      generalPrompt: projectPromptPrompt,
+      defaultOutput: projectPromptOutput
+    })
+    setIsProjectPromptSaving(false)
+    if (!response.ok || !response.data) {
+      setProjectPromptError(response.error?.message ?? 'Unable to save project prompt settings')
+      return
+    }
+    setProject(response.data)
+    setIsProjectPromptSettingsOpen(false)
+  }
+
+  const updateStatusDraft = (id: string, patch: Partial<ProjectStatus>) => {
+    setStatusDrafts((current) => current.map((item) => item.id === id ? { ...item, ...patch, updatedAt: Date.now() } : item))
+  }
+
+  const addActiveStatus = () => {
+    const now = Date.now()
+    const id = createLocalId()
+    setStatusDrafts((current) => [
+      ...current,
+      {
+        id,
+        organizationId: project.organizationId,
+        projectId: project.id,
+        name: 'New active status',
+        category: 'active',
+        color: '#5B7CFA',
+        sortOrder: current.length,
+        isDefault: false,
+        createdAt: now,
+        updatedAt: now
+      }
+    ])
+  }
+
+  const removeStatusDraft = (status: ProjectStatus) => {
+    if (status.category !== 'active') return
+    setStatusDrafts((current) => current.filter((item) => item.id !== status.id))
+    setStatusMapping((current) => ({ ...current, [status.id]: defaultStatus }))
+  }
+
+  const saveProjectStatuses = async () => {
+    if (!projectId) return
+    const response = await invokeBridge<ProjectStatus[]>(IPC_CHANNELS.statuses.updateProjectStatuses, {
+      actorToken: token,
+      projectId,
+      items: statusDrafts.map((item, index) => ({
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        color: item.color,
+        sortOrder: index,
+        isDefault: item.category === 'not_started'
+      })),
+      mapping: statusMapping
+    })
+    if (!response.ok) {
+      setError(response.error?.message ?? 'Unable to update project statuses')
+      return
+    }
+    setIsStatusEditorOpen(false)
+    await refresh()
   }
 
   const saveDescription = async () => {
@@ -883,20 +1016,85 @@ export function ProjectDetailPage() {
     await setTaskTags(nextIds)
   }
 
-  const addSubtask = async (event: FormEvent) => {
-    event.preventDefault()
-    if (!selectedTask || !newSubtaskTitle.trim()) return
+  const createSubtask = async (input: {
+    title: string
+    description: string
+    status: TaskSubtask['status']
+    agentId?: string | null
+    dueAt?: number
+  }) => {
+    if (!selectedTask || !input.title.trim()) return
     const response = await invokeBridge<TaskSubtask>(IPC_CHANNELS.tasks.subtasksCreate, {
       actorToken: token,
       taskId: selectedTask.id,
-      title: newSubtaskTitle.trim()
+      title: input.title.trim(),
+      status: input.status
     })
     if (!response.ok) {
       setError(response.error?.message ?? 'Unable to add subtask')
       return
     }
-    setNewSubtaskTitle('')
+    const created = response.data
+    if (created && (input.description || input.agentId || input.dueAt)) {
+      const agent = input.agentId ? agents.find((item) => item.id === input.agentId) : null
+      const updateResponse = await invokeBridge<TaskSubtask>(IPC_CHANNELS.tasks.subtasksUpdate, {
+        actorToken: token,
+        id: created.id,
+        payload: {
+          description: input.description,
+          ...(input.agentId ? { agentId: input.agentId, assigneeId: input.agentId, assigneeName: agent?.name ?? '' } : {}),
+          ...(input.dueAt ? { dueAt: input.dueAt } : {})
+        }
+      })
+      if (!updateResponse.ok) {
+        setError(updateResponse.error?.message ?? 'Subtask created, but details could not be saved')
+      }
+    }
+    setIsAddSubtaskOpen(false)
     await refresh()
+  }
+
+  const saveChecklistItems = async (items: TaskChecklistItem[]) => {
+    if (!selectedTask) return
+    const response = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
+      actorToken: token,
+      id: selectedTask.id,
+      checklistItems: items
+    })
+    if (!response.ok) {
+      setError(response.error?.message ?? 'Unable to update checklist')
+      return
+    }
+    await refresh()
+  }
+
+  const addChecklistItem = async () => {
+    if (!selectedTask || !checklistDraft.trim()) return
+    const now = Date.now()
+    await saveChecklistItems([
+      ...(selectedTask.checklistItems ?? []),
+      {
+        id: createLocalId(),
+        title: checklistDraft.trim(),
+        checked: false,
+        createdAt: now,
+        updatedAt: now
+      }
+    ])
+    setChecklistDraft('')
+  }
+
+  const toggleChecklistItem = async (itemId: string) => {
+    if (!selectedTask) return
+    const now = Date.now()
+    await saveChecklistItems((selectedTask.checklistItems ?? []).map((item) => (
+      item.id === itemId ? { ...item, checked: !item.checked, updatedAt: now } : item
+    )))
+  }
+
+  const removeChecklistItem = async (itemId: string) => {
+    if (!selectedTask) return
+    await saveChecklistItems((selectedTask.checklistItems ?? []).filter((item) => item.id !== itemId))
   }
 
   const saveTitle = async () => {
@@ -997,8 +1195,18 @@ export function ProjectDetailPage() {
     return true
   }
 
-  const toggleSubtaskSelection = (subtaskId: string) => {
-    setSelectedSubtaskIds((prev) => (prev.includes(subtaskId) ? prev.filter((id) => id !== subtaskId) : [...prev, subtaskId]))
+  const updateSubtaskStatus = async (subtask: TaskSubtask, nextStatus: TaskSubtask['status']) => {
+    if (subtask.status === nextStatus) return
+    const response = await invokeBridge<TaskSubtask>(IPC_CHANNELS.tasks.subtasksUpdate, {
+      actorToken: token,
+      id: subtask.id,
+      status: nextStatus
+    })
+    if (!response.ok) {
+      setError(response.error?.message ?? 'Unable to update subtask status')
+      return
+    }
+    await refresh()
   }
 
   const removeSelectedSubtasks = async () => {
@@ -1146,300 +1354,11 @@ export function ProjectDetailPage() {
     )
   }
 
-  const renderProjectView = () => (
-    <div className={styles.kanbanWrap}>
-      {COLUMNS.map((column) => renderProjectColumn(column))}
-    </div>
-  )
-
-  const renderProjectColumn = (column: KanbanColumn) => {
-    const rows = tasksByStatus[column.status]
-    return (
-      <article
-        key={column.key}
-        className={styles.column}
-        style={{ '--column-accent': column.accent } as CSSProperties}
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={(event) => void onDropColumn(event, column.status)}
-      >
-        <header className={styles.columnHeader}>
-          <div className={styles.columnTitle}>
-            <span className={styles.dot} />
-            <span>{column.title}</span>
-            <strong>{rows.length}</strong>
-          </div>
-        </header>
-        {column.key === 'review' ? (
-          <div className={styles.reviewFilters}>
-            <Badge pill bg="dark">All · {rows.length}</Badge>
-            <Badge pill bg="light" text="dark">Lead review · 0</Badge>
-            <Badge pill bg="light" text="dark">Blocked · 0</Badge>
-          </div>
-        ) : null}
-
-        <div className={styles.columnBody}>
-          {rows.map((task) => renderProjectTaskCard(task, column))}
-          {renderProjectAddRow(column.status)}
-        </div>
-      </article>
-    )
-  }
-
-  const renderProjectTaskCard = (task: TaskEntity, column: KanbanColumn) => (
-    <Card
-      key={task.id}
-      className={styles.taskCard}
-      draggable
-      onDragStart={(event) => event.dataTransfer.setData('text/plain', task.id)}
-      onClick={() => setSelectedTaskId(task.id)}
-    >
-      <Card.Body>
-        <div className={styles.taskTop}>
-          <h3>{task.title}</h3>
-          <span className={styles.priorityIcon} title="Priority">
-            <LuFlag size={14} />
-          </span>
-        </div>
-        <div className={styles.projectTaskMeta}>
-          <span><LuUserPlus size={14} /> Unassigned</span>
-          <span><LuCalendarPlus size={14} /> {formatDate(task.updatedAt)}</span>
-        </div>
-        {(task.tags ?? []).length > 0 ? (
-          <div className={styles.tagRow}>
-            {(task.tags ?? []).slice(0, 3).map((tag) => (
-              <TagPill key={tag.id} tag={tag} />
-            ))}
-          </div>
-        ) : null}
-        <div className={styles.projectTaskFooter}>
-          <span>Subtasks {(task.subtasks ?? []).length}</span>
-          {(task.commentCount ?? task.comments?.length ?? 0) > 0 ? (
-            <span><LuMessageSquare size={13} /> {task.commentCount ?? task.comments?.length}</span>
-          ) : null}
-        </div>
-      </Card.Body>
-    </Card>
-  )
-
-  const renderProjectAddRow = (status: TaskEntity['status']) => (
-    <div className={styles.projectAddRow}>
-      {listCreateStatus === status ? (
-        <input
-          autoFocus
-          value={listCreateTitle}
-          onChange={(event) => setListCreateTitle(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              void handleListCreate(status)
-            }
-            if (event.key === 'Escape') {
-              setListCreateStatus(null)
-              setListCreateTitle('')
-            }
-          }}
-          placeholder="Task name"
-        />
-      ) : (
-        <button
-          type="button"
-          onClick={() => {
-            setListCreateStatus(status)
-            setListCreateTitle('')
-          }}
-        >
-          <LuPlus size={15} />
-          Add task
-        </button>
-      )}
-    </div>
-  )
-
-  const renderListView = () => (
-    <section className={styles.listView}>
-      {COLUMNS.map((column) => {
-        const rows = tasksByStatus[column.status]
-        const collapsed = collapsedStatuses.includes(column.status)
-        return (
-          <article key={column.key} className={styles.listGroup}>
-            <button type="button" className={styles.listGroupHeader} onClick={() => toggleStatusGroup(column.status)}>
-              <LuChevronDown className={collapsed ? styles.chevronClosed : styles.chevronOpen} size={15} />
-              <span className={styles.listStatusPill} style={{ '--status-accent': column.accent } as CSSProperties}>
-                <span />
-                {column.title}
-              </span>
-              <span className={styles.listGroupCount}>{rows.length}</span>
-            </button>
-
-            {!collapsed ? (
-              <div className={styles.listTable}>
-                <div className={styles.listTableHead}>
-                  <span>Name</span>
-                  <span>Assignee</span>
-                  <span>Due date</span>
-                  <span>Tags</span>
-                  <span>Subtasks</span>
-                  <span>Priority</span>
-                </div>
-                {rows.map((task) => (
-                  <button key={task.id} type="button" className={styles.listRow} onClick={() => setSelectedTaskId(task.id)}>
-                    <span className={styles.listNameCell}>
-                      <span className={styles.listTaskDot} style={{ background: column.accent }} />
-                      <span>{task.title}</span>
-                    </span>
-                    <span className={styles.listMutedCell}><LuUserPlus size={15} /> Unassigned</span>
-                    <span className={styles.listDateCell}><LuCalendarPlus size={15} /> {formatDate(task.updatedAt)}</span>
-                    <span className={styles.listTagCell}>
-                      {(task.tags ?? []).slice(0, 3).map((tag) => (
-                        <TagPill key={tag.id} tag={tag} compact />
-                      ))}
-                    </span>
-                    <span className={styles.listMutedCell}>{(task.subtasks ?? []).length}</span>
-                    <span className={styles.listPriorityCell}><LuFlag size={15} /></span>
-                  </button>
-                ))}
-                <div className={styles.listAddRow}>
-                  {listCreateStatus === column.status ? (
-                    <input
-                      autoFocus
-                      value={listCreateTitle}
-                      onChange={(event) => setListCreateTitle(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          event.preventDefault()
-                          void handleListCreate(column.status)
-                        }
-                        if (event.key === 'Escape') {
-                          setListCreateStatus(null)
-                          setListCreateTitle('')
-                        }
-                      }}
-                      placeholder="Task name"
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setListCreateStatus(column.status)
-                        setListCreateTitle('')
-                      }}
-                    >
-                      <LuPlus size={15} />
-                      Add task
-                    </button>
-                  )}
-                </div>
-              </div>
-            ) : null}
-          </article>
-        )
-      })}
-    </section>
-  )
-
-  const renderStatusPill = (status: TaskEntity['status']) => {
-    const column = resolveColumnByStatus(status)
-    return (
-      <span className={styles.tableStatusPill} style={{ '--status-accent': column.accent } as CSSProperties}>
-        <span />
-        {column.title}
-      </span>
-    )
-  }
-
-  const renderTableRow = (task: TaskEntity, index: number) => {
-    const column = resolveColumnByStatus(task.status)
-    return (
-      <button key={task.id} type="button" className={styles.tableRow} onClick={() => setSelectedTaskId(task.id)}>
-        <span className={styles.tableIndexCell}>{index + 1}</span>
-        <span className={styles.tableNameCell}>
-          <span className={styles.tableTaskDot} style={{ background: column.accent }} />
-          <span>{task.title}</span>
-        </span>
-        <span className={styles.tableMutedCell}>Unassigned</span>
-        <span>{renderStatusPill(task.status)}</span>
-        <span className={styles.tableDateCell}>{formatDate(task.updatedAt)}</span>
-        <span className={styles.tableTagCell}>
-          {(task.tags ?? []).slice(0, 3).map((tag) => (
-            <TagPill key={tag.id} tag={tag} compact />
-          ))}
-        </span>
-        <span className={styles.tableMutedCell}>{(task.subtasks ?? []).length}</span>
-        <span className={styles.tablePriorityCell}><LuFlag size={15} /></span>
-        <span />
-      </button>
-    )
-  }
-
-  const renderTableView = () => (
-    <section className={styles.tableView}>
-      <div className={styles.tableToolbar}>
-        <div className={styles.tableToolGroup}>
-          <span className={styles.tableToolIcon} />
-          <span className={styles.tableToolIconAlt} />
-        </div>
-      </div>
-      <div className={styles.tableGrid}>
-        <div className={styles.tableHead}>
-          <span />
-          <span>Name</span>
-          <span>Assignee</span>
-          <span>Status</span>
-          <span>Due date</span>
-          <span>Tags</span>
-          <span>Subtasks</span>
-          <span>Priority</span>
-          <span>+</span>
-        </div>
-        {tasks.map((task, index) => renderTableRow(task, index))}
-        <div className={styles.tableAddRow}>
-          <span />
-          {tableCreateActive ? (
-            <input
-              autoFocus
-              value={listCreateTitle}
-              onChange={(event) => setListCreateTitle(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  void handleListCreate('pending')
-                }
-                if (event.key === 'Escape') {
-                  setTableCreateActive(false)
-                  setListCreateTitle('')
-                }
-              }}
-              placeholder="Task name"
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                setTableCreateActive(true)
-                setListCreateTitle('')
-              }}
-            >
-              <LuPlus size={15} />
-              Add task
-            </button>
-          )}
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-        </div>
-      </div>
-    </section>
-  )
-
   const renderActiveView = () => {
     if (viewMode === 'board') {
       return (
         <ProjectBoardView
-          columns={PROJECT_STATUS_COLUMNS}
+          columns={statusColumns}
           tasksByStatus={tasksByStatus}
           agents={agents}
           onDropStatus={(event, status) => void onDropColumn(event, status)}
@@ -1451,11 +1370,11 @@ export function ProjectDetailPage() {
     if (viewMode === 'table') {
       return (
         <ProjectTableView
-          columns={PROJECT_STATUS_COLUMNS}
+          columns={statusColumns}
           tasks={tableTasks}
           agents={agents}
           onOpenTask={setSelectedTaskId}
-          onOpenCreateTask={() => openCreateTask('pending')}
+          onOpenCreateTask={() => openCreateTask(defaultStatus)}
           onStatusChange={(taskId, status) => void updateTaskStatus(taskId, status)}
           onReorder={(sourceTaskId, targetTaskId) => void reorderTableTasks(sourceTaskId, targetTaskId)}
         />
@@ -1463,7 +1382,7 @@ export function ProjectDetailPage() {
     }
     return (
       <ProjectListView
-        columns={PROJECT_STATUS_COLUMNS}
+        columns={statusColumns}
         tasksByStatus={tasksByStatus}
         agents={agents}
         collapsedStatuses={collapsedStatuses}
@@ -1484,7 +1403,9 @@ export function ProjectDetailPage() {
         viewMode={viewMode}
         onTaskTitleChange={setTaskTitle}
         onQuickCreate={() => void handleQuickCreate()}
-        onOpenCreateTask={() => openCreateTask('pending')}
+        onOpenCreateTask={() => openCreateTask(defaultStatus)}
+        onOpenProjectPrompts={openProjectPromptSettings}
+        onOpenStatusSettings={openStatusEditor}
         onViewModeChange={setViewMode}
       />
 
@@ -1497,11 +1418,209 @@ export function ProjectDetailPage() {
         project={project}
         tags={tags}
         agents={agents}
+        statusColumns={statusColumns}
         defaultStatus={createTaskStatus}
         busy={busy}
         onClose={() => setIsCreateTaskOpen(false)}
         onCreate={(input) => void handleCreateTask(input)}
       />
+
+      <AddSubtaskModal
+        open={Boolean(selectedTask && isAddSubtaskOpen)}
+        projectName={project.name}
+        taskTitle={selectedTask?.title ?? ''}
+        agents={agents}
+        statusColumns={statusColumns}
+        defaultStatus={defaultStatus}
+        busy={busy}
+        onClose={() => setIsAddSubtaskOpen(false)}
+        onCreate={(input) => void createSubtask(input)}
+      />
+
+      {isProjectPromptSettingsOpen ? (
+        <>
+          <div className={styles.createTaskBackdrop} onClick={() => setIsProjectPromptSettingsOpen(false)} />
+          <section className={`${styles.createTaskModal} ${styles.projectPromptModal}`} role="dialog" aria-modal="true" aria-label="Project prompt settings">
+            <header className={styles.createTaskHeader}>
+              <div className={styles.projectPromptTabs}>
+                <button
+                  type="button"
+                  className={`${styles.projectPromptTab} ${projectPromptTab === 'context' ? styles.projectPromptTabActive : ''}`}
+                  onClick={() => setProjectPromptTab('context')}
+                >
+                  Context
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.projectPromptTab} ${projectPromptTab === 'prompt' ? styles.projectPromptTabActive : ''}`}
+                  onClick={() => setProjectPromptTab('prompt')}
+                >
+                  Prompt
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.projectPromptTab} ${projectPromptTab === 'output' ? styles.projectPromptTabActive : ''}`}
+                  onClick={() => setProjectPromptTab('output')}
+                >
+                  Output
+                </button>
+              </div>
+              <button type="button" onClick={() => setIsProjectPromptSettingsOpen(false)} aria-label="Close prompt settings"><LuX size={17} /></button>
+            </header>
+                <div className={styles.projectPromptBody}>
+                  {projectPromptTab === 'context' ? (
+                <label className={styles.projectPromptField}>
+                  <div className={styles.projectPromptFieldHeader}>
+                    <span>General context</span>
+                    <span className={styles.projectPromptCounter}>{projectPromptContext.length}/4000</span>
+                  </div>
+                  <Form.Control
+                    as="textarea"
+                    rows={10}
+                    className={styles.projectPromptTextarea}
+                    value={projectPromptContext}
+                    onChange={(event) => setProjectPromptContext(event.target.value)}
+                    placeholder="Add common project context..."
+                    maxLength={4000}
+                  />
+                  <small className={styles.projectPromptHint}>Shared across all project tasks to keep task generation consistent.</small>
+                </label>
+              ) : null}
+              {projectPromptTab === 'prompt' ? (
+                <label className={styles.projectPromptField}>
+                  <div className={styles.projectPromptFieldHeader}>
+                    <span>General prompt</span>
+                    <span className={styles.projectPromptCounter}>{projectPromptPrompt.length}/4000</span>
+                  </div>
+                  <Form.Control
+                    as="textarea"
+                    rows={10}
+                    className={styles.projectPromptTextarea}
+                    value={projectPromptPrompt}
+                    onChange={(event) => setProjectPromptPrompt(event.target.value)}
+                    placeholder="Set shared instructions for this project..."
+                    maxLength={4000}
+                  />
+                  <small className={styles.projectPromptHint}>Guides how agent should act while planning or drafting in this project.</small>
+                </label>
+              ) : null}
+              {projectPromptTab === 'output' ? (
+                <label className={styles.projectPromptField}>
+                  <div className={styles.projectPromptFieldHeader}>
+                    <span>Default output</span>
+                    <span className={styles.projectPromptCounter}>{projectPromptOutput.length}/3000</span>
+                  </div>
+                  <Form.Control
+                    as="textarea"
+                    rows={10}
+                    className={styles.projectPromptTextarea}
+                    value={projectPromptOutput}
+                    onChange={(event) => setProjectPromptOutput(event.target.value)}
+                    placeholder="Set default output format..."
+                    maxLength={3000}
+                  />
+                  <small className={styles.projectPromptHint}>Default response format that will be suggested for all generated outputs.</small>
+                </label>
+              ) : null}
+            </div>
+            {projectPromptError ? <p className={styles.error}>{projectPromptError}</p> : null}
+            <footer className={styles.projectPromptFooter}>
+              <button type="button" onClick={() => setIsProjectPromptSettingsOpen(false)} disabled={isProjectPromptSaving}>
+                Cancel
+              </button>
+              <button type="button" onClick={() => void saveProjectPromptSettings()} disabled={isProjectPromptSaving}>
+                {isProjectPromptSaving ? 'Saving...' : 'Save'}
+              </button>
+            </footer>
+          </section>
+        </>
+      ) : null}
+
+      {isStatusEditorOpen ? (
+        <>
+          <div className={styles.createTaskBackdrop} onClick={() => setIsStatusEditorOpen(false)} />
+          <section className={styles.createTaskModal} role="dialog" aria-modal="true" aria-label="Project status settings">
+            <header className={styles.createTaskHeader}>
+              <div className={styles.createTaskTabs}><span className={styles.createTaskTabActive}>Project statuses</span></div>
+              <button type="button" onClick={() => setIsStatusEditorOpen(false)} aria-label="Close project status settings"><LuX size={17} /></button>
+            </header>
+            <div className={styles.createTaskBody}>
+              {(['not_started', 'active', 'done', 'closed'] as ProjectStatusCategory[]).map((category) => {
+                const rows = statusDrafts.filter((item) => item.category === category)
+                return (
+                  <div key={category} className={styles.drawerSection}>
+                    <h4>{category === 'not_started' ? 'Not started' : category === 'active' ? 'Active' : category === 'done' ? 'Done' : 'Closed'}</h4>
+                    <Stack gap={2}>
+                      {rows.map((status) => (
+                        <div key={status.id} className={styles.subtaskRow}>
+                          <input
+                            className={styles.subtaskInlineInput}
+                            value={status.name}
+                            onChange={(event) => updateStatusDraft(status.id, { name: event.target.value })}
+                          />
+                          <input
+                            type="color"
+                            value={status.color}
+                            onChange={(event) => updateStatusDraft(status.id, { color: event.target.value })}
+                            aria-label={`${status.name} color`}
+                          />
+                          <input
+                            className={styles.subtaskInlineInput}
+                            value={status.color}
+                            onChange={(event) => updateStatusDraft(status.id, { color: event.target.value })}
+                          />
+                          {category === 'active' ? (
+                            <button type="button" className={styles.iconBtn} onClick={() => removeStatusDraft(status)} aria-label={`Remove ${status.name}`}>
+                              <LuTrash2 size={15} />
+                            </button>
+                          ) : null}
+                        </div>
+                      ))}
+                    </Stack>
+                    {category === 'active' ? (
+                      <button type="button" className={styles.subtaskAddButton} onClick={addActiveStatus}>
+                        <LuPlus size={15} />
+                        Add active status
+                      </button>
+                    ) : null}
+                  </div>
+                )
+              })}
+              {Object.keys(statusMapping).length > 0 ? (
+                <div className={styles.drawerSection}>
+                  <h4>Status migration mapping</h4>
+                  {Object.entries(statusMapping).map(([sourceId, targetId]) => {
+                    const source = projectStatuses.find((item) => item.id === sourceId)
+                    return (
+                      <div key={sourceId} className={styles.subtaskRow}>
+                        <span>{source?.name ?? sourceId}</span>
+                        <AppSelect
+                          mode="single"
+                          variant="borderless"
+                          value={{
+                            value: targetId,
+                            label: statusDrafts.find((item) => item.id === targetId)?.name ?? 'Select target'
+                          }}
+                          options={statusDrafts.map((item) => ({ value: item.id, label: item.name, color: item.color }))}
+                          onChange={(option) => {
+                            if (!Array.isArray(option) && option?.value) {
+                              setStatusMapping((current) => ({ ...current, [sourceId]: option.value }))
+                            }
+                          }}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : null}
+            </div>
+            <footer className={styles.createTaskFooter}>
+              <span>Removing a status requires mapping old tasks and subtasks to a remaining status.</span>
+              <button type="button" onClick={() => void saveProjectStatuses()}>Save statuses</button>
+            </footer>
+          </section>
+        </>
+      ) : null}
 
       {selectedTask ? (
         <>
@@ -1586,7 +1705,9 @@ export function ProjectDetailPage() {
                   <div className={styles.metaGrid}>
                     <div className={styles.metaCell}>
                       <span className={styles.metaLabel}>Status</span>
-                      <span className={styles.metaValue}>{detailViewMode === 'task' ? 'Open' : (selectedSubtask?.status ?? 'pending')}</span>
+                      <span className={styles.metaValue}>
+                        {resolveColumnByStatus(detailViewMode === 'task' ? selectedTask.status : (selectedSubtask?.status ?? defaultStatus)).title}
+                      </span>
                     </div>
                     <div className={styles.metaCell}>
                       <span className={styles.metaLabel}>Agent</span>
@@ -1715,19 +1836,21 @@ export function ProjectDetailPage() {
                       <div className={styles.subtaskDetailGrid}>
                         <div className={styles.subtaskField}>
                           <span className={styles.metaLabel}>Status</span>
-                          <Form.Select
-                            value={selectedSubtask.status}
-                            onChange={(event) => {
-                              void invokeBridge<TaskSubtask>(IPC_CHANNELS.tasks.subtasksUpdate, {
-                                actorToken: token,
-                                id: selectedSubtask.id,
-                                status: event.target.value as TaskSubtask['status']
-                              }).then(() => refresh())
+                          <AppSelect
+                            mode="single"
+                            variant="borderless"
+                            value={{
+                              value: selectedSubtask.status,
+                              label: resolveColumnByStatus(selectedSubtask.status).title,
+                              color: resolveColumnByStatus(selectedSubtask.status).accent
                             }}
-                          >
-                            <option value="pending">pending</option>
-                            <option value="completed">completed</option>
-                          </Form.Select>
+                            options={statusColumns.map((column) => ({ value: column.status, label: column.title, color: column.accent }))}
+                            onChange={(option) => {
+                              if (!Array.isArray(option) && option?.value) {
+                                void updateSubtaskStatus(selectedSubtask, option.value as TaskSubtask['status'])
+                              }
+                            }}
+                          />
                         </div>
                         <div className={styles.subtaskField}>
                           <span className={styles.metaLabel}>Due</span>
@@ -1740,7 +1863,12 @@ export function ProjectDetailPage() {
                         </div>
                       </div>
                       <div className={styles.subtaskCustomFields}>
-                        <h4>Custom fields</h4>
+                        <div className={styles.detailSectionHeader}>
+                          <div>
+                            <h4>Custom fields</h4>
+                            <p>{assignedSubtaskCustomFieldValues.length} assigned</p>
+                          </div>
+                        </div>
                         <div className={styles.customFieldPanel}>
                           {customFieldError ? <p className={styles.customFieldError}>{customFieldError}</p> : null}
                           <div className={styles.customFieldAddRow}>
@@ -1763,7 +1891,10 @@ export function ProjectDetailPage() {
                             if (!field) return null
                             return (
                               <div className={styles.customFieldEditor}>
-                                <span className={`${styles.customFieldType} ${styles[`customFieldType_${field.type}`]}`}>{field.type}</span>
+                                <div className={styles.customFieldEditorHead}>
+                                  <span>Add field value</span>
+                                  <span className={`${styles.customFieldType} ${styles[`customFieldType_${field.type}`]}`}>{field.type}</span>
+                                </div>
                                 {field.type === 'boolean' ? (
                                   <select value={customFieldDraft || 'false'} onChange={(event) => setCustomFieldDraft(event.target.value)}>
                                     <option value="true">True</option>
@@ -1798,7 +1929,10 @@ export function ProjectDetailPage() {
                               {assignedSubtaskCustomFieldValues.map(({ field, value }) => (
                                 <div key={field.id} className={styles.customFieldRow}>
                                   <div className={styles.customFieldInfo}>
-                                    <span className={styles.customFieldName}>{field.name}</span>
+                                    <div>
+                                      <span className={styles.customFieldName}>{field.name}</span>
+                                      {field.description ? <p>{field.description}</p> : null}
+                                    </div>
                                     <span className={`${styles.customFieldType} ${styles[`customFieldType_${field.type}`]}`}>{field.type}</span>
                                   </div>
                                   {editingCustomFieldId === field.id ? (
@@ -1879,31 +2013,37 @@ export function ProjectDetailPage() {
                         >
                           Custom fields
                         </button>
+                        <button
+                          type="button"
+                          className={detailTab === 'checklist' ? styles.tabActive : styles.tabBtn}
+                          onClick={() => setDetailTab('checklist')}
+                        >
+                          Checklist
+                        </button>
                       </div>
                       {detailTab === 'subtasks' ? (
                         <>
                           <h4>Subtasks</h4>
                           <div className={styles.subtaskToolbar}>
-                            <span>{selectedSubtaskIds.length} selected</span>
-                            {selectedSubtaskIds.length > 0 ? (
-                              <button
-                                type="button"
-                                className={styles.bulkRemoveBtn}
-                                title="Delete selected subtasks"
-                                aria-label="Delete selected subtasks"
-                                onClick={() => void removeSelectedSubtasks()}
-                              >
-                                <LuTrash2 size={15} />
+                            <span>{(selectedTask.subtasks ?? []).filter((item) => completedStatusIds.has(item.status)).length} completed</span>
+                            <div className={styles.subtaskToolbarActions}>
+                              <button type="button" className={styles.subtaskAddButton} onClick={() => setIsAddSubtaskOpen(true)}>
+                                <LuPlus size={15} />
+                                Add subtask
                               </button>
-                            ) : null}
+                              {selectedSubtaskIds.length > 0 ? (
+                                <button
+                                  type="button"
+                                  className={styles.bulkRemoveBtn}
+                                  title="Delete selected subtasks"
+                                  aria-label="Delete selected subtasks"
+                                  onClick={() => void removeSelectedSubtasks()}
+                                >
+                                  <LuTrash2 size={15} />
+                                </button>
+                              ) : null}
+                            </div>
                           </div>
-                          <form onSubmit={addSubtask} className={styles.subtaskForm}>
-                            <input
-                              value={newSubtaskTitle}
-                              onChange={(event) => setNewSubtaskTitle(event.target.value)}
-                              placeholder="Add subtask..."
-                            />
-                          </form>
                           <Stack gap={2}>
                             {(selectedTask.subtasks ?? []).map((subtask) => (
                               <div
@@ -1922,12 +2062,56 @@ export function ProjectDetailPage() {
                                   }
                                 }}
                               >
-                                <input
-                                  type="checkbox"
-                                  className={styles.subtaskSelectBox}
-                                  checked={selectedSubtaskIds.includes(subtask.id)}
-                                  onChange={() => toggleSubtaskSelection(subtask.id)}
-                                />
+                                <button
+                                  type="button"
+                                  className={`${styles.subtaskStatusToggle} ${completedStatusIds.has(subtask.status) ? styles.subtaskStatusDone : ''}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    const rect = event.currentTarget.getBoundingClientRect()
+                                    setSubtaskStatusMenu((current) => current?.subtaskId === subtask.id
+                                      ? null
+                                      : { subtaskId: subtask.id, left: rect.left, top: rect.bottom + 6 })
+                                  }}
+                                  aria-haspopup="listbox"
+                                  aria-expanded={subtaskStatusMenu?.subtaskId === subtask.id}
+                                  aria-label="Change subtask status"
+                                  title="Change subtask status"
+                                >
+                                  <span />
+                                  {resolveColumnByStatus(subtask.status).title}
+                                  <LuChevronDown size={13} />
+                                </button>
+                                {subtaskStatusMenu?.subtaskId === subtask.id ? (
+                                  <div
+                                    ref={subtaskStatusMenuRef}
+                                    className={styles.subtaskStatusMenu}
+                                    role="listbox"
+                                    style={{ left: subtaskStatusMenu.left, top: subtaskStatusMenu.top } as CSSProperties}
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    {statusColumns.map((option) => {
+                                      const active = option.status === subtask.status
+                                      return (
+                                        <button
+                                          key={option.status}
+                                          type="button"
+                                          className={styles.subtaskStatusMenuItem}
+                                          style={{ '--status-accent': option.accent } as CSSProperties}
+                                          role="option"
+                                          aria-selected={active}
+                                          onClick={() => {
+                                            setSubtaskStatusMenu(null)
+                                            void updateSubtaskStatus(subtask, option.status)
+                                          }}
+                                        >
+                                          <span className={styles.tableStatusMenuDot} />
+                                          <span>{option.title}</span>
+                                          {active ? <LuCheck size={14} /> : null}
+                                        </button>
+                                      )
+                                    })}
+                                  </div>
+                                ) : null}
                                 <label>
                                   {editingSubtaskId === subtask.id ? (
                                     <input
@@ -1959,7 +2143,6 @@ export function ProjectDetailPage() {
                                     </span>
                                   )}
                                 </label>
-                                <span className={styles.subtaskMetaBadge}>{subtask.status}</span>
                                 <span className={styles.subtaskMetaBadge}>{resolveSubtaskAgentName(subtask)}</span>
                                 <span className={styles.subtaskMetaBadge}>
                                   {getSubtaskDueAt(subtask) ? formatDate(getSubtaskDueAt(subtask) as number) : 'No due'}
@@ -1978,9 +2161,14 @@ export function ProjectDetailPage() {
                             ))}
                           </Stack>
                         </>
-                      ) : (
+                      ) : detailTab === 'customFields' ? (
                         <>
-                          <h4>Custom fields</h4>
+                          <div className={styles.detailSectionHeader}>
+                            <div>
+                              <h4>Custom fields</h4>
+                              <p>{assignedCustomFieldValues.length} assigned</p>
+                            </div>
+                          </div>
                           <div className={styles.customFieldPanel}>
                             {customFieldError ? <p className={styles.customFieldError}>{customFieldError}</p> : null}
                             <div className={styles.customFieldAddRow}>
@@ -2003,7 +2191,10 @@ export function ProjectDetailPage() {
                               if (!field) return null
                               return (
                                 <div className={styles.customFieldEditor}>
-                                  <span className={`${styles.customFieldType} ${styles[`customFieldType_${field.type}`]}`}>{field.type}</span>
+                                  <div className={styles.customFieldEditorHead}>
+                                    <span>Add field value</span>
+                                    <span className={`${styles.customFieldType} ${styles[`customFieldType_${field.type}`]}`}>{field.type}</span>
+                                  </div>
                                   {field.type === 'boolean' ? (
                                     <select value={customFieldDraft || 'false'} onChange={(event) => setCustomFieldDraft(event.target.value)}>
                                       <option value="true">True</option>
@@ -2038,7 +2229,10 @@ export function ProjectDetailPage() {
                                 {assignedCustomFieldValues.map(({ field, value }) => (
                                   <div key={field.id} className={styles.customFieldRow}>
                                     <div className={styles.customFieldInfo}>
-                                      <span className={styles.customFieldName}>{field.name}</span>
+                                      <div>
+                                        <span className={styles.customFieldName}>{field.name}</span>
+                                        {field.description ? <p>{field.description}</p> : null}
+                                      </div>
                                       <span className={`${styles.customFieldType} ${styles[`customFieldType_${field.type}`]}`}>{field.type}</span>
                                     </div>
                                     {editingCustomFieldId === field.id ? (
@@ -2098,6 +2292,60 @@ export function ProjectDetailPage() {
                               </div>
                             ) : (
                               <p className={styles.customFieldEmpty}>No custom fields on this task.</p>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className={styles.detailSectionHeader}>
+                            <div>
+                              <h4>Checklist</h4>
+                              <p>
+                                {(selectedTask.checklistItems ?? []).filter((item) => item.checked).length} checked /{' '}
+                                {(selectedTask.checklistItems ?? []).length} total
+                              </p>
+                            </div>
+                          </div>
+                          <div className={styles.checklistPanel}>
+                            <div className={styles.checklistProgress}>
+                              <span
+                                style={{
+                                  width: `${(selectedTask.checklistItems ?? []).length > 0
+                                    ? Math.round((((selectedTask.checklistItems ?? []).filter((item) => item.checked).length) / (selectedTask.checklistItems ?? []).length) * 100)
+                                    : 0}%`
+                                }}
+                              />
+                            </div>
+                            <div className={styles.checklistAddRow}>
+                              <input
+                                value={checklistDraft}
+                                onChange={(event) => setChecklistDraft(event.target.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') {
+                                    event.preventDefault()
+                                    void addChecklistItem()
+                                  }
+                                }}
+                                placeholder="Add checklist item..."
+                              />
+                              <button type="button" onClick={() => void addChecklistItem()} disabled={!checklistDraft.trim()} aria-label="Add checklist item">
+                                <LuPlus size={15} />
+                              </button>
+                            </div>
+                            {(selectedTask.checklistItems ?? []).length > 0 ? (
+                              <div className={styles.checklistList}>
+                                {(selectedTask.checklistItems ?? []).map((item) => (
+                                  <div key={item.id} className={styles.checklistRow}>
+                                    <input type="checkbox" checked={item.checked} onChange={() => void toggleChecklistItem(item.id)} />
+                                    <span className={item.checked ? styles.checklistItemChecked : styles.checklistItemTitle}>{item.title}</span>
+                                    <button type="button" onClick={() => void removeChecklistItem(item.id)} aria-label={`Remove ${item.title}`}>
+                                      <LuTrash2 size={14} />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className={styles.customFieldEmpty}>No checklist items yet.</p>
                             )}
                           </div>
                         </>

@@ -1,6 +1,7 @@
 export const APP_ROUTES = {
   SIGN_IN: '/sign-in',
   PROFILE_SETUP: '/profile-setup',
+  PROFILE: '/profile',
   DASHBOARD: '/dashboard',
   PROJECTS: '/projects',
   PROJECTS_NEW: '/projects/new',
@@ -16,6 +17,8 @@ export const APP_ROUTES = {
   PROJECT_GROUPS_NEW: '/project-groups/new',
   PROJECT_GROUP_DETAIL: '/project-groups/:groupId',
   CUSTOM_FIELDS: '/custom-fields',
+  OUTPUT_FORMATS: '/output-formats',
+  STATUSES: '/statuses',
   TAGS: '/tags',
   TAG_ADD: '/tags/add',
   INVITE: '/invite',

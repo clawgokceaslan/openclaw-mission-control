@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Alert,
@@ -17,7 +17,6 @@ import {
   LuBoxes,
   LuCircle,
   LuInfo,
-  LuListTodo,
   LuTimer,
   LuActivity
 } from 'react-icons/lu'
@@ -293,8 +292,8 @@ export function DashboardPage() {
         <Button variant="outline-secondary" className={styles.refreshBtn} onClick={() => void loadDashboard()}>Refresh</Button>
       </Stack>
 
-      {error ? <Alert variant="danger">{error}</Alert> : null}
-      {loading ? <Alert variant="info">Loading dashboard data...</Alert> : null}
+      {error ? <Alert variant="danger" className={styles.dashboardNotice}>{error}</Alert> : null}
+      {loading ? <Alert variant="info" className={styles.dashboardNotice}>Loading dashboard data...</Alert> : null}
 
       {vm ? (
         <>
@@ -308,7 +307,7 @@ export function DashboardPage() {
           <Row className="g-3 mt-1">
             <Col xl={4}>
               <Card className={styles.panelCard}>
-                <Card.Body>
+                <Card.Body className={styles.panelBody}>
                   <h2 className={styles.sectionTitle}>Workload</h2>
                   <StatRows rows={[
                     { label: 'Total work items', value: vm.workloadTotal },
@@ -322,7 +321,7 @@ export function DashboardPage() {
             </Col>
             <Col xl={4}>
               <Card className={styles.panelCard}>
-                <Card.Body>
+                <Card.Body className={styles.panelBody}>
                   <Stack direction="horizontal" className={styles.sectionHead}>
                     <h2 className={styles.sectionTitle}>Throughput</h2>
                     <LuInfo size={14} className={styles.infoIcon} />
@@ -339,7 +338,7 @@ export function DashboardPage() {
             </Col>
             <Col xl={4}>
               <Card className={styles.panelCard}>
-                <Card.Body>
+                <Card.Body className={styles.panelBody}>
                   <Stack direction="horizontal" className={styles.sectionHead}>
                     <h2 className={styles.sectionTitle}>Gateway Health</h2>
                     <Badge bg="success" className={styles.healthBadge}>{vm.gatewayUnavailable > 0 ? 'Issues detected' : 'All connected'}</Badge>
@@ -359,7 +358,7 @@ export function DashboardPage() {
           <Row className="g-3 mt-1">
             <Col xl={6}>
               <Card className={styles.panelCard}>
-                <Card.Body>
+                <Card.Body className={styles.panelBody}>
                   <Stack direction="horizontal" className={styles.sectionHead}>
                     <h2 className={styles.sectionTitle}>Sessions</h2>
                     <span className={styles.mutedCount}>{vm.sessions.length}</span>
@@ -383,7 +382,7 @@ export function DashboardPage() {
             </Col>
             <Col xl={6}>
               <Card className={styles.panelCard}>
-                <Card.Body>
+                <Card.Body className={styles.panelBody}>
                   <Stack direction="horizontal" className={styles.sectionHead}>
                     <h2 className={styles.sectionTitle}>Recent Activity</h2>
                     <Link className={styles.inlineLink} to={APP_ROUTES.ACTIVITY}>Open feed <LuArrowUpRight size={13} /></Link>
@@ -409,7 +408,7 @@ export function DashboardPage() {
         </>
       ) : null}
 
-      {!vm && !loading ? <Alert variant="warning">Dashboard data is unavailable.</Alert> : null}
+      {!vm && !loading ? <Alert variant="warning" className={styles.dashboardNotice}>Dashboard data is unavailable.</Alert> : null}
     </Container>
   )
 }

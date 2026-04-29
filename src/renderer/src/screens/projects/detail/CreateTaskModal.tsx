@@ -2,7 +2,8 @@ import { FormEvent, useEffect, useState } from 'react'
 import { LuCalendarPlus, LuFlag, LuTag, LuUserPlus, LuX } from 'react-icons/lu'
 import type { Agent, Project, Tag, TaskEntity } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
-import { PROJECT_STATUS_OPTIONS } from './status'
+import type { ProjectStatusColumn } from './status'
+import { statusOptionsFromColumns } from './status'
 import styles from '../ProjectDetailPage.module.scss'
 
 interface CreateTaskModalProps {
@@ -10,13 +11,14 @@ interface CreateTaskModalProps {
   project: Project
   tags: Tag[]
   agents: Agent[]
+  statusColumns: ProjectStatusColumn[]
   defaultStatus: TaskEntity['status']
   busy: boolean
   onClose: () => void
   onCreate: (input: { title: string; description: string; status: TaskEntity['status']; tagIds: string[]; agentId?: string | null }) => void
 }
 
-export function CreateTaskModal({ open, project, tags, agents, defaultStatus, busy, onClose, onCreate }: CreateTaskModalProps) {
+export function CreateTaskModal({ open, project, tags, agents, statusColumns, defaultStatus, busy, onClose, onCreate }: CreateTaskModalProps) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [status, setStatus] = useState<TaskEntity['status']>(defaultStatus)
@@ -36,6 +38,7 @@ export function CreateTaskModal({ open, project, tags, agents, defaultStatus, bu
 
   const tagOptions = tags.map((tag) => ({ label: tag.name, value: tag.id, color: tag.color }))
   const agentOptions = agents.map((agent) => ({ label: agent.name, value: agent.id }))
+  const statusOptions = statusOptionsFromColumns(statusColumns)
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -63,8 +66,8 @@ export function CreateTaskModal({ open, project, tags, agents, defaultStatus, bu
               <AppSelect
                 mode="single"
                 variant="borderless"
-                options={PROJECT_STATUS_OPTIONS}
-                value={PROJECT_STATUS_OPTIONS.find((option) => option.value === status) ?? null}
+                options={statusOptions}
+                value={statusOptions.find((option) => option.value === status) ?? statusOptions[0] ?? null}
                 onChange={(option) => {
                   if (!Array.isArray(option) && option?.value) setStatus(option.value as TaskEntity['status'])
                 }}

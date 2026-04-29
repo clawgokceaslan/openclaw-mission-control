@@ -1,5 +1,7 @@
+import { Link } from 'react-router-dom'
 import { Navbar, Container, Dropdown } from 'react-bootstrap'
 import { LuBriefcase } from 'react-icons/lu'
+import { APP_ROUTES } from '@shared/constants/ui-routes'
 import type { User } from '@shared/types/entities'
 import styles from '@renderer/App.module.scss'
 
@@ -36,13 +38,13 @@ export function TopHeader({ user }: { user: User | null }) {
           </Dropdown.Menu>
         </Dropdown>
 
-        <div className={styles.userArea}>
+        <Link className={styles.userArea} to={APP_ROUTES.PROFILE} aria-label="Open profile">
           <div className={styles.userMeta}>
             <span className={styles.userName}>{userName}</span>
             <span className={styles.userRole}>{user?.role ?? 'operator'}</span>
           </div>
           <div className={styles.userAvatar}>{initials}</div>
-        </div>
+        </Link>
       </Container>
     </Navbar>
   )

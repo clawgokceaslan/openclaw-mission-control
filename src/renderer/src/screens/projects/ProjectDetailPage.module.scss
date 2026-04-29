@@ -1,7 +1,8 @@
 .page {
-  display: grid;
+  min-height: calc(100vh - 108px);
+  display: flex;
+  flex-direction: column;
   gap: 14px;
-  align-content: start;
 }
 
 .header {
@@ -168,9 +169,12 @@
 }
 
 .kanbanWrap {
+  flex: 1 1 auto;
+  min-height: 0;
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(300px, 340px);
+  align-items: stretch;
   gap: 12px;
   overflow-x: auto;
   overflow-y: hidden;
@@ -185,8 +189,8 @@
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--column-accent) 8%, #fff) 0%, #fff 38%),
     #fff;
-  min-height: 520px;
-  max-height: calc(100vh - 210px);
+  min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1380,19 +1384,6 @@
   font-weight: 700;
 }
 
-.subtaskForm {
-  display: flex;
-  gap: 8px;
-
-  input {
-    flex: 1 1 auto;
-    border: 1px solid var(--omc-border);
-    border-radius: 10px;
-    min-height: 38px;
-    padding: 0 10px;
-  }
-}
-
 .subtaskToolbar {
   margin-bottom: 8px;
   display: flex;
@@ -1400,6 +1391,32 @@
   justify-content: space-between;
   color: #7b8fad;
   font-size: 0.8rem;
+}
+
+.subtaskToolbarActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.subtaskAddButton {
+  border: 1px solid #d7dfec;
+  border-radius: 9px;
+  min-height: 30px;
+  padding: 0 10px;
+  background: #fff;
+  color: #29466f;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 800;
+
+  &:hover {
+    border-color: #2563eb;
+    color: #1d4ed8;
+    background: #f7faff;
+  }
 }
 
 .bulkRemoveBtn {
@@ -1416,6 +1433,89 @@
 
 .subtaskSelectBox {
   margin: 0;
+}
+
+.subtaskStatusToggle {
+  min-width: 68px;
+  min-height: 28px;
+  border: 1px solid #d8e2f0;
+  border-radius: 999px;
+  background: #fff;
+  color: #5f7390;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 0.74rem;
+  font-weight: 850;
+  white-space: nowrap;
+
+  span {
+    width: 9px;
+    height: 9px;
+    border: 2px solid #9aabc2;
+    border-radius: 999px;
+  }
+
+  &:hover {
+    border-color: #2c63e5;
+    color: #1f56d6;
+    background: #f7faff;
+
+    span {
+      border-color: #2c63e5;
+    }
+  }
+}
+
+.subtaskStatusDone {
+  border-color: #bcebd7;
+  background: #ecfff7;
+  color: #0a7a4b;
+
+  span {
+    border-color: #12b976;
+    background: #12b976;
+    box-shadow: inset 0 0 0 2px #ecfff7;
+  }
+}
+
+.subtaskStatusMenu {
+  position: fixed;
+  z-index: 3000;
+  width: 150px;
+  border: 1px solid #d8e3f2;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 34px rgba(19, 35, 58, 0.18);
+  padding: 6px;
+  display: grid;
+  gap: 4px;
+}
+
+.subtaskStatusMenuItem {
+  --status-accent: #8a99b4;
+  min-height: 34px;
+  width: 100%;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #253956;
+  padding: 0 9px;
+  display: grid;
+  grid-template-columns: 10px 1fr 16px;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  font-size: 0.88rem;
+  font-weight: 750;
+  cursor: pointer;
+
+  &:hover,
+  &[aria-selected='true'] {
+    background: color-mix(in srgb, var(--status-accent) 13%, #fff);
+  }
 }
 
 .subtaskMetaBadge {
@@ -1448,6 +1548,100 @@
     gap: 8px;
     flex: 1 1 auto;
   }
+}
+
+.checklistPanel {
+  display: grid;
+  gap: 10px;
+}
+
+.checklistSummary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #7b8fad;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.checklistAddRow {
+  border: 1px solid #e0e8f4;
+  border-radius: 10px;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 1fr 30px;
+  align-items: center;
+  background: #fff;
+  overflow: hidden;
+
+  input {
+    border: 0;
+    outline: 0;
+    min-height: 36px;
+    padding: 0 10px;
+    color: #263a58;
+    font-weight: 600;
+  }
+
+  button {
+    width: 26px;
+    height: 26px;
+    border: 0;
+    border-radius: 8px;
+    background: #2563eb;
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  button:disabled {
+    opacity: 0.45;
+  }
+}
+
+.checklistList {
+  display: grid;
+  gap: 8px;
+}
+
+.checklistRow {
+  border: 1px solid #e4ebf7;
+  border-radius: 8px;
+  padding: 7px 9px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 9px;
+  color: #263a58;
+  font-size: 0.9rem;
+  font-weight: 650;
+
+  input {
+    margin: 0;
+  }
+
+  button {
+    border: 1px solid #d7dfec;
+    border-radius: 8px;
+    width: 28px;
+    height: 28px;
+    background: #fff;
+    color: #536b8f;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+.checklistItemTitle,
+.checklistItemChecked {
+  min-width: 0;
+}
+
+.checklistItemChecked {
+  color: #8c9bb0;
+  text-decoration: line-through;
 }
 
 .subtaskInlineInput {
@@ -1611,9 +1805,31 @@
   gap: 10px;
 }
 
+.detailSectionHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 2px 0 10px;
+
+  h4 {
+    margin: 0;
+    color: #18243a;
+    font-size: 0.92rem;
+    font-weight: 850;
+  }
+
+  p {
+    margin: 3px 0 0;
+    color: #7485a0;
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+}
+
 .customFieldPanel {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .customFieldError {
@@ -1628,15 +1844,19 @@
 }
 
 .customFieldAddRow {
-  max-width: 460px;
+  max-width: 420px;
+  padding: 4px;
+  border: 1px solid #dce6f3;
+  border-radius: 12px;
+  background: #fbfdff;
 }
 
 .customFieldEditor,
 .customFieldEditInline {
-  border: 1px solid #dce6f3;
-  border-radius: 12px;
-  background: #f8fbff;
-  padding: 12px;
+  border: 1px solid #d8e2f0;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fbfdff 0%, #f7faff 100%);
+  padding: 12px 14px;
   display: grid;
   gap: 10px;
 
@@ -1668,6 +1888,19 @@
   }
 }
 
+.customFieldEditorHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+
+  > span:first-child {
+    color: #233652;
+    font-size: 0.82rem;
+    font-weight: 850;
+  }
+}
+
 .customFieldEditorActions {
   display: flex;
   justify-content: flex-end;
@@ -1676,31 +1909,63 @@
 
 .customFieldList {
   display: grid;
-  gap: 8px;
+  gap: 0;
+  border: 1px solid #dde7f3;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
 }
 
 .customFieldRow {
-  border: 1px solid #dfe8f4;
-  border-radius: 12px;
+  border: 0;
+  border-bottom: 1px solid #edf2f8;
+  border-radius: 0;
   background: #fff;
-  padding: 10px 12px;
+  padding: 11px 12px;
   display: grid;
-  grid-template-columns: minmax(160px, 0.85fr) minmax(220px, 1.4fr) auto;
+  grid-template-columns: minmax(180px, 0.95fr) minmax(220px, 1.35fr) auto;
   gap: 12px;
   align-items: center;
+
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  &:hover {
+    background: #fbfdff;
+  }
 }
 
 .customFieldInfo {
   min-width: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 8px;
-  flex-wrap: wrap;
+
+  > div {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+  }
+
+  p {
+    margin: 0;
+    color: #7b8aa2;
+    font-size: 0.76rem;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 .customFieldName {
   color: #1f304a;
   font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .customFieldType {
@@ -1736,14 +2001,16 @@
 
 .customFieldValue {
   margin: 0;
-  max-height: 110px;
+  max-height: 76px;
   border: none;
-  background: transparent;
-  color: #506684;
-  padding: 0;
+  border-radius: 10px;
+  background: #f6f8fc;
+  color: #425775;
+  padding: 8px 10px;
   white-space: pre-wrap;
   overflow: auto;
-  font-size: 0.86rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
 }
 
 .customFieldActions {
@@ -1752,8 +2019,8 @@
   gap: 6px;
 
   button {
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
     border: 1px solid #d9e3f2;
     border-radius: 9px;
     background: #fff;
@@ -1767,12 +2034,134 @@
 .customFieldEmpty {
   margin: 0;
   border: 1px dashed #cfd9e8;
-  border-radius: 12px;
-  background: #f8fafd;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fbfdff 0%, #f7faff 100%);
   color: #637692;
-  padding: 16px;
+  padding: 20px 16px;
   text-align: center;
   font-weight: 700;
+}
+
+.checklistPanel {
+  display: grid;
+  gap: 12px;
+}
+
+.checklistProgress {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf2f8;
+
+  span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #2c63e5 0%, #27c18f 100%);
+    transition: width 160ms ease;
+  }
+}
+
+.checklistAddRow {
+  display: grid;
+  grid-template-columns: 1fr 34px;
+  gap: 8px;
+  align-items: center;
+  padding: 6px;
+  border: 1px solid #dce6f3;
+  border-radius: 13px;
+  background: #fbfdff;
+
+  input {
+    min-height: 32px;
+    border: none;
+    background: transparent;
+    color: #1d2c44;
+    padding: 0 8px;
+    outline: none;
+    font-size: 0.9rem;
+  }
+
+  button {
+    width: 32px;
+    height: 32px;
+    border: 1px solid #d9e3f2;
+    border-radius: 10px;
+    background: #fff;
+    color: #2c63e5;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    &:disabled {
+      opacity: 0.45;
+      color: #8da0bd;
+    }
+  }
+}
+
+.checklistList {
+  display: grid;
+  gap: 0;
+  border: 1px solid #dde7f3;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.checklistRow {
+  display: grid;
+  grid-template-columns: 22px 1fr 30px;
+  gap: 10px;
+  align-items: center;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #edf2f8;
+
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  &:hover {
+    background: #fbfdff;
+  }
+
+  input {
+    width: 15px;
+    height: 15px;
+    accent-color: #2c63e5;
+  }
+
+  button {
+    width: 28px;
+    height: 28px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: #8a9ab2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    &:hover {
+      border-color: #ead3d8;
+      background: #fff5f7;
+      color: #b34254;
+    }
+  }
+}
+
+.checklistItemTitle,
+.checklistItemChecked {
+  min-width: 0;
+  color: #24344d;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.checklistItemChecked {
+  color: #8b9ab0;
+  text-decoration: line-through;
 }
 
 @media (width <= 1400px) {
@@ -1827,6 +2216,30 @@
 
   .modalBody {
     grid-template-columns: 1fr !important;
+  }
+
+  .projectPromptModal {
+    width: min(100vw - 28px, 680px);
+    max-height: min(90vh, 760px);
+  }
+
+  .projectPromptTabs {
+    gap: 14px;
+  }
+
+  .projectPromptBody {
+    padding: 12px 12px 0;
+    gap: 10px;
+  }
+
+  .projectPromptFieldHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .projectPromptField :global(.form-control) {
+    min-height: 220px;
   }
 
   .splitHandle {
@@ -1914,6 +2327,155 @@
   padding: 22px 24px 0;
 }
 
+.projectPromptModal {
+  width: min(820px, calc(100vw - 52px));
+  min-height: 0;
+  max-height: min(84vh, 860px);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  border-color: #d8e2ef;
+  background: #fbfdff;
+  box-shadow: 0 24px 70px rgba(17, 28, 48, 0.24);
+}
+
+.projectPromptModal .createTaskHeader {
+  height: 58px;
+  padding: 0 14px 0 18px;
+  background: #fff;
+}
+
+.projectPromptTabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 4px;
+  border: 1px solid #dce6f3;
+  border-radius: 10px;
+  background: #f4f7fb;
+}
+
+.projectPromptTab {
+  width: auto !important;
+  height: 28px !important;
+  min-width: 82px;
+  border: none !important;
+  border-radius: 7px !important;
+  background: transparent !important;
+  color: #60748f !important;
+  font-size: 0.86rem;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  padding: 0 12px !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+.projectPromptTab:hover {
+  color: #253a58 !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+}
+
+.projectPromptTabActive {
+  color: #182842 !important;
+  background: #fff !important;
+  box-shadow: 0 1px 4px rgba(24, 40, 66, 0.12);
+}
+
+.projectPromptBody {
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.projectPromptFieldHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #223b5f;
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+}
+
+.projectPromptCounter {
+  color: #6d83a0;
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
+.projectPromptField {
+  display: grid;
+  gap: 8px;
+  color: #223b5f;
+  font-size: 0.82rem;
+  font-weight: 700;
+  border: 1px solid #dbe6f2;
+  border-radius: 10px;
+  padding: 12px;
+  background: #fff;
+}
+
+.projectPromptTextarea {
+  line-height: 1.45;
+}
+
+.projectPromptField :global(.form-control) {
+  border: 1px solid #d5e0ef;
+  border-radius: 8px;
+  background: #fff;
+  color: #1f3148;
+  resize: vertical;
+  font-size: 0.9rem;
+  padding: 10px 12px;
+  min-height: 260px;
+  box-shadow: none;
+}
+
+.projectPromptField :global(.form-control:focus) {
+  border-color: #2f6df0;
+  box-shadow: 0 0 0 0.15rem rgba(31, 93, 224, 0.2);
+}
+
+.projectPromptHint {
+  font-size: 0.74rem;
+  color: #6d819f;
+  line-height: 1.35;
+  font-weight: 650;
+}
+
+.projectPromptFooter {
+  border-top: 1px solid #e3ebf6;
+  min-height: 64px;
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  background: #fff;
+
+  button {
+    min-height: 34px;
+    border-radius: 8px;
+    border: 1px solid #d8e2f0;
+    background: #fff;
+    color: #2d4262;
+    padding: 0 14px;
+    font-weight: 760;
+  }
+}
+
+.projectPromptFooter button:last-child {
+  background: #1f5de0;
+  color: #fff;
+  border-color: #1f5de0;
+}
+
 .createTaskContext {
   display: flex;
   gap: 8px;
@@ -1974,6 +2536,29 @@
 
 .createTaskSelectChip {
   min-width: 132px;
+}
+
+.createTaskDateChip {
+  border: 1px solid #dbe5f2;
+  border-radius: 7px;
+  background: #f8fbff;
+  min-height: 30px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #344a66;
+  font-size: 0.82rem;
+  font-weight: 750;
+
+  input {
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    min-width: 120px;
+  }
 }
 
 .createTaskTags {

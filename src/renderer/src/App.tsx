@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from '@renderer/providers/auth/auth-state'
 import { ProtectedRoute } from '@renderer/components/routes/ProtectedRoute'
 import { AppShell } from '@renderer/layout/AppShell'
 import { DashboardPage } from '@renderer/screens/DashboardPage'
+import { ProfilePage } from '@renderer/screens/ProfilePage'
 import { ProfileSetupPage } from '@renderer/screens/ProfileSetupPage'
 import { ProjectsPage } from '@renderer/screens/projects/ProjectsPage'
 import { ProjectNewPage } from '@renderer/screens/projects/ProjectNewPage'
@@ -20,6 +21,8 @@ import { ProjectGroupsPage } from '@renderer/screens/project-groups/ProjectGroup
 import { ProjectGroupNewPage } from '@renderer/screens/project-groups/ProjectGroupNewPage'
 import { ProjectGroupDetailPage } from '@renderer/screens/project-groups/ProjectGroupDetailPage'
 import { CustomFieldsPage } from '@renderer/screens/custom-fields/CustomFieldsPage'
+import { OutputFormatsPage } from '@renderer/screens/output-formats/OutputFormatsPage'
+import { StatusesPage } from '@renderer/screens/statuses/StatusesPage'
 import { TagsPage } from '@renderer/screens/tags/TagsPage'
 import { TagAddPage } from '@renderer/screens/tags/TagAddPage'
 import { ActivityPage } from '@renderer/screens/ActivityPage'
@@ -35,6 +38,7 @@ interface RouteConfig {
 const SIGNED_IN_ROUTES: RouteConfig[] = [
   { path: '/', element: <Navigate to={APP_ROUTES.DASHBOARD} replace /> },
   { path: APP_ROUTES.DASHBOARD, element: <DashboardPage /> },
+  { path: APP_ROUTES.PROFILE, element: <ProfilePage /> },
   { path: APP_ROUTES.PROJECTS, element: <ProjectsPage /> },
   { path: APP_ROUTES.PROJECTS_NEW, element: <ProjectNewPage /> },
   { path: APP_ROUTES.PROJECT_DETAIL, element: <ProjectDetailPage /> },
@@ -49,6 +53,8 @@ const SIGNED_IN_ROUTES: RouteConfig[] = [
   { path: APP_ROUTES.PROJECT_GROUPS_NEW, element: <ProjectGroupNewPage /> },
   { path: APP_ROUTES.PROJECT_GROUP_DETAIL, element: <ProjectGroupDetailPage /> },
   { path: APP_ROUTES.CUSTOM_FIELDS, element: <CustomFieldsPage /> },
+  { path: APP_ROUTES.OUTPUT_FORMATS, element: <OutputFormatsPage /> },
+  { path: APP_ROUTES.STATUSES, element: <StatusesPage /> },
   { path: APP_ROUTES.TAGS, element: <TagsPage /> },
   { path: APP_ROUTES.TAG_ADD, element: <TagAddPage /> },
   { path: APP_ROUTES.ACTIVITY, element: <ActivityPage /> },

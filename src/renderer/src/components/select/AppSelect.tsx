@@ -48,22 +48,24 @@ export function AppSelect(props: AppSelectProps) {
   const Component = props.creatable ? CreatableSelect : Select
   const selectStyles = useMemo<StylesConfig<AppSelectOption, boolean>>(() => ({
     multiValue: (base, state) => {
-      if (!state.data.color) return base
+      const color = state.data.color
+      if (!color) return base
       return {
         ...base,
-        backgroundColor: state.data.color,
+        backgroundColor: color,
         border: '1px solid rgba(20, 37, 62, 0.08)',
         borderRadius: 999,
         boxShadow: 'inset 0 0 0 1px rgba(255, 255, 255, 0.24)',
-        color: readableTextColor(state.data.color),
+        color: readableTextColor(color),
         minHeight: 24
       }
     },
     multiValueLabel: (base, state) => {
-      if (!state.data.color) return base
+      const color = state.data.color
+      if (!color) return base
       return {
         ...base,
-        color: readableTextColor(state.data.color),
+        color: readableTextColor(color),
         fontSize: '0.84rem',
         fontWeight: 760,
         lineHeight: 1,
@@ -71,13 +73,14 @@ export function AppSelect(props: AppSelectProps) {
       }
     },
     multiValueRemove: (base, state) => {
-      if (!state.data.color) return base
+      const color = state.data.color
+      if (!color) return base
       return {
         ...base,
-        color: readableTextColor(state.data.color),
+        color: readableTextColor(color),
         ':hover': {
           backgroundColor: 'rgba(255, 255, 255, 0.22)',
-          color: readableTextColor(state.data.color)
+          color: readableTextColor(color)
         }
       }
     }

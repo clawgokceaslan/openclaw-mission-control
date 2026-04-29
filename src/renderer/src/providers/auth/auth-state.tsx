@@ -16,7 +16,7 @@ interface AuthContextValue {
   token: string | null
   errorMessage: string | null
   login: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>
-  updateProfile: (firstName: string, lastName: string) => Promise<{ ok: boolean; message?: string }>
+  updateProfile: (firstName: string, lastName: string, options?: { email?: string; role?: User['role'] }) => Promise<{ ok: boolean; message?: string }>
   logout: () => Promise<void>
   refresh: () => Promise<void>
 }
@@ -111,11 +111,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { ok: true }
   }
 
-  const updateProfile = async (firstName: string, lastName: string) => {
+  const updateProfile = async (firstName: string, lastName: string, options?: { email?: string; role?: User['role'] }) => {
     const response = await invokeBridge(IPC_CHANNELS.auth.updateProfile, {
       actorToken: token,
       firstName,
-      lastName
+      lastName,
+      email: options?.email,
+      role: options?.role
     })
     if (!response.ok || !response.data) {
       return { ok: false, message: response.error?.message || 'Profile update failed' }

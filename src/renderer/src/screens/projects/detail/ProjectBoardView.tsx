@@ -33,7 +33,7 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
   return (
     <div className={styles.kanbanWrap}>
       {columns.map((column) => {
-        const rows = tasksByStatus[column.status]
+        const rows = tasksByStatus[column.status] ?? []
         return (
           <article
             key={column.key}
@@ -49,7 +49,7 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
                 <strong>{rows.length}</strong>
               </div>
             </header>
-            {column.key === 'review' ? (
+            {column.title.toLowerCase().includes('review') ? (
               <div className={styles.reviewFilters}>
                 <Badge pill bg="dark">All · {rows.length}</Badge>
                 <Badge pill bg="light" text="dark">Lead review · 0</Badge>

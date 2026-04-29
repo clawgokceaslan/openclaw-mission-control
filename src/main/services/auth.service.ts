@@ -9,6 +9,7 @@ import { AuthRepository } from '../../db/repositories/auth-repo.js'
 export class AuthService {
   private readonly bootstrapEmail = 'owner@mission.local'
   private readonly bootstrapPassword = 'changeme'
+  private readonly roles: User['role'][] = ['owner', 'admin', 'member']
   constructor(
     private readonly authRepo: AuthRepository,
     private readonly eventBus?: EventEmitter
@@ -107,22 +108,36 @@ export class AuthService {
   }
 
   async updateProfile(
-    payload: { actorToken?: string; firstName?: string; lastName?: string },
+    payload: { actorToken?: string; firstName?: string; lastName?: string; email?: string; role?: User['role'] },
     _meta?: Record<string, unknown>
   ): Promise<ServiceResponse> {
     const actor = await this.requireActor(payload?.actorToken)
     if (!payload?.firstName?.trim() || !payload.lastName?.trim()) {
       return errorResponse(ErrorCodes.Validation, 'First and last name required')
     }
+    const email = (payload.email ?? actor.user.email).trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return errorResponse(ErrorCodes.Validation, 'Valid email required')
+    }
+    const existing = await this.authRepo.findByEmail(email)
+    if (existing && existing.id !== actor.user.id) {
+      return errorResponse(ErrorCodes.Validation, 'Email is already in use')
+    }
+    const role = payload.role ?? actor.user.role
+    if (!this.roles.includes(role)) {
+      return errorResponse(ErrorCodes.Validation, 'Invalid title')
+    }
 
     const name = `${payload.firstName.trim()} ${payload.lastName.trim()}`
-    await this.authRepo.setName(actor.user.id, name)
+    await this.authRepo.setProfile(actor.user.id, actor.user.organizationId, { name, email, role })
 
     return okResponse({
       ...actor,
       user: {
         ...actor.user,
-        name
+        name,
+        email,
+        role
       }
     })
   }

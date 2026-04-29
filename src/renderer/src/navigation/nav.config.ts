@@ -5,6 +5,7 @@ import {
   LuFolder,
   LuFolderKanban,
   LuLayoutDashboard,
+  LuListTodo,
   LuSettings2,
   LuSparkles,
   LuTags,
@@ -30,8 +31,10 @@ export const NAV_BY_GROUP: Record<NavGroupKey, NavItem[]> = {
   Projects: [
     { label: 'Project groups', path: APP_ROUTES.PROJECT_GROUPS, group: 'Projects', icon: LuFolderKanban },
     { label: 'Projects', path: APP_ROUTES.PROJECTS, group: 'Projects', icon: LuFolder },
+    { label: 'Statuses', path: APP_ROUTES.STATUSES, group: 'Projects', icon: LuListTodo },
     { label: 'Tags', path: APP_ROUTES.TAGS, group: 'Projects', icon: LuTags },
-    { label: 'Custom fields', path: APP_ROUTES.CUSTOM_FIELDS, group: 'Projects', icon: LuSettings2 }
+    { label: 'Custom fields', path: APP_ROUTES.CUSTOM_FIELDS, group: 'Projects', icon: LuSettings2 },
+    { label: 'Output formats', path: APP_ROUTES.OUTPUT_FORMATS, group: 'Projects', icon: LuSettings2 }
   ],
   Skills: [
     { label: 'Skills', path: APP_ROUTES.SKILLS, group: 'Skills', icon: LuSparkles }

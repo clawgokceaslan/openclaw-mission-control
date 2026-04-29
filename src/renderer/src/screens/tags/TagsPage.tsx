@@ -37,10 +37,11 @@ function suggestTagColor(seed: string) {
 }
 
 function toFormState(tag?: Tag | null): TagFormState {
+  const name = tag?.name ?? ''
   return {
-    name: tag?.name ?? '',
+    name,
     description: tag?.description ?? '',
-    color: isValidHex((tag?.color ?? '').toUpperCase()) ? (tag?.color as string).toUpperCase() : ''
+    color: isValidHex((tag?.color ?? '').toUpperCase()) ? (tag?.color as string).toUpperCase() : suggestTagColor(name || 'tag')
   }
 }
 
@@ -220,6 +221,7 @@ export function TagsPage() {
             </div>
           </article>
         ))}
+        {items.length === 0 ? <div className={styles.emptyRow}>No tags configured.</div> : null}
       </section>
 
       {isFormModalOpen ? (
@@ -237,7 +239,14 @@ export function TagsPage() {
                 Tag
                 <input
                   value={form.name}
-                  onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+                  onChange={(event) => {
+                    const name = event.target.value
+                    setForm((prev) => ({
+                      ...prev,
+                      name,
+                      color: editingTag ? prev.color : suggestTagColor(name || 'tag')
+                    }))
+                  }}
                   placeholder="e.g. Research"
                   autoFocus
                 />

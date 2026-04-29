@@ -16,8 +16,8 @@ interface ProjectTableViewProps {
   onReorder: (sourceTaskId: string, targetTaskId: string) => void
 }
 
-function StatusPill({ status }: { status: TaskEntity['status'] }) {
-  const column = resolveProjectStatusColumn(status)
+function StatusPill({ status, columns }: { status: TaskEntity['status']; columns: ProjectStatusColumn[] }) {
+  const column = resolveProjectStatusColumn(status, columns)
   return (
     <span className={styles.tableStatusPill} style={{ '--status-accent': column.accent } as CSSProperties}>
       <span />
@@ -54,7 +54,7 @@ export function ProjectTableView({ tasks, columns, agents, onOpenTask, onOpenCre
           <span /><span>Name</span><span>Assignee</span><span>Status</span><span>Due date</span><span>Tags</span><span>Subtasks</span><span>Priority</span><span>+</span>
         </div>
         {tasks.map((task, index) => {
-          const column = resolveProjectStatusColumn(task.status)
+          const column = resolveProjectStatusColumn(task.status, columns)
           return (
             <div
               key={task.id}
@@ -112,7 +112,7 @@ export function ProjectTableView({ tasks, columns, agents, onOpenTask, onOpenCre
                   }}
                 >
                   {columns.map((option) => (
-                    option.status === task.status ? <StatusPill key={option.status} status={task.status} /> : null
+                    option.status === task.status ? <StatusPill key={option.status} status={task.status} columns={columns} /> : null
                   ))}
                   <LuChevronDown size={14} />
                 </button>

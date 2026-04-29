@@ -2,6 +2,7 @@ import { BaseRepository } from './base-repo.js'
 import { randomUUID } from 'node:crypto'
 import { SqliteAdapter } from '../adapter/sqlite.js'
 import type { Skill, Tag, TaskComment, TaskEntity, TaskSubtask } from '../../shared/types/entities.js'
+import { resolveTagColor } from './tag-color.js'
 
 type TaskPayload = Record<string, unknown> & {
   description?: string
@@ -296,18 +297,20 @@ export class TaskTagRepository extends BaseRepository<Tag> {
   async listTaskTags(taskId: string): Promise<Tag[]> {
     const rows = await this.db
       .prepare(
-        `SELECT t.id, t.organization_id, t.name, t.color
+        `SELECT t.id, t.organization_id, t.name, t.color, t.description, t.updated_at, t.created_at
          FROM task_tags tt
          INNER JOIN tags t ON t.id = tt.tag_id
          WHERE tt.task_id = @taskId
          ORDER BY t.name ASC`
       )
-      .all({ taskId }) as Array<{ id: string; organization_id: string; name: string; color?: string }>
+      .all({ taskId }) as Array<{ id: string; organization_id: string; name: string; color?: string; description?: string; updated_at?: number; created_at?: number }>
     return rows.map((row) => ({
       id: row.id,
       organizationId: row.organization_id,
       name: row.name,
-      color: row.color
+      color: resolveTagColor(row.color, row.name),
+      description: row.description,
+      updatedAt: row.updated_at ?? row.created_at
     }))
   }
 
@@ -320,13 +323,13 @@ export class TaskTagRepository extends BaseRepository<Tag> {
     }, {})
     const rows = await this.db
       .prepare(
-        `SELECT tt.task_id, t.id, t.organization_id, t.name, t.color
+        `SELECT tt.task_id, t.id, t.organization_id, t.name, t.color, t.description, t.updated_at, t.created_at
          FROM task_tags tt
          INNER JOIN tags t ON t.id = tt.tag_id
          WHERE tt.task_id IN (${placeholders})
          ORDER BY tt.task_id ASC, t.name ASC`
       )
-      .all(params) as Array<{ task_id: string; id: string; organization_id: string; name: string; color?: string }>
+      .all(params) as Array<{ task_id: string; id: string; organization_id: string; name: string; color?: string; description?: string; updated_at?: number; created_at?: number }>
 
     const byTaskId: Record<string, Tag[]> = {}
     for (const row of rows) {
@@ -335,7 +338,9 @@ export class TaskTagRepository extends BaseRepository<Tag> {
         id: row.id,
         organizationId: row.organization_id,
         name: row.name,
-        color: row.color
+        color: resolveTagColor(row.color, row.name),
+        description: row.description,
+        updatedAt: row.updated_at ?? row.created_at
       })
     }
     return byTaskId

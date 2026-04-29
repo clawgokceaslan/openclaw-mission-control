@@ -32,7 +32,9 @@ function normalizeRequest(rawRequest: unknown): RequestEnvelope {
   if (!rawRequest || typeof rawRequest !== 'object') return {}
 
   const request = rawRequest as Record<string, unknown>
-  const body = request.payload === undefined ? request : request.payload
+  const envelopeKeys = new Set(['requestId', 'correlationId', 'actorToken', 'meta', 'payload'])
+  const isPlainEnvelope = request.payload !== undefined && Object.keys(request).every((key) => envelopeKeys.has(key))
+  const body = isPlainEnvelope ? request.payload : request
 
   return {
     ...(request as RequestEnvelope),

@@ -2,6 +2,7 @@ import { AppError } from '../../shared/errors/index.js'
 import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
 import { Project } from '../../shared/types/entities.js'
+import type { UpdateProjectRequest } from '../../shared/contracts/ipc.js'
 import { AuthService } from './auth.service.js'
 import { ProjectRepository } from '../../db/repositories/project-repo.js'
 
@@ -41,7 +42,7 @@ export class ProjectService {
     return okResponse(created)
   }
 
-  async update(payload: { actorToken?: string; id?: string; name?: string; description?: string; archived?: boolean }, _meta?: Record<string, unknown>): Promise<ServiceResponse<Project>> {
+  async update(payload: UpdateProjectRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<Project>> {
     const actor = await this.auth.requireActor(payload?.actorToken)
     if (!payload?.id) return errorResponse(ErrorCodes.Validation, 'Project id required')
     const current = await this.repo.get(payload.id)
