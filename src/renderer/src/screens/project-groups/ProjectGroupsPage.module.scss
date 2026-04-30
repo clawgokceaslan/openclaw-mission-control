@@ -5,37 +5,42 @@
 }
 
 .header {
-  min-height: 88px;
-  margin: -22px -30px 0;
-  padding: 16px 30px;
+  margin: -22px -30px 14px;
+  padding: 28px 30px;
   border-bottom: 1px solid var(--omc-border);
+  background: var(--omc-surface);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 18px;
 }
 
 .title {
   margin: 0;
   font-size: 2.05rem;
   line-height: 1.1;
-  color: #1a2438;
+  color: var(--omc-text-strong);
   font-weight: 800;
 }
 
 .subtitle {
   margin: 6px 0 0;
-  color: #647896;
+  color: var(--omc-text-muted);
   font-size: 1rem;
 }
 
 .createButton {
   border: none !important;
-  border-radius: 14px !important;
+  border-radius: 11px !important;
   background: var(--omc-primary) !important;
-  min-width: 124px;
-  min-height: 44px;
-  font-weight: 700 !important;
+  color: var(--omc-inverse-text) !important;
+  min-height: 40px;
+  padding: 0 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 800 !important;
 }
 
 .notice {
@@ -43,78 +48,183 @@
 }
 
 .tableCard {
-  border: 1px solid var(--omc-border) !important;
+  border: 1px solid var(--omc-border-subtle);
   border-radius: 14px !important;
-  box-shadow: var(--omc-shadow);
+  background: var(--omc-surface) !important;
+  color: var(--omc-text) !important;
+  box-shadow: var(--omc-shadow-soft);
   overflow: hidden;
 }
 
-.table {
-  margin: 0 !important;
+.tableHead,
+.tableRow {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.4fr) 130px minmax(210px, 1fr) 120px;
+  gap: 16px;
+  align-items: center;
+}
 
-  th {
-    color: #62789a;
-    font-size: 0.9rem;
-    letter-spacing: 0.02em;
-    background: #f8faff;
-    border-bottom: 1px solid var(--omc-border);
-    padding: 12px 24px;
+.tableHead {
+  min-height: 44px;
+  background: var(--omc-surface-muted);
+  color: var(--omc-text-muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 0 24px;
+}
+
+.tableRow {
+  min-height: 68px;
+  border-top: 1px solid var(--omc-border-subtle);
+  color: var(--omc-text);
+  padding: 10px 24px;
+
+  > span {
+    min-width: 0;
   }
 
-  td {
-    padding: 14px 24px;
-    border-bottom: 1px solid var(--omc-border);
-    vertical-align: middle;
+  strong {
+    color: var(--omc-text-strong);
+    font-size: 1rem;
+    font-weight: 850;
   }
 
-  tr:last-child td {
-    border-bottom: none;
+  small {
+    display: block;
+    margin-top: 3px;
+    color: var(--omc-text-muted);
+    font-size: 0.88rem;
+    font-weight: 650;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 
-.actionCol {
-  width: 88px;
+.groupNameLink,
+.backLink {
+  color: var(--omc-text-strong);
+  font-weight: 850;
+  text-decoration: none;
 }
 
-.actionCell {
-  text-align: right;
+.backLink {
+  margin-bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--omc-text-muted);
+  font-size: 0.86rem;
 }
 
-.groupName {
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: #1e2a3f;
+.detailStats {
+  min-height: 58px;
+  border-bottom: 1px solid var(--omc-border-subtle);
+  padding: 0 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+
+  span {
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 999px;
+    background: var(--omc-surface-muted);
+    color: var(--omc-text-muted);
+    padding: 6px 10px;
+    font-weight: 750;
+  }
+
+  strong {
+    color: var(--omc-text-strong);
+  }
 }
 
-.groupDescription {
-  margin-top: 4px;
-  color: #6a7f9e;
-  font-size: 0.95rem;
+.detailTableHead,
+.detailTableRow {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.4fr) 130px minmax(210px, 1fr) 120px;
+  gap: 16px;
+  align-items: center;
 }
 
+.detailTableHead {
+  min-height: 44px;
+  background: var(--omc-surface-muted);
+  color: var(--omc-text-muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 0 24px;
+}
+
+.detailTableRow {
+  min-height: 68px;
+  border-top: 1px solid var(--omc-border-subtle);
+  padding: 10px 24px;
+
+  > span {
+    min-width: 0;
+  }
+
+  small {
+    display: block;
+    margin-top: 3px;
+    color: var(--omc-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.projectCount,
 .updatedCell {
-  color: #3f526f;
-  font-size: 0.98rem;
+  color: var(--omc-text-muted);
+  font-size: 0.92rem;
+  font-weight: 650;
 }
 
-.textAction {
-  text-decoration: none !important;
-  color: #202e45 !important;
-  font-weight: 700 !important;
-  padding: 0 !important;
+.actionsCell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
-.textActionDanger {
-  text-decoration: none !important;
-  color: #202e45 !important;
-  font-weight: 700 !important;
-  padding: 0 !important;
+.iconButton {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--omc-input-border);
+  border-radius: 10px;
+  background: var(--omc-surface);
+  color: var(--omc-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    background: var(--omc-hover-bg);
+    color: var(--omc-primary);
+  }
+}
+
+.dangerIconButton:hover {
+  border-color: var(--omc-danger-border);
+  background: var(--omc-danger-bg);
+  color: var(--omc-danger);
 }
 
 .emptyRow {
-  text-align: center;
-  color: #6f82a0;
-  padding: 24px !important;
+  min-height: 92px;
+  border-top: 1px solid var(--omc-border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--omc-text-muted);
+  font-weight: 700;
 }
 
 .formCard {
@@ -132,7 +242,7 @@
 
   :global(.form-label) {
     font-size: 1rem;
-    color: #202e45;
+    color: var(--omc-text-strong);
     font-weight: 700;
     margin-bottom: 8px;
   }
@@ -141,7 +251,7 @@
     border-color: var(--omc-border);
     border-radius: 12px;
     min-height: 44px;
-    color: #233048;
+    color: var(--omc-text-strong);
     box-shadow: none !important;
   }
 
@@ -152,7 +262,7 @@
 }
 
 .required {
-  color: #d34957;
+  color: var(--omc-danger);
 }
 
 .projectHeader {
@@ -165,12 +275,12 @@
 .projectLabel {
   margin: 0 !important;
   font-size: 1rem !important;
-  color: #202e45 !important;
+  color: var(--omc-text-strong) !important;
   font-weight: 700 !important;
 }
 
 .selectedCount {
-  color: #667d9d;
+  color: var(--omc-text-muted);
   font-size: 0.98rem;
 }
 
@@ -201,7 +311,7 @@
 }
 
 .projectRowDisabled {
-  background: #f8faff;
+  background: var(--omc-pill-bg);
   cursor: not-allowed;
 }
 
@@ -220,26 +330,41 @@
 }
 
 .projectName {
-  color: #1e2b42;
+  color: var(--omc-text-strong);
   font-size: 1.03rem;
   font-weight: 700;
 }
 
 .projectId {
-  color: #7a8eab;
+  color: var(--omc-text-soft);
   font-size: 0.88rem;
+}
+
+.groupedBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  border: 1px solid var(--omc-warning-border);
+  border-radius: 999px;
+  background: var(--omc-warning-bg);
+  color: var(--omc-warning-text);
+  padding: 0 9px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .emptyProjects {
   min-height: 60px;
   display: grid;
   place-items: center;
-  color: #6f82a0;
+  color: var(--omc-text-muted);
 }
 
 .helpText {
   margin: 10px 0 0;
-  color: #5f7697;
+  color: var(--omc-text-muted);
   font-size: 0.95rem;
 }
 
@@ -256,7 +381,7 @@
 }
 
 .cancelBtn {
-  color: #1e2b42 !important;
+  color: var(--omc-text-strong) !important;
   text-decoration: none !important;
   font-weight: 700 !important;
 }
@@ -273,11 +398,11 @@
 .formFooter {
   border-top: 1px solid var(--omc-border) !important;
   background: transparent !important;
-  color: #6c819f;
+  color: var(--omc-text-muted);
   font-size: 0.96rem;
 
   span {
-    color: #2c57ba;
+    color: var(--omc-primary-strong);
     font-weight: 700;
   }
 }
@@ -289,13 +414,13 @@
 .deleteTitle {
   margin: 0;
   font-size: 2rem;
-  color: #172236;
+  color: var(--omc-text-strong);
   font-weight: 800;
 }
 
 .deleteText {
   margin: 10px 0 0;
-  color: #647896;
+  color: var(--omc-text-muted);
   font-size: 1.04rem;
 }
 

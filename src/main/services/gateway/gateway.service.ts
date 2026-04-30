@@ -13,9 +13,11 @@ import {
 } from '../../../shared/types/entities.js'
 import { AuthService } from '../auth.service.js'
 import { GatewayRepository } from '../../../db/repositories/gateway-repo.js'
+import { AppSettingsRepository } from '../../../db/repositories/workspace-repo.js'
 import { OpenClawGatewayClient, OpenClawGatewayRuntimeRegistry } from './rpc-client.js'
 import { createOpenClawDeviceIdentity } from './device-identity.js'
 import { OPENCLAW_METHODS, isKnownOpenClawMethod } from './method-catalog.js'
+import { ACTIVE_GATEWAY_KEY } from '../app-settings.service.js'
 
 type GatewayWithSessions = Gateway & { sessions?: unknown[] }
 type SendCommandPayload = {
@@ -75,7 +77,8 @@ export class GatewayService {
     private readonly auth: AuthService,
     private readonly repo: GatewayRepository,
     private readonly eventBus: EventEmitter,
-    private readonly runtime: OpenClawGatewayRuntimeRegistry
+    private readonly runtime: OpenClawGatewayRuntimeRegistry,
+    private readonly settings: AppSettingsRepository
   ) {}
 
   async list(payload: { actorToken?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<Gateway[]>> {
@@ -126,6 +129,8 @@ export class GatewayService {
     const gateway = await this.requireGateway(payload?.actorToken, payload?.id)
     if ('ok' in gateway) return gateway
     this.runtime.disconnect(gateway.id)
+    const activeGatewayId = await this.settings.get<string | null>(gateway.organizationId, ACTIVE_GATEWAY_KEY)
+    if (activeGatewayId === gateway.id) await this.settings.set(gateway.organizationId, ACTIVE_GATEWAY_KEY, null)
     await this.repo.remove(gateway.id)
     return okResponse({ id: gateway.id })
   }
@@ -135,19 +140,19 @@ export class GatewayService {
   }
 
   async sessions(payload: { actorToken?: string; gatewayId?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<unknown[]>> {
-    const gateway = await this.requireGateway(payload?.actorToken, payload?.gatewayId)
+    const gateway = await this.resolveGateway(payload?.actorToken, payload?.gatewayId)
     if ('ok' in gateway) return gateway
     return okResponse(await this.repo.sessions(gateway.id))
   }
 
   async commands(payload: { actorToken?: string; gatewayId?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<GatewayCommand[]>> {
-    const gateway = await this.requireGateway(payload?.actorToken, payload?.gatewayId)
+    const gateway = await this.resolveGateway(payload?.actorToken, payload?.gatewayId)
     if ('ok' in gateway) return gateway
     return okResponse(await this.repo.commands(gateway.id))
   }
 
   async commandsHistory(payload: { actorToken?: string; gatewayId?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<GatewayHistoryItem[]>> {
-    const gateway = await this.requireGateway(payload?.actorToken, payload?.gatewayId)
+    const gateway = await this.resolveGateway(payload?.actorToken, payload?.gatewayId)
     if ('ok' in gateway) return gateway
     return okResponse(await this.repo.history(gateway.id))
   }
@@ -158,7 +163,7 @@ export class GatewayService {
   }
 
   async connect(payload: { actorToken?: string; gatewayId?: string }): Promise<ServiceResponse<Gateway>> {
-    const requestedGateway = await this.requireGateway(payload?.actorToken, payload?.gatewayId)
+    const requestedGateway = await this.resolveGateway(payload?.actorToken, payload?.gatewayId)
     if ('ok' in requestedGateway) return requestedGateway
     const gateway = await this.ensureDeviceIdentity(requestedGateway)
     await this.repo.setGatewayStatus(gateway.id, 'connecting')
@@ -213,7 +218,7 @@ export class GatewayService {
   }
 
   async disconnect(payload: { actorToken?: string; gatewayId?: string }): Promise<ServiceResponse<Gateway>> {
-    const gateway = await this.requireGateway(payload?.actorToken, payload?.gatewayId)
+    const gateway = await this.resolveGateway(payload?.actorToken, payload?.gatewayId)
     if ('ok' in gateway) return gateway
     this.runtime.disconnect(gateway.id)
     await this.repo.setGatewayStatus(gateway.id, 'offline')
@@ -224,7 +229,7 @@ export class GatewayService {
   }
 
   async pairDevice(payload: { actorToken?: string; gatewayId?: string }): Promise<ServiceResponse<Gateway>> {
-    const requestedGateway = await this.requireGateway(payload?.actorToken, payload?.gatewayId)
+    const requestedGateway = await this.resolveGateway(payload?.actorToken, payload?.gatewayId)
     if ('ok' in requestedGateway) return requestedGateway
     const gateway = await this.ensureDeviceIdentity(requestedGateway)
     await this.repo.appendHistory(gateway.id, 'openclaw.pairing.requested', {
@@ -269,7 +274,7 @@ export class GatewayService {
   }
 
   async resetPairing(payload: { actorToken?: string; gatewayId?: string }): Promise<ServiceResponse<Gateway>> {
-    const gateway = await this.requireGateway(payload?.actorToken, payload?.gatewayId)
+    const gateway = await this.resolveGateway(payload?.actorToken, payload?.gatewayId)
     if ('ok' in gateway) return gateway
     this.runtime.disconnect(gateway.id)
     const template = { ...((gateway.template ?? {}) as OpenClawGatewayConfig) }
@@ -285,7 +290,7 @@ export class GatewayService {
   }
 
   async testConnection(payload: { actorToken?: string; gatewayId?: string }): Promise<ServiceResponse<OpenClawGatewayTestResult>> {
-    const requestedGateway = await this.requireGateway(payload?.actorToken, payload?.gatewayId)
+    const requestedGateway = await this.resolveGateway(payload?.actorToken, payload?.gatewayId)
     if ('ok' in requestedGateway) return requestedGateway
     const gateway = await this.ensureDeviceIdentity(requestedGateway)
     const client = new OpenClawGatewayClient(gateway)
@@ -309,7 +314,7 @@ export class GatewayService {
   }
 
   async testMessage(payload: { actorToken?: string; gatewayId?: string }): Promise<ServiceResponse<OpenClawGatewayTestResult>> {
-    const requestedGateway = await this.requireGateway(payload?.actorToken, payload?.gatewayId)
+    const requestedGateway = await this.resolveGateway(payload?.actorToken, payload?.gatewayId)
     if ('ok' in requestedGateway) return requestedGateway
     const gateway = await this.ensureDeviceIdentity(requestedGateway)
     const client = new OpenClawGatewayClient(gateway)
@@ -343,7 +348,7 @@ export class GatewayService {
   }
 
   async rpcCall(payload: { actorToken?: string; gatewayId?: string; method?: string; params?: Record<string, unknown>; timeoutMs?: number }): Promise<ServiceResponse<Record<string, unknown>>> {
-    const gateway = await this.requireGateway(payload?.actorToken, payload?.gatewayId)
+    const gateway = await this.resolveGateway(payload?.actorToken, payload?.gatewayId)
     if ('ok' in gateway) return gateway
     if (!payload.method?.trim()) return errorResponse(ErrorCodes.Validation, 'OpenClaw RPC method required')
     const method = payload.method.trim()
@@ -415,7 +420,7 @@ export class GatewayService {
     _meta?: Record<string, unknown>
   ): Promise<ServiceResponse<GatewayCommand>> {
     const normalized = this.normalizeSendCommandPayload(payload)
-    const gateway = await this.requireGateway(normalized.actorToken, normalized.gatewayId)
+    const gateway = await this.resolveGateway(normalized.actorToken, normalized.gatewayId)
     if ('ok' in gateway) return gateway
     if (!normalized.command) return errorResponse(ErrorCodes.Validation, 'Command required')
     const requestId = normalized.requestId ?? randomUUID()
@@ -529,7 +534,7 @@ export class GatewayService {
   }
 
   private async openClawResource(payload: { actorToken?: string; gatewayId?: string }, path: string): Promise<ServiceResponse<unknown[]>> {
-    const gateway = await this.requireGateway(payload?.actorToken, payload?.gatewayId)
+    const gateway = await this.resolveGateway(payload?.actorToken, payload?.gatewayId)
     if ('ok' in gateway) return gateway
     await this.repo.appendHistory(gateway.id, `openclaw.ws-only.${path.replace('/', '')}`, { disabled: true })
     return okResponse([])
@@ -560,6 +565,19 @@ export class GatewayService {
     return gateway
   }
 
+  private async resolveGateway(actorToken: string | undefined, requestedId: string | undefined): Promise<Gateway | ServiceResponse<never>> {
+    if (requestedId) return this.requireGateway(actorToken, requestedId)
+    const actor = await this.auth.requireActor(actorToken)
+    const activeGatewayId = await this.settings.get<string | null>(actor.user.organizationId, ACTIVE_GATEWAY_KEY)
+    if (!activeGatewayId) return errorResponse(ErrorCodes.Validation, 'Active gateway required')
+    const gateway = await this.repo.get(activeGatewayId)
+    if (!gateway || gateway.organizationId !== actor.user.organizationId) {
+      await this.settings.set(actor.user.organizationId, ACTIVE_GATEWAY_KEY, null)
+      return errorResponse(ErrorCodes.NotFound, 'Active gateway not found')
+    }
+    return gateway
+  }
+
   private validateUpsert(payload: UpsertGatewayRequest, creating: boolean, current?: Gateway): ServiceResponse<never> | null {
     if (creating && !payload.name?.trim()) return errorResponse(ErrorCodes.Validation, 'Gateway name required')
     if (creating && !payload.endpoint?.trim()) return errorResponse(ErrorCodes.Validation, 'Gateway WS URL required')
@@ -570,8 +588,8 @@ export class GatewayService {
 
   private async ensureDeviceIdentity(gateway: Gateway): Promise<Gateway> {
     const template = {
-      provider: 'openclaw',
-      ...((gateway.template ?? {}) as OpenClawGatewayConfig)
+      ...((gateway.template ?? {}) as OpenClawGatewayConfig),
+      provider: 'openclaw'
     } as OpenClawGatewayConfig
     if (template.disableDevicePairing || template.authMode === 'control_ui_token') return gateway
     if (template.deviceIdentity?.publicKeyPem && template.deviceIdentity?.privateKeyPem) return gateway

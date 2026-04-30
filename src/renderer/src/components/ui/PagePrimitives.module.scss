@@ -98,27 +98,27 @@
 }
 
 .noticeError {
-  border-color: #f3c3cb;
-  background: #fff1f4;
-  color: #ab2f43;
+  border-color: var(--omc-danger-border);
+  background: var(--omc-danger-bg);
+  color: var(--omc-danger-strong);
 }
 
 .noticeWarn {
-  border-color: #f0dfb1;
-  background: #fff8e8;
-  color: #8f6800;
+  border-color: var(--omc-warning-border);
+  background: var(--omc-warning-bg);
+  color: var(--omc-warning-text);
 }
 
 .noticeInfo {
-  border-color: #c4d9f9;
-  background: #eef4ff;
-  color: #254eaf;
+  border-color: var(--omc-info-border);
+  background: var(--omc-active-bg);
+  color: var(--omc-info-text);
 }
 
 .noticeSuccess {
-  border-color: #bde7d3;
-  background: #edfaf4;
-  color: #0f8755;
+  border-color: var(--omc-success-border);
+  background: var(--omc-success-bg);
+  color: var(--omc-success-text);
 }
 
 .dataTableWrap {
@@ -141,7 +141,7 @@
 
   th {
     background: var(--omc-surface-muted);
-    color: #5d6f92;
+    color: var(--omc-text-muted);
     font-size: 0.84rem;
     font-weight: 700;
     letter-spacing: 0.04em;
@@ -162,7 +162,7 @@
 .primaryBtn {
   border: none;
   background: var(--omc-primary);
-  color: #fff;
+  color: var(--omc-inverse-text);
   border-radius: 12px;
   padding: 10px 14px;
   font-weight: 700;
@@ -174,7 +174,7 @@
 
 .ghostBtn {
   border: 1px solid var(--omc-border);
-  background: #fff;
+  background: var(--omc-surface);
   color: var(--omc-text);
   border-radius: 12px;
   padding: 9px 14px;
@@ -184,7 +184,7 @@
 .textAction {
   border: none;
   background: transparent;
-  color: #1f3f8f;
+  color: var(--omc-link);
   font-weight: 700;
   padding: 0;
   border-radius: 0;

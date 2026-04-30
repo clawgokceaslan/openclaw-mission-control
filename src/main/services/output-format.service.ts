@@ -4,6 +4,12 @@ import type { AgentOutputFormatField, OutputFormat } from '../../shared/types/en
 import { OutputFormatRepository } from '../../db/repositories/output-format-repo.js'
 import { AuthService } from './auth.service.js'
 
+type OutputFormatRole = OutputFormat['formatRole']
+
+function normalizeFormatRole(value: unknown): OutputFormatRole {
+  return value === 'input' ? 'input' : 'output'
+}
+
 function normalizeFields(value: unknown, _path = 'root'): { ok: true; fields: AgentOutputFormatField[] } | { ok: false; error: string } {
   if (!Array.isArray(value)) return { ok: true, fields: [] }
   const fields: AgentOutputFormatField[] = []
@@ -82,23 +88,24 @@ function flattenFieldRows(fields: AgentOutputFormatField[], prefix = ''): Array<
   })
 }
 
-function buildInstructionsMarkdown(input: { name: string; description?: string; fields: AgentOutputFormatField[] }): string {
+function buildInstructionsMarkdown(input: { name: string; description?: string; formatRole?: OutputFormatRole; fields: AgentOutputFormatField[] }): string {
   const rows = flattenFieldRows(input.fields)
+  const role = normalizeFormatRole(input.formatRole)
   const contractRows = rows.length > 0
     ? rows.map(({ path, field, sample }) => `| ${markdownCell(path)} | ${markdownCell(field.valueType ?? 'string')} | ${field.required ? 'yes' : 'no'} | ${markdownCell((field.enumValues ?? []).join(', '))} | ${markdownCell(typeof sample === 'object' ? JSON.stringify(sample) : sample)} | ${markdownCell(field.description)} |`).join('\n')
     : '| - | - | no | - | - | - |'
 
-  return `# Output Format Instructions: ${input.name}
+  return `# ${role === 'input' ? 'Input' : 'Output'} Data Format Instructions: ${input.name}
 
 ## Metadata
 | Field | Value |
 | --- | --- |
 | Name | ${markdownCell(input.name)} |
 | Description | ${markdownCell(input.description)} |
-| Type | output-format |
+| Type | ${role}-data-format |
 
 ## Generation Rules
-- Return only valid data matching the sample file format.
+- ${role === 'input' ? 'Read and validate incoming data matching this format.' : 'Return only valid data matching the sample file format.'}
 - Do not include Markdown fences or explanations.
 - Include all required fields.
 - Use only allowed values for enum fields.
@@ -122,46 +129,52 @@ export class OutputFormatService {
     return okResponse(await this.repo.list(actor.user.organizationId))
   }
 
-  async create(payload: { actorToken?: string; name?: string; description?: string; fields?: AgentOutputFormatField[] }, _meta?: Record<string, unknown>): Promise<ServiceResponse<OutputFormat>> {
+  async create(payload: { actorToken?: string; name?: string; description?: string; formatRole?: OutputFormatRole; fields?: AgentOutputFormatField[] }, _meta?: Record<string, unknown>): Promise<ServiceResponse<OutputFormat>> {
     const actor = await this.auth.requireActor(payload?.actorToken)
-    if (!payload?.name?.trim()) return errorResponse(ErrorCodes.Validation, 'Output format name required')
+    if (!payload?.name?.trim()) return errorResponse(ErrorCodes.Validation, 'Data format name required')
     const normalized = normalizeFields(payload.fields)
     if (!normalized.ok) return errorResponse(ErrorCodes.Validation, normalized.error)
+    const formatRole = normalizeFormatRole(payload.formatRole)
     return okResponse(await this.repo.create(actor.user.organizationId, {
       name: payload.name.trim(),
       description: payload.description?.trim() || undefined,
+      formatRole,
       fields: normalized.fields,
       instructionsMarkdown: buildInstructionsMarkdown({
         name: payload.name.trim(),
         description: payload.description?.trim() || undefined,
+        formatRole,
         fields: normalized.fields
       })
     }))
   }
 
-  async update(payload: { actorToken?: string; id?: string; name?: string; description?: string; fields?: AgentOutputFormatField[] }, _meta?: Record<string, unknown>): Promise<ServiceResponse<OutputFormat>> {
+  async update(payload: { actorToken?: string; id?: string; name?: string; description?: string; formatRole?: OutputFormatRole; fields?: AgentOutputFormatField[] }, _meta?: Record<string, unknown>): Promise<ServiceResponse<OutputFormat>> {
     const actor = await this.auth.requireActor(payload?.actorToken)
-    if (!payload?.id) return errorResponse(ErrorCodes.Validation, 'Output format id required')
-    if (!payload.name?.trim()) return errorResponse(ErrorCodes.Validation, 'Output format name required')
+    if (!payload?.id) return errorResponse(ErrorCodes.Validation, 'Data format id required')
+    if (!payload.name?.trim()) return errorResponse(ErrorCodes.Validation, 'Data format name required')
     const normalized = normalizeFields(payload.fields)
     if (!normalized.ok) return errorResponse(ErrorCodes.Validation, normalized.error)
+    const formatRole = normalizeFormatRole(payload.formatRole)
     const updated = await this.repo.update(actor.user.organizationId, payload.id, {
       name: payload.name.trim(),
       description: payload.description?.trim() || undefined,
+      formatRole,
       fields: normalized.fields,
       instructionsMarkdown: buildInstructionsMarkdown({
         name: payload.name.trim(),
         description: payload.description?.trim() || undefined,
+        formatRole,
         fields: normalized.fields
       })
     })
-    if (!updated) return errorResponse(ErrorCodes.NotFound, 'Output format not found')
+    if (!updated) return errorResponse(ErrorCodes.NotFound, 'Data format not found')
     return okResponse(updated)
   }
 
   async remove(payload: { actorToken?: string; id?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ ok: true }>> {
     const actor = await this.auth.requireActor(payload?.actorToken)
-    if (!payload?.id) return errorResponse(ErrorCodes.Validation, 'Output format id required')
+    if (!payload?.id) return errorResponse(ErrorCodes.Validation, 'Data format id required')
     await this.repo.remove(actor.user.organizationId, payload.id)
     return okResponse({ ok: true })
   }

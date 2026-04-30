@@ -53,9 +53,9 @@ export function AppSelect(props: AppSelectProps) {
       return {
         ...base,
         backgroundColor: color,
-        border: '1px solid rgba(20, 37, 62, 0.08)',
+        border: '1px solid var(--omc-border-subtle)',
         borderRadius: 999,
-        boxShadow: 'inset 0 0 0 1px rgba(255, 255, 255, 0.24)',
+        boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--omc-surface) 24%, transparent)',
         color: readableTextColor(color),
         minHeight: 24
       }
@@ -79,7 +79,7 @@ export function AppSelect(props: AppSelectProps) {
         ...base,
         color: readableTextColor(color),
         ':hover': {
-          backgroundColor: 'rgba(255, 255, 255, 0.22)',
+          backgroundColor: 'color-mix(in srgb, var(--omc-surface) 22%, transparent)',
           color: readableTextColor(color)
         }
       }

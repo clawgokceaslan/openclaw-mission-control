@@ -10,11 +10,13 @@ import {
   LuSparkles,
   LuTags,
   LuClipboardList,
-  LuWaypoints
+  LuWaypoints,
+  LuHardDrive,
+  LuLayers
 } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 
-export type NavGroupKey = 'Overview' | 'Projects' | 'Skills' | 'Administration'
+export type NavGroupKey = 'Overview' | 'Projects' | 'Templates' | 'Capabilities' | 'Administration'
 
 export interface NavItem {
   label: string
@@ -23,7 +25,7 @@ export interface NavItem {
   icon: IconType
 }
 
-export const NAV_GROUP_ORDER: NavGroupKey[] = ['Overview', 'Projects', 'Skills', 'Administration']
+export const NAV_GROUP_ORDER: NavGroupKey[] = ['Overview', 'Projects', 'Templates', 'Capabilities', 'Administration']
 
 export const NAV_BY_GROUP: Record<NavGroupKey, NavItem[]> = {
   Overview: [
@@ -31,18 +33,21 @@ export const NAV_BY_GROUP: Record<NavGroupKey, NavItem[]> = {
   ],
   Projects: [
     { label: 'Project groups', path: APP_ROUTES.PROJECT_GROUPS, group: 'Projects', icon: LuFolderKanban },
-    { label: 'Projects', path: APP_ROUTES.PROJECTS, group: 'Projects', icon: LuFolder },
-    { label: 'Statuses', path: APP_ROUTES.STATUSES, group: 'Projects', icon: LuListTodo },
-    { label: 'Task templates', path: APP_ROUTES.TASK_TEMPLATES, group: 'Projects', icon: LuClipboardList },
-    { label: 'Tags', path: APP_ROUTES.TAGS, group: 'Projects', icon: LuTags },
-    { label: 'Custom fields', path: APP_ROUTES.CUSTOM_FIELDS, group: 'Projects', icon: LuSettings2 },
-    { label: 'Output formats', path: APP_ROUTES.OUTPUT_FORMATS, group: 'Projects', icon: LuSettings2 }
+    { label: 'Projects', path: APP_ROUTES.PROJECTS, group: 'Projects', icon: LuFolder }
   ],
-  Skills: [
-    { label: 'Skills', path: APP_ROUTES.SKILLS, group: 'Skills', icon: LuSparkles }
+  Templates: [
+    { label: 'Statuses', path: APP_ROUTES.STATUSES, group: 'Templates', icon: LuListTodo },
+    { label: 'Tasks', path: APP_ROUTES.TASK_TEMPLATES, group: 'Templates', icon: LuClipboardList },
+    { label: 'Tags', path: APP_ROUTES.TAGS, group: 'Templates', icon: LuTags },
+    { label: 'Custom fields', path: APP_ROUTES.CUSTOM_FIELDS, group: 'Templates', icon: LuSettings2 },
+    { label: 'Data Formats', path: APP_ROUTES.OUTPUT_FORMATS, group: 'Templates', icon: LuLayers }
+  ],
+  Capabilities: [
+    { label: 'Agents', path: APP_ROUTES.AGENTS, group: 'Capabilities', icon: LuBot },
+    { label: 'Skills', path: APP_ROUTES.SKILLS, group: 'Capabilities', icon: LuSparkles }
   ],
   Administration: [
-    { label: 'Agents', path: APP_ROUTES.AGENTS, group: 'Administration', icon: LuBot },
+    { label: 'Workspaces', path: APP_ROUTES.WORKSPACES, group: 'Administration', icon: LuHardDrive },
     { label: 'Gateways', path: APP_ROUTES.GATEWAYS, group: 'Administration', icon: LuWaypoints },
     { label: 'Documentation', path: APP_ROUTES.DOCUMENTATION, group: 'Administration', icon: LuBookOpen }
   ]

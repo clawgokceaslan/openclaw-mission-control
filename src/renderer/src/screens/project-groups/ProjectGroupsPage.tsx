@@ -1,10 +1,13 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import styles from './ProjectGroupsPage.module.scss'
-import { Alert, Badge, Button, Card, Form, Modal, Spinner, Table } from 'react-bootstrap'
+import { Alert, Button, Card, Form, Modal, Spinner } from 'react-bootstrap'
+import { LuPencil, LuPlus, LuTrash2 } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
 import { Project, ProjectGroup } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
+import { APP_ROUTES } from '@shared/constants/ui-routes'
 
 type EditorMode = 'create' | 'edit' | null
 
@@ -190,7 +193,10 @@ export function ProjectGroupsPage() {
           </p>
         </div>
         {!isEditorOpen ? (
-          <Button className={styles.createButton} onClick={openCreate}>Create group</Button>
+          <button type="button" className={styles.createButton} onClick={openCreate}>
+            <LuPlus size={16} />
+            Create group
+          </button>
         ) : null}
       </header>
 
@@ -198,39 +204,34 @@ export function ProjectGroupsPage() {
       {status !== 'Ready' ? <Alert variant="info" className={styles.notice}>{status}</Alert> : null}
 
       {!isEditorOpen ? (
-        <Card className={styles.tableCard}>
-          <Table className={styles.table} responsive>
-            <thead>
-              <tr>
-                <th>Group ↑</th>
-                <th>Updated ↕</th>
-                <th className={styles.actionCol} />
-                <th className={styles.actionCol} />
-              </tr>
-            </thead>
-            <tbody>
-              {items.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className={styles.emptyRow}>No project groups yet.</td>
-                </tr>
-              ) : items.map((item) => (
-                <tr key={item.id}>
-                  <td>
-                    <div className={styles.groupName}>{item.name}</div>
-                    <div className={styles.groupDescription}>{item.description || 'No description yet.'}</div>
-                  </td>
-                  <td className={styles.updatedCell}>{formatUpdatedAt(item.updatedAt)}</td>
-                  <td className={styles.actionCell}>
-                    <Button variant="link" className={styles.textAction} onClick={() => openEdit(item)}>Edit</Button>
-                  </td>
-                  <td className={styles.actionCell}>
-                    <Button variant="link" className={styles.textActionDanger} onClick={() => setDeleteTarget(item)}>Delete</Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-        </Card>
+        <section className={styles.tableCard}>
+          <div className={styles.tableHead}>
+            <span>Group</span>
+            <span>Projects</span>
+            <span>Updated</span>
+            <span>Actions</span>
+          </div>
+          {items.length > 0 ? items.map((item) => (
+            <div key={item.id} className={styles.tableRow}>
+              <span>
+                <Link to={`${APP_ROUTES.PROJECT_GROUPS}/${item.id}`} className={styles.groupNameLink}>{item.name}</Link>
+                <small>{item.description || 'No description yet.'}</small>
+              </span>
+              <span className={styles.projectCount}>{Array.isArray(item.projectIds) ? item.projectIds.length : 0} projects</span>
+              <span className={styles.updatedCell}>{formatUpdatedAt(item.updatedAt)}</span>
+              <span className={styles.actionsCell}>
+                <button type="button" className={styles.iconButton} onClick={() => openEdit(item)} aria-label={`Edit ${item.name}`} title="Edit">
+                  <LuPencil size={15} />
+                </button>
+                <button type="button" className={`${styles.iconButton} ${styles.dangerIconButton}`} onClick={() => setDeleteTarget(item)} aria-label={`Delete ${item.name}`} title="Delete">
+                  <LuTrash2 size={15} />
+                </button>
+              </span>
+            </div>
+          )) : (
+            <div className={styles.emptyRow}>No project groups yet.</div>
+          )}
+        </section>
       ) : (
         <Card className={styles.formCard}>
           <Card.Body>
@@ -286,7 +287,7 @@ export function ProjectGroupsPage() {
                         <span className={styles.projectName}>{project.name}</span>
                         <span className={styles.projectId}>{project.id}</span>
                       </div>
-                      {grouped ? <Badge bg="warning" text="dark" pill>currently grouped</Badge> : null}
+                      {grouped ? <span className={styles.groupedBadge}>currently grouped</span> : null}
                     </label>
                   )
                 })}

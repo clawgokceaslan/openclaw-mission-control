@@ -1,5 +1,6 @@
 import { FormEvent, PointerEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { LuChevronDown, LuPencil, LuPlug, LuPlus, LuRefreshCw, LuTrash2, LuUnplug, LuWandSparkles } from 'react-icons/lu'
 import styles from './GatewaysPage.module.scss'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
@@ -102,6 +103,7 @@ export function GatewaysPage() {
   const [deleteTarget, setDeleteTarget] = useState<Gateway | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [testModal, setTestModal] = useState<GatewayTestModalState | null>(null)
+  const [actionsMenuId, setActionsMenuId] = useState<string | null>(null)
   const tableRef = useRef<HTMLDivElement | null>(null)
   const dragRef = useRef({ active: false, startX: 0, scrollLeft: 0, moved: false })
 
@@ -239,16 +241,22 @@ export function GatewaysPage() {
       <header className={styles.header}>
         <div>
           <h1>Gateways</h1>
-          <p>OpenClaw gateway connections</p>
+          <p>Manage OpenClaw gateway connections. {items.length} gateway total.</p>
         </div>
-        <button className={styles.primaryButton} onClick={() => setModal(emptyForm)}>
-          Add gateway
-        </button>
+        <div className={styles.headerActions}>
+          <button className={styles.secondaryButton} type="button" onClick={() => void refresh()}>
+            <LuRefreshCw size={15} />
+            Refresh
+          </button>
+          <button className={styles.primaryButton} type="button" onClick={() => setModal(emptyForm)}>
+            <LuPlus size={16} />
+            Add gateway
+          </button>
+        </div>
       </header>
 
       <div className={styles.toolbar}>
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search gateways..." />
-        <button onClick={() => void refresh()}>Refresh</button>
       </div>
 
       {error && <p className={styles.error}>{error}</p>}
@@ -290,25 +298,42 @@ export function GatewaysPage() {
               <span className={styles.mono}>{gateway.token || 'No token'}</span>
               <span>{formatTime(config.lastHandshakeAt)}</span>
               <span className={styles.actions}>
-                <button disabled={busyId === gateway.id} onClick={() => void invokeAction(IPC_CHANNELS.gateways.pairDevice, { gatewayId: gateway.id }, 'Pairing request sent.')}>
-                  Pair
-                </button>
                 <button disabled={busyId === gateway.id} onClick={() => void invokeAction(IPC_CHANNELS.gateways.connect, { gatewayId: gateway.id }, 'Gateway connected.')}>
+                  <LuPlug size={14} />
                   Connect
                 </button>
-                <button disabled={busyId === gateway.id} onClick={() => void invokeAction(IPC_CHANNELS.gateways.disconnect, { gatewayId: gateway.id }, 'Gateway disconnected.')}>
-                  Disconnect
-                </button>
                 <button disabled={busyId === gateway.id} onClick={() => void testGateway(gateway)}>
+                  <LuWandSparkles size={14} />
                   Test
                 </button>
-                <button disabled={busyId === gateway.id} onClick={() => void invokeAction(IPC_CHANNELS.gateways.resetPairing, { gatewayId: gateway.id }, 'Pairing identity reset.')}>
-                  Reset pair
+                <button className={styles.moreButton} onClick={() => setActionsMenuId((current) => current === gateway.id ? null : gateway.id)}>
+                  Actions
+                  <LuChevronDown size={14} />
                 </button>
-                <button onClick={() => setModal(formFromGateway(gateway))}>Edit</button>
-                <button className={styles.dangerText} onClick={() => setDeleteTarget(gateway)}>
-                  Delete
-                </button>
+                {actionsMenuId === gateway.id ? (
+                  <div className={styles.actionsMenu}>
+                    <button disabled={busyId === gateway.id} onClick={() => { setActionsMenuId(null); void invokeAction(IPC_CHANNELS.gateways.pairDevice, { gatewayId: gateway.id }, 'Pairing request sent.') }}>
+                      <LuPlug size={14} />
+                      Pair
+                    </button>
+                    <button disabled={busyId === gateway.id} onClick={() => { setActionsMenuId(null); void invokeAction(IPC_CHANNELS.gateways.disconnect, { gatewayId: gateway.id }, 'Gateway disconnected.') }}>
+                      <LuUnplug size={14} />
+                      Disconnect
+                    </button>
+                    <button disabled={busyId === gateway.id} onClick={() => { setActionsMenuId(null); void invokeAction(IPC_CHANNELS.gateways.resetPairing, { gatewayId: gateway.id }, 'Pairing identity reset.') }}>
+                      <LuRefreshCw size={14} />
+                      Reset pair
+                    </button>
+                    <button onClick={() => { setActionsMenuId(null); setModal(formFromGateway(gateway)) }}>
+                      <LuPencil size={14} />
+                      Edit
+                    </button>
+                    <button className={styles.dangerText} onClick={() => { setActionsMenuId(null); setDeleteTarget(gateway) }}>
+                      <LuTrash2 size={14} />
+                      Delete
+                    </button>
+                  </div>
+                ) : null}
               </span>
             </div>
           )

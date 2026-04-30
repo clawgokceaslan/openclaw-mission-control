@@ -58,6 +58,11 @@ export function createMainWindow(): Electron.BrowserWindow {
   const window = new BrowserWindow({
     width: 1365,
     height: 900,
+    minWidth: 1100,
+    minHeight: 720,
+    title: 'Open Mission Control',
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 18, y: 18 } } : {}),
     webPreferences: {
       contextIsolation: false,
       nodeIntegration: true,
@@ -77,6 +82,7 @@ export function createMainWindow(): Electron.BrowserWindow {
   webContents.on('did-fail-load', (_event, errorCode, errorDescription, failedUrl) => {
     safeConsole.error('[main] [window-fail-load]', { errorCode, errorDescription, failedUrl })
   })
+  window.maximize()
   window.loadURL(url)
   return window
 }

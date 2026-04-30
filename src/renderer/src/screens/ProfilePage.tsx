@@ -1,7 +1,8 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { LuBadgeCheck, LuMail, LuSave, LuUserRound } from 'react-icons/lu'
+import { FormEvent, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { LuBadgeCheck, LuCheck, LuMail, LuMonitor, LuMoon, LuSave, LuSun, LuUserRound } from 'react-icons/lu'
 import type { User } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
+import { useTheme, type ThemeMode } from '@renderer/providers/theme/theme-state'
 import styles from './ProfilePage.module.scss'
 
 const TITLE_OPTIONS: User['role'][] = ['owner', 'admin', 'member']
@@ -24,6 +25,7 @@ function initialsFromName(name: string) {
 
 export function ProfilePage() {
   const { user, updateProfile, refresh } = useAuth()
+  const { mode, resolvedMode, paletteId, backgroundId, palettes, backgrounds, setMode, setPaletteId, setBackgroundId } = useTheme()
   const initialName = useMemo(() => splitName(user?.name), [user?.name])
   const [firstName, setFirstName] = useState(initialName.firstName)
   const [lastName, setLastName] = useState(initialName.lastName)
@@ -34,6 +36,11 @@ export function ProfilePage() {
   const [pending, setPending] = useState(false)
   const fullName = `${firstName} ${lastName}`.trim() || user?.name?.trim() || 'Mission Operator'
   const initials = initialsFromName(fullName)
+  const modeOptions: Array<{ value: ThemeMode; label: string; icon: typeof LuMonitor }> = [
+    { value: 'system', label: 'System', icon: LuMonitor },
+    { value: 'light', label: 'Light', icon: LuSun },
+    { value: 'dark', label: 'Dark', icon: LuMoon }
+  ]
 
   useEffect(() => {
     setFirstName(initialName.firstName)
@@ -80,71 +87,145 @@ export function ProfilePage() {
           <span className={styles.roleBadge}>{role}</span>
         </aside>
 
-        <form className={styles.formPanel} onSubmit={submit}>
-          <div className={styles.panelHeader}>
-            <div>
-              <h2>Hesap Bilgileri</h2>
-              <p>Bu bilgiler üst barda ve çalışma alanı kayıtlarında görünür.</p>
-            </div>
-          </div>
-
-          <div className={styles.formGrid}>
-            <label>
-              <span>Ad</span>
-              <input value={firstName} onChange={(event) => setFirstName(event.target.value)} required />
-            </label>
-            <label>
-              <span>Soyad</span>
-              <input value={lastName} onChange={(event) => setLastName(event.target.value)} required />
-            </label>
-            <label>
-              <span>Email</span>
-              <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
-            </label>
-            <label>
-              <span>Title</span>
-              <select value={role} onChange={(event) => setRole(event.target.value as User['role'])}>
-                {TITLE_OPTIONS.map((option) => (
-                  <option key={option} value={option}>{option}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <div className={styles.readonlyGrid}>
-            <div className={styles.infoRow}>
-              <LuMail size={16} />
+        <div className={styles.profileMain}>
+          <section className={styles.formPanel}>
+            <div className={styles.panelHeader}>
               <div>
-                <span>E-posta</span>
-                <strong>{email || user?.email || 'owner@mission.local'}</strong>
+                <h2>Appearance</h2>
+                <p>Theme and palette are saved on this device.</p>
               </div>
             </div>
-            <div className={styles.infoRow}>
-              <LuBadgeCheck size={16} />
+
+            <div className={styles.appearanceGrid}>
               <div>
+                <span className={styles.settingLabel}>Mode</span>
+                <div className={styles.modeSegment}>
+                  {modeOptions.map((option) => {
+                    const Icon = option.icon
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={mode === option.value ? styles.modeActive : undefined}
+                        onClick={() => setMode(option.value)}
+                      >
+                        <Icon size={15} />
+                        {option.label}
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className={styles.settingHint}>
+                  {mode === 'system' ? `Using system: ${resolvedMode}` : `Using ${resolvedMode} mode`}
+                </p>
+              </div>
+
+              <div>
+                <span className={styles.settingLabel}>Palette</span>
+                <div className={styles.paletteRow}>
+                  {palettes.map((palette) => (
+                    <button
+                      key={palette.id}
+                      type="button"
+                      className={paletteId === palette.id ? styles.paletteActive : undefined}
+                      style={{ '--palette-color': palette.swatch } as CSSProperties}
+                      onClick={() => setPaletteId(palette.id)}
+                      aria-label={`Use ${palette.name} palette`}
+                      title={palette.name}
+                    >
+                      {paletteId === palette.id ? <LuCheck size={16} /> : null}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <span className={styles.settingLabel}>Background</span>
+                <div className={styles.backgroundRow}>
+                  {backgrounds.map((background) => (
+                    <button
+                      key={background.id}
+                      type="button"
+                      className={backgroundId === background.id ? styles.backgroundActive : undefined}
+                      style={{ '--background-preview': background.preview } as CSSProperties}
+                      onClick={() => setBackgroundId(background.id)}
+                      aria-label={`Use ${background.name} background`}
+                      title={background.name}
+                    >
+                      {backgroundId === background.id ? <LuCheck size={15} /> : null}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <form className={styles.formPanel} onSubmit={submit}>
+            <div className={styles.panelHeader}>
+              <div>
+                <h2>Hesap Bilgileri</h2>
+                <p>Bu bilgiler üst barda ve çalışma alanı kayıtlarında görünür.</p>
+              </div>
+            </div>
+
+            <div className={styles.formGrid}>
+              <label>
+                <span>Ad</span>
+                <input value={firstName} onChange={(event) => setFirstName(event.target.value)} required />
+              </label>
+              <label>
+                <span>Soyad</span>
+                <input value={lastName} onChange={(event) => setLastName(event.target.value)} required />
+              </label>
+              <label>
+                <span>Email</span>
+                <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+              </label>
+              <label>
                 <span>Title</span>
-                <strong>{role}</strong>
+                <select value={role} onChange={(event) => setRole(event.target.value as User['role'])}>
+                  {TITLE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className={styles.readonlyGrid}>
+              <div className={styles.infoRow}>
+                <LuMail size={16} />
+                <div>
+                  <span>E-posta</span>
+                  <strong>{email || user?.email || 'owner@mission.local'}</strong>
+                </div>
+              </div>
+              <div className={styles.infoRow}>
+                <LuBadgeCheck size={16} />
+                <div>
+                  <span>Title</span>
+                  <strong>{role}</strong>
+                </div>
+              </div>
+              <div className={styles.infoRow}>
+                <LuUserRound size={16} />
+                <div>
+                  <span>Kullanıcı ID</span>
+                  <strong>{user?.id ?? '-'}</strong>
+                </div>
               </div>
             </div>
-            <div className={styles.infoRow}>
-              <LuUserRound size={16} />
-              <div>
-                <span>Kullanıcı ID</span>
-                <strong>{user?.id ?? '-'}</strong>
-              </div>
-            </div>
-          </div>
 
-          {error ? <p className={styles.error}>{error}</p> : null}
-          {status ? <p className={styles.success}>{status}</p> : null}
+            {error ? <p className={styles.error}>{error}</p> : null}
+            {status ? <p className={styles.success}>{status}</p> : null}
 
-          <footer className={styles.footer}>
-            <button type="submit" disabled={pending}>
-              <LuSave size={16} />
-              {pending ? 'Kaydediliyor...' : 'Kaydet'}
-            </button>
-          </footer>
-        </form>
+            <footer className={styles.footer}>
+              <button type="submit" disabled={pending}>
+                <LuSave size={16} />
+                {pending ? 'Kaydediliyor...' : 'Kaydet'}
+              </button>
+            </footer>
+          </form>
+        </div>
       </div>
     </section>
   )

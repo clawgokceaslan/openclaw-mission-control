@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from 'react'
 import { LuCalendarPlus, LuFlag, LuTag, LuUserPlus, LuX } from 'react-icons/lu'
 import type { Agent, Project, Tag, TaskEntity, TaskTemplate } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
+import { MarkdownDescriptionEditor } from '@renderer/components/markdown/MarkdownDescriptionEditor'
 import type { ProjectStatusColumn } from './status'
 import { statusOptionsFromColumns } from './status'
 import styles from '../ProjectDetailPage.module.scss'
@@ -80,7 +81,13 @@ export function CreateTaskModal({ open, project, tags, agents, templates, status
             <AppSelect mode="single" variant="borderless" options={templateOptions} value={selectedTemplate} onChange={applyTemplate} isClearable placeholder="Start from template..." />
           </div>
           <input className={styles.createTaskTitle} autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Task Name or type '/' for commands" />
-          <textarea className={styles.createTaskDescription} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Add description, or write with AI" />
+          <MarkdownDescriptionEditor
+            className={styles.createTaskDescription}
+            value={description}
+            onChange={setDescription}
+            placeholder="Add description, notes, checklists or code..."
+            minHeight={116}
+          />
           <div className={styles.createTaskChips}>
             <div className={styles.createTaskSelectChip}>
               <AppSelect

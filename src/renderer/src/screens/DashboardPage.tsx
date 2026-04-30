@@ -1,38 +1,28 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Col,
-  Container,
-  Row,
-  Stack,
-  Table
-} from 'react-bootstrap'
-import {
-  LuArrowUpRight,
-  LuBot,
-  LuBoxes,
-  LuCircle,
-  LuInfo,
-  LuTimer,
-  LuActivity
-} from 'react-icons/lu'
+  CategoryScale,
+  Chart as ChartJS,
+  Filler,
+  Legend,
+  LinearScale,
+  LineElement,
+  PointElement,
+  RadialLinearScale,
+  ArcElement,
+  BarElement,
+  Tooltip
+} from 'chart.js'
+import { Bar, Doughnut, Line, Radar } from 'react-chartjs-2'
+import { LuActivity, LuArrowRight, LuBot, LuBoxes, LuCircle, LuTimer, LuWaypoints } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
 import { useAuth } from '@renderer/providers/auth/auth-state'
-import type {
-  Agent,
-  Project,
-  Gateway,
-  GatewaySession,
-  Job,
-  TaskEntity
-} from '@shared/types/entities'
+import type { Agent, Gateway, GatewaySession, Job, Project, Skill, TaskEntity } from '@shared/types/entities'
 import styles from './DashboardPage.module.scss'
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, PointElement, LineElement, RadialLinearScale, Filler, Tooltip, Legend)
 
 interface SessionRow {
   id: string
@@ -40,7 +30,6 @@ interface SessionRow {
   endpoint: string
   status: string
   seenAt: number
-  usage: string
 }
 
 interface ActivityRow {
@@ -51,32 +40,22 @@ interface ActivityRow {
 }
 
 interface DashboardVm {
-  onlineAgents: number
-  totalAgents: number
-  tasksInProgress: number
-  latestCompleted: number
-  errorRate: number
-  completionSpeed: number
-  workloadTotal: number
-  workloadInbox: number
-  workloadProgress: number
-  workloadReview: number
-  workloadCompleted: number
-  throughputCompleted: number
-  throughputAverage: number
-  throughputErrorRate: number
-  throughputConsistencyDays: number
-  throughputReviewBacklogRatio: number
-  gatewayConfigured: number
-  gatewayConnected: number
-  gatewayUnavailable: number
-  gatewayIssues: number
+  agents: Agent[]
+  skills: Skill[]
+  projects: Project[]
+  tasks: TaskEntity[]
+  gateways: Gateway[]
+  jobs: Job[]
   sessions: SessionRow[]
   activities: ActivityRow[]
 }
 
-interface JobMetricMap {
-  [key: string]: number
+type MetricCardProps = {
+  label: string
+  value: string | number
+  hint: string
+  icon: React.ReactNode
+  tone?: 'default' | 'success' | 'warn'
 }
 
 function safeArray<T>(value: unknown): T[] {
@@ -91,132 +70,42 @@ function relativeTime(timestamp: number): string {
   if (minutes < 60) return `${minutes}m ago`
   const hours = Math.floor(minutes / 60)
   if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
+  return `${Math.floor(hours / 24)}d ago`
 }
 
-function toPercent(value: number): string {
+function taskStatus(task: TaskEntity): string {
+  return task.status || 'unknown'
+}
+
+function countBy<T>(rows: T[], keyFn: (row: T) => string): Record<string, number> {
+  return rows.reduce<Record<string, number>>((acc, row) => {
+    const key = keyFn(row)
+    acc[key] = (acc[key] ?? 0) + 1
+    return acc
+  }, {})
+}
+
+function percent(value: number): string {
   return `${value.toFixed(1)}%`
 }
 
-function toRate(value: number): string {
-  return `${value.toFixed(1)}/day`
+function chartColors(count: number): string[] {
+  const base = ['#2F80ED', '#29B764', '#FF8A3D', '#8B5CF6', '#D94B5F', '#0EA5E9', '#FACC15']
+  return Array.from({ length: count }, (_, index) => base[index % base.length])
 }
 
-function buildDashboardViewModel(input: {
-  agents: Agent[]
-  tasks: TaskEntity[]
-  projects: Project[]
-  gateways: Gateway[]
-  jobs: Job[]
-  metrics: JobMetricMap
-  sessions: SessionRow[]
-}): DashboardVm {
-  const { agents, tasks, projects, gateways, jobs, sessions } = input
-
-  const onlineAgents = agents.filter((agent) => agent.status !== 'offline').length
-  const tasksInProgress = tasks.filter((task) => task.status === 'running').length
-  const completedTasks = tasks.filter((task) => task.status === 'completed').length
-  const failedTasks = tasks.filter((task) => task.status === 'failed').length
-  const pendingTasks = tasks.filter((task) => task.status === 'pending').length
-
-  const gatewayConnected = gateways.filter((gateway) => gateway.status === 'online').length
-  const gatewayUnavailable = gateways.filter((gateway) => gateway.status === 'offline').length
-  const gatewayIssues = gateways.filter((gateway) => gateway.status === 'connecting').length
-
-  const totalForError = completedTasks + failedTasks
-  const errorRate = totalForError > 0 ? (failedTasks / totalForError) * 100 : 0
-
-  const taskTimes = tasks.map((task) => task.updatedAt).filter((value) => Number.isFinite(value))
-  const minUpdated = taskTimes.length > 0 ? Math.min(...taskTimes) : Date.now()
-  const activeDays = Math.max(1, Math.ceil((Date.now() - minUpdated) / 86400000))
-  const completionSpeed = completedTasks / activeDays
-
-  const latestCompleted = jobs.filter((job) => job.status === 'done').length
-  const activityRows = [...jobs]
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-    .slice(0, 8)
-    .map((job) => ({
-      id: job.id,
-      title: `${job.type} received from Can bot.`,
-      subtitle: `Attempts ${job.attempts}/${job.maxAttempts}`,
-      updatedAt: job.updatedAt
-    }))
-
-  const throughputAverage = input.metrics.completedPerDay ?? completionSpeed
-  const throughputErrorRate = input.metrics.errorRate ?? errorRate
-
-  return {
-    onlineAgents,
-    totalAgents: agents.length,
-    tasksInProgress,
-    latestCompleted,
-    errorRate,
-    completionSpeed,
-    workloadTotal: tasks.length,
-    workloadInbox: pendingTasks,
-    workloadProgress: tasksInProgress,
-    workloadReview: failedTasks,
-    workloadCompleted: completedTasks,
-    throughputCompleted: completedTasks,
-    throughputAverage,
-    throughputErrorRate,
-    throughputConsistencyDays: activeDays,
-    throughputReviewBacklogRatio: tasks.length > 0 ? failedTasks / tasks.length : 0,
-    gatewayConfigured: gateways.length,
-    gatewayConnected,
-    gatewayUnavailable,
-    gatewayIssues,
-    sessions: sessions.slice(0, 8),
-    activities: activityRows
-  }
-}
-
-function StatRows({ rows }: { rows: Array<{ label: string; value: string | number; tone?: 'success' | 'default' }> }) {
+function MetricCard({ label, value, hint, icon, tone = 'default' }: MetricCardProps) {
   return (
-    <Table responsive size="sm" className={styles.statTable}>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.label}>
-            <td>{row.label}</td>
-            <td className={`${styles.valueCell} ${row.tone === 'success' ? styles.successCell : ''}`}>{row.value}</td>
-          </tr>
-        ))}
-      </tbody>
-    </Table>
+    <article className={`${styles.metricCard} ${tone === 'success' ? styles.metricSuccess : ''} ${tone === 'warn' ? styles.metricWarn : ''}`}>
+      <span>{icon}</span>
+      <p>{label}</p>
+      <strong>{value}</strong>
+      <small>{hint}</small>
+    </article>
   )
 }
 
-function KpiCard({
-  title,
-  value,
-  meta,
-  icon,
-  tone = 'default'
-}: {
-  title: string
-  value: string
-  meta: string
-  icon: React.ReactNode
-  tone?: 'default' | 'success' | 'warn'
-}) {
-  return (
-    <Card className={styles.kpiCard}>
-      <Card.Body className={styles.kpiBody}>
-        <div>
-          <p className={styles.kpiLabel}>{title}</p>
-          <h3 className={styles.kpiValue}>{value}</h3>
-          <p className={styles.kpiMeta}>{meta}</p>
-        </div>
-        <span className={`${styles.kpiIcon} ${tone === 'success' ? styles.kpiSuccess : ''} ${tone === 'warn' ? styles.kpiWarn : ''}`}>
-          {icon}
-        </span>
-      </Card.Body>
-    </Card>
-  )
-}
-
-export function DashboardPage() {
+function useDashboardData() {
   const { token } = useAuth()
   const [vm, setVm] = useState<DashboardVm | null>(null)
   const [loading, setLoading] = useState(true)
@@ -224,56 +113,58 @@ export function DashboardPage() {
 
   const loadDashboard = async () => {
     setLoading(true)
-
-    const [agentsRes, tasksRes, projectsRes, gatewaysRes, jobsRes, metricsRes] = await Promise.all([
+    const [agentsRes, skillsRes, tasksRes, projectsRes, gatewaysRes, jobsRes, activeGatewayRes] = await Promise.all([
       loadList<Agent[]>(IPC_CHANNELS.agents.list, token),
+      loadList<Skill[]>(IPC_CHANNELS.skills.list, token),
       loadList<TaskEntity[]>(IPC_CHANNELS.tasks.list, token),
       loadList<Project[]>(IPC_CHANNELS.projects.list, token),
       loadList<Gateway[]>(IPC_CHANNELS.gateways.list, token),
       loadList<Job[]>(IPC_CHANNELS.jobs.list, token),
-      invokeBridge<JobMetricMap>(IPC_CHANNELS.jobs.metrics, { actorToken: token })
+      invokeBridge<{ gatewayId: string | null }>(IPC_CHANNELS.appSettings.getActiveGateway, { actorToken: token })
     ])
-
-    const failures = [agentsRes, tasksRes, projectsRes, gatewaysRes, jobsRes].filter((item) => !item.ok)
+    const failures = [agentsRes, skillsRes, tasksRes, projectsRes, gatewaysRes, jobsRes].filter((item) => !item.ok)
     if (failures.length > 0) {
-      setError(failures[0]?.error?.message ?? 'Dashboard verisi yuklenemedi')
+      setError(failures[0]?.error?.message ?? 'Dashboard data could not be loaded')
       setLoading(false)
       return
     }
-
-    const gateways = safeArray<Gateway>(gatewaysRes.data)
-    const sessionResponses = await Promise.all(
-      gateways.map((gateway) => invokeBridge<GatewaySession[]>(IPC_CHANNELS.gateways.sessions, {
-        actorToken: token,
-        gatewayId: gateway.id
-      }))
-    )
-
+    const activeGatewayId = activeGatewayRes.ok ? activeGatewayRes.data?.gatewayId : null
+    const gateways = safeArray<Gateway>(gatewaysRes.data).sort((a, b) => {
+      if (a.id === activeGatewayId) return -1
+      if (b.id === activeGatewayId) return 1
+      return 0
+    })
+    const sessionResponses = await Promise.all(gateways.map((gateway) => invokeBridge<GatewaySession[]>(IPC_CHANNELS.gateways.sessions, {
+      actorToken: token,
+      gatewayId: gateway.id
+    })))
     const sessions: SessionRow[] = []
     gateways.forEach((gateway, index) => {
-      const response = sessionResponses[index]
-      const rows = response?.ok ? safeArray<GatewaySession>(response.data) : []
-      rows.forEach((row, rowIndex) => {
-        sessions.push({
-          id: row.id,
-          label: gateway.name,
-          endpoint: gateway.endpoint,
-          status: row.status,
-          seenAt: row.lastSeenAt,
-          usage: `${(120 + rowIndex * 7).toFixed(1)}k/200.0k (${60 - rowIndex * 6}%)`
-        })
-      })
+      const rows = sessionResponses[index]?.ok ? safeArray<GatewaySession>(sessionResponses[index].data) : []
+      rows.forEach((row) => sessions.push({
+        id: row.id,
+        label: gateway.name,
+        endpoint: gateway.endpoint,
+        status: row.status,
+        seenAt: row.lastSeenAt
+      }))
     })
-
-    setVm(buildDashboardViewModel({
+    const jobs = safeArray<Job>(jobsRes.data)
+    setVm({
       agents: safeArray<Agent>(agentsRes.data),
+      skills: safeArray<Skill>(skillsRes.data),
       tasks: safeArray<TaskEntity>(tasksRes.data),
       projects: safeArray<Project>(projectsRes.data),
       gateways,
-      jobs: safeArray<Job>(jobsRes.data),
-      metrics: metricsRes.ok ? (metricsRes.data ?? {}) : {},
-      sessions
-    }))
+      jobs,
+      sessions,
+      activities: jobs.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 6).map((job) => ({
+        id: job.id,
+        title: job.type,
+        subtitle: `${job.status} · attempts ${job.attempts}/${job.maxAttempts}`,
+        updatedAt: job.updatedAt
+      }))
+    })
     setError(null)
     setLoading(false)
   }
@@ -282,133 +173,149 @@ export function DashboardPage() {
     void loadDashboard()
   }, [token])
 
+  return { vm, loading, error, reload: loadDashboard }
+}
+
+function buildMetrics(vm: DashboardVm) {
+  const completed = vm.tasks.filter((task) => ['completed', 'done', 'closed'].includes(taskStatus(task))).length
+  const failed = vm.tasks.filter((task) => ['failed', 'review'].includes(taskStatus(task))).length
+  const activeTasks = vm.tasks.filter((task) => ['running', 'in_progress', 'active'].includes(taskStatus(task))).length
+  const onlineAgents = vm.agents.filter((agent) => agent.status !== 'offline').length
+  const onlineGateways = vm.gateways.filter((gateway) => gateway.status === 'online').length
+  const errorRate = completed + failed > 0 ? (failed / (completed + failed)) * 100 : 0
+  return { completed, failed, activeTasks, onlineAgents, onlineGateways, errorRate }
+}
+
+export function DashboardPage() {
+  const { vm, loading, error, reload } = useDashboardData()
+  const metrics = vm ? buildMetrics(vm) : null
+
   return (
-    <Container fluid className={styles.dashboard}>
-      <Stack direction="horizontal" className={styles.pageHead}>
+    <section className={styles.dashboard}>
+      <header className={styles.pageHead}>
         <div>
           <h1 className={styles.pageTitle}>Dashboard</h1>
-          <p className={styles.pageSubtitle}>Mission status, workload, and runtime health overview.</p>
+          <p className={styles.pageSubtitle}>A quick operational entry point for current mission health.</p>
         </div>
-        <Button variant="outline-secondary" className={styles.refreshBtn} onClick={() => void loadDashboard()}>Refresh</Button>
-      </Stack>
-
-      {error ? <Alert variant="danger" className={styles.dashboardNotice}>{error}</Alert> : null}
-      {loading ? <Alert variant="info" className={styles.dashboardNotice}>Loading dashboard data...</Alert> : null}
-
-      {vm ? (
+        <div className={styles.headerActions}>
+          <button type="button" className={styles.refreshBtn} onClick={() => void reload()}>Refresh</button>
+          <Link className={styles.primaryLink} to={APP_ROUTES.DASHBOARD_DETAIL}>Detailed dashboard <LuArrowRight size={15} /></Link>
+        </div>
+      </header>
+      {error ? <p className={styles.dashboardNotice}>{error}</p> : null}
+      {loading ? <p className={styles.dashboardNotice}>Loading dashboard data...</p> : null}
+      {vm && metrics ? (
         <>
-          <Row className="g-3">
-            <Col xl={3} md={6}><KpiCard title="Online agents" value={`${vm.onlineAgents}`} meta={`${vm.totalAgents} total`} icon={<LuBot size={16} />} /></Col>
-            <Col xl={3} md={6}><KpiCard title="Tasks in progress" value={`${vm.tasksInProgress}`} meta={`${vm.latestCompleted} total`} icon={<LuBoxes size={16} />} /></Col>
-            <Col xl={3} md={6}><KpiCard title="Error rate" value={toPercent(vm.errorRate)} meta={`${vm.workloadCompleted} completed (latest)`} icon={<LuActivity size={16} />} tone="warn" /></Col>
-            <Col xl={3} md={6}><KpiCard title="Completion speed" value={toRate(vm.completionSpeed)} meta={`${vm.workloadCompleted} completed`} icon={<LuTimer size={16} />} tone="success" /></Col>
-          </Row>
-
-          <Row className="g-3 mt-1">
-            <Col xl={4}>
-              <Card className={styles.panelCard}>
-                <Card.Body className={styles.panelBody}>
-                  <h2 className={styles.sectionTitle}>Workload</h2>
-                  <StatRows rows={[
-                    { label: 'Total work items', value: vm.workloadTotal },
-                    { label: 'Inbox', value: vm.workloadInbox },
-                    { label: 'In progress', value: vm.workloadProgress },
-                    { label: 'In review', value: vm.workloadReview },
-                    { label: 'Completed', value: vm.workloadCompleted, tone: 'success' }
-                  ]} />
-                </Card.Body>
-              </Card>
-            </Col>
-            <Col xl={4}>
-              <Card className={styles.panelCard}>
-                <Card.Body className={styles.panelBody}>
-                  <Stack direction="horizontal" className={styles.sectionHead}>
-                    <h2 className={styles.sectionTitle}>Throughput</h2>
-                    <LuInfo size={14} className={styles.infoIcon} />
-                  </Stack>
-                  <StatRows rows={[
-                    { label: 'Completed tasks', value: vm.throughputCompleted },
-                    { label: 'Average throughput', value: toRate(vm.throughputAverage) },
-                    { label: 'Error rate', value: toPercent(vm.throughputErrorRate), tone: 'success' },
-                    { label: 'Completion consistency', value: `${vm.throughputConsistencyDays} active days` },
-                    { label: 'Review backlog ratio', value: `${vm.throughputReviewBacklogRatio.toFixed(2)}x`, tone: 'success' }
-                  ]} />
-                </Card.Body>
-              </Card>
-            </Col>
-            <Col xl={4}>
-              <Card className={styles.panelCard}>
-                <Card.Body className={styles.panelBody}>
-                  <Stack direction="horizontal" className={styles.sectionHead}>
-                    <h2 className={styles.sectionTitle}>Gateway Health</h2>
-                    <Badge bg="success" className={styles.healthBadge}>{vm.gatewayUnavailable > 0 ? 'Issues detected' : 'All connected'}</Badge>
-                  </Stack>
-                  <StatRows rows={[
-                    { label: 'Gateway status', value: vm.gatewayUnavailable > 0 ? 'Partial' : 'All connected', tone: 'success' },
-                    { label: 'Configured gateways', value: vm.gatewayConfigured },
-                    { label: 'Connected gateways', value: vm.gatewayConnected, tone: 'success' },
-                    { label: 'Unavailable gateways', value: vm.gatewayUnavailable },
-                    { label: 'Gateways with issues', value: vm.gatewayIssues }
-                  ]} />
-                </Card.Body>
-              </Card>
-            </Col>
-          </Row>
-
-          <Row className="g-3 mt-1">
-            <Col xl={6}>
-              <Card className={styles.panelCard}>
-                <Card.Body className={styles.panelBody}>
-                  <Stack direction="horizontal" className={styles.sectionHead}>
-                    <h2 className={styles.sectionTitle}>Sessions</h2>
-                    <span className={styles.mutedCount}>{vm.sessions.length}</span>
-                  </Stack>
-                  <div className={styles.feedWrap}>
-                    {vm.sessions.length > 0 ? vm.sessions.map((session) => (
-                      <article key={session.id} className={styles.feedRow}>
-                        <div>
-                          <p className={styles.feedTitle}><LuCircle size={7} className={styles.dot} /> {session.label}</p>
-                          <p className={styles.feedSub}>{session.endpoint} · direct · gpt-5.4 · openai-codex</p>
-                        </div>
-                        <div className={styles.feedMeta}>
-                          <span>{session.usage}</span>
-                          <span>{relativeTime(session.seenAt)}</span>
-                        </div>
-                      </article>
-                    )) : <p className={styles.emptyText}>No gateway sessions available.</p>}
-                  </div>
-                </Card.Body>
-              </Card>
-            </Col>
-            <Col xl={6}>
-              <Card className={styles.panelCard}>
-                <Card.Body className={styles.panelBody}>
-                  <Stack direction="horizontal" className={styles.sectionHead}>
-                    <h2 className={styles.sectionTitle}>Recent Activity</h2>
-                    <Link className={styles.inlineLink} to={APP_ROUTES.ACTIVITY}>Open feed <LuArrowUpRight size={13} /></Link>
-                  </Stack>
-                  <div className={styles.feedWrap}>
-                    {vm.activities.length > 0 ? vm.activities.map((activity) => (
-                      <article key={activity.id} className={styles.feedRow}>
-                        <div>
-                          <p className={styles.feedTitle}>{activity.title}</p>
-                          <p className={styles.feedSub}>AGENT.HEARTBEAT</p>
-                        </div>
-                        <div className={styles.feedMeta}>
-                          <span>{relativeTime(activity.updatedAt)}</span>
-                          <span>{new Date(activity.updatedAt).toLocaleString()}</span>
-                        </div>
-                      </article>
-                    )) : <p className={styles.emptyText}>No recent activity found.</p>}
-                  </div>
-                </Card.Body>
-              </Card>
-            </Col>
-          </Row>
+          <div className={styles.heroGrid}>
+            <MetricCard label="Active tasks" value={metrics.activeTasks} hint={`${vm.tasks.length} total tasks`} icon={<LuBoxes size={17} />} />
+            <MetricCard label="Online agents" value={metrics.onlineAgents} hint={`${vm.agents.length} configured`} icon={<LuBot size={17} />} tone="success" />
+            <MetricCard label="Gateways online" value={metrics.onlineGateways} hint={`${vm.gateways.length} configured`} icon={<LuWaypoints size={17} />} tone={metrics.onlineGateways === vm.gateways.length ? 'success' : 'warn'} />
+            <MetricCard label="Error rate" value={percent(metrics.errorRate)} hint={`${metrics.failed} failed/review items`} icon={<LuActivity size={17} />} tone="warn" />
+          </div>
+          <div className={styles.overviewGrid}>
+            <section className={styles.panelCard}>
+              <h2>Mission snapshot</h2>
+              <div className={styles.snapshotList}>
+                <span><b>{vm.projects.length}</b> projects</span>
+                <span><b>{vm.skills.filter((skill) => skill.status === 'active').length}</b> active skills</span>
+                <span><b>{metrics.completed}</b> completed tasks</span>
+                <span><b>{vm.sessions.length}</b> gateway sessions</span>
+              </div>
+            </section>
+            <section className={styles.panelCard}>
+              <h2>Recent activity</h2>
+              <div className={styles.feedWrap}>
+                {vm.activities.length > 0 ? vm.activities.map((activity) => (
+                  <article key={activity.id} className={styles.feedRow}>
+                    <div>
+                      <p className={styles.feedTitle}><LuCircle size={7} className={styles.dot} /> {activity.title}</p>
+                      <p className={styles.feedSub}>{activity.subtitle}</p>
+                    </div>
+                    <span className={styles.feedMeta}>{relativeTime(activity.updatedAt)}</span>
+                  </article>
+                )) : <p className={styles.emptyText}>No recent activity.</p>}
+              </div>
+            </section>
+          </div>
         </>
       ) : null}
+    </section>
+  )
+}
 
-      {!vm && !loading ? <Alert variant="warning" className={styles.dashboardNotice}>Dashboard data is unavailable.</Alert> : null}
-    </Container>
+export function DetailedDashboardPage() {
+  const { vm, loading, error, reload } = useDashboardData()
+  const metrics = vm ? buildMetrics(vm) : null
+  const statusCounts = useMemo(() => vm ? countBy(vm.tasks, taskStatus) : {}, [vm])
+  const projectCounts = useMemo(() => {
+    if (!vm) return {}
+    return vm.projects.reduce<Record<string, number>>((acc, project) => {
+      acc[project.name] = vm.tasks.filter((task) => task.projectId === project.id).length
+      return acc
+    }, {})
+  }, [vm])
+  const jobCounts = useMemo(() => vm ? countBy(vm.jobs, (job) => new Date(job.updatedAt).toLocaleDateString()) : {}, [vm])
+
+  const statusLabels = Object.keys(statusCounts)
+  const projectLabels = Object.keys(projectCounts)
+  const jobLabels = Object.keys(jobCounts).slice(-12)
+
+  return (
+    <section className={styles.dashboard}>
+      <header className={styles.pageHead}>
+        <div>
+          <h1 className={styles.pageTitle}>Detailed dashboard</h1>
+          <p className={styles.pageSubtitle}>Charts and operational reports across projects, tasks, gateways, agents, and skills.</p>
+        </div>
+        <div className={styles.headerActions}>
+          <Link className={styles.refreshBtn} to={APP_ROUTES.DASHBOARD}>Simple view</Link>
+          <button type="button" className={styles.refreshBtn} onClick={() => void reload()}>Refresh</button>
+        </div>
+      </header>
+      {error ? <p className={styles.dashboardNotice}>{error}</p> : null}
+      {loading ? <p className={styles.dashboardNotice}>Loading detailed dashboard...</p> : null}
+      {vm && metrics ? (
+        <>
+          <div className={styles.heroGrid}>
+            <MetricCard label="Completion" value={metrics.completed} hint={`${vm.tasks.length} total tasks`} icon={<LuTimer size={17} />} tone="success" />
+            <MetricCard label="Backlog" value={vm.tasks.length - metrics.completed} hint="Open task load" icon={<LuBoxes size={17} />} />
+            <MetricCard label="Error rate" value={percent(metrics.errorRate)} hint="Failed/review ratio" icon={<LuActivity size={17} />} tone="warn" />
+            <MetricCard label="Gateway health" value={`${metrics.onlineGateways}/${vm.gateways.length}`} hint="Online gateways" icon={<LuWaypoints size={17} />} tone="success" />
+          </div>
+          <div className={styles.chartGrid}>
+            <section className={styles.chartCard}>
+              <h2>Task status distribution</h2>
+              <Doughnut data={{ labels: statusLabels, datasets: [{ data: statusLabels.map((label) => statusCounts[label]), backgroundColor: chartColors(statusLabels.length) }] }} />
+            </section>
+            <section className={styles.chartCard}>
+              <h2>Tasks by project</h2>
+              <Bar data={{ labels: projectLabels, datasets: [{ label: 'Tasks', data: projectLabels.map((label) => projectCounts[label]), backgroundColor: '#2F80ED' }] }} />
+            </section>
+            <section className={styles.chartCard}>
+              <h2>Job activity</h2>
+              <Line data={{ labels: jobLabels, datasets: [{ label: 'Jobs', data: jobLabels.map((label) => jobCounts[label]), borderColor: '#29B764', backgroundColor: 'rgba(41,183,100,0.18)', fill: true, tension: 0.3 }] }} />
+            </section>
+            <section className={styles.chartCard}>
+              <h2>Operational readiness</h2>
+              <Radar data={{
+                labels: ['Agents', 'Skills', 'Gateways', 'Tasks', 'Completion'],
+                datasets: [{
+                  label: 'Readiness',
+                  data: [
+                    vm.agents.length ? (metrics.onlineAgents / vm.agents.length) * 100 : 0,
+                    vm.skills.length ? (vm.skills.filter((skill) => skill.status === 'active').length / vm.skills.length) * 100 : 0,
+                    vm.gateways.length ? (metrics.onlineGateways / vm.gateways.length) * 100 : 0,
+                    vm.tasks.length ? ((vm.tasks.length - metrics.failed) / vm.tasks.length) * 100 : 0,
+                    vm.tasks.length ? (metrics.completed / vm.tasks.length) * 100 : 0
+                  ],
+                  borderColor: '#8B5CF6',
+                  backgroundColor: 'rgba(139,92,246,0.18)'
+                }]
+              }} />
+            </section>
+          </div>
+        </>
+      ) : null}
+    </section>
   )
 }

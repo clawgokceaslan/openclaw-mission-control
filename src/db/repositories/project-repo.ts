@@ -31,6 +31,7 @@ export class ProjectRepository extends BaseRepository<Project> {
       organizationId: input.organizationId,
       name: input.name,
       description: input.description,
+      workspaceId: input.workspaceId ?? null,
       archived: false,
       metrics: input.metrics,
       createdAt: now,
@@ -38,14 +39,15 @@ export class ProjectRepository extends BaseRepository<Project> {
     }
     await this.db
       .prepare(
-        `INSERT INTO projects (id, organization_id, name, description, archived, metrics_json, created_at, updated_at)
-         VALUES (@id, @organizationId, @name, @description, @archived, @metricsJson, @createdAt, @updatedAt)`
+        `INSERT INTO projects (id, organization_id, name, description, workspace_id, archived, metrics_json, created_at, updated_at)
+         VALUES (@id, @organizationId, @name, @description, @workspaceId, @archived, @metricsJson, @createdAt, @updatedAt)`
       )
       .run({
         id: project.id,
         organizationId: project.organizationId,
         name: project.name,
         description: project.description,
+        workspaceId: project.workspaceId,
         archived: project.archived ? 1 : 0,
         metricsJson: this.toJson(project.metrics),
         createdAt: now,
@@ -83,6 +85,7 @@ export class ProjectRepository extends BaseRepository<Project> {
         `UPDATE projects
          SET name = @name,
              description = @description,
+             workspace_id = @workspaceId,
         archived = @archived,
              metrics_json = @metricsJson,
              updated_at = @updatedAt
@@ -92,6 +95,7 @@ export class ProjectRepository extends BaseRepository<Project> {
         id,
         name: next.name,
         description: next.description,
+        workspaceId: next.workspaceId ?? null,
         archived: next.archived ? 1 : 0,
         metricsJson: this.toJson(next.metrics),
         updatedAt: next.updatedAt
@@ -110,6 +114,7 @@ export class ProjectRepository extends BaseRepository<Project> {
       organizationId: row.organization_id,
       name: row.name,
       description: row.description ?? undefined,
+      workspaceId: row.workspace_id ?? null,
       archived: Boolean(row.archived),
       metrics,
       generalContext: this.normalizeProjectPrompt(metrics.generalContext),

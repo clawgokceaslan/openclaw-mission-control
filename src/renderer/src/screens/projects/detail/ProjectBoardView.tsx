@@ -1,5 +1,5 @@
-import type { CSSProperties, DragEvent } from 'react'
-import { Badge, Card } from 'react-bootstrap'
+import { useRef, type CSSProperties, type DragEvent, type PointerEvent } from 'react'
+import { Card } from 'react-bootstrap'
 import { LuCalendarPlus, LuFlag, LuMessageSquare, LuPlus, LuUserPlus } from 'react-icons/lu'
 import type { Agent, Tag, TaskEntity } from '@shared/types/entities'
 import { TagPill } from '@renderer/components/tags/TagPill'
@@ -12,6 +12,7 @@ interface ProjectBoardViewProps {
   tasksByStatus: Record<TaskEntity['status'], TaskEntity[]>
   agents: Agent[]
   onDropStatus: (event: DragEvent<HTMLElement>, status: TaskEntity['status']) => void
+  onReorder: (sourceTaskId: string, targetTaskId: string) => void
   onOpenTask: (taskId: string) => void
   onOpenCreateTask: (status: TaskEntity['status']) => void
 }
@@ -27,11 +28,39 @@ function renderTags(tags: Tag[] | undefined) {
   )
 }
 
-export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus, onOpenTask, onOpenCreateTask }: ProjectBoardViewProps) {
+export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus, onReorder, onOpenTask, onOpenCreateTask }: ProjectBoardViewProps) {
   const agentName = (task: TaskEntity) => agents.find((agent) => agent.id === task.agentId)?.name ?? 'Unassigned'
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  const panRef = useRef({ active: false, startX: 0, scrollLeft: 0 })
+
+  const canStartPan = (event: PointerEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement
+    return !target.closest('button,a,input,textarea,select,[draggable="true"]')
+  }
 
   return (
-    <div className={styles.kanbanWrap}>
+    <div
+      ref={wrapRef}
+      className={styles.kanbanWrap}
+      onPointerDown={(event) => {
+        if (event.button !== 0 || !canStartPan(event)) return
+        panRef.current = { active: true, startX: event.clientX, scrollLeft: wrapRef.current?.scrollLeft ?? 0 }
+        event.currentTarget.setPointerCapture(event.pointerId)
+        event.currentTarget.classList.add(styles.kanbanPanning)
+      }}
+      onPointerMove={(event) => {
+        if (!panRef.current.active || !wrapRef.current) return
+        wrapRef.current.scrollLeft = panRef.current.scrollLeft - (event.clientX - panRef.current.startX)
+      }}
+      onPointerUp={(event) => {
+        panRef.current.active = false
+        event.currentTarget.classList.remove(styles.kanbanPanning)
+      }}
+      onPointerCancel={(event) => {
+        panRef.current.active = false
+        event.currentTarget.classList.remove(styles.kanbanPanning)
+      }}
+    >
       {columns.map((column) => {
         const rows = tasksByStatus[column.status] ?? []
         return (
@@ -51,9 +80,9 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
             </header>
             {column.title.toLowerCase().includes('review') ? (
               <div className={styles.reviewFilters}>
-                <Badge pill bg="dark">All · {rows.length}</Badge>
-                <Badge pill bg="light" text="dark">Lead review · 0</Badge>
-                <Badge pill bg="light" text="dark">Blocked · 0</Badge>
+                <span className={`${styles.reviewBadge} ${styles.reviewBadgeActive}`}>All · {rows.length}</span>
+                <span className={styles.reviewBadge}>Lead review · 0</span>
+                <span className={styles.reviewBadge}>Blocked · 0</span>
               </div>
             ) : null}
             <div className={styles.columnBody}>
@@ -63,6 +92,17 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
                   className={styles.taskCard}
                   draggable
                   onDragStart={(event) => event.dataTransfer.setData('text/plain', task.id)}
+                  onDragOver={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    event.dataTransfer.dropEffect = 'move'
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    const sourceTaskId = event.dataTransfer.getData('text/plain')
+                    if (sourceTaskId && sourceTaskId !== task.id) onReorder(sourceTaskId, task.id)
+                  }}
                   onClick={() => onOpenTask(task.id)}
                 >
                   <Card.Body>

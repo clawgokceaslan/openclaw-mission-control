@@ -19,6 +19,11 @@
     "lint": "echo \"skip\""
   },
   "dependencies": {
+    "@blocknote/core": "^0.49.0",
+    "@blocknote/mantine": "^0.49.0",
+    "@blocknote/react": "^0.49.0",
+    "@mantine/core": "^8.3.18",
+    "@mantine/hooks": "^8.3.18",
     "@popperjs/core": "^2.11.8",
     "@tanstack/react-query": "^5.96.2",
     "@tanstack/react-table": "^8.21.3",

@@ -19,11 +19,21 @@ export interface Project {
   organizationId: string
   name: string
   description?: string
+  workspaceId?: string | null
   generalContext?: string
   generalPrompt?: string
   defaultOutput?: string
   archived: boolean
   metrics?: Record<string, unknown>
+  createdAt: number
+  updatedAt: number
+}
+
+export interface Workspace {
+  id: string
+  organizationId: string
+  name: string
+  rootPath: string
   createdAt: number
   updatedAt: number
 }
@@ -86,6 +96,7 @@ export interface TaskComment {
   authorName: string
   body: string
   createdAt: number
+  updatedAt?: number
 }
 
 export interface TaskSubtask {
@@ -103,6 +114,15 @@ export interface TaskSubtask {
   updatedAt: number
 }
 
+export interface TaskAttachment {
+  id: string
+  name: string
+  url: string
+  type: string
+  size: number
+  createdAt: number
+}
+
 export interface TaskTemplatePayload {
   title?: string
   description?: string
@@ -112,13 +132,17 @@ export interface TaskTemplatePayload {
   skillIds?: string[]
   customFieldValues?: Record<string, unknown>
   checklistItems?: TaskChecklistItem[]
+  inputFormatId?: string | null
   outputFormatId?: string | null
+  comments?: TaskComment[]
+  attachments?: TaskAttachment[]
   subtasks?: Array<{
     title?: string
     status?: string
     payload?: Record<string, unknown>
     agentId?: string | null
     dueAt?: number
+    inputFormatId?: string | null
     outputFormatId?: string | null
   }>
 }
@@ -166,6 +190,7 @@ export interface OutputFormat {
   organizationId: string
   name: string
   description?: string
+  formatRole: 'input' | 'output'
   fields: AgentOutputFormatField[]
   instructionsMarkdown?: string
   createdAt: number

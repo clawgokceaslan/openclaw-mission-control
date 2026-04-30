@@ -2,14 +2,16 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { useEffect, type ReactNode, useState } from 'react'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { AuthProvider, useAuth } from '@renderer/providers/auth/auth-state'
+import { ThemeProvider } from '@renderer/providers/theme/theme-state'
 import { ProtectedRoute } from '@renderer/components/routes/ProtectedRoute'
 import { AppShell } from '@renderer/layout/AppShell'
-import { DashboardPage } from '@renderer/screens/DashboardPage'
+import { DashboardPage, DetailedDashboardPage } from '@renderer/screens/DashboardPage'
 import { ProfilePage } from '@renderer/screens/ProfilePage'
 import { ProfileSetupPage } from '@renderer/screens/ProfileSetupPage'
 import { ProjectsPage } from '@renderer/screens/projects/ProjectsPage'
 import { ProjectNewPage } from '@renderer/screens/projects/ProjectNewPage'
 import { ProjectDetailPage } from '@renderer/screens/projects/ProjectDetailPage'
+import { WorkspacesPage } from '@renderer/screens/workspaces/WorkspacesPage'
 import { AgentsPage } from '@renderer/screens/agents/AgentsPage'
 import { AgentNewPage } from '@renderer/screens/agents/AgentNewPage'
 import { GatewaysPage } from '@renderer/screens/gateways/GatewaysPage'
@@ -39,16 +41,19 @@ interface RouteConfig {
 const SIGNED_IN_ROUTES: RouteConfig[] = [
   { path: '/', element: <Navigate to={APP_ROUTES.DASHBOARD} replace /> },
   { path: APP_ROUTES.DASHBOARD, element: <DashboardPage /> },
+  { path: APP_ROUTES.DASHBOARD_DETAIL, element: <DetailedDashboardPage /> },
   { path: APP_ROUTES.PROFILE, element: <ProfilePage /> },
   { path: APP_ROUTES.PROJECTS, element: <ProjectsPage /> },
   { path: APP_ROUTES.PROJECTS_NEW, element: <ProjectNewPage /> },
   { path: APP_ROUTES.PROJECT_DETAIL, element: <ProjectDetailPage /> },
+  { path: APP_ROUTES.WORKSPACES, element: <WorkspacesPage /> },
   { path: APP_ROUTES.AGENTS, element: <AgentsPage /> },
   { path: APP_ROUTES.AGENTS_NEW, element: <AgentNewPage /> },
   { path: APP_ROUTES.GATEWAYS, element: <GatewaysPage /> },
   { path: APP_ROUTES.GATEWAYS_NEW, element: <GatewayNewPage /> },
   { path: APP_ROUTES.GATEWAY_DETAIL, element: <GatewayDetailPage /> },
   { path: APP_ROUTES.DOCUMENTATION, element: <DocumentationPage /> },
+  { path: APP_ROUTES.DOCUMENTATION_GATEWAY, element: <DocumentationPage /> },
   { path: APP_ROUTES.SKILLS, element: <SkillsPage /> },
   { path: APP_ROUTES.PROJECT_GROUPS, element: <ProjectGroupsPage /> },
   { path: APP_ROUTES.PROJECT_GROUPS_NEW, element: <ProjectGroupNewPage /> },
@@ -142,9 +147,11 @@ function AppRouter() {
 export function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <AppRouter />
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <AppRouter />
+        </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   )
 }

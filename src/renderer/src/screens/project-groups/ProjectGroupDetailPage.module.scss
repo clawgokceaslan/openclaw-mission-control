@@ -19,9 +19,9 @@
 
 .error {
   margin: 0;
-  border: 1px solid #f3c3cb;
-  background: #fff1f4;
-  color: #ab2f43;
+  border: 1px solid var(--omc-danger-border);
+  background: var(--omc-danger-bg);
+  color: var(--omc-danger-strong);
   padding: 10px 12px;
   border-radius: 10px;
 }
@@ -37,7 +37,7 @@
 
   label {
     font-size: 0.9rem;
-    color: #506280;
+    color: var(--omc-text-muted);
     font-weight: 600;
   }
 
@@ -48,7 +48,7 @@
     min-height: 40px;
     border: 1px solid var(--omc-border);
     border-radius: 10px;
-    background: #fff;
+    background: var(--omc-surface);
     padding: 8px 10px;
     color: var(--omc-text);
   }
@@ -131,13 +131,13 @@ pre {
   margin: 0;
   border: 1px solid var(--omc-border);
   border-radius: 10px;
-  background: #f8faff;
+  background: var(--omc-pill-bg);
   padding: 10px;
   overflow: auto;
 }
 
 a {
-  color: #244ca8;
+  color: var(--omc-primary-strong);
   font-weight: 600;
 }
 

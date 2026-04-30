@@ -16,6 +16,7 @@ import { CustomFieldRepository, TagRepository } from '../../db/repositories/cust
 import { JobRepository } from '../../db/repositories/job-repo.js'
 import { StatusRepository } from '../../db/repositories/status-repo.js'
 import { OutputFormatRepository } from '../../db/repositories/output-format-repo.js'
+import { AppSettingsRepository, WorkspaceRepository } from '../../db/repositories/workspace-repo.js'
 import { AuthService } from './auth.service.js'
 import { ProjectService } from './project.service.js'
 import { TaskService } from './task.service.js'
@@ -31,10 +32,15 @@ import { CustomFieldService } from './custom-field.service.js'
 import { JobService } from './job.service.js'
 import { StatusService } from './status.service.js'
 import { OutputFormatService } from './output-format.service.js'
+import { AttachmentService } from './attachment.service.js'
+import { WorkspaceService } from './workspace.service.js'
+import { AppSettingsService } from './app-settings.service.js'
 
 export interface AppServices {
   auth: AuthService
   projects: ProjectService
+  workspaces: WorkspaceService
+  appSettings: AppSettingsService
   statuses: StatusService
   tasks: TaskService
   taskTemplates: TaskTemplateService
@@ -47,6 +53,7 @@ export interface AppServices {
   customFields: CustomFieldService
   outputFormats: OutputFormatService
   jobs: JobService
+  attachments: AttachmentService
 }
 
 export interface AppContext {
@@ -81,23 +88,28 @@ export async function createAppContext(): Promise<AppContext> {
   const jobRepo = new JobRepository(db)
   const statusRepo = new StatusRepository(db)
   const outputFormatRepo = new OutputFormatRepository(db)
+  const workspaceRepo = new WorkspaceRepository(db)
+  const appSettingsRepo = new AppSettingsRepository(db)
 
   const auth = new AuthService(authRepo, eventBus)
   const services: AppServices = {
     auth,
-    projects: new ProjectService(auth, projectRepo),
+    projects: new ProjectService(auth, projectRepo, workspaceRepo, taskRepo, taskSubtaskRepo),
+    workspaces: new WorkspaceService(auth, workspaceRepo),
+    appSettings: new AppSettingsService(auth, appSettingsRepo, gatewayRepo),
     statuses: new StatusService(auth, statusRepo, projectRepo),
     tasks: new TaskService(auth, taskRepo, taskSubtaskRepo, taskTagRepo, taskSkillRepo, projectRepo, tagRepo, skillRepo, agentRepo, statusRepo),
     taskTemplates: new TaskTemplateService(auth, taskTemplateRepo),
     agents: new AgentService(auth, agentRepo),
-    gateways: new GatewayService(auth, gatewayRepo, eventBus, gatewayRuntime),
+    gateways: new GatewayService(auth, gatewayRepo, eventBus, gatewayRuntime, appSettingsRepo),
     webhooks: new WebhookService(auth, webhookRepo),
     skills: new SkillService(auth, skillRepo, packRepo),
     organization: new OrganizationService(auth, orgRepo, authRepo),
     projectGroups: new ProjectGroupService(auth, groupRepo, projectRepo),
     customFields: new CustomFieldService(auth, customFieldRepo, tagRepo),
     outputFormats: new OutputFormatService(auth, outputFormatRepo),
-    jobs: new JobService(auth, jobRepo)
+    jobs: new JobService(auth, jobRepo),
+    attachments: new AttachmentService(auth, projectRepo, workspaceRepo, taskRepo, taskSubtaskRepo, taskTemplateRepo)
   }
 
   void services.gateways.connectAutoConnectGateways()

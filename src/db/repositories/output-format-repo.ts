@@ -3,6 +3,12 @@ import { BaseRepository } from './base-repo.js'
 import { SqliteAdapter } from '../adapter/sqlite.js'
 import type { AgentOutputFormatField, OutputFormat } from '../../shared/types/entities.js'
 
+type OutputFormatRole = OutputFormat['formatRole']
+
+function normalizeFormatRole(value: unknown): OutputFormatRole {
+  return value === 'input' ? 'input' : 'output'
+}
+
 function normalizeFields(value: unknown): AgentOutputFormatField[] {
   if (!Array.isArray(value)) return []
   return value.map((raw) => {
@@ -26,38 +32,45 @@ function normalizeFields(value: unknown): AgentOutputFormatField[] {
 }
 
 export class OutputFormatRepository extends BaseRepository<OutputFormat> {
+  private roleColumnReady = false
+
   constructor(db: SqliteAdapter) {
     super(db)
   }
 
   async list(orgId: string): Promise<OutputFormat[]> {
+    await this.ensureRoleColumn()
     const rows = await this.db.prepare('SELECT * FROM output_formats WHERE organization_id = @orgId ORDER BY updated_at DESC').all({ orgId })
     return rows.map((row: any) => this.map(row))
   }
 
   async get(id: string): Promise<OutputFormat | undefined> {
+    await this.ensureRoleColumn()
     const row = await this.db.prepare('SELECT * FROM output_formats WHERE id = @id').get({ id }) as any
     return row ? this.map(row) : undefined
   }
 
-  async create(orgId: string, input: { name: string; description?: string; fields: AgentOutputFormatField[]; instructionsMarkdown?: string }): Promise<OutputFormat> {
+  async create(orgId: string, input: { name: string; description?: string; formatRole?: OutputFormatRole; fields: AgentOutputFormatField[]; instructionsMarkdown?: string }): Promise<OutputFormat> {
+    await this.ensureRoleColumn()
     const now = Date.now()
     const item: OutputFormat = {
       id: randomUUID(),
       organizationId: orgId,
       name: input.name,
       description: input.description,
+      formatRole: normalizeFormatRole(input.formatRole),
       fields: input.fields,
       instructionsMarkdown: input.instructionsMarkdown,
       createdAt: now,
       updatedAt: now
     }
-    await this.db.prepare(`INSERT INTO output_formats (id, organization_id, name, description, fields_json, instructions_markdown, created_at, updated_at)
-      VALUES (@id, @organizationId, @name, @description, @fieldsJson, @instructionsMarkdown, @createdAt, @updatedAt)`).run({
+    await this.db.prepare(`INSERT INTO output_formats (id, organization_id, name, description, format_role, fields_json, instructions_markdown, created_at, updated_at)
+      VALUES (@id, @organizationId, @name, @description, @formatRole, @fieldsJson, @instructionsMarkdown, @createdAt, @updatedAt)`).run({
       id: item.id,
       organizationId: item.organizationId,
       name: item.name,
       description: item.description,
+      formatRole: item.formatRole,
       fieldsJson: this.toJson(item.fields),
       instructionsMarkdown: item.instructionsMarkdown,
       createdAt: now,
@@ -66,17 +79,20 @@ export class OutputFormatRepository extends BaseRepository<OutputFormat> {
     return item
   }
 
-  async update(orgId: string, id: string, input: { name: string; description?: string; fields: AgentOutputFormatField[]; instructionsMarkdown?: string }): Promise<OutputFormat | undefined> {
+  async update(orgId: string, id: string, input: { name: string; description?: string; formatRole?: OutputFormatRole; fields: AgentOutputFormatField[]; instructionsMarkdown?: string }): Promise<OutputFormat | undefined> {
+    await this.ensureRoleColumn()
     const current = await this.get(id)
     if (!current || current.organizationId !== orgId) return undefined
     const now = Date.now()
+    const formatRole = normalizeFormatRole(input.formatRole ?? current.formatRole)
     await this.db.prepare(`UPDATE output_formats
-      SET name = @name, description = @description, fields_json = @fieldsJson, instructions_markdown = @instructionsMarkdown, updated_at = @updatedAt
+      SET name = @name, description = @description, format_role = @formatRole, fields_json = @fieldsJson, instructions_markdown = @instructionsMarkdown, updated_at = @updatedAt
       WHERE id = @id AND organization_id = @orgId`).run({
       id,
       orgId,
       name: input.name,
       description: input.description,
+      formatRole,
       fieldsJson: this.toJson(input.fields),
       instructionsMarkdown: input.instructionsMarkdown,
       updatedAt: now
@@ -85,6 +101,7 @@ export class OutputFormatRepository extends BaseRepository<OutputFormat> {
       ...current,
       name: input.name,
       description: input.description,
+      formatRole,
       fields: input.fields,
       instructionsMarkdown: input.instructionsMarkdown,
       updatedAt: now
@@ -92,7 +109,17 @@ export class OutputFormatRepository extends BaseRepository<OutputFormat> {
   }
 
   async remove(orgId: string, id: string): Promise<void> {
+    await this.ensureRoleColumn()
     await this.db.prepare('DELETE FROM output_formats WHERE id = @id AND organization_id = @orgId').run({ id, orgId })
+  }
+
+  private async ensureRoleColumn(): Promise<void> {
+    if (this.roleColumnReady) return
+    const columns = await this.db.prepare('PRAGMA table_info(output_formats)').all<{ name: string }>()
+    if (!columns.some((column) => column.name === 'format_role')) {
+      await this.db.run("ALTER TABLE output_formats ADD COLUMN format_role TEXT NOT NULL DEFAULT 'output'")
+    }
+    this.roleColumnReady = true
   }
 
   private map(row: any): OutputFormat {
@@ -101,6 +128,7 @@ export class OutputFormatRepository extends BaseRepository<OutputFormat> {
       organizationId: row.organization_id,
       name: row.name,
       description: row.description ?? undefined,
+      formatRole: normalizeFormatRole(row.format_role),
       fields: normalizeFields(this.parseJson(row.fields_json)),
       instructionsMarkdown: row.instructions_markdown ?? undefined,
       createdAt: row.created_at,

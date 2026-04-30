@@ -17,6 +17,11 @@ export class TaskTemplateRepository extends BaseRepository<TaskTemplate> {
     return rows.map((row: any) => this.map(row))
   }
 
+  async get(orgId: string, id: string): Promise<TaskTemplate | undefined> {
+    const row = await this.db.prepare('SELECT * FROM task_templates WHERE id = @id AND organization_id = @orgId').get<any>({ id, orgId })
+    return row ? this.map(row) : undefined
+  }
+
   async create(orgId: string, input: { name: string; description?: string; template: TaskTemplatePayload }): Promise<TaskTemplate> {
     const now = Date.now()
     const item: TaskTemplate = {

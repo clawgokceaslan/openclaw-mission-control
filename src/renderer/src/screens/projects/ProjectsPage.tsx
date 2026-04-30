@@ -4,8 +4,9 @@ import { LuArrowUpRight, LuPlus, LuRefreshCw, LuX } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
-import type { Project, StatusTemplate } from '@shared/types/entities'
+import type { Project, ProjectGroup, ProjectStatus, StatusTemplate, TaskEntity, Workspace } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
+import { PROJECT_STATUS_COLUMNS } from './detail/status'
 import styles from './ProjectsPage.module.scss'
 
 function formatProjectTime(timestamp: number) {
@@ -15,13 +16,21 @@ function formatProjectTime(timestamp: number) {
 export function ProjectsPage() {
   const { token } = useAuth()
   const [items, setItems] = useState<Project[]>([])
+  const [tasks, setTasks] = useState<TaskEntity[]>([])
+  const [groups, setGroups] = useState<ProjectGroup[]>([])
+  const [statusesByProject, setStatusesByProject] = useState<Record<string, ProjectStatus[]>>({})
   const [status, setStatus] = useState('Yukleniyor...')
   const [error, setError] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [statusTemplates, setStatusTemplates] = useState<StatusTemplate[]>([])
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
+  const [workspaceDraftName, setWorkspaceDraftName] = useState('')
+  const [workspaceDraftPath, setWorkspaceDraftPath] = useState('')
+  const [showWorkspaceCreate, setShowWorkspaceCreate] = useState(false)
   const [creating, setCreating] = useState(false)
   const selectedTemplate = useMemo(
     () => statusTemplates.find((template) => template.id === selectedTemplateId) ?? statusTemplates[0] ?? null,
@@ -33,11 +42,16 @@ export function ProjectsPage() {
     setName('')
     setDescription('')
     setSelectedTemplateId(statusTemplates[0]?.id ?? '')
+    setSelectedWorkspaceId('')
   }
 
   const loadProjects = async () => {
     setStatus('Yukleniyor...')
-    const response = await loadList<Project[]>(IPC_CHANNELS.projects.list, token)
+    const [response, taskResponse, groupResponse] = await Promise.all([
+      loadList<Project[]>(IPC_CHANNELS.projects.list, token),
+      loadList<TaskEntity[]>(IPC_CHANNELS.tasks.list, token),
+      loadList<ProjectGroup[]>(IPC_CHANNELS.projectGroups.list, token)
+    ])
     if (!response.ok) {
       setError(response.error?.message ?? 'Yukleme hatasi')
       setStatus('Yukleme hatasi')
@@ -45,7 +59,15 @@ export function ProjectsPage() {
       return
     }
 
-    setItems(Array.isArray(response.data) ? response.data : [])
+    const projects = Array.isArray(response.data) ? response.data : []
+    setItems(projects)
+    setTasks(taskResponse.ok && Array.isArray(taskResponse.data) ? taskResponse.data : [])
+    setGroups(groupResponse.ok && Array.isArray(groupResponse.data) ? groupResponse.data : [])
+    const statusEntries = await Promise.all(projects.map(async (project) => {
+      const statusResponse = await invokeBridge<ProjectStatus[]>(IPC_CHANNELS.statuses.getProjectStatuses, { actorToken: token, projectId: project.id })
+      return [project.id, statusResponse.ok && Array.isArray(statusResponse.data) ? statusResponse.data : []] as const
+    }))
+    setStatusesByProject(Object.fromEntries(statusEntries))
     setStatus('Hazir')
     setError(null)
   }
@@ -56,7 +78,10 @@ export function ProjectsPage() {
 
   useEffect(() => {
     const loadTemplates = async () => {
-      const response = await invokeBridge<StatusTemplate[]>(IPC_CHANNELS.statuses.listTemplates, { actorToken: token })
+      const [response, workspaceResponse] = await Promise.all([
+        invokeBridge<StatusTemplate[]>(IPC_CHANNELS.statuses.listTemplates, { actorToken: token }),
+        loadList<Workspace[]>(IPC_CHANNELS.workspaces.list, token)
+      ])
       if (!response.ok) {
         setError(response.error?.message ?? 'Unable to load status templates')
         return
@@ -64,10 +89,73 @@ export function ProjectsPage() {
       const rows = Array.isArray(response.data) ? response.data : []
       setStatusTemplates(rows)
       setSelectedTemplateId((current) => current || rows[0]?.id || '')
+      if (workspaceResponse.ok) setWorkspaces(Array.isArray(workspaceResponse.data) ? workspaceResponse.data : [])
     }
 
     void loadTemplates()
   }, [token])
+
+  const chooseWorkspaceFolder = async () => {
+    const pickResponse = await invokeBridge<{ rootPath: string } | null>(IPC_CHANNELS.workspaces.pickFolder, { actorToken: token })
+    if (!pickResponse.ok) {
+      setError(pickResponse.error?.message ?? 'Unable to select workspace folder')
+      return
+    }
+    const rootPath = pickResponse.data?.rootPath
+    if (!rootPath) return
+    setWorkspaceDraftPath(rootPath)
+  }
+
+  const createWorkspaceFromDraft = async () => {
+    if (!workspaceDraftName.trim() || !workspaceDraftPath.trim()) return
+    const createResponse = await invokeBridge<Workspace>(IPC_CHANNELS.workspaces.create, {
+      actorToken: token,
+      name: workspaceDraftName.trim(),
+      rootPath: workspaceDraftPath.trim()
+    })
+    if (!createResponse.ok || !createResponse.data) {
+      setError(createResponse.error?.message ?? 'Unable to create workspace')
+      return
+    }
+    setWorkspaces((current) => [createResponse.data!, ...current.filter((item) => item.id !== createResponse.data!.id)])
+    setSelectedWorkspaceId(createResponse.data.id)
+    setWorkspaceDraftName('')
+    setWorkspaceDraftPath('')
+    setShowWorkspaceCreate(false)
+  }
+
+  const groupForProject = (projectId: string) => groups.find((group) => Array.isArray(group.projectIds) && group.projectIds.includes(projectId))
+
+  const progressForProject = (project: Project) => {
+    const projectTasks = tasks.filter((task) => task.projectId === project.id)
+    const statuses = statusesByProject[project.id]?.length
+      ? statusesByProject[project.id]
+      : PROJECT_STATUS_COLUMNS.map((column, index) => ({
+        id: column.status,
+        name: column.title,
+        color: column.accent,
+        category: column.category,
+        sortOrder: index,
+        projectId: project.id,
+        createdAt: 0,
+        updatedAt: 0
+      }))
+    const total = projectTasks.length
+    const doneStatusIds = new Set(statuses.filter((item) => item.category === 'done' || item.category === 'closed').map((item) => item.id))
+    const done = projectTasks.filter((task) => doneStatusIds.has(task.status)).length
+    const percent = total > 0 ? Math.round((done / total) * 100) : 0
+    const segments = statuses.map((status) => {
+      const count = projectTasks.filter((task) => task.status === status.id).length
+      return {
+        id: status.id,
+        name: status.name,
+        color: status.color,
+        count,
+        percent: total > 0 ? Math.round((count / total) * 100) : 0
+      }
+    }).filter((segment) => segment.count > 0)
+    return { total, done, percent, segments }
+  }
 
   const handleCreate = async (event: FormEvent) => {
     event.preventDefault()
@@ -77,7 +165,8 @@ export function ProjectsPage() {
     const response = await invokeBridge<Project>(IPC_CHANNELS.projects.create, {
       actorToken: token,
       name: name.trim(),
-      description: description.trim() || undefined
+      description: description.trim() || undefined,
+      workspaceId: selectedWorkspaceId || null
     })
 
     if (!response.ok) {
@@ -130,32 +219,53 @@ export function ProjectsPage() {
       <section className={styles.tableCard}>
         <div className={styles.tableHead}>
           <span>Project</span>
+          <span>Project group</span>
+          <span>Progress</span>
           <span>State</span>
           <span>Updated</span>
           <span>Actions</span>
         </div>
-        {items.length > 0 ? items.map((project) => (
-          <div key={project.id} className={styles.tableRow}>
-            <span>
-              <Link to={`${APP_ROUTES.PROJECTS}/${project.id}`} className={styles.tableName}>
-                {project.name}
-              </Link>
-              <small>{project.description || 'No description.'}</small>
-            </span>
-            <span>
-              <span className={`${styles.statePill} ${project.archived ? styles.stateArchived : styles.stateActive}`}>
-                {project.archived ? 'Archived' : 'Active'}
+        {items.length > 0 ? items.map((project) => {
+          const group = groupForProject(project.id)
+          const progress = progressForProject(project)
+          return (
+            <div key={project.id} className={styles.tableRow}>
+              <span>
+                <Link to={`${APP_ROUTES.PROJECTS}/${project.id}`} className={styles.tableName}>
+                  {project.name}
+                </Link>
+                <small>{project.description || 'No description.'}</small>
               </span>
-            </span>
-            <span className={styles.updatedCell}>{formatProjectTime(project.updatedAt)}</span>
-            <span className={styles.actionsCell}>
-              <Link to={`${APP_ROUTES.PROJECTS}/${project.id}`} className={styles.textIconButton}>
-                <LuArrowUpRight size={15} />
-                Open
-              </Link>
-            </span>
-          </div>
-        )) : (
+              <span>
+                {group ? (
+                  <Link to={`${APP_ROUTES.PROJECT_GROUPS}/${group.id}`} className={styles.groupLink}>{group.name}</Link>
+                ) : (
+                  <span className={styles.ungrouped}>Ungrouped</span>
+                )}
+              </span>
+              <span className={styles.progressCell}>
+                <span className={styles.progressMeta}>{progress.percent}% · {progress.done}/{progress.total} done</span>
+                <span className={styles.progressBar}>
+                  {progress.segments.length > 0 ? progress.segments.map((segment) => (
+                    <i key={segment.id} title={`${segment.name}: ${segment.percent}%`} style={{ width: `${Math.max(segment.percent, 4)}%`, background: segment.color }} />
+                  )) : <i style={{ width: '100%', background: 'var(--omc-border-subtle)' }} />}
+                </span>
+              </span>
+              <span>
+                <span className={`${styles.statePill} ${project.archived ? styles.stateArchived : styles.stateActive}`}>
+                  {project.archived ? 'Archived' : 'Active'}
+                </span>
+              </span>
+              <span className={styles.updatedCell}>{formatProjectTime(project.updatedAt)}</span>
+              <span className={styles.actionsCell}>
+                <Link to={`${APP_ROUTES.PROJECTS}/${project.id}`} className={styles.textIconButton}>
+                  <LuArrowUpRight size={15} />
+                  Open
+                </Link>
+              </span>
+            </div>
+          )
+        }) : (
           <div className={styles.emptyRow}>No projects yet.</div>
         )}
       </section>
@@ -199,6 +309,43 @@ export function ProjectsPage() {
                 </select>
                 {statusTemplates.length === 0 ? <small className={styles.fieldHint}>Status templates are loading.</small> : null}
               </label>
+              <label>
+                <span>Workspace</span>
+                <div className={styles.inlinePicker}>
+                  <select value={selectedWorkspaceId} onChange={(event) => setSelectedWorkspaceId(event.target.value)}>
+                    <option value="">No workspace yet</option>
+                    {workspaces.map((workspace) => (
+                      <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
+                    ))}
+                  </select>
+                  <button type="button" className={styles.secondaryButton} onClick={() => setShowWorkspaceCreate((value) => !value)}>
+                    Add workspace
+                  </button>
+                </div>
+              </label>
+              {showWorkspaceCreate ? (
+                <div className={styles.inlineCreateCard}>
+                  <label>
+                    <span>Workspace name</span>
+                    <input value={workspaceDraftName} onChange={(event) => setWorkspaceDraftName(event.target.value)} />
+                  </label>
+                  <label>
+                    <span>Folder path</span>
+                    <div className={styles.inlinePicker}>
+                      <input value={workspaceDraftPath} onChange={(event) => setWorkspaceDraftPath(event.target.value)} />
+                      <button type="button" className={styles.secondaryButton} onClick={() => void chooseWorkspaceFolder()}>
+                        Choose folder
+                      </button>
+                    </div>
+                  </label>
+                  <div className={styles.formActions}>
+                    <button type="button" className={styles.secondaryButton} onClick={() => setShowWorkspaceCreate(false)}>Cancel</button>
+                    <button type="button" className={styles.primaryButton} disabled={!workspaceDraftName.trim() || !workspaceDraftPath.trim()} onClick={() => void createWorkspaceFromDraft()}>
+                      Save workspace
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               {selectedTemplate ? (
                 <div className={styles.statusPreview}>
                   <div className={styles.statusPreviewHeader}>

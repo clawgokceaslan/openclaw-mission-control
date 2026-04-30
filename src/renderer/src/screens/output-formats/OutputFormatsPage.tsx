@@ -9,6 +9,7 @@ import styles from './OutputFormatsPage.module.scss'
 
 const FIELD_TYPES: NonNullable<AgentOutputFormatField['valueType']>[] = ['string', 'number', 'boolean', 'array', 'enum']
 const AUTOSAVE_DELAY_MS = 700
+const FORMAT_ROLES: OutputFormat['formatRole'][] = ['input', 'output']
 
 type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'failed' | 'draft'
 
@@ -28,6 +29,10 @@ function createField(index: number): AgentOutputFormatField {
     required: false,
     children: []
   }
+}
+
+function normalizeFormatRole(value: unknown): OutputFormat['formatRole'] {
+  return value === 'input' ? 'input' : 'output'
 }
 
 function normalizeFields(fields: AgentOutputFormatField[]): AgentOutputFormatField[] {
@@ -177,23 +182,24 @@ function flattenFieldRows(fields: AgentOutputFormatField[], prefix = ''): Array<
   })
 }
 
-function buildInstructionsMarkdown(format: Pick<OutputFormat, 'name' | 'description' | 'fields'>): string {
+function buildInstructionsMarkdown(format: Pick<OutputFormat, 'name' | 'description' | 'formatRole' | 'fields'>): string {
   const rows = flattenFieldRows(format.fields)
+  const role = normalizeFormatRole(format.formatRole)
   const contractRows = rows.length > 0
     ? rows.map(({ path, field, sample }) => `| ${markdownCell(path)} | ${markdownCell(field.valueType ?? 'string')} | ${field.required ? 'yes' : 'no'} | ${markdownCell((field.enumValues ?? []).join(', '))} | ${markdownCell(typeof sample === 'object' ? JSON.stringify(sample) : sample)} | ${markdownCell(field.description)} |`).join('\n')
     : '| - | - | no | - | - | - |'
 
-  return `# Output Format Instructions: ${format.name}
+  return `# ${role === 'input' ? 'Input' : 'Output'} Data Format Instructions: ${format.name}
 
 ## Metadata
 | Field | Value |
 | --- | --- |
 | Name | ${markdownCell(format.name)} |
 | Description | ${markdownCell(format.description)} |
-| Type | output-format |
+| Type | ${role}-data-format |
 
 ## Generation Rules
-- Return only valid data matching the sample file format.
+- ${role === 'input' ? 'Read and validate incoming data matching this format.' : 'Return only valid data matching the sample file format.'}
 - Do not include Markdown fences or explanations.
 - Include all required fields.
 - Use only allowed values for enum fields.
@@ -273,10 +279,10 @@ function validateFields(fields: AgentOutputFormatField[], path = 'root'): string
   const seen = new Set<string>()
   for (const field of fields) {
     if (!field.key && (field.description || field.defaultValue || field.children?.length)) {
-      return 'Output format key is required when description, default value, or child fields are provided.'
+      return 'Data format key is required when description, default value, or child fields are provided.'
     }
     if (field.key) {
-      if (seen.has(field.key)) return `Duplicate output format key at ${path}: ${field.key}`
+      if (seen.has(field.key)) return `Duplicate data format key at ${path}: ${field.key}`
       seen.add(field.key)
     }
     const childError = validateFields(field.children ?? [], field.key || path)
@@ -292,9 +298,11 @@ export function OutputFormatsPage() {
   const [formError, setFormError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [editingFormat, setEditingFormat] = useState<OutputFormat | null>(null)
+  const [isCreatingFormat, setIsCreatingFormat] = useState(false)
   const [deleteFormat, setDeleteFormat] = useState<OutputFormat | null>(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [formatRole, setFormatRole] = useState<OutputFormat['formatRole']>('output')
   const [fields, setFields] = useState<AgentOutputFormatField[]>([])
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
@@ -310,19 +318,38 @@ export function OutputFormatsPage() {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const closeNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveQueuedRef = useRef(false)
-  const latestDraftRef = useRef({ name: '', description: '', fields: [] as AgentOutputFormatField[] })
+  const latestDraftRef = useRef({ name: '', description: '', formatRole: 'output' as OutputFormat['formatRole'], fields: [] as AgentOutputFormatField[] })
   const autosaveReadyRef = useRef(false)
   const saveTaskRef = useRef<Promise<boolean> | null>(null)
 
   const fieldNodes = useMemo(() => flattenFields(fields), [fields])
   const selectedField = useMemo(() => findField(fields, selectedFieldId), [fields, selectedFieldId])
+  const readDraftSnapshot = () => ({
+    ...latestDraftRef.current,
+    fields
+  })
+
+  const setDraftName = (value: string) => {
+    latestDraftRef.current = { ...latestDraftRef.current, name: value }
+    setName(value)
+  }
+
+  const setDraftDescription = (value: string) => {
+    latestDraftRef.current = { ...latestDraftRef.current, description: value }
+    setDescription(value)
+  }
+
+  const setDraftFormatRole = (value: OutputFormat['formatRole']) => {
+    latestDraftRef.current = { ...latestDraftRef.current, formatRole: value }
+    setFormatRole(value)
+  }
 
   const refresh = async () => {
     setLoading(true)
     const response = await loadList<OutputFormat[]>(IPC_CHANNELS.outputFormats.list, token)
     setLoading(false)
     if (!response.ok) {
-      setError(response.error?.message ?? 'Unable to load output formats')
+      setError(response.error?.message ?? 'Unable to load data formats')
       setItems([])
       return
     }
@@ -335,7 +362,7 @@ export function OutputFormatsPage() {
   }, [token])
 
   useEffect(() => {
-    latestDraftRef.current = { name, description, fields }
+    latestDraftRef.current = { name, description, formatRole, fields }
     if (!editingFormat || !autosaveReadyRef.current) return
     setSaveState('dirty')
     setSaveError(null)
@@ -344,7 +371,7 @@ export function OutputFormatsPage() {
     saveTimerRef.current = setTimeout(() => {
       void saveDraft()
     }, AUTOSAVE_DELAY_MS)
-  }, [name, description, fields])
+  }, [name, description, formatRole, fields])
 
   useEffect(() => () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
@@ -361,45 +388,92 @@ export function OutputFormatsPage() {
 
   const openBuilder = (format: OutputFormat) => {
     autosaveReadyRef.current = false
+    setIsCreatingFormat(false)
     setEditingFormat(format)
-    setName(format.name)
-    setDescription(format.description ?? '')
+    setDraftName(format.name)
+    setDraftDescription(format.description ?? '')
+    setDraftFormatRole(normalizeFormatRole(format.formatRole))
     setFields(format.fields ?? [])
     setSelectedFieldId(format.fields?.[0]?.id ?? null)
     setFormError(null)
     setSaveError(null)
     setDraftWarning(null)
     setSaveState('saved')
-    latestDraftRef.current = { name: format.name, description: format.description ?? '', fields: format.fields ?? [] }
+    latestDraftRef.current = { name: format.name, description: format.description ?? '', formatRole: normalizeFormatRole(format.formatRole), fields: format.fields ?? [] }
     window.setTimeout(() => {
       autosaveReadyRef.current = true
       formatModalRef.current?.focus()
     }, 0)
   }
 
-  const openCreate = async () => {
-    setLoading(true)
-    const response = await invokeBridge<OutputFormat>(IPC_CHANNELS.outputFormats.create, {
-      actorToken: token,
-      name: `Output format ${items.length + 1}`,
-      description: undefined,
-      fields: []
-    })
-    setLoading(false)
-    if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Unable to create output format')
-      return
+  const openCreate = () => {
+    autosaveReadyRef.current = false
+    setEditingFormat(null)
+    setIsCreatingFormat(true)
+    setDraftName('')
+    setDraftDescription('')
+    setDraftFormatRole('output')
+    setFields([])
+    setSelectedFieldId(null)
+    setFormError(null)
+    setSaveError(null)
+    setDraftWarning(null)
+    setSaveState('draft')
+    latestDraftRef.current = { name: '', description: '', formatRole: 'output', fields: [] }
+    window.setTimeout(() => {
+      formatModalRef.current?.focus()
+    }, 0)
+  }
+
+  const createFormat = async (): Promise<boolean> => {
+    const draft = readDraftSnapshot()
+    if (!draft.name.trim()) {
+      setSaveState('failed')
+      setSaveError('Data format name is required.')
+      setDraftWarning(null)
+      return false
     }
-    setItems((current) => [response.data!, ...current])
-    openBuilder(response.data)
+
+    const normalized = normalizeFields(draft.fields)
+    const validationError = validateFields(normalized)
+    setDraftWarning(validationError ? `Saved as draft: ${validationError}` : null)
+    setSaveState('saving')
+    setSaveError(null)
+
+    try {
+      const response = await invokeBridge<OutputFormat>(IPC_CHANNELS.outputFormats.create, {
+        actorToken: token,
+        name: draft.name.trim(),
+        description: draft.description.trim() || undefined,
+        formatRole: draft.formatRole,
+        fields: normalized
+      })
+      if (!response.ok || !response.data) {
+        setSaveState('failed')
+        setSaveError(response.error?.message ?? 'Unable to create data format')
+        return false
+      }
+
+      setItems((current) => [response.data!, ...current])
+      setIsCreatingFormat(false)
+      openBuilder(response.data)
+      setSaveState(validationError ? 'draft' : 'saved')
+      setSaveError(null)
+      return true
+    } catch {
+      setSaveState('failed')
+      setSaveError('Unable to create data format')
+      return false
+    }
   }
 
   const persistFormat = async (): Promise<boolean> => {
+    if (isCreatingFormat) return createFormat()
     if (!editingFormat) return true
-    const draft = latestDraftRef.current
+    const draft = readDraftSnapshot()
     if (!draft.name.trim()) {
       setSaveState('failed')
-      setSaveError('Output format name is required.')
+      setSaveError('Data format name is required.')
       setDraftWarning(null)
       return false
     }
@@ -421,11 +495,12 @@ export function OutputFormatsPage() {
         id: editingFormat.id,
         name: draft.name.trim(),
         description: draft.description.trim() || undefined,
+        formatRole: draft.formatRole,
         fields: normalized
       })
       if (!response.ok || !response.data) {
         setSaveState('failed')
-        setSaveError(response.error?.message ?? 'Unable to save output format')
+        setSaveError(response.error?.message ?? 'Unable to save data format')
         return false
       }
 
@@ -436,12 +511,13 @@ export function OutputFormatsPage() {
       return true
     } catch {
       setSaveState('failed')
-      setSaveError('Unable to save output format')
+      setSaveError('Unable to save data format')
       return false
     }
   }
 
   const saveDraft = async (): Promise<boolean> => {
+    if (isCreatingFormat) return createFormat()
     if (!editingFormat) return true
 
     if (saveTaskRef.current) {
@@ -466,11 +542,27 @@ export function OutputFormatsPage() {
   }
 
   const requestCloseBuilder = async (forceClose = false) => {
+    if (isCreatingFormat) {
+      autosaveReadyRef.current = false
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      setEditingFormat(null)
+      setIsCreatingFormat(false)
+      setFields([])
+      setDraftName('')
+      setDraftDescription('')
+      setDraftFormatRole('output')
+      setSelectedFieldId(null)
+      setFormError(null)
+      setSaveError(null)
+      setDraftWarning(null)
+      setSaveState('idle')
+      return
+    }
     const shouldPersist = editingFormat && saveState !== 'idle' && saveState !== 'saved'
     if (shouldPersist) {
       const didPersist = await saveDraft()
       if (!didPersist) {
-        const message = saveError ? `Could not save: ${saveError}` : 'Could not save output format before closing.'
+        const message = saveError ? `Could not save: ${saveError}` : 'Could not save data format before closing.'
         if (!forceClose) return
         showCloseNotice(message)
       }
@@ -479,9 +571,11 @@ export function OutputFormatsPage() {
     autosaveReadyRef.current = false
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     setEditingFormat(null)
+    setIsCreatingFormat(false)
     setFields([])
-    setName('')
-    setDescription('')
+    setDraftName('')
+    setDraftDescription('')
+    setDraftFormatRole('output')
     setSelectedFieldId(null)
     setFormError(null)
     setSaveError(null)
@@ -560,7 +654,7 @@ export function OutputFormatsPage() {
     })
     setLoading(false)
     if (!response.ok) {
-      setError(response.error?.message ?? 'Unable to delete output format')
+      setError(response.error?.message ?? 'Unable to delete data format')
       return
     }
     if (editingFormat?.id === deleteFormat.id) {
@@ -635,7 +729,7 @@ export function OutputFormatsPage() {
       setExportTarget(null)
       showCloseNotice(`Downloaded ${exportTarget.name} ZIP.`)
     } catch {
-      setError('Unable to export output format')
+      setError('Unable to export data format')
     }
   }
 
@@ -643,19 +737,19 @@ export function OutputFormatsPage() {
     <section className={styles.page}>
       <header className={styles.header}>
         <div>
-          <h1>Output formats</h1>
-          <p>{items.length} output formats configured.</p>
+          <h1>Data Formats</h1>
+          <p>{items.length} data formats configured.</p>
         </div>
         <button type="button" className={styles.primaryButton} onClick={() => void openCreate()} disabled={loading}>
           <LuPlus size={16} />
-          Add format
+          Add data format
         </button>
       </header>
 
       {error ? <p className={styles.error}>{error}</p> : null}
       {closeNotice ? <p className={styles.closeNotice}>{closeNotice}</p> : null}
 
-      {editingFormat ? (
+      {editingFormat || isCreatingFormat ? (
         <>
           <div className={styles.modalBackdrop} onMouseDown={(event) => {
             if (event.target === event.currentTarget) void requestCloseBuilder(true)
@@ -664,25 +758,37 @@ export function OutputFormatsPage() {
             className={`${styles.formatModal} ${styles.formatBuilderModal}`}
             role="dialog"
             aria-modal="true"
-            aria-label={`Edit output format ${name}`}
+            aria-label={isCreatingFormat ? 'Add data format' : `Edit data format ${name}`}
             tabIndex={-1}
             ref={formatModalRef}
             onKeyDown={handleBuilderKeyDown}
           >
             <header className={styles.builderHeader}>
               <div>
-                <span className={styles.eyebrow}>Schema builder</span>
-                <input className={styles.builderTitleInput} value={name} onChange={(event) => setName(event.target.value)} placeholder="Output format name" />
-                <input className={styles.builderDescriptionInput} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Optional description" />
+                <div className={styles.roleToggle} aria-label="Data format role">
+                  {FORMAT_ROLES.map((role) => (
+                    <button
+                      key={role}
+                      type="button"
+                      className={formatRole === role ? styles.roleToggleActive : undefined}
+                      onClick={() => setDraftFormatRole(role)}
+                    >
+                      {role === 'input' ? 'Input' : 'Output'}
+                    </button>
+                  ))}
+                </div>
+                <span className={styles.eyebrow}>{isCreatingFormat ? 'Add data format' : 'Schema builder'}</span>
+                <input className={styles.builderTitleInput} value={name} onChange={(event) => setDraftName(event.target.value)} placeholder="Data format name" />
+                <input className={styles.builderDescriptionInput} value={description} onChange={(event) => setDraftDescription(event.target.value)} placeholder="Optional description" />
               </div>
               <div className={styles.builderActions}>
                 <span className={`${styles.saveStatus} ${styles[saveState]}`}>
                   {saveState === 'saved' ? <LuCheck size={14} /> : null}
-                  {saveLabel}
+                  {isCreatingFormat && saveState === 'draft' ? 'Not saved' : saveLabel}
                 </span>
                 <button type="button" className={styles.primaryButton} onClick={() => void saveDraft()} disabled={saveState === 'saving'}>
                   <LuSave size={14} />
-                  {saveState === 'draft' ? 'Save as draft' : 'Save'}
+                  {isCreatingFormat ? 'Create' : saveState === 'draft' ? 'Save as draft' : 'Save'}
                 </button>
                 <button type="button" className={styles.secondaryButton} onClick={closeBuilder}>Close</button>
               </div>
@@ -821,7 +927,7 @@ export function OutputFormatsPage() {
 
       <section ref={tableRef} className={styles.tableCard} onMouseDown={startTableDrag} onMouseMove={moveTableDrag} onMouseUp={endTableDrag} onMouseLeave={endTableDrag}>
         <div className={styles.tableHead}>
-          <span>Format</span>
+          <span>Data format</span>
           <span>Description</span>
           <span>Fields</span>
           <span>Updated</span>
@@ -831,6 +937,9 @@ export function OutputFormatsPage() {
           <div key={item.id} className={styles.tableRow}>
             <span className={styles.formatNameContainer}>
               <span className={styles.formatName}>{item.name}</span>
+              <span className={`${styles.roleBadge} ${normalizeFormatRole(item.formatRole) === 'input' ? styles.inputRole : styles.outputRole}`}>
+                {normalizeFormatRole(item.formatRole) === 'input' ? 'Input' : 'Output'}
+              </span>
               {isDraftFormat(item) ? <span className={styles.draftBadge}>Draft</span> : null}
             </span>
             <span className={styles.descriptionCell}>{item.description || 'No description.'}</span>
@@ -847,7 +956,7 @@ export function OutputFormatsPage() {
             </span>
           </div>
         )) : (
-          <div className={styles.emptyRow}>{loading ? 'Loading output formats...' : 'No output formats configured.'}</div>
+          <div className={styles.emptyRow}>{loading ? 'Loading data formats...' : 'No data formats configured.'}</div>
         )}
       </section>
 
@@ -856,7 +965,7 @@ export function OutputFormatsPage() {
           <div className={styles.modalBackdrop} onClick={() => setDeleteFormat(null)} />
           <section className={`${styles.formatModal} ${styles.confirmModal}`} role="dialog" aria-modal="true" aria-label={`Delete ${deleteFormat.name}`}>
             <header className={styles.modalHeader}>
-              <h2>Delete output format</h2>
+              <h2>Delete data format</h2>
               <button type="button" onClick={() => setDeleteFormat(null)} aria-label="Close delete modal"><LuX size={16} /></button>
             </header>
             <div className={styles.confirmBody}>
@@ -889,7 +998,7 @@ export function OutputFormatsPage() {
             }}
           >
             <header className={styles.modalHeader}>
-              <h2>Export output format</h2>
+              <h2>Export data format</h2>
               <button type="button" onClick={() => setExportTarget(null)} aria-label="Close export modal"><LuX size={16} /></button>
             </header>
             <div className={styles.confirmBody}>

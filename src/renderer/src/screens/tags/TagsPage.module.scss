@@ -12,12 +12,12 @@
   justify-content: space-between;
   align-items: center;
   gap: 18px;
-  background: #fff;
+  background: var(--omc-surface);
 }
 
 .title {
   margin: 0;
-  color: #17233a;
+  color: var(--omc-text-strong);
   font-size: 1.75rem;
   font-weight: 850;
   letter-spacing: -0.03em;
@@ -25,25 +25,25 @@
 
 .subtitle {
   margin: 6px 0 0;
-  color: #61738f;
+  color: var(--omc-text-muted);
   font-size: 0.98rem;
 }
 
 .error {
   margin: 0;
-  border: 1px solid #f3c5cf;
-  background: #fff3f6;
-  color: #9e2f45;
+  border: 1px solid var(--omc-danger-border);
+  background: var(--omc-danger-bg);
+  color: var(--omc-danger-text);
   padding: 10px 12px;
   border-radius: 10px;
   font-size: 0.92rem;
 }
 
 .tableCard {
-  border: 1px solid #dce5f1;
+  border: 1px solid var(--omc-border-subtle);
   border-radius: 14px;
-  background: #fff;
-  box-shadow: 0 8px 22px rgba(24, 43, 77, 0.05);
+  background: var(--omc-surface);
+  box-shadow: var(--omc-shadow-soft);
   overflow-x: auto;
   overflow-y: hidden;
 }
@@ -59,10 +59,10 @@
 
 .tableHeader {
   min-height: 44px;
-  background: #f7f9fd;
+  background: var(--omc-code-bg);
 
   span {
-    color: #7183a0;
+    color: var(--omc-text-muted);
     font-size: 0.82rem;
     font-weight: 850;
     letter-spacing: 0.07em;
@@ -76,8 +76,8 @@
 
 .tableRow {
   min-height: 68px;
-  border-top: 1px solid #e7eef8;
-  color: #1f334f;
+  border-top: 1px solid var(--omc-border-subtle);
+  color: var(--omc-text-strong);
   padding-top: 10px;
   padding-bottom: 10px;
 }
@@ -88,7 +88,7 @@
 
   p {
     margin: 0;
-    color: #617a9c;
+    color: var(--omc-text-muted);
     font-size: 0.9rem;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -102,12 +102,12 @@
   align-items: center;
   gap: 8px;
   min-height: 30px;
-  border: 1px solid #d6e1f1;
+  border: 1px solid var(--omc-border);
   border-radius: 999px;
   padding: 0 10px;
   font-weight: 700;
-  color: #223752;
-  background: #f8fbff;
+  color: var(--omc-text-strong);
+  background: var(--omc-table-header);
   max-width: 260px;
 
   span:last-child {
@@ -128,12 +128,12 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #2f4667;
+  color: var(--omc-text);
 
   code {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
     font-size: 0.9rem;
-    color: #3b5479;
+    color: var(--omc-text-muted);
     background: transparent;
     padding: 0;
   }
@@ -143,8 +143,8 @@
   width: 30px;
   height: 24px;
   border-radius: 8px;
-  border: 1px solid #d2deef;
-  background: #fff;
+  border: 1px solid var(--omc-border);
+  background: var(--omc-surface);
   padding: 2px;
   cursor: pointer;
 }
@@ -161,43 +161,43 @@
   width: 32px;
   height: 32px;
   border-radius: 10px;
-  border: 1px solid #d9e3f2;
-  background: #fff;
+  border: 1px solid var(--omc-input-border);
+  background: var(--omc-surface);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #4c6488;
+  color: var(--omc-text-muted);
 
   &:hover {
-    background: #f4f8ff;
-    color: #2d5fda;
+    background: var(--omc-hover-bg);
+    color: var(--omc-primary);
   }
 }
 
 .iconBtnDanger {
-  color: #a53a4f;
+  color: var(--omc-danger);
 
   &:hover {
-    border-color: #f1b8c0;
-    background: #fff1f4;
-    color: #b83245;
+    border-color: var(--omc-danger-border);
+    background: var(--omc-danger-bg);
+    color: var(--omc-danger);
   }
 }
 
 .emptyRow {
   min-height: 92px;
-  border-top: 1px solid #e7eef8;
+  border-top: 1px solid var(--omc-border-subtle);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #667895;
+  color: var(--omc-text-muted);
   font-weight: 700;
 }
 
 .modalBackdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 24, 40, 0.24);
+  background: var(--omc-overlay);
   z-index: 80;
 }
 
@@ -208,17 +208,17 @@
   top: 50%;
   transform: translate(-50%, -50%);
   width: min(500px, 92vw);
-  background: #fff;
-  border: 1px solid #dbe6f5;
+  background: var(--omc-surface);
+  border: 1px solid var(--omc-border-subtle);
   border-radius: 14px;
-  box-shadow: 0 20px 44px rgba(19, 32, 54, 0.2);
+  box-shadow: var(--omc-shadow-medium);
   z-index: 81;
 }
 
 .modalHeader {
   min-height: 52px;
   padding: 0 14px;
-  border-bottom: 1px solid #e8eff9;
+  border-bottom: 1px solid var(--omc-border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -226,14 +226,14 @@
   h3 {
     margin: 0;
     font-size: 1rem;
-    color: #203450;
+    color: var(--omc-text-strong);
     font-weight: 700;
   }
 
   button {
     border: none;
     background: transparent;
-    color: #5c7397;
+    color: var(--omc-text-muted);
     width: 28px;
     height: 28px;
     border-radius: 6px;
@@ -251,7 +251,7 @@
   label {
     display: grid;
     gap: 6px;
-    color: #60789a;
+    color: var(--omc-text-muted);
     font-size: 0.86rem;
     font-weight: 700;
     letter-spacing: 0.03em;
@@ -262,11 +262,11 @@
   textarea {
     width: 100%;
     min-height: 40px;
-    border: 1px solid #d4e0f2;
+    border: 1px solid var(--omc-border);
     border-radius: 10px;
-    background: #fff;
+    background: var(--omc-surface);
     padding: 8px 10px;
-    color: #20344f;
+    color: var(--omc-text-strong);
     font-size: 0.95rem;
   }
 
@@ -288,7 +288,7 @@
 }
 
 .modalFooter {
-  border-top: 1px solid #e8eff9;
+  border-top: 1px solid var(--omc-border-subtle);
   padding: 12px 14px 14px;
   display: flex;
   justify-content: flex-end;
@@ -311,20 +311,20 @@
 
 .primaryBtn {
   border: none;
-  background: #2d5fda;
-  color: #fff;
+  background: var(--omc-primary);
+  color: var(--omc-inverse-text);
 }
 
 .ghostBtn {
-  border: 1px solid #d3dfef;
-  background: #fff;
-  color: #3e5578;
+  border: 1px solid var(--omc-border);
+  background: var(--omc-surface);
+  color: var(--omc-text-muted);
 }
 
 .dangerBtn {
   border: none;
-  background: #d9405d;
-  color: #fff;
+  background: var(--omc-danger);
+  color: var(--omc-inverse-text);
 }
 
 .confirmModal {
@@ -335,13 +335,13 @@
 
   h3 {
     margin: 0;
-    color: #1d314c;
+    color: var(--omc-text-strong);
     font-size: 1.15rem;
   }
 
   p {
     margin: 0;
-    color: #60789a;
+    color: var(--omc-text-muted);
     font-size: 0.95rem;
     line-height: 1.45;
   }

@@ -15,9 +15,10 @@ interface ProjectListViewProps {
   onOpenTask: (taskId: string) => void
   onOpenCreateTask: (status: TaskEntity['status']) => void
   onDropStatus: (event: DragEvent<HTMLElement>, status: TaskEntity['status']) => void
+  onReorder: (sourceTaskId: string, targetTaskId: string) => void
 }
 
-export function ProjectListView({ columns, tasksByStatus, agents, collapsedStatuses, onToggleStatus, onOpenTask, onOpenCreateTask, onDropStatus }: ProjectListViewProps) {
+export function ProjectListView({ columns, tasksByStatus, agents, collapsedStatuses, onToggleStatus, onOpenTask, onOpenCreateTask, onDropStatus, onReorder }: ProjectListViewProps) {
   const agentName = (task: TaskEntity) => agents.find((agent) => agent.id === task.agentId)?.name ?? 'Unassigned'
 
   return (
@@ -52,6 +53,17 @@ export function ProjectListView({ columns, tasksByStatus, agents, collapsedStatu
                     className={styles.listRow}
                     draggable
                     onDragStart={(event) => event.dataTransfer.setData('text/plain', task.id)}
+                    onDragOver={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      event.dataTransfer.dropEffect = 'move'
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      const sourceTaskId = event.dataTransfer.getData('text/plain')
+                      if (sourceTaskId && sourceTaskId !== task.id) onReorder(sourceTaskId, task.id)
+                    }}
                     onClick={() => onOpenTask(task.id)}
                   >
                     <span className={styles.listNameCell}><span className={styles.listTaskDot} style={{ background: column.accent }} /><span>{task.title}</span></span>

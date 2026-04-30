@@ -1,9 +1,7 @@
-import { FormEvent, useEffect, useState } from 'react'
-import { LuCalendarPlus, LuListTodo, LuUserPlus, LuX } from 'react-icons/lu'
+import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from 'react'
+import { LuPlus, LuTrash2, LuX } from 'react-icons/lu'
 import type { Agent, TaskSubtask } from '@shared/types/entities'
-import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import type { ProjectStatusColumn } from './status'
-import { statusOptionsFromColumns } from './status'
 import styles from '../ProjectDetailPage.module.scss'
 
 type AddSubtaskInput = {
@@ -12,6 +10,11 @@ type AddSubtaskInput = {
   status: TaskSubtask['status']
   agentId?: string | null
   dueAt?: number
+}
+
+type SubtaskRow = {
+  id: string
+  title: string
 }
 
 interface AddSubtaskModalProps {
@@ -24,45 +27,88 @@ interface AddSubtaskModalProps {
   busy: boolean
   onClose: () => void
   onCreate: (input: AddSubtaskInput) => void
+  onCreateMany?: (inputs: AddSubtaskInput[]) => void
 }
 
-export function AddSubtaskModal({ open, projectName, taskTitle, agents, statusColumns, defaultStatus, busy, onClose, onCreate }: AddSubtaskModalProps) {
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-  const [status, setStatus] = useState<TaskSubtask['status']>(defaultStatus)
-  const [selectedAgent, setSelectedAgent] = useState<AppSelectOption | null>(null)
-  const [dueDate, setDueDate] = useState('')
+function createRow(): SubtaskRow {
+  return {
+    id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    title: ''
+  }
+}
+
+export function AddSubtaskModal({ open, projectName, taskTitle, defaultStatus, busy, onClose, onCreate, onCreateMany }: AddSubtaskModalProps) {
+  const [rows, setRows] = useState<SubtaskRow[]>([createRow()])
+  const nextFocusRowIdRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!nextFocusRowIdRef.current) return
+    const input = document.querySelector<HTMLInputElement>(`[data-subtask-row-id="${nextFocusRowIdRef.current}"]`)
+    if (!input) return
+    input.focus()
+    nextFocusRowIdRef.current = null
+  }, [rows])
 
   useEffect(() => {
     if (!open) return
-    setTitle('')
-    setDescription('')
-    setStatus(defaultStatus)
-    setSelectedAgent(null)
-    setDueDate('')
-  }, [open, defaultStatus])
+    setRows([createRow()])
+  }, [open])
 
   if (!open) return null
 
-  const agentOptions = agents.map((agent) => ({ label: agent.name, value: agent.id }))
-  const statusOptions = statusOptionsFromColumns(statusColumns)
-
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (!title.trim()) return
+    const inputs = rows
+      .map((row) => row.title.trim())
+      .filter(Boolean)
+      .map((title) => ({
+        title,
+        description: '',
+        status: defaultStatus
+      }))
+    if (inputs.length === 0) return
+    if (onCreateMany) {
+      onCreateMany(inputs)
+      return
+    }
     onCreate({
-      title: title.trim(),
-      description: description.trim(),
-      status,
-      agentId: selectedAgent?.value ?? null,
-      dueAt: dueDate ? new Date(dueDate).getTime() : undefined
+      title: inputs[0].title,
+      description: '',
+      status: defaultStatus
     })
   }
+
+  const updateRow = (rowId: string, title: string) => {
+    setRows((current) => current.map((row) => row.id === rowId ? { ...row, title } : row))
+  }
+
+  const addRow = () => {
+    const row = createRow()
+    nextFocusRowIdRef.current = row.id
+    setRows((current) => [...current, row])
+  }
+
+  const removeRow = (rowId: string) => {
+    setRows((current) => current.length > 1 ? current.filter((row) => row.id !== rowId) : [createRow()])
+  }
+
+  const handleRowKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      addRow()
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      onClose()
+    }
+  }
+
+  const hasValidRows = rows.some((row) => row.title.trim())
 
   return (
     <>
       <div className={styles.createTaskBackdrop} onClick={onClose} />
-      <section className={styles.createTaskModal} role="dialog" aria-modal="true" aria-label="Add subtask">
+      <section className={`${styles.createTaskModal} ${styles.fieldFlowModal}`} role="dialog" aria-modal="true" aria-label="Add subtask">
         <header className={styles.createTaskHeader}>
           <div className={styles.createTaskTabs}><span className={styles.createTaskTabActive}>Subtask</span></div>
           <button type="button" onClick={onClose} aria-label="Close add subtask"><LuX size={17} /></button>
@@ -73,33 +119,31 @@ export function AddSubtaskModal({ open, projectName, taskTitle, agents, statusCo
             <span>{taskTitle}</span>
             <span>Subtask</span>
           </div>
-          <input className={styles.createTaskTitle} autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Subtask name" />
-          <textarea className={styles.createTaskDescription} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Add description" />
-          <div className={styles.createTaskChips}>
-            <div className={styles.createTaskSelectChip}>
-              <LuListTodo size={14} />
-              <AppSelect
-                mode="single"
-                variant="borderless"
-                options={statusOptions}
-                value={statusOptions.find((option) => option.value === status) ?? statusOptions[0] ?? null}
-                onChange={(option) => {
-                  if (!Array.isArray(option) && option?.value) setStatus(option.value as TaskSubtask['status'])
-                }}
-              />
-            </div>
-            <div className={styles.createTaskSelectChip}>
-              <LuUserPlus size={14} />
-              <AppSelect mode="single" variant="borderless" options={agentOptions} value={selectedAgent} onChange={setSelectedAgent} isClearable placeholder="Agent" />
-            </div>
-            <label className={styles.createTaskDateChip}>
-              <LuCalendarPlus size={14} />
-              <input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
-            </label>
+          <div className={styles.multiAddList}>
+            {rows.map((row, index) => (
+              <div key={row.id} className={styles.multiAddRow}>
+                <span>{index + 1}</span>
+                <input
+                  autoFocus={index === 0}
+                  data-subtask-row-id={row.id}
+                  value={row.title}
+                  onChange={(event) => updateRow(row.id, event.target.value)}
+                  onKeyDown={handleRowKeyDown}
+                  placeholder="Subtask name"
+                />
+                <button type="button" onClick={() => removeRow(row.id)} aria-label="Remove subtask row">
+                  <LuTrash2 size={14} />
+                </button>
+              </div>
+            ))}
           </div>
+          <button type="button" className={styles.modalAddRowButton} onClick={addRow}>
+            <LuPlus size={15} />
+            Add row
+          </button>
           <div className={styles.createTaskFooter}>
-            <span>Custom fields can be managed after creation.</span>
-            <button type="submit" disabled={busy || !title.trim()}>Create Subtask</button>
+            <span>Enter adds another row.</span>
+            <button type="submit" disabled={busy || !hasValidRows}>Save all</button>
           </div>
         </form>
       </section>

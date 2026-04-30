@@ -2,8 +2,8 @@ import type { CSSProperties } from 'react'
 import type { Tag } from '@shared/types/entities'
 import styles from './TagPill.module.scss'
 
-const FALLBACK_BG = '#eef3fb'
-const FALLBACK_FG = '#20324b'
+const FALLBACK_BG = 'var(--omc-badge-bg)'
+const FALLBACK_FG = 'var(--omc-badge-text)'
 
 function normalizeHex(color?: string) {
   if (!color) return null
@@ -22,7 +22,7 @@ export function readableTextColor(color?: string) {
   const g = Number.parseInt(hex.slice(3, 5), 16)
   const b = Number.parseInt(hex.slice(5, 7), 16)
   const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-  return luminance > 0.58 ? '#17243a' : '#ffffff'
+  return luminance > 0.58 ? 'var(--omc-text-strong)' : 'var(--omc-inverse-text)'
 }
 
 export function tagColorStyle(color?: string): CSSProperties {

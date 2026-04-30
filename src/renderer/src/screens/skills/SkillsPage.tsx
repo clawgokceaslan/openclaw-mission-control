@@ -198,15 +198,6 @@ export function SkillsPage() {
             setPage(1)
           }}
         />
-        <AppSelect
-          mode="single"
-          value={PAGE_SIZE_OPTIONS.find((option) => option.value === String(pageSize)) ?? PAGE_SIZE_OPTIONS[1]}
-          options={PAGE_SIZE_OPTIONS}
-          onChange={(value) => {
-            setPageSize(Number(value?.value ?? 20))
-            setPage(1)
-          }}
-        />
       </section>
 
       <section className={styles.tableCard}>
@@ -255,6 +246,15 @@ export function SkillsPage() {
       <footer className={styles.pagination}>
         <span>{start}-{end} of {total}</span>
         <div>
+          <AppSelect
+            mode="single"
+            value={PAGE_SIZE_OPTIONS.find((option) => option.value === String(pageSize)) ?? PAGE_SIZE_OPTIONS[1]}
+            options={PAGE_SIZE_OPTIONS}
+            onChange={(value) => {
+              setPageSize(Number(value?.value ?? 20))
+              setPage(1)
+            }}
+          />
           <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page <= 1 || loading}>
             Previous
           </button>

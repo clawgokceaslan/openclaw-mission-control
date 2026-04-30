@@ -11,7 +11,19 @@ export const IPC_CHANNELS = {
     get: 'projects:get',
     create: 'projects:create',
     update: 'projects:update',
+    moveWorkspace: 'projects:move-workspace',
     remove: 'projects:remove'
+  },
+  workspaces: {
+    list: 'workspaces:list',
+    create: 'workspaces:create',
+    update: 'workspaces:update',
+    remove: 'workspaces:remove',
+    pickFolder: 'workspaces:pick-folder'
+  },
+  appSettings: {
+    getActiveGateway: 'app-settings:get-active-gateway',
+    setActiveGateway: 'app-settings:set-active-gateway'
   },
   statuses: {
     list: 'statuses:list',
@@ -44,6 +56,9 @@ export const IPC_CHANNELS = {
     create: 'task-templates:create',
     update: 'task-templates:update',
     remove: 'task-templates:remove'
+  },
+  attachments: {
+    upload: 'attachments:upload'
   },
   agents: {
     list: 'agents:list',
@@ -230,10 +245,17 @@ export interface UpdateProjectRequest {
   id?: string
   name?: string
   description?: string
+  workspaceId?: string | null
   archived?: boolean
   generalContext?: string
   generalPrompt?: string
   defaultOutput?: string
+}
+
+export interface MoveProjectWorkspaceRequest {
+  actorToken?: string
+  projectId?: string
+  workspaceId?: string | null
 }
 
 export interface PaginatedResponse<T> {
@@ -286,6 +308,13 @@ export interface UpsertGatewayRequest {
   autoConnect?: boolean
 }
 
+export interface WorkspaceRequest {
+  actorToken?: string
+  id?: string
+  name?: string
+  rootPath?: string
+}
+
 export interface RouteContract {
   domain: ServiceDomain
   action: string
@@ -305,10 +334,13 @@ export interface ServiceMapEntry<TDomain extends ServiceDomain = ServiceDomain, 
 
 export const SERVICE_MAP = {
   auth: ['login', 'logout', 'me', 'inviteValidate', 'updateProfile'],
-  projects: ['list', 'get', 'create', 'update', 'remove'],
+  projects: ['list', 'get', 'create', 'update', 'moveWorkspace', 'remove'],
+  workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
+  appSettings: ['getActiveGateway', 'setActiveGateway'],
   statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
   tasks: ['list', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet'],
   taskTemplates: ['list', 'create', 'update', 'remove'],
+  attachments: ['upload'],
   agents: ['list', 'get', 'create', 'update', 'remove'],
   gateways: ['list', 'get', 'create', 'update', 'remove', 'status', 'sessions', 'commands', 'commandsHistory', 'templates', 'sendCommand', 'connect', 'disconnect', 'pairDevice', 'resetPairing', 'testConnection', 'testMessage', 'rpcMethods', 'rpcCall', 'chatSend', 'chatHistory', 'sessionsPatch', 'sessionsDelete', 'openClawBoards', 'openClawAgents', 'openClawSkills', 'openClawTags'],
   webhooks: ['list', 'create', 'update', 'remove'],
@@ -391,11 +423,71 @@ export const SERVICE_ROUTING: {
       channel: IPC_CHANNELS.projects.update,
       requiresAuth: true
     },
+    moveWorkspace: {
+      domain: 'projects',
+      action: 'moveWorkspace',
+      method: 'moveWorkspace',
+      channel: IPC_CHANNELS.projects.moveWorkspace,
+      requiresAuth: true
+    },
     remove: {
       domain: 'projects',
       action: 'remove',
       method: 'remove',
       channel: IPC_CHANNELS.projects.remove,
+      requiresAuth: true
+    }
+  },
+  workspaces: {
+    list: {
+      domain: 'workspaces',
+      action: 'list',
+      method: 'list',
+      channel: IPC_CHANNELS.workspaces.list,
+      requiresAuth: true
+    },
+    create: {
+      domain: 'workspaces',
+      action: 'create',
+      method: 'create',
+      channel: IPC_CHANNELS.workspaces.create,
+      requiresAuth: true
+    },
+    update: {
+      domain: 'workspaces',
+      action: 'update',
+      method: 'update',
+      channel: IPC_CHANNELS.workspaces.update,
+      requiresAuth: true
+    },
+    remove: {
+      domain: 'workspaces',
+      action: 'remove',
+      method: 'remove',
+      channel: IPC_CHANNELS.workspaces.remove,
+      requiresAuth: true
+    },
+    pickFolder: {
+      domain: 'workspaces',
+      action: 'pickFolder',
+      method: 'pickFolder',
+      channel: IPC_CHANNELS.workspaces.pickFolder,
+      requiresAuth: true
+    }
+  },
+  appSettings: {
+    getActiveGateway: {
+      domain: 'appSettings',
+      action: 'getActiveGateway',
+      method: 'getActiveGateway',
+      channel: IPC_CHANNELS.appSettings.getActiveGateway,
+      requiresAuth: true
+    },
+    setActiveGateway: {
+      domain: 'appSettings',
+      action: 'setActiveGateway',
+      method: 'setActiveGateway',
+      channel: IPC_CHANNELS.appSettings.setActiveGateway,
       requiresAuth: true
     }
   },
@@ -584,6 +676,15 @@ export const SERVICE_ROUTING: {
       action: 'remove',
       method: 'remove',
       channel: IPC_CHANNELS.taskTemplates.remove,
+      requiresAuth: true
+    }
+  },
+  attachments: {
+    upload: {
+      domain: 'attachments',
+      action: 'upload',
+      method: 'upload',
+      channel: IPC_CHANNELS.attachments.upload,
       requiresAuth: true
     }
   },
