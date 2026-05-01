@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { LuArrowUpRight, LuPlus, LuRefreshCw, LuX } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
@@ -15,6 +15,8 @@ function formatProjectTime(timestamp: number) {
 
 export function ProjectsPage() {
   const { token } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
   const [items, setItems] = useState<Project[]>([])
   const [tasks, setTasks] = useState<TaskEntity[]>([])
   const [groups, setGroups] = useState<ProjectGroup[]>([])
@@ -75,6 +77,17 @@ export function ProjectsPage() {
   useEffect(() => {
     void loadProjects()
   }, [token])
+
+  useEffect(() => {
+    const state = location.state as { openCreate?: boolean; name?: string } | null
+    const searchParams = new URLSearchParams(location.search)
+    const shouldOpen = Boolean(state?.openCreate) || searchParams.get('create') === '1'
+    if (!shouldOpen) return
+    setName(state?.name ?? searchParams.get('name') ?? '')
+    setDescription('')
+    setShowCreate(true)
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location.pathname, location.search, location.state, navigate])
 
   useEffect(() => {
     const loadTemplates = async () => {

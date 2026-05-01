@@ -31,8 +31,8 @@
 }
 
 .refreshBtn {
-  min-width: 96px;
-  min-height: 40px;
+  min-width: 108px;
+  min-height: 42px;
   border-color: var(--omc-input-border) !important;
   border-radius: 11px !important;
   background: var(--omc-surface) !important;
@@ -41,7 +41,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 14px;
+  gap: 8px;
+  padding: 0 15px;
+  text-decoration: none;
 }
 
 .dashboardNotice {
@@ -61,7 +63,7 @@
 }
 
 .primaryLink {
-  min-height: 40px;
+  min-height: 42px;
   border-radius: 11px;
   background: var(--omc-primary);
   color: var(--omc-inverse-text);
@@ -71,6 +73,7 @@
   gap: 8px;
   padding: 0 15px;
   font-weight: 850;
+  text-decoration: none;
 }
 
 .heroGrid {
@@ -180,6 +183,137 @@
     display: block;
     color: var(--omc-text-strong);
     font-size: 1.35rem;
+  }
+}
+
+.statusStack,
+.sessionList {
+  display: grid;
+  gap: 10px;
+}
+
+.statusRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px 12px;
+  align-items: center;
+
+  span {
+    color: var(--omc-text-strong);
+    font-weight: 850;
+    text-transform: capitalize;
+  }
+
+  strong {
+    color: var(--omc-text-muted);
+    font-weight: 850;
+  }
+
+  i {
+    grid-column: 1 / -1;
+    height: 8px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--omc-surface-muted);
+    border: 1px solid var(--omc-border-subtle);
+  }
+
+  b {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--omc-primary);
+  }
+}
+
+.sessionRow {
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 12px;
+  background: var(--omc-surface-muted);
+  padding: 12px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+
+  strong,
+  span {
+    display: block;
+  }
+
+  strong {
+    color: var(--omc-text-strong);
+    font-weight: 900;
+  }
+
+  span,
+  em {
+    color: var(--omc-text-muted);
+    font-style: normal;
+    font-size: 0.84rem;
+    font-weight: 700;
+  }
+}
+
+.projectProgressCard {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+
+  > span {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+    background: var(--omc-active-bg);
+    color: var(--omc-primary);
+    display: grid;
+    place-items: center;
+  }
+
+  strong {
+    display: block;
+    color: var(--omc-text-strong);
+    font-weight: 900;
+  }
+
+  p {
+    margin: 3px 0 0;
+    color: var(--omc-text-muted);
+    font-size: 0.88rem;
+    font-weight: 700;
+  }
+
+  i {
+    grid-column: 1 / -1;
+    height: 10px;
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 999px;
+    background: var(--omc-surface-muted);
+    overflow: hidden;
+  }
+
+  b {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--omc-primary);
+  }
+}
+
+@media (width <= 720px) {
+  .pageHead {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .headerActions {
+    width: 100%;
+    flex-wrap: wrap;
+
+    > * {
+      flex: 1 1 180px;
+    }
   }
 }
 

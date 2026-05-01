@@ -765,6 +765,11 @@ export function OutputFormatsPage() {
           >
             <header className={styles.builderHeader}>
               <div>
+                <span className={styles.eyebrow}>{isCreatingFormat ? 'Add data format' : 'Schema builder'}</span>
+                <input className={styles.builderTitleInput} value={name} onChange={(event) => setDraftName(event.target.value)} placeholder="Data format name" />
+                <textarea className={styles.builderDescriptionInput} value={description} onChange={(event) => setDraftDescription(event.target.value)} placeholder="Optional description" rows={2} />
+              </div>
+              <div className={styles.builderActions}>
                 <div className={styles.roleToggle} aria-label="Data format role">
                   {FORMAT_ROLES.map((role) => (
                     <button
@@ -777,11 +782,6 @@ export function OutputFormatsPage() {
                     </button>
                   ))}
                 </div>
-                <span className={styles.eyebrow}>{isCreatingFormat ? 'Add data format' : 'Schema builder'}</span>
-                <input className={styles.builderTitleInput} value={name} onChange={(event) => setDraftName(event.target.value)} placeholder="Data format name" />
-                <input className={styles.builderDescriptionInput} value={description} onChange={(event) => setDraftDescription(event.target.value)} placeholder="Optional description" />
-              </div>
-              <div className={styles.builderActions}>
                 <span className={`${styles.saveStatus} ${styles[saveState]}`}>
                   {saveState === 'saved' ? <LuCheck size={14} /> : null}
                   {isCreatingFormat && saveState === 'draft' ? 'Not saved' : saveLabel}

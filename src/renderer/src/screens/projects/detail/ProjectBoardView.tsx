@@ -77,6 +77,15 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
                 <span>{column.title}</span>
                 <strong>{rows.length}</strong>
               </div>
+              <button
+                type="button"
+                className={styles.columnHeaderAdd}
+                onClick={() => onOpenCreateTask(column.status)}
+                title={`Add task to ${column.title}`}
+                aria-label={`Add task to ${column.title}`}
+              >
+                <LuPlus size={15} />
+              </button>
             </header>
             {column.title.toLowerCase().includes('review') ? (
               <div className={styles.reviewFilters}>

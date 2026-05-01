@@ -1,8 +1,12 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import { copyFile, mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
 import type {
   AddTaskCommentRequest,
+  ExportTaskSnapshotRequest,
   RemoveTaskCommentRequest,
   SetTaskSkillsRequest,
   SetTaskTagsRequest,
@@ -17,6 +21,7 @@ import { TagRepository } from '../../db/repositories/custom-field-repo.js'
 import { SkillRepository } from '../../db/repositories/skill-repo.js'
 import { AgentRepository } from '../../db/repositories/agent-repo.js'
 import { StatusRepository } from '../../db/repositories/status-repo.js'
+import { WorkspaceRepository } from '../../db/repositories/workspace-repo.js'
 
 type TaskPayload = Record<string, unknown> & {
   description?: string
@@ -84,6 +89,30 @@ function enrichSubtask(item: TaskSubtask): TaskSubtask {
   }
 }
 
+function slugPart(value: string | undefined, fallback: string): string {
+  const base = (value || fallback)
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64)
+  return base || fallback
+}
+
+function shortHash(value: string): string {
+  return createHash('sha1').update(value).digest('hex').slice(0, 8)
+}
+
+function entityFolder(name: string | undefined, id: string, fallback: string): string {
+  return `${slugPart(name, fallback)}__${shortHash(id)}`
+}
+
+function sanitizeFileName(name: string | undefined, fallback = 'attachment'): string {
+  const normalized = (name || fallback).trim().replace(/[/\\?%*:|"<>]/g, '-').replace(/\s+/g, ' ')
+  return normalized || fallback
+}
+
 export class TaskService {
   constructor(
     private readonly auth: AuthService,
@@ -95,7 +124,8 @@ export class TaskService {
     private readonly tags: TagRepository,
     private readonly skills: SkillRepository,
     private readonly agents: AgentRepository,
-    private readonly statuses: StatusRepository
+    private readonly statuses: StatusRepository,
+    private readonly workspaces: WorkspaceRepository
   ) {}
 
   private async findProjectOrg(projectId: string): Promise<string | undefined> {
@@ -212,6 +242,57 @@ export class TaskService {
     })
     const [task] = await this.enrichTasks([row])
     return okResponse(task)
+  }
+
+  async exportSnapshot(payload: ExportTaskSnapshotRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ exportFolderPath: string; writtenFiles: string[]; skippedFiles: string[] }>> {
+    if (!payload?.taskId || !payload.projectId) return errorResponse(ErrorCodes.Validation, 'Task and project id are required')
+    const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
+    if (!access.ok || !access.data) return access as ServiceResponse<{ exportFolderPath: string; writtenFiles: string[]; skippedFiles: string[] }>
+    const project = await this.projects.get(payload.projectId)
+    if (!project || project.id !== access.data.task.projectId) return errorResponse(ErrorCodes.NotFound, 'Project not found')
+    if (project.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
+    if (!project.workspaceId) return errorResponse(ErrorCodes.Validation, 'Project has no workspace')
+    const workspace = await this.workspaces.get(project.workspaceId)
+    if (!workspace || workspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Workspace access denied')
+
+    const exportFolderPath = join(
+      workspace.rootPath,
+      'Projects',
+      entityFolder(project.name, project.id, 'project'),
+      'Tasks',
+      entityFolder(access.data.task.title, access.data.task.id, 'task'),
+      'exports'
+    )
+    await mkdir(exportFolderPath, { recursive: true })
+    const writtenFiles: string[] = []
+    const skippedFiles: string[] = []
+    const writeMarkdown = async (name: string, content?: string) => {
+      if (!content?.trim()) return
+      await writeFile(join(exportFolderPath, name), content, 'utf8')
+      writtenFiles.push(name)
+    }
+    await writeMarkdown('Task.md', payload.taskMarkdown)
+    await writeMarkdown('Agents.md', payload.agentMarkdown)
+    await writeMarkdown('Skills.md', payload.skillsMarkdown)
+
+    const usedNames = new Set<string>()
+    const attachmentsDir = join(exportFolderPath, 'attachments')
+    for (const attachment of payload.attachments ?? []) {
+      if (!attachment.url?.startsWith('file://')) continue
+      try {
+        const baseName = sanitizeFileName(attachment.exportName || attachment.name)
+        const uniqueName = usedNames.has(baseName)
+          ? `${baseName.replace(/(\.[^.]*)?$/, '')}-${shortHash(`${attachment.ownerId ?? ''}:${attachment.url}`)}${baseName.includes('.') ? baseName.slice(baseName.lastIndexOf('.')) : ''}`
+          : baseName
+        usedNames.add(uniqueName)
+        await mkdir(attachmentsDir, { recursive: true })
+        await copyFile(fileURLToPath(attachment.url), join(attachmentsDir, uniqueName))
+        writtenFiles.push(`attachments/${uniqueName}`)
+      } catch {
+        skippedFiles.push(attachment.name ?? attachment.url ?? 'attachment')
+      }
+    }
+    return okResponse({ exportFolderPath, writtenFiles, skippedFiles })
   }
 
   async update(

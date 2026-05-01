@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { LuCalendarPlus, LuFlag, LuTag, LuUserPlus, LuX } from 'react-icons/lu'
+import { LuCalendarPlus, LuFlag, LuFolder, LuTag, LuUserPlus, LuX } from 'react-icons/lu'
 import type { Agent, Project, Tag, TaskEntity, TaskTemplate } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { MarkdownDescriptionEditor } from '@renderer/components/markdown/MarkdownDescriptionEditor'
@@ -9,41 +9,38 @@ import styles from '../ProjectDetailPage.module.scss'
 
 interface CreateTaskModalProps {
   open: boolean
-  project: Project
+  project: Project | null
+  projects?: Project[]
+  selectedProjectId?: string
   tags: Tag[]
   agents: Agent[]
   templates: TaskTemplate[]
   statusColumns: ProjectStatusColumn[]
   defaultStatus: TaskEntity['status']
+  initialTitle?: string
+  initialTemplateId?: string | null
   busy: boolean
+  error?: string | null
   onClose: () => void
-  onCreate: (input: { title: string; description: string; status: TaskEntity['status']; tagIds: string[]; agentId?: string | null; templateId?: string | null }) => void
+  onProjectChange?: (projectId: string) => void
+  onCreate: (input: { projectId: string; title: string; description: string; status: TaskEntity['status']; tagIds: string[]; agentId?: string | null; templateId?: string | null }) => void
 }
 
-export function CreateTaskModal({ open, project, tags, agents, templates, statusColumns, defaultStatus, busy, onClose, onCreate }: CreateTaskModalProps) {
+export function CreateTaskModal({ open, project, projects = [], selectedProjectId, tags, agents, templates, statusColumns, defaultStatus, initialTitle = '', initialTemplateId = null, busy, error, onClose, onProjectChange, onCreate }: CreateTaskModalProps) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [status, setStatus] = useState<TaskEntity['status']>(defaultStatus)
   const [selectedTags, setSelectedTags] = useState<AppSelectOption[]>([])
   const [selectedAgent, setSelectedAgent] = useState<AppSelectOption | null>(null)
   const [selectedTemplate, setSelectedTemplate] = useState<AppSelectOption | null>(null)
-
-  useEffect(() => {
-    if (!open) return
-    setTitle('')
-    setDescription('')
-    setStatus(defaultStatus)
-    setSelectedTags([])
-    setSelectedAgent(null)
-    setSelectedTemplate(null)
-  }, [open, defaultStatus])
-
-  if (!open) return null
-
   const tagOptions = tags.map((tag) => ({ label: tag.name, value: tag.id, color: tag.color }))
   const agentOptions = agents.map((agent) => ({ label: agent.name, value: agent.id }))
   const templateOptions = templates.map((template) => ({ label: template.name, value: template.id }))
+  const projectOptions = projects.map((item) => ({ label: item.name, value: item.id }))
   const statusOptions = statusOptionsFromColumns(statusColumns)
+  const currentProjectId = selectedProjectId ?? project?.id ?? ''
+  const currentProject = project ?? projects.find((item) => item.id === currentProjectId) ?? null
+  const requiresProject = Boolean(onProjectChange)
   const applyTemplate = (option: AppSelectOption | null) => {
     setSelectedTemplate(option)
     const template = templates.find((item) => item.id === option?.value)
@@ -58,10 +55,29 @@ export function CreateTaskModal({ open, project, tags, agents, templates, status
     setSelectedTags(tagOptions.filter((tag) => nextTagIds.has(tag.value)))
   }
 
+  useEffect(() => {
+    if (!open) return
+    setTitle(initialTitle)
+    setDescription('')
+    setStatus(defaultStatus)
+    setSelectedTags([])
+    setSelectedAgent(null)
+    const templateOption = initialTemplateId ? templates.map((template) => ({ label: template.name, value: template.id })).find((option) => option.value === initialTemplateId) ?? null : null
+    setSelectedTemplate(templateOption)
+    if (templateOption) applyTemplate(templateOption)
+  }, [open, initialTitle, initialTemplateId])
+
+  useEffect(() => {
+    if (!open) return
+    setStatus(defaultStatus)
+  }, [defaultStatus, currentProjectId, open])
+
+  if (!open) return null
+
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (!title.trim()) return
-    onCreate({ title: title.trim(), description: description.trim(), status, tagIds: selectedTags.map((tag) => tag.value), agentId: selectedAgent?.value ?? null, templateId: selectedTemplate?.value ?? null })
+    if (!title.trim() || !currentProjectId) return
+    onCreate({ projectId: currentProjectId, title: title.trim(), description: description.trim(), status, tagIds: selectedTags.map((tag) => tag.value), agentId: selectedAgent?.value ?? null, templateId: selectedTemplate?.value ?? null })
   }
 
   return (
@@ -74,9 +90,25 @@ export function CreateTaskModal({ open, project, tags, agents, templates, status
         </header>
         <form className={styles.createTaskBody} onSubmit={submit}>
           <div className={styles.createTaskContext}>
-            <span>{project.name}</span>
+            <span>{currentProject?.name ?? 'Select project'}</span>
             <span>Task</span>
           </div>
+          {error ? <p className={styles.error}>{error}</p> : null}
+          {requiresProject ? (
+            <div className={styles.createTaskProjectPicker}>
+              <LuFolder size={15} />
+              <AppSelect
+                mode="single"
+                variant="borderless"
+                options={projectOptions}
+                value={projectOptions.find((option) => option.value === currentProjectId) ?? null}
+                onChange={(option) => {
+                  if (!Array.isArray(option)) onProjectChange?.(option?.value ?? '')
+                }}
+                placeholder="Choose project..."
+              />
+            </div>
+          ) : null}
           <div className={styles.createTaskTags}>
             <AppSelect mode="single" variant="borderless" options={templateOptions} value={selectedTemplate} onChange={applyTemplate} isClearable placeholder="Start from template..." />
           </div>
@@ -120,8 +152,8 @@ export function CreateTaskModal({ open, project, tags, agents, templates, status
             <AppSelect mode="multi" variant="borderless" options={tagOptions} value={selectedTags} onChange={(value) => setSelectedTags(Array.isArray(value) ? value : [])} placeholder="Search or add tags..." />
           </div>
           <div className={styles.createTaskFooter}>
-            <span>Fields</span>
-            <button type="submit" disabled={busy || !title.trim()}>Create Task</button>
+            <span>{currentProject ? `Creates in ${currentProject.name}` : 'Choose a project to continue'}</span>
+            <button type="submit" disabled={busy || !title.trim() || !currentProjectId}>{busy ? 'Creating...' : 'Create Task'}</button>
           </div>
         </form>
       </section>

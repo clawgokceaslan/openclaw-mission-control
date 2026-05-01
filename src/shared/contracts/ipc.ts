@@ -1,4 +1,7 @@
 export const IPC_CHANNELS = {
+  app: {
+    navigateFromCompanion: 'app:navigate-from-companion'
+  },
   auth: {
     login: 'auth:login',
     logout: 'auth:logout',
@@ -12,6 +15,7 @@ export const IPC_CHANNELS = {
     create: 'projects:create',
     update: 'projects:update',
     moveWorkspace: 'projects:move-workspace',
+    exportWorkspace: 'projects:export-workspace',
     remove: 'projects:remove'
   },
   workspaces: {
@@ -49,7 +53,8 @@ export const IPC_CHANNELS = {
     commentAdd: 'tasks:comment:add',
     commentUpdate: 'tasks:comment:update',
     commentRemove: 'tasks:comment:remove',
-    skillsSet: 'tasks:skills:set'
+    skillsSet: 'tasks:skills:set',
+    exportSnapshot: 'tasks:export-snapshot'
   },
   taskTemplates: {
     list: 'task-templates:list',
@@ -142,6 +147,7 @@ export const IPC_CHANNELS = {
     metrics: 'jobs:metrics'
   },
   events: {
+    appNavigate: 'events:app-navigate',
     gatewayStatus: 'events:gateway-status',
     taskUpdated: 'events:task-updated',
     jobProgress: 'events:job-progress'
@@ -196,6 +202,16 @@ export interface BridgeResponse<T = unknown> {
     details?: unknown
   }
   meta?: Record<string, unknown>
+}
+
+export interface AppNavigateRequest {
+  path?: string
+  state?: unknown
+}
+
+export interface AppNavigateEvent {
+  path: string
+  state?: unknown
 }
 
 export interface SetTaskTagsRequest {
@@ -258,6 +274,27 @@ export interface MoveProjectWorkspaceRequest {
   workspaceId?: string | null
 }
 
+export interface ProjectExportAttachmentInput {
+  name?: string
+  exportName?: string
+  url?: string
+  ownerId?: string
+}
+
+export interface ProjectExportTaskInput {
+  taskId: string
+  taskMarkdown?: string
+  agentMarkdown?: string
+  skillsMarkdown?: string
+  attachments?: ProjectExportAttachmentInput[]
+}
+
+export interface ExportProjectWorkspaceRequest {
+  actorToken?: string
+  projectId?: string
+  tasks?: ProjectExportTaskInput[]
+}
+
 export interface PaginatedResponse<T> {
   rows: T[]
   total: number
@@ -292,6 +329,16 @@ export interface RemoveTaskCommentRequest {
   actorToken?: string
   taskId?: string
   commentId?: string
+}
+
+export interface ExportTaskSnapshotRequest {
+  actorToken?: string
+  taskId?: string
+  projectId?: string
+  taskMarkdown?: string
+  agentMarkdown?: string
+  skillsMarkdown?: string
+  attachments?: ProjectExportAttachmentInput[]
 }
 
 export interface UpsertGatewayRequest {
@@ -334,11 +381,11 @@ export interface ServiceMapEntry<TDomain extends ServiceDomain = ServiceDomain, 
 
 export const SERVICE_MAP = {
   auth: ['login', 'logout', 'me', 'inviteValidate', 'updateProfile'],
-  projects: ['list', 'get', 'create', 'update', 'moveWorkspace', 'remove'],
+  projects: ['list', 'get', 'create', 'update', 'moveWorkspace', 'exportWorkspace', 'remove'],
   workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
   appSettings: ['getActiveGateway', 'setActiveGateway'],
   statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
-  tasks: ['list', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet'],
+  tasks: ['list', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot'],
   taskTemplates: ['list', 'create', 'update', 'remove'],
   attachments: ['upload'],
   agents: ['list', 'get', 'create', 'update', 'remove'],
@@ -428,6 +475,13 @@ export const SERVICE_ROUTING: {
       action: 'moveWorkspace',
       method: 'moveWorkspace',
       channel: IPC_CHANNELS.projects.moveWorkspace,
+      requiresAuth: true
+    },
+    exportWorkspace: {
+      domain: 'projects',
+      action: 'exportWorkspace',
+      method: 'exportWorkspace',
+      channel: IPC_CHANNELS.projects.exportWorkspace,
       requiresAuth: true
     },
     remove: {
@@ -646,6 +700,13 @@ export const SERVICE_ROUTING: {
       action: 'skillsSet',
       method: 'skillsSet',
       channel: IPC_CHANNELS.tasks.skillsSet,
+      requiresAuth: true
+    },
+    exportSnapshot: {
+      domain: 'tasks',
+      action: 'exportSnapshot',
+      method: 'exportSnapshot',
+      channel: IPC_CHANNELS.tasks.exportSnapshot,
       requiresAuth: true
     }
   },

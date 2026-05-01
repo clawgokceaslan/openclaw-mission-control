@@ -33,14 +33,25 @@ export function ProjectListView({ columns, tasksByStatus, agents, collapsedStatu
             onDragOver={(event) => event.preventDefault()}
             onDrop={(event) => onDropStatus(event, column.status)}
           >
-            <button type="button" className={styles.listGroupHeader} onClick={() => onToggleStatus(column.status)}>
-              <LuChevronDown className={collapsed ? styles.chevronClosed : styles.chevronOpen} size={15} />
-              <span className={styles.listStatusPill} style={{ '--status-accent': column.accent } as CSSProperties}>
-                <span />
-                {column.title}
-              </span>
-              <span className={styles.listGroupCount}>{rows.length}</span>
-            </button>
+            <div className={styles.listGroupHeaderRow}>
+              <button type="button" className={styles.listGroupHeader} onClick={() => onToggleStatus(column.status)}>
+                <LuChevronDown className={collapsed ? styles.chevronClosed : styles.chevronOpen} size={15} />
+                <span className={styles.listStatusPill} style={{ '--status-accent': column.accent } as CSSProperties}>
+                  <span />
+                  {column.title}
+                </span>
+                <span className={styles.listGroupCount}>{rows.length}</span>
+              </button>
+              <button
+                type="button"
+                className={styles.listGroupAdd}
+                onClick={() => onOpenCreateTask(column.status)}
+                title={`Add task to ${column.title}`}
+                aria-label={`Add task to ${column.title}`}
+              >
+                <LuPlus size={15} />
+              </button>
+            </div>
             {!collapsed ? (
               <div className={styles.listTable}>
                 <div className={styles.listTableHead}>

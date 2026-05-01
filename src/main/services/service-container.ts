@@ -98,7 +98,7 @@ export async function createAppContext(): Promise<AppContext> {
     workspaces: new WorkspaceService(auth, workspaceRepo),
     appSettings: new AppSettingsService(auth, appSettingsRepo, gatewayRepo),
     statuses: new StatusService(auth, statusRepo, projectRepo),
-    tasks: new TaskService(auth, taskRepo, taskSubtaskRepo, taskTagRepo, taskSkillRepo, projectRepo, tagRepo, skillRepo, agentRepo, statusRepo),
+    tasks: new TaskService(auth, taskRepo, taskSubtaskRepo, taskTagRepo, taskSkillRepo, projectRepo, tagRepo, skillRepo, agentRepo, statusRepo, workspaceRepo),
     taskTemplates: new TaskTemplateService(auth, taskTemplateRepo),
     agents: new AgentService(auth, agentRepo),
     gateways: new GatewayService(auth, gatewayRepo, eventBus, gatewayRuntime, appSettingsRepo),

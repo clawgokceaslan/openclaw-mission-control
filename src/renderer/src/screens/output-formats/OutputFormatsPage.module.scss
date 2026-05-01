@@ -192,7 +192,6 @@
 }
 
 .roleToggle {
-  margin-bottom: 12px;
   width: fit-content;
   border: 1px solid var(--omc-input-border);
   border-radius: 999px;
@@ -308,6 +307,11 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
+
+  > div:first-child {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
 }
 
 .eyebrow {
@@ -322,7 +326,7 @@
 
 .builderTitleInput,
 .builderDescriptionInput {
-  width: min(520px, 100%);
+  width: min(680px, 100%);
   border: none;
   background: transparent;
   color: var(--omc-text-strong);
@@ -338,8 +342,19 @@
 
 .builderDescriptionInput {
   margin-top: 4px;
+  min-height: 54px;
+  resize: vertical;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--omc-surface-muted) 58%, transparent);
+  padding: 8px 10px;
   color: var(--omc-text-muted);
   font-size: 0.95rem;
+}
+
+.builderActions {
+  flex-wrap: wrap;
+  align-content: flex-start;
 }
 
 .saveStatus {
@@ -739,8 +754,8 @@
 }
 
 .formatBuilderModal {
-  width: min(1240px, calc(100vw - 48px));
-  max-height: min(94vh, 940px);
+  width: min(1320px, calc(100vw - 36px));
+  max-height: calc(100vh - 42px);
   border: none;
 }
 

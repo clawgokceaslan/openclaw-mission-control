@@ -1,8 +1,11 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, type ReactNode, useState } from 'react'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
+import { IPC_CHANNELS } from '@shared/contracts/ipc'
+import type { AppNavigateEvent } from '@shared/contracts/ipc'
 import { AuthProvider, useAuth } from '@renderer/providers/auth/auth-state'
 import { ThemeProvider } from '@renderer/providers/theme/theme-state'
+import { subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { ProtectedRoute } from '@renderer/components/routes/ProtectedRoute'
 import { AppShell } from '@renderer/layout/AppShell'
 import { DashboardPage, DetailedDashboardPage } from '@renderer/screens/DashboardPage'
@@ -31,6 +34,9 @@ import { TagAddPage } from '@renderer/screens/tags/TagAddPage'
 import { ActivityPage } from '@renderer/screens/ActivityPage'
 import { InvitePage } from '@renderer/screens/InvitePage'
 import { OnboardingPage } from '@renderer/screens/OnboardingPage'
+import { CompanionPage } from '@renderer/screens/CompanionPage'
+import { GlobalCreateTaskModal } from '@renderer/components/navigation/GlobalCreateTaskModal'
+import type { GlobalTaskCreateInitial } from '@renderer/components/navigation/UniversalCommand'
 import styles from './App.module.scss'
 
 interface RouteConfig {
@@ -67,10 +73,19 @@ const SIGNED_IN_ROUTES: RouteConfig[] = [
   { path: APP_ROUTES.ACTIVITY, element: <ActivityPage /> },
   { path: APP_ROUTES.INVITE, element: <InvitePage /> },
   { path: APP_ROUTES.ONBOARDING, element: <OnboardingPage /> },
+  { path: APP_ROUTES.COMPANION, element: <CompanionPage /> },
   { path: '*', element: <Navigate to={APP_ROUTES.DASHBOARD} replace /> }
 ]
 
 function SignedInRouter() {
+  const location = useLocation()
+  if (location.pathname === APP_ROUTES.COMPANION) {
+    return (
+      <ProtectedRoute>
+        <CompanionPage />
+      </ProtectedRoute>
+    )
+  }
   return (
     <ProtectedRoute>
       <AppShell>
@@ -86,11 +101,37 @@ function SignedInRouter() {
 
 function AppRouter() {
   const { initialized, user, errorMessage, refresh } = useAuth()
+  const navigate = useNavigate()
+  const [taskCreateInitial, setTaskCreateInitial] = useState<GlobalTaskCreateInitial | null>(null)
   const isElectron = typeof navigator !== 'undefined' && /Electron/.test(navigator.userAgent)
   const [autoRetried, setAutoRetried] = useState(false)
   const [manualRetried, setManualRetried] = useState(false)
   const isRuntimeError = isElectron && typeof errorMessage === 'string' && /IPC|ipc|bridge|runtime|renderer/i.test(errorMessage)
   const retryExhausted = autoRetried && manualRetried
+
+  useEffect(() => {
+    const onCompanionNavigate = (...args: unknown[]) => {
+      const payload = (args[1] ?? args[0]) as AppNavigateEvent | undefined
+      if (!payload || typeof payload.path !== 'string' || !payload.path.startsWith('/')) return
+      const state = payload.state as { openCreateTask?: boolean; title?: string; projectId?: string; templateId?: string | null } | undefined
+      if (state?.openCreateTask) {
+        setTaskCreateInitial({
+          title: state.title,
+          projectId: state.projectId ?? '',
+          templateId: state.templateId ?? null
+        })
+        navigate(payload.path)
+        return
+      }
+      if (payload.state === undefined) {
+        navigate(payload.path)
+        return
+      }
+      navigate(payload.path, { state: payload.state })
+    }
+    subscribeToChannel(IPC_CHANNELS.events.appNavigate, onCompanionNavigate)
+    return () => unsubscribeFromChannel(IPC_CHANNELS.events.appNavigate, onCompanionNavigate)
+  }, [navigate])
 
   useEffect(() => {
     if (!initialized || user || !isRuntimeError || autoRetried) {
@@ -126,7 +167,18 @@ function AppRouter() {
     )
   }
 
-  if (user) return <SignedInRouter />
+  if (user) {
+    return (
+      <>
+        <SignedInRouter />
+        <GlobalCreateTaskModal
+          open={Boolean(taskCreateInitial)}
+          initial={taskCreateInitial}
+          onClose={() => setTaskCreateInitial(null)}
+        />
+      </>
+    )
+  }
 
   return (
     <div className={styles.pageState}>

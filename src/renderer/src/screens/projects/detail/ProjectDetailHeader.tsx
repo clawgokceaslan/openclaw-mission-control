@@ -1,4 +1,4 @@
-import { LuColumns3, LuMessageSquare, LuPlus, LuSettings2, LuSignal } from 'react-icons/lu'
+import { LuColumns3, LuMessageSquare, LuPlus, LuRefreshCw, LuSettings2, LuSignal } from 'react-icons/lu'
 import type { Project } from '@shared/types/entities'
 import type { ProjectViewMode } from './status'
 import { ProjectViewBar } from './ProjectViewBar'
@@ -14,6 +14,8 @@ interface ProjectDetailHeaderProps {
   onOpenCreateTask: () => void
   onOpenProjectPrompts: () => void
   onOpenStatusSettings: () => void
+  onSyncProject: () => void
+  syncDisabled?: boolean
   onViewModeChange: (mode: ProjectViewMode) => void
 }
 
@@ -27,6 +29,8 @@ export function ProjectDetailHeader({
   onOpenCreateTask,
   onOpenProjectPrompts,
   onOpenStatusSettings,
+  onSyncProject,
+  syncDisabled,
   onViewModeChange
 }: ProjectDetailHeaderProps) {
   return (
@@ -53,6 +57,7 @@ export function ProjectDetailHeader({
             <LuPlus size={18} />
           </button>
           <button type="button" className={styles.iconBtn}><LuColumns3 size={16} /></button>
+          <button type="button" className={styles.iconBtn} onClick={onSyncProject} disabled={syncDisabled} aria-label="Sync project exports"><LuRefreshCw size={16} /></button>
           <button
             type="button"
             className={styles.iconBtn}

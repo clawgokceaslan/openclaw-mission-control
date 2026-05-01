@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react'
-import { useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   LuCheck,
   LuBot,
@@ -34,11 +34,12 @@ import { ProjectBoardView } from './detail/ProjectBoardView'
 import { ProjectListView } from './detail/ProjectListView'
 import { ProjectTableView } from './detail/ProjectTableView'
 import { CreateTaskModal } from './detail/CreateTaskModal'
+import { createTaskWithTemplate, type CreateTaskInput } from './detail/createTaskWithTemplate'
 import { AddSubtaskModal } from './detail/AddSubtaskModal'
 import { AgentAssignmentPanel, SkillsAssignmentPanel } from './detail/AssignmentPanels'
 import { TaskDetailModal } from './detail/TaskDetailModal'
 import { TaskDetailContent } from './detail/TaskDetailContent'
-import { buildAgentMarkdown, buildSkillsMarkdown, buildTaskMarkdown, downloadMarkdownFile, downloadTaskZip } from './detail/taskExport'
+import { buildAgentMarkdown, buildProjectWorkspaceExportTaskPayload, buildSkillsMarkdown, buildTaskMarkdown, downloadMarkdownFile, downloadTaskZip } from './detail/taskExport'
 import { PROJECT_STATUS_COLUMNS, columnsFromProjectStatuses, resolveProjectStatusColumn } from './detail/status'
 import styles from './ProjectDetailPage.module.scss'
 
@@ -50,7 +51,7 @@ const MIN_COMMENTS_WIDTH = 320
 type DetailViewMode = 'task' | 'subtask'
 type DetailTab = 'subtasks' | 'customFields' | 'checklist' | 'attachments' | 'details' | 'agent' | 'skills'
 type ProjectPromptTab = 'context' | 'prompt' | 'output'
-type ProjectSettingsTab = 'statuses' | 'workspace'
+type ProjectSettingsTab = 'statuses' | 'workspace' | 'projectGroup' | 'agents'
 type ProjectViewMode = 'list' | 'table' | 'board'
 type TextDraftRow = { id: string; title: string }
 type CustomFieldDraftRow = { id: string; field: AppSelectOption | null; value: string }
@@ -359,6 +360,8 @@ function loadInitialRatio() {
 
 export function ProjectDetailPage() {
   const params = useParams<{ projectId?: string }>()
+  const location = useLocation()
+  const navigate = useNavigate()
   const projectId = params.projectId
   const { token, user } = useAuth()
 
@@ -383,6 +386,12 @@ export function ProjectDetailPage() {
   const [isStatusEditorOpen, setIsStatusEditorOpen] = useState(false)
   const [projectSettingsTab, setProjectSettingsTab] = useState<ProjectSettingsTab>('statuses')
   const [isWorkspacePickerOpen, setIsWorkspacePickerOpen] = useState(false)
+  const [isProjectGroupPickerOpen, setIsProjectGroupPickerOpen] = useState(false)
+  const [projectGroupNameDraft, setProjectGroupNameDraft] = useState('')
+  const [projectGroupDescriptionDraft, setProjectGroupDescriptionDraft] = useState('')
+  const [projectGroupSaving, setProjectGroupSaving] = useState(false)
+  const [projectSyncing, setProjectSyncing] = useState(false)
+  const [projectSyncMessage, setProjectSyncMessage] = useState<string | null>(null)
   const [workspaceDraftName, setWorkspaceDraftName] = useState('')
   const [workspaceDraftPath, setWorkspaceDraftPath] = useState('')
   const [movingWorkspace, setMovingWorkspace] = useState(false)
@@ -400,6 +409,8 @@ export function ProjectDetailPage() {
   const [statusDrafts, setStatusDrafts] = useState<ProjectStatus[]>([])
   const [statusMapping, setStatusMapping] = useState<Record<string, string>>({})
   const [createTaskStatus, setCreateTaskStatus] = useState<TaskEntity['status']>('pending')
+  const [createTaskInitialTitle, setCreateTaskInitialTitle] = useState('')
+  const [createTaskInitialTemplateId, setCreateTaskInitialTemplateId] = useState<string | null>(null)
   const [collapsedStatuses, setCollapsedStatuses] = useState<TaskEntity['status'][]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -573,6 +584,73 @@ export function ProjectDetailPage() {
   const createAndAssignWorkspace = async () => {
     const workspace = await createWorkspaceFromDraft()
     if (workspace) await updateProjectWorkspace(workspace.id)
+  }
+
+  const updateProjectGroupMembership = async (nextGroupId: string | null) => {
+    if (!project) return
+    const currentGroup = projectGroups.find((group) => Array.isArray(group.projectIds) && group.projectIds.includes(project.id)) ?? null
+    if ((currentGroup?.id ?? null) === nextGroupId) {
+      setIsProjectGroupPickerOpen(false)
+      return
+    }
+
+    setProjectGroupSaving(true)
+    setError(null)
+    if (currentGroup) {
+      const removeResponse = await invokeBridge<ProjectGroup>(IPC_CHANNELS.projectGroups.update, {
+        actorToken: token,
+        id: currentGroup.id,
+        name: currentGroup.name,
+        description: currentGroup.description ?? '',
+        projectIds: (currentGroup.projectIds ?? []).filter((id) => id !== project.id)
+      })
+      if (!removeResponse.ok) {
+        setProjectGroupSaving(false)
+        setError(removeResponse.error?.message ?? 'Unable to update current project group')
+        return
+      }
+    }
+
+    if (nextGroupId) {
+      const nextGroup = projectGroups.find((group) => group.id === nextGroupId)
+      if (nextGroup) {
+        const addResponse = await invokeBridge<ProjectGroup>(IPC_CHANNELS.projectGroups.update, {
+          actorToken: token,
+          id: nextGroup.id,
+          name: nextGroup.name,
+          description: nextGroup.description ?? '',
+          projectIds: Array.from(new Set([...(nextGroup.projectIds ?? []), project.id]))
+        })
+        if (!addResponse.ok) {
+          setProjectGroupSaving(false)
+          setError(addResponse.error?.message ?? 'Unable to assign project group')
+          return
+        }
+      }
+    }
+
+    setProjectGroupSaving(false)
+    setIsProjectGroupPickerOpen(false)
+    await refresh()
+  }
+
+  const saveSelectedProjectGroup = async () => {
+    if (!projectGroupForExport || !projectGroupNameDraft.trim()) return
+    setProjectGroupSaving(true)
+    setError(null)
+    const response = await invokeBridge<ProjectGroup>(IPC_CHANNELS.projectGroups.update, {
+      actorToken: token,
+      id: projectGroupForExport.id,
+      name: projectGroupNameDraft.trim(),
+      description: projectGroupDescriptionDraft.trim(),
+      projectIds: projectGroupForExport.projectIds ?? []
+    })
+    setProjectGroupSaving(false)
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? 'Unable to save project group')
+      return
+    }
+    setProjectGroups((current) => current.map((group) => group.id === response.data!.id ? response.data! : group))
   }
 
   useEffect(() => {
@@ -839,6 +917,29 @@ export function ProjectDetailPage() {
     [project?.id, projectGroups]
   )
 
+  useEffect(() => {
+    setProjectGroupNameDraft(projectGroupForExport?.name ?? '')
+    setProjectGroupDescriptionDraft(projectGroupForExport?.description ?? '')
+  }, [projectGroupForExport])
+
+  const projectAgentRows = useMemo(() => {
+    const rows = new Map<string, { agent: Agent; count: number }>()
+    const addAgent = (agentId?: string | null) => {
+      if (!agentId) return
+      const agent = agents.find((item) => item.id === agentId)
+      if (!agent) return
+      const current = rows.get(agent.id)
+      rows.set(agent.id, { agent, count: (current?.count ?? 0) + 1 })
+    }
+    for (const task of visibleTasks) {
+      addAgent(task.agentId)
+      for (const subtask of task.subtasks ?? []) {
+        addAgent(getSubtaskAgentId(subtask))
+      }
+    }
+    return Array.from(rows.values()).sort((a, b) => a.agent.name.localeCompare(b.agent.name, 'tr'))
+  }, [agents, visibleTasks])
+
   const selectedTaskTagOptions: AppSelectOption[] = useMemo(() => {
     if (!selectedTask) return []
     return [...(selectedTask.tags ?? [])]
@@ -990,8 +1091,47 @@ export function ProjectDetailPage() {
 
   const selectedTaskExportContext = useMemo(() => {
     if (!selectedTask) return null
-    return { task: selectedTask, project, projectGroup: projectGroupForExport, agents, skills, tags, customFields }
-  }, [agents, customFields, project, projectGroupForExport, selectedTask, skills, tags])
+    return { task: selectedTask, project, projectGroup: projectGroupForExport, agents, skills, tags, customFields, projectStatuses }
+  }, [agents, customFields, project, projectGroupForExport, projectStatuses, selectedTask, skills, tags])
+  const selectedTaskAgentMarkdown = selectedTaskExportContext ? buildAgentMarkdown(selectedTaskExportContext) : ''
+  const selectedTaskSkillsMarkdown = selectedTaskExportContext ? buildSkillsMarkdown(selectedTaskExportContext) : ''
+
+  const closeSelectedTaskDetail = () => {
+    setSelectedTaskId(null)
+  }
+
+  const syncProjectWorkspace = async () => {
+    if (!project) return
+    if (!project.workspaceId) {
+      setProjectSyncMessage('Assign a workspace before syncing project exports.')
+      return
+    }
+    setProjectSyncing(true)
+    setProjectSyncMessage(`Preparing ${hydratedTasks.length} task export(s)...`)
+    const exportTasks = hydratedTasks.map((task) => buildProjectWorkspaceExportTaskPayload({
+      task,
+      project,
+      projectGroup: projectGroupForExport,
+      agents,
+      skills,
+      tags,
+      customFields,
+      projectStatuses
+    }))
+    const response = await invokeBridge<{ projectFolderPath: string; processedTasks: number; writtenFiles: string[]; skippedFiles: string[]; errors: string[] }>(IPC_CHANNELS.projects.exportWorkspace, {
+      actorToken: token,
+      projectId: project.id,
+      tasks: exportTasks
+    })
+    setProjectSyncing(false)
+    if (!response.ok || !response.data) {
+      setProjectSyncMessage(response.error?.message ?? 'Unable to sync project exports.')
+      return
+    }
+    const skipped = response.data.skippedFiles.length ? ` ${response.data.skippedFiles.length} skipped.` : ''
+    const errors = response.data.errors.length ? ` ${response.data.errors.length} errors.` : ''
+    setProjectSyncMessage(`Synced ${response.data.processedTasks} task(s), wrote ${response.data.writtenFiles.length} file(s).${skipped}${errors}`)
+  }
 
   useEffect(() => {
     const feed = activityFeedRef.current
@@ -1105,127 +1245,44 @@ export function ProjectDetailPage() {
     setIsCreateTaskOpen(true)
   }
 
-  const handleCreateTask = async (input: { title: string; description: string; status: TaskEntity['status']; tagIds: string[]; agentId?: string | null; templateId?: string | null }) => {
-    if (!projectId || !input.title.trim()) return
-    setBusy(true)
-    const selectedTemplate = input.templateId ? taskTemplates.find((template) => template.id === input.templateId) : null
-    const templatePayload = selectedTemplate?.template
-    const normalizeTemplateStatus = (value?: string | null) => {
-      if (value && statusColumns.some((column) => column.status === value)) return value as TaskEntity['status']
-      return defaultStatus
-    }
-    const response = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.create, {
-      actorToken: token,
-      projectId,
-      title: input.title.trim(),
-      status: normalizeTemplateStatus(input.status),
-      description: prefixDataFormatTokens(input.description, templatePayload?.inputFormatId, templatePayload?.outputFormatId, outputFormats),
-      agentId: input.agentId ?? null
-    })
-    if (!response.ok || !response.data) {
-      setBusy(false)
-      setError(response.error?.message ?? 'Task create failed')
+  useEffect(() => {
+    const state = location.state as { openCreateTask?: boolean; openTaskId?: string; title?: string; templateId?: string | null } | null
+    if (state?.openTaskId) {
+      setSelectedTaskId(state.openTaskId)
+      navigate(location.pathname, { replace: true, state: null })
       return
     }
-    if (input.tagIds.length > 0) {
-      const tagResponse = await invokeBridge<Tag[]>(IPC_CHANNELS.tasks.tagsSet, {
+    if (!project || !state?.openCreateTask) return
+    setCreateTaskInitialTitle(state.title ?? '')
+    setCreateTaskInitialTemplateId(state.templateId ?? null)
+    openCreateTask(defaultStatus)
+    navigate(location.pathname, { replace: true, state: null })
+  }, [defaultStatus, location.pathname, location.state, navigate, project])
+
+  const handleCreateTask = async (input: CreateTaskInput) => {
+    if (!projectId || !input.title.trim()) return
+    setBusy(true)
+    try {
+      const result = await createTaskWithTemplate({
         actorToken: token,
-        taskId: response.data.id,
-        tagIds: input.tagIds
+        userName: user?.name,
+        input: { ...input, projectId },
+        templates: taskTemplates,
+        statusColumns,
+        defaultStatus,
+        outputFormats
       })
-      if (!tagResponse.ok) {
-        setError(tagResponse.error?.message ?? 'Task created, but tags could not be applied')
-      }
+      if (result.warnings[0]) setError(result.warnings[0])
+      setIsCreateTaskOpen(false)
+      setCreateTaskInitialTitle('')
+      setCreateTaskInitialTemplateId(null)
+      await refresh()
+      setSelectedTaskId(result.task.id)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Task create failed')
+    } finally {
+      setBusy(false)
     }
-    if (templatePayload) {
-      const payloadPatch: Record<string, unknown> = {}
-      const hasTaskPatch = Object.keys(payloadPatch).length > 0
-        || Boolean(templatePayload.customFieldValues && typeof templatePayload.customFieldValues === 'object' && !Array.isArray(templatePayload.customFieldValues))
-        || Array.isArray(templatePayload.checklistItems)
-      if (hasTaskPatch) {
-        const updateResponse = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
-          actorToken: token,
-          id: response.data.id,
-          payload: payloadPatch,
-          customFieldValues: templatePayload.customFieldValues,
-          checklistItems: templatePayload.checklistItems
-        })
-        if (!updateResponse.ok) {
-          setError(updateResponse.error?.message ?? 'Task created, but template details could not be applied')
-        }
-      }
-      if (Array.isArray(templatePayload.skillIds) && templatePayload.skillIds.length > 0) {
-        const skillResponse = await invokeBridge<Skill[]>(IPC_CHANNELS.tasks.skillsSet, {
-          actorToken: token,
-          taskId: response.data.id,
-          skillIds: templatePayload.skillIds
-        })
-        if (!skillResponse.ok) {
-          setError(skillResponse.error?.message ?? 'Task created, but template skills could not be applied')
-        }
-      }
-      if (Array.isArray(templatePayload.subtasks)) {
-        for (const templateSubtask of templatePayload.subtasks) {
-          const subtaskTitle = templateSubtask.title?.trim()
-          if (!subtaskTitle) continue
-          const subtaskResponse = await invokeBridge<TaskSubtask>(IPC_CHANNELS.tasks.subtasksCreate, {
-            actorToken: token,
-            taskId: response.data.id,
-            title: subtaskTitle,
-            status: normalizeTemplateStatus(templateSubtask.status)
-          })
-          if (!subtaskResponse.ok || !subtaskResponse.data) {
-            setError(subtaskResponse.error?.message ?? 'Task created, but a template subtask could not be applied')
-            continue
-          }
-          const subtaskPayload = templateSubtask.payload && typeof templateSubtask.payload === 'object' && !Array.isArray(templateSubtask.payload)
-            ? { ...templateSubtask.payload }
-            : {}
-          subtaskPayload.description = prefixDataFormatTokens(
-            typeof subtaskPayload.description === 'string' ? subtaskPayload.description : '',
-            templateSubtask.inputFormatId,
-            templateSubtask.outputFormatId,
-            outputFormats
-          )
-          if (typeof templateSubtask.agentId === 'string') {
-            subtaskPayload.agentId = templateSubtask.agentId
-            subtaskPayload.assigneeId = templateSubtask.agentId
-          }
-          if (typeof templateSubtask.dueAt === 'number') {
-            subtaskPayload.dueAt = templateSubtask.dueAt
-          }
-          subtaskPayload.inputFormatId = ''
-          subtaskPayload.outputFormatId = ''
-          if (Object.keys(subtaskPayload).length > 0) {
-            const subtaskUpdateResponse = await invokeBridge<TaskSubtask>(IPC_CHANNELS.tasks.subtasksUpdate, {
-              actorToken: token,
-              id: subtaskResponse.data.id,
-              payload: subtaskPayload
-            })
-            if (!subtaskUpdateResponse.ok) {
-              setError(subtaskUpdateResponse.error?.message ?? 'Task created, but template subtask details could not be applied')
-            }
-          }
-        }
-      }
-      if (Array.isArray(templatePayload.comments)) {
-        for (const templateComment of templatePayload.comments) {
-          if (!templateComment.body?.trim()) continue
-          const commentResponse = await invokeBridge<TaskComment[]>(IPC_CHANNELS.tasks.commentAdd, {
-            actorToken: token,
-            taskId: response.data.id,
-            body: templateComment.body.trim(),
-            authorName: templateComment.authorName || user?.name || 'Operator'
-          })
-          if (!commentResponse.ok) {
-            setError(commentResponse.error?.message ?? 'Task created, but template comments could not be applied')
-          }
-        }
-      }
-    }
-    setBusy(false)
-    setIsCreateTaskOpen(false)
-    await refresh()
   }
 
   const handleListCreate = async (status: TaskEntity['status']) => {
@@ -2567,10 +2624,13 @@ export function ProjectDetailPage() {
         onOpenCreateTask={() => openCreateTask(defaultStatus)}
         onOpenProjectPrompts={openProjectPromptSettings}
         onOpenStatusSettings={openStatusEditor}
+        onSyncProject={() => void syncProjectWorkspace()}
+        syncDisabled={projectSyncing}
         onViewModeChange={setViewMode}
       />
 
       {error ? <p className={styles.error}>{error}</p> : null}
+      {projectSyncMessage ? <p className={styles.notice}>{projectSyncMessage}</p> : null}
 
       {renderActiveView()}
 
@@ -2582,9 +2642,15 @@ export function ProjectDetailPage() {
         templates={taskTemplates}
         statusColumns={statusColumns}
         defaultStatus={createTaskStatus}
+        initialTitle={createTaskInitialTitle}
+        initialTemplateId={createTaskInitialTemplateId}
         busy={busy}
-        onClose={() => setIsCreateTaskOpen(false)}
-        onCreate={(input) => void handleCreateTask(input)}
+        onClose={() => {
+          setIsCreateTaskOpen(false)
+          setCreateTaskInitialTitle('')
+          setCreateTaskInitialTemplateId(null)
+        }}
+        onCreate={(input) => void handleCreateTask({ ...input, projectId })}
       />
 
       <AddSubtaskModal
@@ -2764,6 +2830,20 @@ export function ProjectDetailPage() {
                 >
                   Workspace
                 </button>
+                <button
+                  type="button"
+                  className={`${styles.projectPromptTab} ${projectSettingsTab === 'projectGroup' ? styles.projectPromptTabActive : ''}`}
+                  onClick={() => setProjectSettingsTab('projectGroup')}
+                >
+                  Project group
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.projectPromptTab} ${projectSettingsTab === 'agents' ? styles.projectPromptTabActive : ''}`}
+                  onClick={() => setProjectSettingsTab('agents')}
+                >
+                  Agents
+                </button>
               </div>
             </div>
             <div className={styles.projectSettingsBody}>
@@ -2853,8 +2933,8 @@ export function ProjectDetailPage() {
                 </div>
               ) : null}
               {projectSettingsTab === 'workspace' ? (
-                <div className={styles.drawerSection}>
-                  <div className={styles.detailSectionHeader}>
+                <div className={styles.settingsPanel}>
+                  <div className={styles.settingsPanelHeader}>
                     <div>
                       <h4>Workspace</h4>
                       <p>{selectedWorkspace ? 'Assigned workspace' : 'No workspace assigned'}</p>
@@ -2863,10 +2943,19 @@ export function ProjectDetailPage() {
                       Change workspace
                     </button>
                   </div>
-                  <div className={styles.workspaceSummaryCard}>
-                    <strong>{selectedWorkspace?.name ?? 'No workspace'}</strong>
-                    <span>{selectedWorkspace?.rootPath ?? 'Project files are currently stored in staging until a workspace is assigned.'}</span>
-                    {selectedWorkspace ? <code>{projectFolderPreview}</code> : null}
+                  <div className={styles.settingsInfoGrid}>
+                    <div>
+                      <span>Name</span>
+                      <strong>{selectedWorkspace?.name ?? 'No workspace'}</strong>
+                    </div>
+                    <div>
+                      <span>Root path</span>
+                      <code>{selectedWorkspace?.rootPath ?? 'Project files are currently stored in staging until a workspace is assigned.'}</code>
+                    </div>
+                    <div>
+                      <span>Project folder</span>
+                      <code>{selectedWorkspace ? projectFolderPreview : 'Assign a workspace to create a project folder.'}</code>
+                    </div>
                   </div>
                   {movingWorkspace ? (
                     <div className={styles.workspaceProgress} aria-label="Moving project workspace">
@@ -2876,6 +2965,73 @@ export function ProjectDetailPage() {
                   {workspaceMoveMessage ? <p className={styles.customFieldEmpty}>{workspaceMoveMessage}</p> : null}
                 </div>
               ) : null}
+              {projectSettingsTab === 'projectGroup' ? (
+                <div className={styles.settingsPanel}>
+                  <div className={styles.settingsPanelHeader}>
+                    <div>
+                      <h4>Project group</h4>
+                      <p>{projectGroupForExport ? 'Assigned project group' : 'No project group assigned'}</p>
+                    </div>
+                    <button type="button" className={styles.tabActionButton} onClick={() => setIsProjectGroupPickerOpen(true)} disabled={projectGroupSaving}>
+                      Change group
+                    </button>
+                  </div>
+                  {projectGroupForExport ? (
+                    <div className={styles.settingsFormGrid}>
+                      <label>
+                        <span>Group name</span>
+                        <input value={projectGroupNameDraft} onChange={(event) => setProjectGroupNameDraft(event.target.value)} />
+                      </label>
+                      <label>
+                        <span>Description</span>
+                        <textarea value={projectGroupDescriptionDraft} onChange={(event) => setProjectGroupDescriptionDraft(event.target.value)} rows={4} />
+                      </label>
+                      <div className={styles.settingsInfoGrid}>
+                        <div>
+                          <span>Projects</span>
+                          <strong>{projectGroupForExport.projectIds?.length ?? 0}</strong>
+                        </div>
+                        <div>
+                          <span>Updated</span>
+                          <strong>{new Date(projectGroupForExport.updatedAt).toLocaleString()}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={styles.settingsEmptyState}>No project group assigned.</div>
+                  )}
+                </div>
+              ) : null}
+              {projectSettingsTab === 'agents' ? (
+                <div className={styles.settingsPanel}>
+                  <div className={styles.settingsPanelHeader}>
+                    <div>
+                      <h4>Agents</h4>
+                      <p>Unique agents assigned to this project's tasks and subtasks.</p>
+                    </div>
+                  </div>
+                  {projectAgentRows.length > 0 ? (
+                    <div className={styles.settingsMiniTable}>
+                      <div>
+                        <span>Agent</span>
+                        <span>Source count</span>
+                        <span>Status</span>
+                        <span>Title</span>
+                      </div>
+                      {projectAgentRows.map(({ agent, count }) => (
+                        <div key={agent.id}>
+                          <strong>{agent.name}</strong>
+                          <span>{count}</span>
+                          <span>{agent.status}</span>
+                          <span>{agent.title || '-'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className={styles.settingsEmptyState}>No agents assigned.</div>
+                  )}
+                </div>
+              ) : null}
             </div>
             <footer className={styles.createTaskFooter}>
               {projectSettingsTab === 'statuses' ? (
@@ -2883,10 +3039,22 @@ export function ProjectDetailPage() {
                   <span>Removing or replacing a status requires mapping old tasks and subtasks to a remaining status.</span>
                   <button type="button" onClick={() => void saveProjectStatuses()}>Save statuses</button>
                 </>
-              ) : (
+              ) : projectSettingsTab === 'workspace' ? (
                 <>
                   <span>Workspace changes move existing attachment files into the selected project folder.</span>
                   <button type="button" onClick={() => setIsStatusEditorOpen(false)} disabled={movingWorkspace}>Done</button>
+                </>
+              ) : projectSettingsTab === 'projectGroup' ? (
+                <>
+                  <span>Project group assignment controls where this project appears in group views.</span>
+                  <button type="button" onClick={() => projectGroupForExport ? void saveSelectedProjectGroup() : setIsStatusEditorOpen(false)} disabled={projectGroupSaving || Boolean(projectGroupForExport && !projectGroupNameDraft.trim())}>
+                    {projectGroupForExport ? 'Save group' : 'Done'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span>Agents are listed from current task and subtask assignments.</span>
+                  <button type="button" onClick={() => setIsStatusEditorOpen(false)}>Done</button>
                 </>
               )}
             </footer>
@@ -2907,6 +3075,40 @@ export function ProjectDetailPage() {
                     </button>
                   ))}
                   {statusTemplates.length === 0 ? <p className={styles.customFieldEmpty}>No status templates available.</p> : null}
+                </div>
+              </section>
+            </>
+          ) : null}
+          {isProjectGroupPickerOpen ? (
+            <>
+              <div className={styles.nestedCreateBackdrop} onClick={() => setIsProjectGroupPickerOpen(false)} />
+              <section className={styles.nestedCreateDialog} role="dialog" aria-modal="true" aria-label="Choose project group">
+                <header>
+                  <h4>Choose project group</h4>
+                  <button type="button" onClick={() => setIsProjectGroupPickerOpen(false)} aria-label="Close project group picker"><LuX size={15} /></button>
+                </header>
+                <div className={styles.workspacePickerList}>
+                  <button
+                    type="button"
+                    className={projectGroupForExport ? styles.workspacePickerRow : `${styles.workspacePickerRow} ${styles.workspacePickerRowActive}`}
+                    onClick={() => void updateProjectGroupMembership(null)}
+                    disabled={projectGroupSaving}
+                  >
+                    <strong>No project group</strong>
+                    <span>Remove this project from its current group.</span>
+                  </button>
+                  {projectGroups.map((group) => (
+                    <button
+                      key={group.id}
+                      type="button"
+                      className={group.id === projectGroupForExport?.id ? `${styles.workspacePickerRow} ${styles.workspacePickerRowActive}` : styles.workspacePickerRow}
+                      onClick={() => void updateProjectGroupMembership(group.id)}
+                      disabled={projectGroupSaving}
+                    >
+                      <strong>{group.name}</strong>
+                      <span>{group.description || `${group.projectIds?.length ?? 0} projects`}</span>
+                    </button>
+                  ))}
                 </div>
               </section>
             </>
@@ -2982,7 +3184,7 @@ export function ProjectDetailPage() {
         <>
           <TaskDetailModal
             taskId={selectedTask.id}
-            onClose={() => setSelectedTaskId(null)}
+            onClose={closeSelectedTaskDetail}
             onOpenActivity={() => setIsActivityModalOpen(true)}
             onEditTitle={() => {
               setDetailViewMode('task')
@@ -2998,12 +3200,8 @@ export function ProjectDetailPage() {
             onDownloadTaskMarkdown={() => {
               if (selectedTaskExportContext) downloadMarkdownFile('Task.md', buildTaskMarkdown(selectedTaskExportContext))
             }}
-            onDownloadAgentMarkdown={() => {
-              if (selectedTaskExportContext) downloadMarkdownFile('AGENT.md', buildAgentMarkdown(selectedTaskExportContext))
-            }}
-            onDownloadSkillsMarkdown={() => {
-              if (selectedTaskExportContext) downloadMarkdownFile('Skills.md', buildSkillsMarkdown(selectedTaskExportContext))
-            }}
+            onDownloadAgentMarkdown={selectedTaskAgentMarkdown.trim() ? () => downloadMarkdownFile('Agents.md', selectedTaskAgentMarkdown) : undefined}
+            onDownloadSkillsMarkdown={selectedTaskSkillsMarkdown.trim() ? () => downloadMarkdownFile('Skills.md', selectedTaskSkillsMarkdown) : undefined}
           >
             <TaskDetailContent
               bodyRef={modalBodyRef}

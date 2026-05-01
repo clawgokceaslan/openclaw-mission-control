@@ -15,9 +15,10 @@ function parseSteps(value: unknown): AgentStep[] {
       id: typeof item.id === 'string' ? item.id : randomUUID(),
       title: typeof item.title === 'string' ? item.title : '',
       description: typeof item.description === 'string' ? item.description : '',
+      prompt: typeof item.prompt === 'string' ? item.prompt : '',
       sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : index
     }
-  }).filter((item) => item.title.trim() || item.description.trim())
+  }).filter((item) => item.title.trim() || item.description.trim() || item.prompt?.trim())
 }
 
 function parseReasoning(value: unknown): AgentReasoningLevel {
@@ -109,6 +110,7 @@ export class AgentRepository extends BaseRepository<Agent> {
       heartbeatAt: row.heartbeat_at,
       config,
       title: typeof config.title === 'string' ? config.title : '',
+      description: typeof config.description === 'string' ? config.description : '',
       trainingMarkdown: typeof config.trainingMarkdown === 'string' ? config.trainingMarkdown : '',
       steps: parseSteps(config.steps),
       reasoningLevel: parseReasoning(config.reasoningLevel),

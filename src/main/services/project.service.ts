@@ -2,13 +2,13 @@ import { AppError } from '../../shared/errors/index.js'
 import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
 import { Project, TaskAttachment } from '../../shared/types/entities.js'
-import type { MoveProjectWorkspaceRequest, UpdateProjectRequest } from '../../shared/contracts/ipc.js'
+import type { ExportProjectWorkspaceRequest, MoveProjectWorkspaceRequest, UpdateProjectRequest } from '../../shared/contracts/ipc.js'
 import { AuthService } from './auth.service.js'
 import { ProjectRepository } from '../../db/repositories/project-repo.js'
 import { WorkspaceRepository } from '../../db/repositories/workspace-repo.js'
 import { TaskRepository, TaskSubtaskRepository } from '../../db/repositories/task-repo.js'
 import { createHash, randomUUID } from 'node:crypto'
-import { copyFile, mkdir, rename, unlink } from 'node:fs/promises'
+import { copyFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -117,6 +117,63 @@ export class ProjectService {
     return okResponse({ project: updated, movedFiles, projectFolderPath })
   }
 
+  async exportWorkspace(payload: ExportProjectWorkspaceRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ projectFolderPath: string; processedTasks: number; writtenFiles: string[]; skippedFiles: string[]; errors: string[] }>> {
+    const actor = await this.auth.requireActor(payload?.actorToken)
+    if (!payload?.projectId) return errorResponse(ErrorCodes.Validation, 'Project id required')
+    const project = await this.repo.get(payload.projectId)
+    if (!project) return errorResponse(ErrorCodes.NotFound, 'Project not found')
+    if (project.organizationId !== actor.user.organizationId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
+    if (!project.workspaceId) return errorResponse(ErrorCodes.Validation, 'Project has no workspace')
+    const workspace = await this.workspaces.get(project.workspaceId)
+    if (!workspace || workspace.organizationId !== actor.user.organizationId) return errorResponse(ErrorCodes.Forbidden, 'Workspace access denied')
+
+    const projectFolderPath = projectFolder(workspace.rootPath, project)
+    await mkdir(projectFolderPath, { recursive: true })
+    const projectTasks = await this.tasks.list(project.id)
+    const taskById = new Map(projectTasks.map((task) => [task.id, task]))
+    const writtenFiles: string[] = []
+    const skippedFiles: string[] = []
+    const errors: string[] = []
+    let processedTasks = 0
+
+    for (const input of payload.tasks ?? []) {
+      const task = taskById.get(input.taskId)
+      if (!task) {
+        errors.push(`Task not found: ${input.taskId}`)
+        continue
+      }
+      processedTasks += 1
+      const relativeExportDir = join('Tasks', entityFolder(task.title, task.id, 'task'), 'exports')
+      const exportFolderPath = join(projectFolderPath, relativeExportDir)
+      await mkdir(exportFolderPath, { recursive: true })
+      const writeMarkdown = async (name: string, content?: string) => {
+        if (!content?.trim()) return
+        await writeFile(join(exportFolderPath, name), content, 'utf8')
+        writtenFiles.push(join(relativeExportDir, name))
+      }
+      await writeMarkdown('Task.md', input.taskMarkdown)
+      await writeMarkdown('Agents.md', input.agentMarkdown)
+      await writeMarkdown('Skills.md', input.skillsMarkdown)
+
+      const usedNames = new Set<string>()
+      const attachmentsDir = join(exportFolderPath, 'attachments')
+      for (const attachment of input.attachments ?? []) {
+        if (!attachment.url?.startsWith('file://')) continue
+        try {
+          const baseName = sanitizeFileName(attachment.exportName || attachment.name)
+          const uniqueName = uniqueFileName(usedNames, baseName, attachment.ownerId ?? task.id)
+          await mkdir(attachmentsDir, { recursive: true })
+          await copyFile(fileURLToPath(attachment.url), join(attachmentsDir, uniqueName))
+          writtenFiles.push(join(relativeExportDir, 'attachments', uniqueName))
+        } catch {
+          skippedFiles.push(attachment.name ?? attachment.url ?? 'attachment')
+        }
+      }
+    }
+
+    return okResponse({ projectFolderPath, processedTasks, writtenFiles, skippedFiles, errors })
+  }
+
   private async normalizeWorkspaceId(orgId: string, workspaceId: unknown): Promise<ServiceResponse<string | null>> {
     if (workspaceId === undefined || workspaceId === null || workspaceId === '') return okResponse(null)
     if (typeof workspaceId !== 'string') return errorResponse(ErrorCodes.Validation, 'Workspace id is invalid')
@@ -153,7 +210,12 @@ export class ProjectService {
 }
 
 function sanitizeFileName(name: string): string {
-  return name.trim().replace(/[/\\?%*:|"<>]/g, '-').replace(/\s+/g, ' ') || 'attachment'
+  return name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 72) || 'attachment'
 }
 
 function slugPart(value: string | undefined, fallback: string): string {
@@ -173,6 +235,27 @@ function shortHash(value: string): string {
 
 function entityFolder(name: string | undefined, id: string, fallback: string): string {
   return `${slugPart(name, fallback)}__${shortHash(id)}`
+}
+
+function uniqueFileName(usedNames: Set<string>, baseName: string, seed: string): string {
+  if (!usedNames.has(baseName)) {
+    usedNames.add(baseName)
+    return baseName
+  }
+  const dot = baseName.lastIndexOf('.')
+  let counter = 1
+  while (counter < 1000) {
+    const suffix = `${shortHash(seed)}-${counter}`
+    const nextName = dot > 0 ? `${baseName.slice(0, dot)}-${suffix}${baseName.slice(dot)}` : `${baseName}-${suffix}`
+    if (!usedNames.has(nextName)) {
+      usedNames.add(nextName)
+      return nextName
+    }
+    counter += 1
+  }
+  const fallback = `${baseName}-${usedNames.size + 1}`
+  usedNames.add(fallback)
+  return fallback
 }
 
 function projectFolder(rootPath: string, project: Project): string {

@@ -16,9 +16,10 @@ function normalizeSteps(value: unknown): AgentStep[] {
       id: typeof item.id === 'string' && item.id ? item.id : `${Date.now()}-${index}`,
       title: typeof item.title === 'string' ? item.title : '',
       description: typeof item.description === 'string' ? item.description : '',
+      prompt: typeof item.prompt === 'string' ? item.prompt : '',
       sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : index
     }
-  }).filter((item) => item.title.trim() || item.description.trim())
+  }).filter((item) => item.title.trim() || item.description.trim() || item.prompt?.trim())
 }
 
 function withoutOutputFormatId(config: Record<string, unknown>): Record<string, unknown> {
@@ -33,6 +34,7 @@ type AgentWritePayload = {
   status?: Agent['status']
   config?: Record<string, unknown>
   title?: string
+  description?: string
   trainingMarkdown?: string
   steps?: AgentStep[]
   reasoningLevel?: AgentReasoningLevel
@@ -64,6 +66,7 @@ export class AgentService {
     const config = {
       ...withoutOutputFormatId(payload.config ?? {}),
       title: payload.title ?? '',
+      description: payload.description ?? '',
       trainingMarkdown: payload.trainingMarkdown ?? '',
       steps: normalizeSteps(payload.steps),
       reasoningLevel: normalizeReasoning(payload.reasoningLevel)
@@ -87,6 +90,7 @@ export class AgentService {
       ...withoutOutputFormatId(current.config ?? {}),
       ...withoutOutputFormatId(payload.config ?? {}),
       ...(payload.title !== undefined ? { title: payload.title } : {}),
+      ...(payload.description !== undefined ? { description: payload.description } : {}),
       ...(payload.trainingMarkdown !== undefined ? { trainingMarkdown: payload.trainingMarkdown } : {}),
       ...(payload.steps !== undefined ? { steps: normalizeSteps(payload.steps) } : {}),
       ...(payload.reasoningLevel !== undefined ? { reasoningLevel: normalizeReasoning(payload.reasoningLevel) } : {})

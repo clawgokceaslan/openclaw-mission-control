@@ -119,14 +119,42 @@
   font-size: 0.86rem;
 }
 
-.detailStats {
-  min-height: 58px;
+.detailHero {
   border-bottom: 1px solid var(--omc-border-subtle);
-  padding: 0 24px;
+  padding: 22px 24px;
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+
+  h2 {
+    margin: 3px 0 5px;
+    color: var(--omc-text-strong);
+    font-size: 1.35rem;
+    font-weight: 850;
+  }
+
+  p {
+    margin: 0;
+    color: var(--omc-text-muted);
+    font-weight: 650;
+  }
+}
+
+.detailEyebrow {
+  color: var(--omc-text-soft);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.detailStats {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
+  justify-content: flex-end;
 
   span {
     border: 1px solid var(--omc-border-subtle);
@@ -145,7 +173,7 @@
 .detailTableHead,
 .detailTableRow {
   display: grid;
-  grid-template-columns: minmax(260px, 1.4fr) 130px minmax(210px, 1fr) 120px;
+  grid-template-columns: minmax(260px, 1.4fr) minmax(210px, 0.8fr) 110px minmax(180px, 0.7fr) 90px;
   gap: 16px;
   align-items: center;
 }
@@ -187,6 +215,35 @@
   font-weight: 650;
 }
 
+.detailProgressCell {
+  display: grid;
+  gap: 7px;
+
+  small {
+    margin: 0;
+    color: var(--omc-text-muted);
+    font-size: 0.82rem;
+    font-weight: 750;
+  }
+
+  i {
+    width: 100%;
+    height: 8px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--omc-surface-muted);
+    box-shadow: inset 0 0 0 1px var(--omc-border-subtle);
+  }
+
+  b {
+    display: block;
+    height: 100%;
+    min-width: 6px;
+    border-radius: inherit;
+    background: var(--omc-primary);
+  }
+}
+
 .actionsCell {
   display: inline-flex;
   align-items: center;
@@ -208,6 +265,30 @@
   &:hover {
     background: var(--omc-hover-bg);
     color: var(--omc-primary);
+  }
+}
+
+@media (max-width: 920px) {
+  .detailHero {
+    grid-template-columns: 1fr;
+  }
+
+  .detailStats {
+    justify-content: flex-start;
+  }
+
+  .detailTableHead {
+    display: none;
+  }
+
+  .detailTableRow {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    align-items: start;
+  }
+
+  .actionsCell {
+    justify-content: flex-start;
   }
 }
 

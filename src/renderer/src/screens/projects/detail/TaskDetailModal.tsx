@@ -134,7 +134,7 @@ export function TaskDetailModal({
                           <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadTaskMarkdown() }}><LuFileText size={15} /> Download Task.md</button>
                         ) : null}
                         {onDownloadAgentMarkdown ? (
-                          <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadAgentMarkdown() }}><LuFileText size={15} /> Download AGENT.md</button>
+                          <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadAgentMarkdown() }}><LuFileText size={15} /> Download Agents.md</button>
                         ) : null}
                         {onDownloadSkillsMarkdown ? (
                           <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadSkillsMarkdown() }}><LuFileText size={15} /> Download Skills.md</button>

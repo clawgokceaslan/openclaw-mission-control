@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { marked } from 'marked'
 import { LuEye, LuPencil, LuPlus, LuTrash2, LuX } from 'react-icons/lu'
 import { IPC_CHANNELS, type PaginatedResponse } from '@shared/contracts/ipc'
@@ -62,6 +63,8 @@ function markdownSnippet(markdown?: string): string {
 
 export function SkillsPage() {
   const { token } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
   const [rows, setRows] = useState<Skill[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -111,6 +114,16 @@ export function SkillsPage() {
     setModalMode('create')
   }
 
+  useEffect(() => {
+    const state = location.state as { openCreate?: boolean; title?: string } | null
+    const searchParams = new URLSearchParams(location.search)
+    const shouldOpen = Boolean(state?.openCreate) || searchParams.get('create') === '1'
+    if (!shouldOpen) return
+    setForm({ ...emptyForm, title: state?.title ?? searchParams.get('title') ?? '' })
+    setModalMode('create')
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location.pathname, location.search, location.state, navigate])
+
   const openEdit = (skill: Skill) => {
     setForm({
       id: skill.id,
@@ -120,6 +133,17 @@ export function SkillsPage() {
     })
     setModalMode('edit')
   }
+
+  useEffect(() => {
+    const state = location.state as { openEditId?: string; skill?: Skill } | null
+    const searchParams = new URLSearchParams(location.search)
+    const editId = state?.openEditId ?? searchParams.get('edit')
+    if (!editId) return
+    const target = state?.skill ?? rows.find((skill) => skill.id === editId)
+    if (!target) return
+    openEdit(target)
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location.pathname, location.search, location.state, navigate, rows])
 
   const closeModal = () => {
     setModalMode(null)

@@ -54,9 +54,9 @@
 }
 
 .workspaceSummaryCard {
-  border: 1px dashed var(--omc-border-strong);
+  border: 1px solid var(--omc-border-subtle);
   border-radius: 14px;
-  background: var(--omc-surface-muted);
+  background: var(--omc-surface);
   padding: 14px;
   display: grid;
   gap: 8px;
@@ -231,6 +231,10 @@
 .projectSettingsTabs {
   border-bottom: 1px solid var(--omc-border-subtle);
   padding: 10px 18px;
+
+  .projectPromptTabs {
+    flex-wrap: wrap;
+  }
 }
 
 .projectSettingsBody {
@@ -242,11 +246,21 @@
 }
 
 .projectSettingsModal > .createTaskFooter {
-  position: sticky;
-  bottom: 0;
   z-index: 2;
+  margin: 0;
   background: var(--omc-modal-bg);
   border-top: 1px solid var(--omc-border-subtle);
+  padding: 14px 18px;
+  gap: 16px;
+
+  span {
+    min-width: 0;
+    line-height: 1.35;
+  }
+
+  button {
+    flex: 0 0 auto;
+  }
 }
 
 .statusEditorRow {
@@ -498,6 +512,26 @@
   }
 }
 
+.columnHeaderAdd,
+.listGroupAdd {
+  width: 30px;
+  height: 30px;
+  border: 1px solid color-mix(in srgb, var(--column-accent, var(--omc-primary)) 32%, var(--omc-border));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--column-accent, var(--omc-primary)) 9%, var(--omc-surface));
+  color: var(--omc-text-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+
+  &:hover {
+    border-color: var(--column-accent, var(--omc-primary));
+    color: var(--omc-primary-strong);
+    background: var(--omc-hover-bg);
+  }
+}
+
 .dot {
   width: 9px;
   height: 9px;
@@ -713,6 +747,13 @@
   gap: 8px;
 }
 
+.listGroupHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .listGroupHeader {
   border: none;
   background: transparent;
@@ -722,6 +763,10 @@
   gap: 10px;
   padding: 0;
   color: var(--omc-text-strong);
+}
+
+.listGroupAdd {
+  --column-accent: var(--omc-primary);
 }
 
 .chevronOpen,
@@ -1800,6 +1845,161 @@
     color: var(--omc-text-muted);
     font-size: 0.9rem;
   }
+}
+
+.settingsPanel {
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 16px;
+  background: var(--omc-surface);
+  padding: 18px;
+  display: grid;
+  gap: 16px;
+}
+
+.settingsPanelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+
+  h4 {
+    margin: 0;
+    color: var(--omc-text-strong);
+    font-size: 0.88rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  p {
+    margin: 4px 0 0;
+    color: var(--omc-text-muted);
+    font-size: 0.88rem;
+    font-weight: 700;
+  }
+}
+
+.settingsInfoGrid {
+  display: grid;
+  gap: 10px;
+
+  > div {
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 12px;
+    background: var(--omc-surface-muted);
+    padding: 12px;
+    display: grid;
+    gap: 5px;
+  }
+
+  span {
+    color: var(--omc-text-soft);
+    font-size: 0.72rem;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  strong {
+    color: var(--omc-text-strong);
+    font-size: 0.95rem;
+    font-weight: 850;
+  }
+
+  code {
+    color: var(--omc-text);
+    font-size: 0.86rem;
+    white-space: normal;
+    word-break: break-all;
+  }
+}
+
+.settingsFormGrid {
+  display: grid;
+  gap: 12px;
+
+  label {
+    display: grid;
+    gap: 7px;
+  }
+
+  label > span {
+    color: var(--omc-text-soft);
+    font-size: 0.74rem;
+    font-weight: 850;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+  }
+
+  input,
+  textarea {
+    width: 100%;
+    border: 1px solid var(--omc-input-border);
+    border-radius: 11px;
+    background: var(--omc-input-bg);
+    color: var(--omc-text);
+    padding: 10px 12px;
+    font-weight: 700;
+    outline: none;
+  }
+
+  textarea {
+    min-height: 92px;
+    resize: vertical;
+  }
+}
+
+.settingsMiniTable {
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 13px;
+  overflow: hidden;
+
+  > div {
+    min-height: 46px;
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) 120px 110px minmax(160px, 1fr);
+    gap: 12px;
+    align-items: center;
+    padding: 0 14px;
+    border-top: 1px solid var(--omc-border-subtle);
+  }
+
+  > div:first-child {
+    border-top: none;
+    background: var(--omc-table-header);
+    color: var(--omc-text-soft);
+    font-size: 0.72rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  strong {
+    color: var(--omc-text-strong);
+    font-weight: 850;
+  }
+
+  span {
+    min-width: 0;
+    color: var(--omc-text-muted);
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.settingsEmptyState {
+  min-height: 120px;
+  border: 1px dashed var(--omc-border-strong);
+  border-radius: 14px;
+  background: var(--omc-surface-muted);
+  color: var(--omc-text-muted);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  text-align: center;
+  font-weight: 800;
 }
 
 .tabRow {
@@ -3296,7 +3496,7 @@
   z-index: 1401;
   left: 50%;
   top: 50%;
-  width: min(680px, calc(100vw - 48px));
+  width: min(760px, calc(100vw - 48px));
   min-height: 420px;
   transform: translate(-50%, -50%);
   border: 1px solid var(--omc-border);
@@ -3911,6 +4111,19 @@
     font-size: 0.82rem;
     font-weight: 750;
   }
+}
+
+.createTaskProjectPicker {
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 12px;
+  background: var(--omc-surface-soft);
+  min-height: 44px;
+  padding: 4px 10px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  color: var(--omc-text-muted);
 }
 
 .createTaskTitle {

@@ -1,4 +1,5 @@
 import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { LuPencil, LuPlus, LuTrash2, LuX } from 'react-icons/lu'
 import styles from './AgentsPage.module.scss'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
@@ -25,6 +26,7 @@ function createStep(sortOrder: number): AgentStep {
     id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${sortOrder}`,
     title: '',
     description: '',
+    prompt: '',
     sortOrder
   }
 }
@@ -39,6 +41,8 @@ function formatDate(timestamp: number) {
 
 export function AgentsPage() {
   const { token } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
   const [items, setItems] = useState<Agent[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -48,6 +52,7 @@ export function AgentsPage() {
   const [deleteAgent, setDeleteAgent] = useState<Agent | null>(null)
   const [name, setName] = useState('')
   const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
   const [trainingMarkdown, setTrainingMarkdown] = useState('')
   const [status, setStatus] = useState<Agent['status']>('idle')
   const [reasoningLevel, setReasoningLevel] = useState<AgentReasoningLevel>('medium')
@@ -78,6 +83,7 @@ export function AgentsPage() {
   const resetForm = () => {
     setName('')
     setTitle('')
+    setDescription('')
     setTrainingMarkdown('')
     setStatus('idle')
     setReasoningLevel('medium')
@@ -92,11 +98,25 @@ export function AgentsPage() {
     setIsModalOpen(true)
   }
 
+  useEffect(() => {
+    const state = location.state as { openCreate?: boolean; name?: string } | null
+    const searchParams = new URLSearchParams(location.search)
+    const shouldOpen = Boolean(state?.openCreate) || searchParams.get('create') === '1'
+    if (!shouldOpen) return
+    setMode('create')
+    setEditingAgent(null)
+    resetForm()
+    setName(state?.name ?? searchParams.get('name') ?? '')
+    setIsModalOpen(true)
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location.pathname, location.search, location.state, navigate])
+
   const openEdit = (agent: Agent) => {
     setMode('edit')
     setEditingAgent(agent)
     setName(agent.name)
     setTitle(agent.title ?? '')
+    setDescription(agent.description ?? '')
     setTrainingMarkdown(agent.trainingMarkdown ?? '')
     setStatus(agent.status)
     setReasoningLevel(agent.reasoningLevel ?? 'medium')
@@ -104,6 +124,17 @@ export function AgentsPage() {
     setFormError(null)
     setIsModalOpen(true)
   }
+
+  useEffect(() => {
+    const state = location.state as { openEditId?: string; agent?: Agent } | null
+    const searchParams = new URLSearchParams(location.search)
+    const editId = state?.openEditId ?? searchParams.get('edit')
+    if (!editId) return
+    const target = state?.agent ?? items.find((agent) => agent.id === editId)
+    if (!target) return
+    openEdit(target)
+    navigate(location.pathname, { replace: true, state: null })
+  }, [items, location.pathname, location.search, location.state, navigate])
 
   const closeModal = () => {
     setIsModalOpen(false)
@@ -126,8 +157,8 @@ export function AgentsPage() {
       return
     }
     const normalizedSteps = steps
-      .map((step, index) => ({ ...step, title: step.title.trim(), description: step.description.trim(), sortOrder: index }))
-      .filter((step) => step.title || step.description)
+      .map((step, index) => ({ ...step, title: step.title.trim(), description: step.description.trim(), prompt: step.prompt?.trim() ?? '', sortOrder: index }))
+      .filter((step) => step.title || step.description || step.prompt)
 
     setLoading(true)
     const response = await invokeBridge<Agent>(mode === 'edit' ? IPC_CHANNELS.agents.update : IPC_CHANNELS.agents.create, {
@@ -135,6 +166,7 @@ export function AgentsPage() {
       ...(mode === 'edit' ? { id: editingAgent?.id } : {}),
       name: name.trim(),
       title: title.trim(),
+      description: description.trim(),
       trainingMarkdown,
       status,
       reasoningLevel,
@@ -289,7 +321,11 @@ export function AgentsPage() {
                 </label>
               </div>
               <label>
-                <span>Training markdown</span>
+                <span>Description</span>
+                <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} placeholder="Describe the agent's scope, strengths, and boundaries." />
+              </label>
+              <label>
+                <span>Agent prompt</span>
                 <textarea value={trainingMarkdown} onChange={(event) => setTrainingMarkdown(event.target.value)} rows={7} placeholder="Describe the agent's operating rules, responsibilities, and expected behavior." />
               </label>
               <section className={styles.stepsBlock}>
@@ -313,6 +349,10 @@ export function AgentsPage() {
                     <label>
                       <span>Description</span>
                       <textarea value={step.description} onChange={(event) => updateStep(step.id, { description: event.target.value })} rows={3} placeholder="Explain this step." />
+                    </label>
+                    <label>
+                      <span>Prompt</span>
+                      <textarea value={step.prompt ?? ''} onChange={(event) => updateStep(step.id, { prompt: event.target.value })} rows={3} placeholder="Prompt or instruction for this step." />
                     </label>
                     <button type="button" className={styles.stepRemoveButton} onClick={() => removeStep(step.id)}>Remove step</button>
                   </div>

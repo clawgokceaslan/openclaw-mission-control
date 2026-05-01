@@ -209,35 +209,35 @@ export const THEME_BACKGROUNDS: ThemeBackground[] = [
     name: 'Default',
     preview: 'linear-gradient(135deg, #f4f6fb, #ffffff)',
     light: '#f4f6fb',
-    dark: '#101725'
+    dark: '#05070d'
   },
   {
     id: 'soft-grid',
     name: 'Soft grid',
-    preview: 'linear-gradient(135deg, #eef4ff, #ffffff)',
+    preview: 'linear-gradient(135deg, #eef4ff 0%, #ffffff 50%, #07101d 100%)',
     light: 'linear-gradient(rgba(45, 95, 218, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(45, 95, 218, 0.05) 1px, transparent 1px), #f7faff',
-    dark: 'linear-gradient(rgba(147, 180, 255, 0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(147, 180, 255, 0.06) 1px, transparent 1px), #0f1724'
+    dark: 'linear-gradient(rgba(147, 180, 255, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(147, 180, 255, 0.035) 1px, transparent 1px), #050b14'
   },
   {
     id: 'radial',
     name: 'Radial',
-    preview: 'radial-gradient(circle at top left, #dbeafe, #ffffff 58%)',
+    preview: 'radial-gradient(circle at top left, #dbeafe, #ffffff 50%, #060a13 100%)',
     light: 'radial-gradient(circle at top left, rgba(45, 95, 218, 0.14), transparent 34%), #f6f8fc',
-    dark: 'radial-gradient(circle at top left, rgba(96, 165, 250, 0.18), transparent 38%), #0c1320'
+    dark: 'radial-gradient(circle at top left, rgba(96, 165, 250, 0.11), transparent 36%), #040813'
   },
   {
     id: 'paper',
     name: 'Paper',
-    preview: 'linear-gradient(135deg, #fbfaf7, #f2f4f8)',
+    preview: 'linear-gradient(135deg, #fbfaf7 0%, #f2f4f8 50%, #080a0f 100%)',
     light: 'linear-gradient(135deg, #fbfaf7 0%, #f3f6fb 100%)',
-    dark: 'linear-gradient(135deg, #141b28 0%, #101725 100%)'
+    dark: 'linear-gradient(135deg, #090c13 0%, #05070d 100%)'
   },
   {
     id: 'midnight',
     name: 'Midnight',
     preview: 'linear-gradient(135deg, #111827, #1e3a8a)',
     light: 'linear-gradient(135deg, #eef2ff 0%, #f8fafc 50%, #eff6ff 100%)',
-    dark: 'linear-gradient(135deg, #050816 0%, #101725 48%, #172033 100%)'
+    dark: 'linear-gradient(135deg, #02040a 0%, #050816 52%, #0b1020 100%)'
   }
 ]
 

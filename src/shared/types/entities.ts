@@ -165,6 +165,7 @@ export interface Agent {
   heartbeatAt: number
   config?: Record<string, unknown>
   title?: string
+  description?: string
   trainingMarkdown?: string
   steps?: AgentStep[]
   reasoningLevel?: AgentReasoningLevel
@@ -201,6 +202,7 @@ export interface AgentStep {
   id: string
   title: string
   description: string
+  prompt?: string
   sortOrder: number
 }
 

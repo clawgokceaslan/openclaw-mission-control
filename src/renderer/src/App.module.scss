@@ -255,9 +255,10 @@
 }
 
 .appFrame {
-  min-height: 100vh;
+  height: 100vh;
   display: grid;
   grid-template-rows: 64px 1fr;
+  overflow: hidden;
   background: var(--omc-app-background, var(--omc-bg));
   background-size: var(--omc-background-size, auto);
   color: var(--omc-text);
@@ -375,26 +376,81 @@
 .commandModal {
   position: fixed;
   z-index: 1601;
-  top: 74px;
+  top: 76px;
   left: 50%;
-  width: min(980px, calc(100vw - 36px));
+  width: min(1040px, calc(100vw - 36px));
   max-height: calc(100vh - 110px);
   transform: translateX(-50%);
   border: 1px solid var(--omc-border);
-  border-radius: 16px;
-  background: var(--omc-surface);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--omc-surface) 94%, transparent);
   box-shadow: var(--omc-shadow-large);
+  backdrop-filter: blur(22px);
+  overflow: hidden;
+}
+
+.commandModalEmbedded {
+  position: relative;
+  inset: auto;
+  top: auto;
+  left: auto;
+  width: 100%;
+  max-height: none;
+  height: 100vh;
+  transform: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.commandBrandBar {
+  min-height: 44px;
+  border-bottom: 1px solid var(--omc-border-subtle);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  color: var(--omc-text-strong);
+  -webkit-app-region: drag;
+}
+
+.commandBrandMark {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--omc-primary);
+  color: var(--omc-inverse-text);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  flex: 0 0 auto;
+}
+
+.commandBrandTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.95rem;
+  font-weight: 850;
+}
+
+.companionPage {
+  min-height: 100vh;
+  background: var(--omc-app-background);
   overflow: hidden;
 }
 
 .commandHeader {
-  min-height: 58px;
+  min-height: 72px;
   border-bottom: 1px solid var(--omc-border-subtle);
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 10px;
-  padding: 0 14px;
+  gap: 14px;
+  padding: 0 18px;
   color: var(--omc-text-muted);
 
   input {
@@ -403,7 +459,7 @@
     color: var(--omc-text);
     outline: none;
     font-size: 1rem;
-    font-weight: 700;
+    font-weight: 850;
   }
 
   button {
@@ -416,8 +472,25 @@
   }
 }
 
+.commandModalEmbedded .commandHeader {
+  min-height: 52px;
+  gap: 10px;
+  padding: 0 12px;
+
+  input {
+    font-size: 0.94rem;
+  }
+
+  button {
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+  }
+}
+
 .commandHeader input,
 .commandHeader button,
+.commandTabScrollButton,
 .commandTabs button,
 .commandBody button,
 .commandBody input,
@@ -426,14 +499,58 @@
   -webkit-app-region: no-drag;
 }
 
-.commandTabs {
-  min-height: 50px;
+.commandTabsShell {
+  min-height: 54px;
   border-bottom: 1px solid var(--omc-border-subtle);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+}
+
+.commandTabs {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 8px 14px;
   overflow-x: auto;
+  scrollbar-width: none;
+  scroll-behavior: smooth;
+}
+
+.commandTabs::-webkit-scrollbar {
+  display: none;
+}
+
+.commandTabScrollButton {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 9px;
+  background: var(--omc-surface-muted);
+  color: var(--omc-text-muted);
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.commandTabScrollButton:hover {
+  border-color: var(--omc-border);
+  background: var(--omc-hover-bg);
+  color: var(--omc-text-strong);
+}
+
+.commandModalEmbedded .commandTabsShell {
+  min-height: 40px;
+  gap: 6px;
+  padding: 5px 8px;
+}
+
+.commandModalEmbedded .commandTabScrollButton {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
 }
 
 .commandTab {
@@ -445,6 +562,12 @@
   padding: 0 11px;
   font-weight: 850;
   white-space: nowrap;
+}
+
+.commandModalEmbedded .commandTab {
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 0.78rem;
 }
 
 .commandTabCreate {
@@ -480,8 +603,13 @@
 .commandBody {
   max-height: calc(100vh - 180px);
   overflow: auto;
-  padding: 14px;
+  padding: 18px;
   display: block;
+}
+
+.commandModalEmbedded .commandBody {
+  max-height: calc(100vh - 136px);
+  padding: 10px;
 }
 
 .commandSection {
@@ -499,24 +627,29 @@
 
 .commandActions {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 
   button {
-    min-height: 66px;
+    min-height: 86px;
     border: 1px solid var(--omc-border-subtle);
-    border-radius: 12px;
+    border-radius: 16px;
     background: var(--omc-surface-muted);
     color: var(--omc-text);
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: 2px 9px;
+    gap: 4px 12px;
     align-items: center;
-    padding: 10px;
+    padding: 16px;
     text-align: left;
 
     svg {
       grid-row: 1 / 3;
+      width: 34px;
+      height: 34px;
+      border-radius: 11px;
+      padding: 8px;
+      background: var(--omc-active-bg);
       color: var(--omc-primary);
     }
 
@@ -534,6 +667,39 @@
       cursor: not-allowed;
       opacity: 0.55;
     }
+  }
+}
+
+.commandModalEmbedded .commandActions {
+  gap: 8px;
+
+  button {
+    min-height: 68px;
+    border-radius: 10px;
+    gap: 2px 9px;
+    padding: 10px;
+
+    svg {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      padding: 6px;
+    }
+
+    strong {
+      font-size: 0.84rem;
+    }
+
+    span {
+      font-size: 0.72rem;
+      line-height: 1.25;
+    }
+  }
+}
+
+@media (width <= 720px) {
+  .commandActions {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -576,6 +742,21 @@
     padding: 8px 10px;
     outline: none;
     resize: vertical;
+  }
+}
+
+.commandEmptyPanel {
+  border: 1px dashed var(--omc-cta-border);
+  border-radius: 16px;
+  background: var(--omc-surface-muted);
+  padding: 18px;
+  display: grid;
+  gap: 6px;
+
+  p {
+    margin: 0;
+    color: var(--omc-text-muted);
+    font-weight: 650;
   }
 }
 
@@ -701,6 +882,21 @@
   }
 }
 
+.commandModalEmbedded .commandResults {
+  gap: 4px;
+
+  button {
+    border-radius: 9px;
+    gap: 8px;
+    padding: 8px;
+
+    em {
+      padding: 3px 6px;
+      font-size: 0.62rem;
+    }
+  }
+}
+
 .commandResults > p {
   margin: 8px 0 0;
   border: 1px dashed var(--omc-cta-border);
@@ -771,7 +967,9 @@
 .shell {
   display: grid;
   grid-template-columns: 260px 1fr;
+  height: calc(100vh - 64px);
   min-height: 0;
+  overflow: hidden;
   background: var(--omc-app-background, var(--omc-bg));
   background-size: var(--omc-background-size, auto);
 }
@@ -783,10 +981,13 @@
   background: var(--omc-surface);
   display: grid;
   grid-template-rows: 1fr auto;
-  min-height: calc(100vh - 64px);
+  height: calc(100vh - 64px);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebarScroll {
+  min-height: 0;
   padding: 12px 10px;
   overflow-y: auto;
   display: flex;
@@ -908,6 +1109,8 @@
 
 .content {
   padding: 22px 30px;
+  min-height: 0;
+  height: calc(100vh - 64px);
   overflow: auto;
   background: transparent;
   color: var(--omc-text);

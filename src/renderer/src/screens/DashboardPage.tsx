@@ -14,7 +14,7 @@ import {
   Tooltip
 } from 'chart.js'
 import { Bar, Doughnut, Line, Radar } from 'react-chartjs-2'
-import { LuActivity, LuArrowRight, LuBot, LuBoxes, LuCircle, LuTimer, LuWaypoints } from 'react-icons/lu'
+import { LuActivity, LuArrowRight, LuBot, LuBoxes, LuCircle, LuFolderKanban, LuRefreshCw, LuTimer, LuWaypoints } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
@@ -189,6 +189,24 @@ function buildMetrics(vm: DashboardVm) {
 export function DashboardPage() {
   const { vm, loading, error, reload } = useDashboardData()
   const metrics = vm ? buildMetrics(vm) : null
+  const statusCounts = useMemo(() => vm ? countBy(vm.tasks, taskStatus) : {}, [vm])
+  const projectProgress = useMemo(() => {
+    if (!vm) return null
+    const completedStatuses = new Set(['completed', 'done', 'closed'])
+    const rows = vm.projects.map((project) => {
+      const projectTasks = vm.tasks.filter((task) => task.projectId === project.id)
+      const completed = projectTasks.filter((task) => completedStatuses.has(taskStatus(task))).length
+      return {
+        project,
+        total: projectTasks.length,
+        completed,
+        percent: projectTasks.length > 0 ? Math.round((completed / projectTasks.length) * 100) : 0
+      }
+    })
+    const busiest = [...rows].sort((a, b) => b.total - a.total)[0]
+    const active = rows.filter((row) => row.total > 0 && row.percent < 100).length
+    return { rows, busiest, active }
+  }, [vm])
 
   return (
     <section className={styles.dashboard}>
@@ -198,7 +216,7 @@ export function DashboardPage() {
           <p className={styles.pageSubtitle}>A quick operational entry point for current mission health.</p>
         </div>
         <div className={styles.headerActions}>
-          <button type="button" className={styles.refreshBtn} onClick={() => void reload()}>Refresh</button>
+          <button type="button" className={styles.refreshBtn} onClick={() => void reload()}><LuRefreshCw size={15} />Refresh</button>
           <Link className={styles.primaryLink} to={APP_ROUTES.DASHBOARD_DETAIL}>Detailed dashboard <LuArrowRight size={15} /></Link>
         </div>
       </header>
@@ -236,6 +254,55 @@ export function DashboardPage() {
                 )) : <p className={styles.emptyText}>No recent activity.</p>}
               </div>
             </section>
+            <section className={styles.panelCard}>
+              <h2>Workload by status</h2>
+              <div className={styles.statusStack}>
+                {Object.entries(statusCounts).length > 0 ? Object.entries(statusCounts).map(([statusName, count]) => {
+                  const width = vm.tasks.length > 0 ? Math.max(4, Math.round((count / vm.tasks.length) * 100)) : 0
+                  return (
+                    <div key={statusName} className={styles.statusRow}>
+                      <span>{statusName}</span>
+                      <strong>{count}</strong>
+                      <i><b style={{ width: `${width}%` }} /></i>
+                    </div>
+                  )
+                }) : <p className={styles.emptyText}>No workload yet.</p>}
+              </div>
+            </section>
+            <section className={styles.panelCard}>
+              <h2>Gateway sessions</h2>
+              <div className={styles.sessionList}>
+                {vm.sessions.length > 0 ? vm.sessions.slice(0, 5).map((session) => (
+                  <article key={session.id} className={styles.sessionRow}>
+                    <div>
+                      <strong>{session.label}</strong>
+                      <span>{session.endpoint}</span>
+                    </div>
+                    <em>{session.status} · {relativeTime(session.seenAt)}</em>
+                  </article>
+                )) : <p className={styles.emptyText}>No active gateway sessions.</p>}
+              </div>
+            </section>
+            <section className={styles.panelCard}>
+              <h2>Readiness</h2>
+              <div className={styles.snapshotList}>
+                <span><b>{vm.agents.filter((agent) => agent.status === 'idle').length}</b> idle agents</span>
+                <span><b>{vm.skills.filter((skill) => skill.status === 'active').length}</b> active skills</span>
+                <span><b>{vm.gateways.filter((gateway) => gateway.status === 'online').length}</b> online gateways</span>
+                <span><b>{vm.jobs.filter((job) => job.status === 'failed').length}</b> failed jobs</span>
+              </div>
+            </section>
+            <section className={styles.panelCard}>
+              <h2>Project progress</h2>
+              <div className={styles.projectProgressCard}>
+                <span><LuFolderKanban size={18} /></span>
+                <div>
+                  <strong>{projectProgress?.active ?? 0} active projects</strong>
+                  <p>{projectProgress?.busiest ? `${projectProgress.busiest.project.name} has ${projectProgress.busiest.total} tasks` : 'No project workload yet.'}</p>
+                </div>
+                <i><b style={{ width: `${projectProgress?.busiest?.percent ?? 0}%` }} /></i>
+              </div>
+            </section>
           </div>
         </>
       ) : null}
@@ -269,7 +336,7 @@ export function DetailedDashboardPage() {
         </div>
         <div className={styles.headerActions}>
           <Link className={styles.refreshBtn} to={APP_ROUTES.DASHBOARD}>Simple view</Link>
-          <button type="button" className={styles.refreshBtn} onClick={() => void reload()}>Refresh</button>
+          <button type="button" className={styles.refreshBtn} onClick={() => void reload()}><LuRefreshCw size={15} />Refresh</button>
         </div>
       </header>
       {error ? <p className={styles.dashboardNotice}>{error}</p> : null}

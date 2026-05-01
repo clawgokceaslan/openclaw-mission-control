@@ -37,7 +37,7 @@ export const NAV_BY_GROUP: Record<NavGroupKey, NavItem[]> = {
   ],
   Templates: [
     { label: 'Statuses', path: APP_ROUTES.STATUSES, group: 'Templates', icon: LuListTodo },
-    { label: 'Tasks', path: APP_ROUTES.TASK_TEMPLATES, group: 'Templates', icon: LuClipboardList },
+    { label: 'Task Templates', path: APP_ROUTES.TASK_TEMPLATES, group: 'Templates', icon: LuClipboardList },
     { label: 'Tags', path: APP_ROUTES.TAGS, group: 'Templates', icon: LuTags },
     { label: 'Custom fields', path: APP_ROUTES.CUSTOM_FIELDS, group: 'Templates', icon: LuSettings2 },
     { label: 'Data Formats', path: APP_ROUTES.OUTPUT_FORMATS, group: 'Templates', icon: LuLayers }

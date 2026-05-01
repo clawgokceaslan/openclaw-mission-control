@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { LuFolderOpen, LuPencil, LuPlus, LuRefreshCw, LuTrash2, LuX } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { Project, Workspace } from '@shared/types/entities'
@@ -18,6 +19,8 @@ function formatTime(timestamp: number) {
 
 export function WorkspacesPage() {
   const { token } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -65,6 +68,26 @@ export function WorkspacesPage() {
   const openCreate = () => {
     setEditor({ workspace: null, name: '', rootPath: '' })
   }
+
+  useEffect(() => {
+    const state = location.state as { openCreate?: boolean; name?: string } | null
+    const searchParams = new URLSearchParams(location.search)
+    const shouldOpen = Boolean(state?.openCreate) || searchParams.get('create') === '1'
+    if (!shouldOpen) return
+    setEditor({ workspace: null, name: state?.name ?? searchParams.get('name') ?? '', rootPath: '' })
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location.pathname, location.search, location.state, navigate])
+
+  useEffect(() => {
+    const state = location.state as { openEditId?: string; workspace?: Workspace } | null
+    const searchParams = new URLSearchParams(location.search)
+    const editId = state?.openEditId ?? searchParams.get('edit')
+    if (!editId) return
+    const target = state?.workspace ?? workspaces.find((workspace) => workspace.id === editId)
+    if (!target) return
+    setEditor({ workspace: target, name: target.name, rootPath: target.rootPath })
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location.pathname, location.search, location.state, navigate, workspaces])
 
   const changeEditorFolder = async () => {
     const rootPath = await pickFolder()
