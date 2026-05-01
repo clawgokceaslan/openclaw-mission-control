@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import { execFile } from 'node:child_process'
 import EventEmitter from 'node:events'
+import { promisify } from 'node:util'
 import { ErrorCodes } from '../../../shared/contracts/error-codes.js'
 import { IPC_CHANNELS, UpsertGatewayRequest } from '../../../shared/contracts/ipc.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../../shared/contracts/response.js'
@@ -7,6 +9,8 @@ import {
   Gateway,
   GatewayCommand,
   GatewayHistoryItem,
+  CodexCliGatewayConfig,
+  CodexCliModel,
   OpenClawGatewayConfig,
   OpenClawGatewayPairingStatus,
   OpenClawGatewayTestResult
@@ -18,6 +22,8 @@ import { OpenClawGatewayClient, OpenClawGatewayRuntimeRegistry } from './rpc-cli
 import { createOpenClawDeviceIdentity } from './device-identity.js'
 import { OPENCLAW_METHODS, isKnownOpenClawMethod } from './method-catalog.js'
 import { ACTIVE_GATEWAY_KEY } from '../app-settings.service.js'
+
+const execFileAsync = promisify(execFile)
 
 type GatewayWithSessions = Gateway & { sessions?: unknown[] }
 type SendCommandPayload = {
@@ -32,39 +38,60 @@ type SendCommandPayload = {
   timeoutMs?: number
 }
 
-function isWsUrl(value: string): boolean {
-  try {
-    const parsed = new URL(value)
-    return parsed.protocol === 'ws:' || parsed.protocol === 'wss:'
-  } catch {
-    return false
-  }
-}
-
 function maskToken(token: string): string {
   if (!token) return ''
   return '••••••••'
 }
 
-function openClawConfig(input: UpsertGatewayRequest, current?: Gateway): OpenClawGatewayConfig {
-  const currentTemplate = (current?.template ?? {}) as Partial<OpenClawGatewayConfig>
+function codexCliConfig(input: UpsertGatewayRequest, current?: Gateway): CodexCliGatewayConfig {
+  const currentTemplate = (current?.template ?? {}) as Partial<CodexCliGatewayConfig>
+  const codexPath = input.codexPath?.trim() || currentTemplate.codexPath || current?.endpoint || 'codex'
   return {
-    provider: 'openclaw',
-    apiBaseUrl: '',
-    authMode: input.disableDevicePairing ?? currentTemplate.disableDevicePairing ? 'control_ui_token' : 'device_pairing',
-    workspaceRoot: input.workspaceRoot ?? currentTemplate.workspaceRoot,
-    allowSelfSignedTls: input.allowSelfSignedTls ?? Boolean(currentTemplate.allowSelfSignedTls),
-    disableDevicePairing: input.disableDevicePairing ?? currentTemplate.disableDevicePairing ?? false,
-    autoConnect: input.autoConnect ?? Boolean(currentTemplate.autoConnect),
-    lastHandshakeAt: currentTemplate.lastHandshakeAt,
-    protocolVersion: String(currentTemplate.protocolVersion ?? '3'),
-    capabilities: currentTemplate.capabilities,
-    deviceIdentity: currentTemplate.deviceIdentity,
-    deviceToken: currentTemplate.deviceToken,
-    deviceScopes: currentTemplate.deviceScopes,
-    pairingStatus: currentTemplate.pairingStatus ?? (currentTemplate.deviceIdentity ? 'not_paired' : undefined),
-    lastPairingError: currentTemplate.lastPairingError
+    provider: 'codex_cli',
+    codexPath,
+    models: currentTemplate.models,
+    lastModelRefreshAt: currentTemplate.lastModelRefreshAt,
+    lastModelRefreshError: currentTemplate.lastModelRefreshError
   }
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function modelFromRecord(record: Record<string, unknown>, fallbackSource?: string): CodexCliModel | null {
+  const id = asString(record.id) ?? asString(record.model) ?? asString(record.name) ?? asString(record.slug)
+  if (!id) return null
+  const label = asString(record.label) ?? asString(record.display_name) ?? asString(record.displayName) ?? asString(record.name) ?? id
+  const source = asString(record.provider) ?? asString(record.source) ?? asString(record.owned_by) ?? fallbackSource
+  const recommended = id === 'gpt-5.5' || id === 'gpt-5.4' || id === 'gpt-5.3-codex-spark' || record.recommended === true
+  return { id, label, ...(source ? { source } : {}), ...(recommended ? { recommended } : {}) }
+}
+
+function collectModelRecords(value: unknown, source?: string): CodexCliModel[] {
+  if (!value) return []
+  if (Array.isArray(value)) return value.flatMap((item) => collectModelRecords(item, source))
+  if (typeof value !== 'object') return []
+  const record = value as Record<string, unknown>
+  const direct = modelFromRecord(record, source)
+  const models: CodexCliModel[] = direct ? [direct] : []
+  for (const [key, nested] of Object.entries(record)) {
+    if (key === 'id' || key === 'model' || key === 'name' || key === 'slug') continue
+    if (Array.isArray(nested)) models.push(...collectModelRecords(nested, source ?? key))
+    else if (nested && typeof nested === 'object' && (key.toLowerCase().includes('model') || key.toLowerCase().includes('catalog'))) {
+      models.push(...collectModelRecords(nested, source ?? key))
+    }
+  }
+  return models
+}
+
+function normalizeCodexModels(stdout: string): CodexCliModel[] {
+  const parsed = JSON.parse(stdout) as unknown
+  const unique = new Map<string, CodexCliModel>()
+  for (const model of collectModelRecords(parsed, 'codex')) {
+    if (!unique.has(model.id)) unique.set(model.id, model)
+  }
+  return [...unique.values()].sort((a, b) => Number(Boolean(b.recommended)) - Number(Boolean(a.recommended)) || a.id.localeCompare(b.id))
 }
 
 function pairingStatusFromError(message: string): OpenClawGatewayPairingStatus {
@@ -128,11 +155,11 @@ export class GatewayService {
     const gateway = await this.repo.create({
       organizationId: actor.user.organizationId,
       name: payload.name!.trim(),
-      endpoint: payload.endpoint!.trim(),
-      token: payload.token?.trim() ?? '',
-      template: openClawConfig(payload)
+      endpoint: (payload.codexPath?.trim() || 'codex'),
+      token: '',
+      template: codexCliConfig(payload)
     })
-    await this.repo.appendHistory(gateway.id, 'gateway.created', { provider: 'openclaw' })
+    await this.repo.appendHistory(gateway.id, 'gateway.created', { provider: 'codex_cli' })
     return okResponse(this.maskGateway(gateway))
   }
 
@@ -141,15 +168,13 @@ export class GatewayService {
     if ('ok' in current) return current
     const validation = this.validateUpsert(payload, false, current)
     if (validation) return validation
-    const token = payload.clearToken ? '' : payload.token?.trim()
     const updated = await this.repo.update(current.id, {
       name: payload.name?.trim(),
-      endpoint: payload.endpoint?.trim(),
-      ...(payload.clearToken || token ? { token } : {}),
-      template: openClawConfig(payload, current)
+      endpoint: payload.codexPath?.trim() || current.endpoint || 'codex',
+      template: codexCliConfig(payload, current)
     })
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Gateway not found')
-    await this.repo.appendHistory(updated.id, 'gateway.updated', { provider: 'openclaw' })
+    await this.repo.appendHistory(updated.id, 'gateway.updated', { provider: 'codex_cli' })
     return okResponse(this.maskGateway(updated))
   }
 
@@ -187,7 +212,43 @@ export class GatewayService {
 
   async templates(payload: { actorToken?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<Array<{ id: string; name: string; sample: string }>>> {
     await this.auth.requireActor(payload?.actorToken)
-    return okResponse([{ id: 'openclaw', name: 'OpenClaw', sample: 'Remote WS RPC OpenClaw gateway profile' }])
+    return okResponse([{ id: 'codex_cli', name: 'Codex CLI', sample: 'Local Codex CLI' }])
+  }
+
+  async codexModels(payload: { actorToken?: string; gatewayId?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }>> {
+    const gateway = await this.requireGateway(payload?.actorToken, payload?.gatewayId)
+    if ('ok' in gateway) return gateway as ServiceResponse<{ gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }>
+    const template = codexCliConfig({}, gateway)
+    const codexPath = template.codexPath || gateway.endpoint || 'codex'
+    const args = ['debug', 'models']
+    try {
+      const { stdout } = await execFileAsync(codexPath, args, { timeout: 20_000, maxBuffer: 1024 * 1024 * 8 })
+      const models = normalizeCodexModels(stdout)
+      if (models.length === 0) throw new Error('Codex CLI returned no models')
+      const updated = await this.repo.update(gateway.id, {
+        endpoint: codexPath,
+        template: {
+          ...template,
+          models,
+          lastModelRefreshAt: Date.now(),
+          lastModelRefreshError: undefined
+        }
+      })
+      const masked = this.maskGateway(updated ?? gateway)
+      await this.repo.appendHistory(gateway.id, 'codex.models.refreshed', { count: models.length })
+      return okResponse({ gateway: masked, models, cached: false })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const cached = Array.isArray(template.models) ? template.models : []
+      const updated = await this.repo.update(gateway.id, {
+        template: {
+          ...template,
+          lastModelRefreshError: message
+        }
+      })
+      await this.repo.appendHistory(gateway.id, 'codex.models.refresh_failed', { error: message })
+      return okResponse({ gateway: this.maskGateway(updated ?? gateway), models: cached, cached: cached.length > 0, error: message })
+    }
   }
 
   async connect(payload: { actorToken?: string; gatewayId?: string }): Promise<ServiceResponse<Gateway>> {
@@ -196,7 +257,7 @@ export class GatewayService {
     const gateway = await this.ensureDeviceIdentity(requestedGateway)
     await this.repo.setGatewayStatus(gateway.id, 'connecting')
     await this.repo.setSessionState(gateway.id, 'reconnecting', { endpoint: gateway.endpoint }, 1000)
-    await this.repo.appendHistory(gateway.id, 'gateway.connect.requested', { provider: 'openclaw' })
+    await this.repo.appendHistory(gateway.id, 'gateway.connect.requested', { provider: 'codex_cli' })
     try {
       await this.runtime.connect(gateway, async (event) => {
         if (event.type === 'connected') {
@@ -251,7 +312,7 @@ export class GatewayService {
     this.runtime.disconnect(gateway.id)
     await this.repo.setGatewayStatus(gateway.id, 'offline')
     await this.repo.setSessionState(gateway.id, 'disconnected', { manual: true }, 0)
-    await this.repo.appendHistory(gateway.id, 'gateway.disconnect.requested', { provider: 'openclaw' })
+    await this.repo.appendHistory(gateway.id, 'gateway.disconnect.requested', { provider: 'codex_cli' })
     const updated = await this.repo.get(gateway.id)
     return okResponse(this.maskGateway(updated ?? gateway))
   }
@@ -261,7 +322,7 @@ export class GatewayService {
     if ('ok' in requestedGateway) return requestedGateway
     const gateway = await this.ensureDeviceIdentity(requestedGateway)
     await this.repo.appendHistory(gateway.id, 'openclaw.pairing.requested', {
-      provider: 'openclaw',
+      provider: 'codex_cli',
       deviceId: (gateway.template as OpenClawGatewayConfig | undefined)?.deviceIdentity?.deviceId
     })
     const client = new OpenClawGatewayClient(gateway)
@@ -308,7 +369,7 @@ export class GatewayService {
       template: { ...template, pairingStatus: 'not_paired' }
     })
     await this.repo.setSessionState(gateway.id, 'disconnected', { resetPairing: true }, 0)
-    await this.repo.appendHistory(gateway.id, 'openclaw.pairing.reset', { provider: 'openclaw' })
+    await this.repo.appendHistory(gateway.id, 'openclaw.pairing.reset', { provider: 'codex_cli' })
     return okResponse(this.maskGateway(updated ?? gateway))
   }
 
@@ -518,7 +579,7 @@ export class GatewayService {
     for (const rawGateway of gateways) {
       const gateway = await this.ensureDeviceIdentity(rawGateway)
       await this.repo.setGatewayStatus(gateway.id, 'connecting')
-      await this.repo.appendHistory(gateway.id, 'gateway.autoconnect.requested', { provider: 'openclaw' })
+      await this.repo.appendHistory(gateway.id, 'gateway.autoconnect.requested', { provider: 'codex_cli' })
       await this.runtime.connect(gateway, async (event) => {
         if (event.type === 'connected') {
           await this.repo.update(gateway.id, {
@@ -603,16 +664,15 @@ export class GatewayService {
 
   private validateUpsert(payload: UpsertGatewayRequest, creating: boolean, current?: Gateway): ServiceResponse<never> | null {
     if (creating && !payload.name?.trim()) return errorResponse(ErrorCodes.Validation, 'Gateway name required')
-    if (creating && !payload.endpoint?.trim()) return errorResponse(ErrorCodes.Validation, 'Gateway WS URL required')
-    const endpoint = payload.endpoint?.trim() ?? current?.endpoint ?? ''
-    if (!isWsUrl(endpoint)) return errorResponse(ErrorCodes.Validation, 'Gateway WS URL must start with ws:// or wss://')
+    const codexPath = payload.codexPath?.trim() || current?.endpoint || 'codex'
+    if (!codexPath.trim()) return errorResponse(ErrorCodes.Validation, 'Codex CLI path required')
     return null
   }
 
   private async ensureDeviceIdentity(gateway: Gateway): Promise<Gateway> {
     const template = {
       ...((gateway.template ?? {}) as OpenClawGatewayConfig),
-      provider: 'openclaw'
+      provider: 'codex_cli'
     } as OpenClawGatewayConfig
     if (template.disableDevicePairing || template.authMode === 'control_ui_token') return gateway
     if (template.deviceIdentity?.publicKeyPem && template.deviceIdentity?.privateKeyPem) return gateway
@@ -631,20 +691,11 @@ export class GatewayService {
 
   private maskGateway<T extends Gateway | GatewayWithSessions>(gateway: T): T {
     const template = {
-      provider: 'openclaw',
-      authMode: gateway.template?.disableDevicePairing ? 'control_ui_token' : 'device_pairing',
-      disableDevicePairing: false,
+      provider: 'codex_cli',
       ...((gateway.template ?? {}) as Record<string, unknown>)
-    } as OpenClawGatewayConfig
-    if (template.deviceIdentity) {
-      template.deviceIdentity = {
-        deviceId: template.deviceIdentity.deviceId,
-        publicKeyPem: template.deviceIdentity.publicKeyPem,
-        privateKeyPem: '',
-        createdAt: template.deviceIdentity.createdAt
-      }
-    }
-    if (template.deviceToken) template.deviceToken = maskToken(template.deviceToken)
+    } as Record<string, unknown>
+    if ('deviceIdentity' in template) delete template.deviceIdentity
+    if ('deviceToken' in template) template.deviceToken = maskToken(String(template.deviceToken ?? ''))
     return {
       ...gateway,
       token: maskToken(gateway.token),

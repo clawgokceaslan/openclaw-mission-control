@@ -271,6 +271,12 @@ export class TaskSubtaskRepository extends BaseRepository<TaskSubtask> {
     return row
   }
 
+  async updateStatusesByTask(taskId: string, status: string): Promise<void> {
+    await this.db
+      .prepare('UPDATE task_subtasks SET status = @status, updated_at = @updatedAt WHERE task_id = @taskId')
+      .run({ taskId, status, updatedAt: Date.now() })
+  }
+
   async remove(id: string): Promise<void> {
     await this.db.prepare('DELETE FROM task_subtasks WHERE id = @id').run({ id })
   }

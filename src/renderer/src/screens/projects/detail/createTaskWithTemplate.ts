@@ -23,7 +23,6 @@ export type CreateTaskWithTemplateContext = {
   statusColumns: ProjectStatusColumn[]
   defaultStatus: TaskEntity['status']
   outputFormats: OutputFormat[]
-  onAgentUsed?: (agentId: string) => Promise<string | null | undefined> | string | null | undefined
 }
 
 export type CreateTaskWithTemplateResult = {
@@ -49,17 +48,8 @@ function hasPatch(value: Record<string, unknown>) {
   return Object.keys(value).length > 0
 }
 
-async function syncAgentWarning(onAgentUsed: CreateTaskWithTemplateContext['onAgentUsed'], agentId?: string | null) {
-  if (!agentId || !onAgentUsed) return null
-  try {
-    return await onAgentUsed(agentId)
-  } catch (error) {
-    return error instanceof Error ? error.message : 'Agent was saved locally, but OpenClaw sync failed'
-  }
-}
-
 export async function createTaskWithTemplate(context: CreateTaskWithTemplateContext): Promise<CreateTaskWithTemplateResult> {
-  const { actorToken, userName, input, templates, statusColumns, defaultStatus, outputFormats, onAgentUsed } = context
+  const { actorToken, userName, input, templates, statusColumns, defaultStatus, outputFormats } = context
   const selectedTemplate = input.templateId ? templates.find((template) => template.id === input.templateId) : null
   const templatePayload = selectedTemplate?.template
   const warnings: string[] = []
@@ -82,21 +72,29 @@ export async function createTaskWithTemplate(context: CreateTaskWithTemplateCont
     return defaultStatus
   }
 
+  const templateCodex = templatePayload?.codex && typeof templatePayload.codex === 'object' && !Array.isArray(templatePayload.codex)
+    ? templatePayload.codex as Record<string, unknown>
+    : {}
+  const templateGatewayId = typeof templateCodex.gatewayId === 'string' ? templateCodex.gatewayId.trim() : ''
+  const templateModel = typeof templateCodex.model === 'string' ? templateCodex.model.trim() : ''
+  const templateCodexPayload = templateGatewayId || templateModel
+    ? { codex: { ...(templateGatewayId ? { gatewayId: templateGatewayId } : {}), ...(templateModel ? { model: templateModel } : {}) } }
+    : undefined
+
   const createResponse = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.create, {
     actorToken,
     projectId: input.projectId,
     title: input.title.trim(),
     status: normalizeStatus(input.status),
     description: prefixDataFormatTokens(input.description, templatePayload?.inputFormatId, templatePayload?.outputFormatId, outputFormats),
-    agentId: input.agentId ?? null
+    agentId: input.agentId ?? null,
+    payload: templateCodexPayload
   })
   if (!createResponse.ok || !createResponse.data) {
     throw new Error(createResponse.error?.message ?? 'Task create failed')
   }
 
   const task = createResponse.data
-  const agentWarning = await syncAgentWarning(onAgentUsed, input.agentId)
-  if (agentWarning) warnings.push(agentWarning)
   if (input.tagIds.length > 0) {
     const tagResponse = await invokeBridge(IPC_CHANNELS.tasks.tagsSet, {
       actorToken,
@@ -114,6 +112,9 @@ export async function createTaskWithTemplate(context: CreateTaskWithTemplateCont
   if (comments) payloadPatch.comments = comments
   payloadPatch.inputFormatId = ''
   payloadPatch.outputFormatId = ''
+  if (templateCodexPayload?.codex) {
+    payloadPatch.codex = templateCodexPayload.codex
+  }
 
   const hasTaskPatch = hasPatch(payloadPatch)
     || Boolean(templatePayload.customFieldValues && typeof templatePayload.customFieldValues === 'object' && !Array.isArray(templatePayload.customFieldValues))
@@ -173,8 +174,6 @@ export async function createTaskWithTemplate(context: CreateTaskWithTemplateCont
         payload: subtaskPayload
       })
       if (!subtaskUpdateResponse.ok) warnings.push(subtaskUpdateResponse.error?.message ?? 'Task created, but template subtask details could not be applied')
-      const agentWarning = await syncAgentWarning(onAgentUsed, templateSubtask.agentId)
-      if (agentWarning) warnings.push(agentWarning)
     }
   }
 

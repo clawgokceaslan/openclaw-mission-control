@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
-import type { Agent, OpenClawAgentSyncResult, OutputFormat, Project, ProjectStatus, Tag, TaskTemplate } from '@shared/types/entities'
+import type { Agent, OutputFormat, Project, ProjectStatus, Tag, TaskTemplate } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList } from '@renderer/utils/api'
 import { CreateTaskModal } from '@renderer/screens/projects/detail/CreateTaskModal'
@@ -78,20 +78,6 @@ export function GlobalCreateTaskModal({ open, initial, onClose }: GlobalCreateTa
     if (!input.projectId || !input.title.trim()) return
     setBusy(true)
     setError(null)
-    const syncAgentForUse = async (agentId?: string | null) => {
-      if (!agentId) return null
-      try {
-        const response = await invokeBridge<OpenClawAgentSyncResult>(IPC_CHANNELS.agents.syncOpenClaw, {
-          actorToken: token,
-          id: agentId
-        })
-        if (!response.ok) return response.error?.message ?? 'Agent was saved locally, but OpenClaw sync failed'
-        if (response.data?.status === 'failed') return response.data.error ?? 'Agent was saved locally, but OpenClaw sync failed'
-        return null
-      } catch (error) {
-        return error instanceof Error ? error.message : 'Agent was saved locally, but OpenClaw sync failed'
-      }
-    }
     try {
       const result = await createTaskWithTemplate({
         actorToken: token,
@@ -99,8 +85,7 @@ export function GlobalCreateTaskModal({ open, initial, onClose }: GlobalCreateTa
         templates,
         statusColumns,
         defaultStatus: statusColumns[0]?.status ?? 'pending',
-        outputFormats,
-        onAgentUsed: syncAgentForUse
+        outputFormats
       })
       if (result.warnings[0]) setError(result.warnings[0])
       onClose()

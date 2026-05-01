@@ -1,20 +1,31 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { copyFile, mkdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { execFile } from 'node:child_process'
+import EventEmitter from 'node:events'
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { tmpdir } from 'node:os'
+import { promisify } from 'node:util'
+import { copyFile, chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { unzipSync } from 'fflate'
 import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
 import type {
   AddTaskCommentRequest,
   ExportTaskSnapshotRequest,
   ImportTaskJsonRequest,
+  PlanTaskCodexRequest,
   RemoveTaskCommentRequest,
+  RunTaskCodexRequest,
   SetTaskSkillsRequest,
   SetTaskTagsRequest,
+  TaskPlannerContextRequest,
+  TaskPlannerJsonRequest,
   UpdateTaskSubtaskRequest,
   UpdateTaskCommentRequest
 } from '../../shared/contracts/ipc.js'
-import type { Skill, Tag, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask } from '../../shared/types/entities.js'
+import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
+import type { ProjectStatus, Skill, Tag, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask } from '../../shared/types/entities.js'
 import { AuthService } from './auth.service.js'
 import { TaskRepository, TaskSkillRepository, TaskSubtaskRepository, TaskTagRepository } from '../../db/repositories/task-repo.js'
 import { ProjectRepository } from '../../db/repositories/project-repo.js'
@@ -23,13 +34,38 @@ import { SkillRepository } from '../../db/repositories/skill-repo.js'
 import { AgentRepository } from '../../db/repositories/agent-repo.js'
 import { StatusRepository } from '../../db/repositories/status-repo.js'
 import { WorkspaceRepository } from '../../db/repositories/workspace-repo.js'
+import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
 import { TaskJsonImportNormalizer } from './task-json-import.js'
+
+const execFileAsync = promisify(execFile)
 
 type TaskPayload = Record<string, unknown> & {
   description?: string
   comments?: TaskComment[]
   checklist?: TaskChecklistItem[]
   customFields?: Record<string, unknown>
+}
+
+type PlannerBridgeContext = {
+  actorToken?: string
+  projectId: string
+  taskId: string
+  finishFilePath?: string
+  terminalTitle?: string
+}
+
+type PlannerLaunchResult = {
+  runFolderPath: string
+  runtimeWorkspacePath: string
+  model: string
+  gatewayId: string
+  command: string
+  bridgeUrl: string
+}
+
+type CodexTerminalRun = {
+  finishFilePath: string
+  terminalTitle: string
 }
 
 function asPayload(value: unknown): TaskPayload {
@@ -71,6 +107,51 @@ function asChecklistItems(value: unknown): TaskChecklistItem[] {
     })
   }
   return items
+}
+
+function payloadStringList(payload: Record<string, unknown>, key: string): string[] {
+  const value = payload[key]
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : []
+}
+
+function customFieldEntries(values: Record<string, unknown> | undefined, customFields: Array<{ id: string; name: string; type?: string }>): Array<{ name: string; value: unknown }> {
+  if (!values) return []
+  return Object.entries(values).flatMap(([fieldId, value]) => {
+    const field = customFields.find((item) => item.id === fieldId)
+    const name = field?.name ?? fieldId
+    return name ? [{ name, value }] : []
+  })
+}
+
+function taskPlannerJson(task: TaskEntity, customFields: Array<{ id: string; name: string; type?: string }>): Record<string, unknown> {
+  const subtasks = (task.subtasks ?? []).map((subtask) => {
+    const payload = subtask.payload && typeof subtask.payload === 'object' && !Array.isArray(subtask.payload)
+      ? subtask.payload as Record<string, unknown>
+      : {}
+    const customFieldValues = payload.customFields && typeof payload.customFields === 'object' && !Array.isArray(payload.customFields)
+      ? payload.customFields as Record<string, unknown>
+      : {}
+    return {
+      title: subtask.title,
+      description: typeof payload.description === 'string' ? payload.description : subtask.description ?? '',
+      status: subtask.status,
+      tags: payloadStringList(payload, 'tagIds'),
+      checklist: asChecklistItems(payload.checklistItems),
+      customFields: customFieldEntries(customFieldValues, customFields),
+      comments: asComments(payload.comments),
+      ...(typeof payload.dueAt === 'number' ? { dueAt: payload.dueAt } : {})
+    }
+  })
+  return {
+    title: task.title,
+    description: task.description ?? '',
+    status: task.status,
+    tags: (task.tags ?? []).map((tag) => tag.name || tag.id),
+    checklist: task.checklistItems ?? [],
+    customFields: customFieldEntries(task.customFieldValues, customFields),
+    comments: task.comments ?? [],
+    subtasks
+  }
 }
 
 function enrichSubtask(item: TaskSubtask): TaskSubtask {
@@ -115,7 +196,267 @@ function sanitizeFileName(name: string | undefined, fallback = 'attachment'): st
   return normalized || fallback
 }
 
+function zipBufferFromPayload(value: unknown): Buffer | null {
+  if (value instanceof Uint8Array) return Buffer.from(value)
+  if (value instanceof ArrayBuffer) return Buffer.from(value)
+  if (Array.isArray(value) && value.every((item) => Number.isInteger(item) && item >= 0 && item <= 255)) return Buffer.from(value)
+  if (value && typeof value === 'object' && Array.isArray((value as { data?: unknown }).data)) {
+    return zipBufferFromPayload((value as { data: number[] }).data)
+  }
+  return null
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+function appleScriptString(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+
+function terminalTitle(value: string): string {
+  return value.replace(/[\r\n]/g, ' ').slice(0, 200)
+}
+
+async function closeTerminalWindowByTitle(title: string): Promise<void> {
+  if (process.platform !== 'darwin' || !title.trim()) return
+  await execFileAsync('osascript', [
+    '-e',
+    'tell application "Terminal"',
+    '-e',
+    'repeat with terminalWindow in windows',
+    '-e',
+    'repeat with terminalTab in tabs of terminalWindow',
+    '-e',
+    `if custom title of terminalTab is ${appleScriptString(title)} then`,
+    '-e',
+    'close terminalWindow',
+    '-e',
+    'return',
+    '-e',
+    'end if',
+    '-e',
+    'end repeat',
+    '-e',
+    'end repeat',
+    '-e',
+    'end tell'
+  ], { timeout: 5_000 }).catch(() => undefined)
+}
+
+function codexTrustedProjectConfig(path: string): string {
+  return `projects.${JSON.stringify(path)}.trust_level="trusted"`
+}
+
+function codexCliConfig(value: unknown): { codexPath: string } {
+  const template = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+  return {
+    codexPath: typeof template.codexPath === 'string' && template.codexPath.trim() ? template.codexPath.trim() : 'codex'
+  }
+}
+
+function projectCodexRuntimeWorkspaceId(project: { metrics?: Record<string, unknown> }): string | null {
+  const codex = project.metrics?.codex
+  if (!codex || typeof codex !== 'object' || Array.isArray(codex)) return null
+  const runtimeWorkspaceId = (codex as Record<string, unknown>).runtimeWorkspaceId
+  return typeof runtimeWorkspaceId === 'string' && runtimeWorkspaceId.trim() ? runtimeWorkspaceId.trim() : null
+}
+
+function initialCodexPrompt(exportWorkspacePath: string, runtimeWorkspacePath: string, projectId: string, taskId: string): string {
+  return [
+    `Open Mission Control runtime workspace is ${runtimeWorkspacePath}.`,
+    `The exported task files are in ${exportWorkspacePath}.`,
+    `The Open Mission Control project id is ${projectId} and task id is ${taskId}.`,
+    `Read ${exportWorkspacePath}/Task.md, ${exportWorkspacePath}/Agents.md, ${exportWorkspacePath}/Skills.md, and ${exportWorkspacePath}/attachments/ if present.`,
+    'Execute the task described in Task.md.',
+    'Respect subtask status instructions: bypass subtasks marked completed/done/closed.',
+    'When the implementation is complete, call the openmissioncontrol MCP tool omc_mark_task_ready_for_review with this project id and task id.',
+    'That MCP completion call moves the task and subtasks to Review, or to the status before Done if Review does not exist, and closes this Codex terminal session.',
+    'Do not ask for the ZIP; all exported files are already available in the export directory.'
+  ].join(' ')
+}
+
+function initialPlannerPrompt(projectId: string, taskId: string): string {
+  return [
+    'You are planning an Open Mission Control task inside Codex TUI.',
+    'Use the MCP tool omc_get_task_context first.',
+    `The project id is ${projectId} and the source task id is ${taskId}.`,
+    'Plan the current task from its task-detail data: title, description, custom fields, checklist, comments, tags, and subtasks.',
+    'For every subtask, consider its title, description, custom fields, checklist, comments, tags, status, and due date.',
+    'Use context.currentTaskJson as the starting JSON shape and revise it into the planned task JSON.',
+    'Before writing, call omc_validate_task_json with one JSON object.',
+    'After validation succeeds, update the scoped source task with omc_update_task_from_json.',
+    'Do not create a new task in this planning flow.',
+    'After the update succeeds, the planning session closes automatically.'
+  ].join(' ')
+}
+
+function readRequestBody(request: IncomingMessage): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    request.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
+    request.on('error', reject)
+    request.on('end', () => {
+      const raw = Buffer.concat(chunks).toString('utf8')
+      if (!raw.trim()) return resolve({})
+      try {
+        resolve(JSON.parse(raw))
+      } catch (error) {
+        reject(error)
+      }
+    })
+  })
+}
+
+function sendJson(response: ServerResponse, statusCode: number, value: unknown): void {
+  response.statusCode = statusCode
+  response.setHeader('content-type', 'application/json; charset=utf-8')
+  response.end(JSON.stringify(value))
+}
+
+function omcTaskPlannerMcpScript(): string {
+  return `#!/usr/bin/env node
+const bridgeUrl = process.env.OMC_MCP_BRIDGE_URL;
+const bridgeToken = process.env.OMC_MCP_BRIDGE_TOKEN;
+const contextPath = process.env.OMC_MCP_CONTEXT_PATH;
+
+if (!bridgeUrl || !bridgeToken) {
+  console.error('OMC MCP bridge environment is missing.');
+  process.exit(1);
+}
+
+let buffer = Buffer.alloc(0);
+
+function writeMessage(message) {
+  const body = Buffer.from(JSON.stringify(message), 'utf8');
+  process.stdout.write('Content-Length: ' + body.length + '\\r\\n\\r\\n');
+  process.stdout.write(body);
+}
+
+function tool(name, description, properties, required = []) {
+  return { name, description, inputSchema: { type: 'object', properties, required, additionalProperties: true } };
+}
+
+const jsonSchema = {
+  type: 'object',
+  description: 'Task JSON matching Open Mission Control import format. Root fields include title, description, status, tags, checklist, comments, customFields, and subtasks.'
+};
+
+const tools = [
+  tool('omc_get_task_context', 'Read the scoped Open Mission Control project and source task context.', {}, []),
+  tool('omc_validate_task_json', 'Validate and normalize one planned task JSON object without writing.', { json: jsonSchema }, ['json']),
+  tool('omc_create_task_from_json', 'Create a new task in the scoped project from one planned task JSON object.', { json: jsonSchema }, ['json']),
+  tool('omc_update_task_from_json', 'Update the scoped source task from one planned task JSON object.', { json: jsonSchema }, ['json'])
+];
+
+async function callBridge(toolName, args) {
+  const response = await fetch(bridgeUrl + '/tool', {
+    method: 'POST',
+    headers: {
+      'authorization': 'Bearer ' + bridgeToken,
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({ tool: toolName, arguments: args || {} })
+  });
+  const text = await response.text();
+  let payload;
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = { error: text || 'Invalid bridge response' };
+  }
+  if (!response.ok || payload.ok === false) {
+    const message = payload.error?.message || payload.error || 'Open Mission Control bridge call failed.';
+    throw new Error(message);
+  }
+  return payload.data ?? payload;
+}
+
+async function handle(message) {
+  if (message.method === 'initialize') {
+    writeMessage({
+      jsonrpc: '2.0',
+      id: message.id,
+      result: {
+        protocolVersion: '2024-11-05',
+        capabilities: { tools: {} },
+        serverInfo: { name: 'omc-task-planner', version: '0.1.0' }
+      }
+    });
+    return;
+  }
+  if (message.method === 'notifications/initialized') return;
+  if (message.method === 'tools/list') {
+    writeMessage({ jsonrpc: '2.0', id: message.id, result: { tools } });
+    return;
+  }
+  if (message.method === 'tools/call') {
+    try {
+      const name = message.params?.name;
+      const args = message.params?.arguments || {};
+      const data = await callBridge(name, args);
+      writeMessage({
+        jsonrpc: '2.0',
+        id: message.id,
+        result: { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+      });
+    } catch (error) {
+      writeMessage({
+        jsonrpc: '2.0',
+        id: message.id,
+        result: {
+          isError: true,
+          content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }]
+        }
+      });
+    }
+    return;
+  }
+  if (message.id !== undefined) {
+    writeMessage({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Method not found' } });
+  }
+}
+
+function pump() {
+  while (true) {
+    const headerEnd = buffer.indexOf('\\r\\n\\r\\n');
+    if (headerEnd < 0) return;
+    const header = buffer.slice(0, headerEnd).toString('utf8');
+    const match = /content-length:\\s*(\\d+)/i.exec(header);
+    if (!match) {
+      buffer = Buffer.alloc(0);
+      return;
+    }
+    const length = Number(match[1]);
+    const bodyStart = headerEnd + 4;
+    const bodyEnd = bodyStart + length;
+    if (buffer.length < bodyEnd) return;
+    const body = buffer.slice(bodyStart, bodyEnd).toString('utf8');
+    buffer = buffer.slice(bodyEnd);
+    let message;
+    try {
+      message = JSON.parse(body);
+    } catch (error) {
+      continue;
+    }
+    void handle(message);
+  }
+}
+
+process.stdin.on('data', (chunk) => {
+  buffer = Buffer.concat([buffer, chunk]);
+  pump();
+});
+
+if (contextPath) {
+  console.error('Open Mission Control task planner MCP ready: ' + contextPath);
+}
+`
+}
+
 export class TaskService {
+  private readonly codexTerminalRuns = new Map<string, CodexTerminalRun>()
+
   constructor(
     private readonly auth: AuthService,
     private readonly repo: TaskRepository,
@@ -128,12 +469,18 @@ export class TaskService {
     private readonly customFields: CustomFieldRepository,
     private readonly agents: AgentRepository,
     private readonly statuses: StatusRepository,
-    private readonly workspaces: WorkspaceRepository
+    private readonly workspaces: WorkspaceRepository,
+    private readonly gateways: GatewayRepository,
+    private readonly eventBus?: EventEmitter
   ) {}
 
   private async findProjectOrg(projectId: string): Promise<string | undefined> {
     const project = await this.projects.get(projectId)
     return project?.organizationId
+  }
+
+  private emitTaskUpdated(projectId: string, taskId: string, action: string): void {
+    this.eventBus?.emit(IPC_CHANNELS.events.taskUpdated, { projectId, taskId, action, updatedAt: Date.now() })
   }
 
   private async ensureTaskAccess(actorToken: string | undefined, taskId: string): Promise<ServiceResponse<{ actorOrgId: string; task: TaskEntity }>> {
@@ -171,8 +518,32 @@ export class TaskService {
       return okResponse((statuses.find((item) => item.category === legacyCategory) ?? fallback).id)
     }
     const found = statuses.find((item) => item.id === status)
-    if (!found) return errorResponse(ErrorCodes.Validation, 'Status is not part of this project')
-    return okResponse(found.id)
+    const foundByName = found ?? statuses.find((item) => item.name.trim().toLocaleLowerCase('tr') === status.trim().toLocaleLowerCase('tr'))
+    if (!foundByName) return errorResponse(ErrorCodes.Validation, 'Status is not part of this project')
+    return okResponse(foundByName.id)
+  }
+
+  private reviewTargetStatus(statuses: ProjectStatus[]): ProjectStatus | undefined {
+    const review = statuses.find((item) => item.name.trim().toLocaleLowerCase('tr') === 'review')
+    if (review) return review
+    const done = statuses.find((item) => item.category === 'done')
+    if (done) {
+      const beforeDone = statuses
+        .filter((item) => item.id !== done.id && item.sortOrder < done.sortOrder)
+        .sort((a, b) => b.sortOrder - a.sortOrder)[0]
+      if (beforeDone) return beforeDone
+    }
+    return statuses.find((item) => item.category === 'active') ?? done ?? statuses[0]
+  }
+
+  private async signalCodexTerminalRun(taskId: string): Promise<void> {
+    const run = this.codexTerminalRuns.get(taskId)
+    if (!run) return
+    this.codexTerminalRuns.delete(taskId)
+    await writeFile(run.finishFilePath, `finished ${new Date().toISOString()}\n`, 'utf8').catch(() => undefined)
+    setTimeout(() => {
+      void closeTerminalWindowByTitle(run.terminalTitle)
+    }, 1_500).unref?.()
   }
 
   private async enrichTasks(tasks: TaskEntity[]): Promise<TaskEntity[]> {
@@ -224,7 +595,7 @@ export class TaskService {
   }
 
   async create(
-    payload: { actorToken?: string; projectId?: string; title?: string; status?: TaskEntity['status']; description?: string; agentId?: string | null },
+    payload: { actorToken?: string; projectId?: string; title?: string; status?: TaskEntity['status']; description?: string; agentId?: string | null; payload?: Record<string, unknown> },
     _meta?: Record<string, unknown>
   ): Promise<ServiceResponse<TaskEntity>> {
     const actor = await this.auth.requireActor(payload?.actorToken)
@@ -240,7 +611,7 @@ export class TaskService {
       title: payload.title,
       status: statusResponse.data ?? 'pending',
       agentId: agentIdResponse.data ?? undefined,
-      payload: { description: payload.description ?? '', comments: [] },
+      payload: { ...(payload.payload ?? {}), description: payload.description ?? '', comments: [] },
       result: {}
     })
     const [task] = await this.enrichTasks([row])
@@ -263,9 +634,9 @@ export class TaskService {
       return errorResponse(ErrorCodes.Validation, error instanceof Error ? error.message : 'Invalid import JSON')
     }
 
-    const statusResponse = await this.normalizeStatus(projectId, actor.user.organizationId, undefined)
+    const statusResponse = await this.normalizeStatus(projectId, actor.user.organizationId, imported.status || undefined)
     if (!statusResponse.ok) return errorResponse(statusResponse.error?.code ?? ErrorCodes.Validation, statusResponse.error?.message ?? 'Project has no statuses')
-    const firstStatus = statusResponse.data ?? ''
+    const rootStatus = statusResponse.data ?? ''
     const rootPayload = {
       ...(targetTask?.payload ?? {}),
       description: imported.description,
@@ -279,14 +650,14 @@ export class TaskService {
     const taskRow = targetTask
       ? await this.repo.update(targetTask.id, {
         title: imported.title,
-        status: firstStatus,
+        status: rootStatus,
         agentId: targetTask.agentId ?? null,
         payload: rootPayload
       })
       : await this.repo.create({
         projectId,
         title: imported.title,
-        status: firstStatus,
+        status: rootStatus,
         agentId: imported.agentId,
         payload: rootPayload,
         result: {}
@@ -297,7 +668,9 @@ export class TaskService {
     if (!targetTask) await this.taskSkillRepo.setTaskSkills(taskRow.id, imported.skillIds)
     await this.subtaskRepo.removeByTask(taskRow.id)
     for (const subtask of imported.subtasks) {
-      const created = await this.subtaskRepo.create({ taskId: taskRow.id, title: subtask.title, status: firstStatus })
+      const subtaskStatusResponse = await this.normalizeStatus(projectId, actor.user.organizationId, subtask.status || rootStatus)
+      if (!subtaskStatusResponse.ok) return errorResponse(subtaskStatusResponse.error?.code ?? ErrorCodes.Validation, subtaskStatusResponse.error?.message ?? 'Subtask status is invalid')
+      const created = await this.subtaskRepo.create({ taskId: taskRow.id, title: subtask.title, status: subtaskStatusResponse.data ?? rootStatus })
       await this.subtaskRepo.update(created.id, {
         payload: {
           description: subtask.description,
@@ -317,7 +690,100 @@ export class TaskService {
     }
 
     const [task] = await this.enrichTasks([taskRow])
+    this.emitTaskUpdated(projectId, task.id, targetTask ? 'updated' : 'created')
     return okResponse({ task, warnings: imported.warnings })
+  }
+
+  async plannerContext(payload: TaskPlannerContextRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<Record<string, unknown>>> {
+    if (!payload?.projectId || !payload.taskId) return errorResponse(ErrorCodes.Validation, 'Project and task id are required')
+    const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
+    if (!access.ok || !access.data) return access as ServiceResponse<Record<string, unknown>>
+    const project = await this.projects.get(payload.projectId)
+    if (!project || project.id !== access.data.task.projectId) return errorResponse(ErrorCodes.NotFound, 'Project not found')
+    if (project.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
+    const [task] = await this.enrichTasks([access.data.task])
+    const [tags, skills, customFields, statuses] = await Promise.all([
+      this.tags.list(access.data.actorOrgId),
+      this.skills.list(access.data.actorOrgId),
+      this.customFields.list(access.data.actorOrgId),
+      this.statuses.ensureProjectDefaults(project.id, access.data.actorOrgId)
+    ])
+
+    return okResponse({
+      project: {
+        id: project.id,
+        name: project.name,
+        description: project.description ?? '',
+        generalContext: project.generalContext ?? '',
+        generalPrompt: project.generalPrompt ?? '',
+        defaultOutput: project.defaultOutput ?? ''
+      },
+      task,
+      currentTaskJson: taskPlannerJson(task, customFields),
+      allowed: {
+        tags: tags.map((tag) => ({ id: tag.id, name: tag.name })),
+        skills: skills.map((skill) => ({ id: skill.id, name: skill.name, slug: skill.slug })),
+        customFields: customFields.map((field) => ({ id: field.id, name: field.name, type: field.type, description: field.description ?? '' })),
+        statuses: statuses.map((status) => ({ id: status.id, name: status.name, category: status.category }))
+      },
+      jsonFormat: {
+        root: ['title', 'description', 'status', 'tags', 'checklist', 'comments', 'customFields', 'subtasks'],
+        subtask: ['title', 'description', 'status', 'tags', 'checklist', 'comments', 'customFields', 'dueAt'],
+        note: 'Use tag names or ids. customFields is an array of { name, value }. checklist is an array of { title, checked }. comments is an array of { body, authorName }. omc_update_task_from_json updates the scoped source task.'
+      }
+    })
+  }
+
+  async plannerValidateJson(payload: TaskPlannerJsonRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<Record<string, unknown>>> {
+    const actor = await this.auth.requireActor(payload?.actorToken)
+    if (!payload?.projectId && !payload?.taskId) return errorResponse(ErrorCodes.Validation, 'Project or task id required')
+    const projectId = payload.taskId ? (await this.repo.get(payload.taskId))?.projectId : payload.projectId
+    if (!projectId) return errorResponse(ErrorCodes.Validation, 'Project id required')
+    const projectOrg = await this.findProjectOrg(projectId)
+    if (!projectOrg || projectOrg !== actor.user.organizationId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
+    try {
+      const normalized = await new TaskJsonImportNormalizer(actor.user.organizationId, this.agents, this.tags, this.skills, this.customFields).normalize(payload.json)
+      return okResponse({
+        valid: true,
+        normalized: {
+          title: normalized.title,
+          description: normalized.description,
+          tagIds: normalized.tagIds,
+          checklistCount: normalized.checklistItems.length,
+          commentCount: normalized.comments.length,
+          subtaskCount: normalized.subtasks.length,
+          warnings: normalized.warnings
+        }
+      })
+    } catch (error) {
+      return errorResponse(ErrorCodes.Validation, error instanceof Error ? error.message : 'Invalid task JSON')
+    }
+  }
+
+  async plannerCreateFromJson(payload: TaskPlannerJsonRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<TaskJsonImportResult>> {
+    if (!payload?.projectId) return errorResponse(ErrorCodes.Validation, 'Project id required')
+    return this.importJson({ actorToken: payload.actorToken, projectId: payload.projectId, json: payload.json })
+  }
+
+  async plannerUpdateFromJson(payload: TaskPlannerJsonRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<TaskJsonImportResult>> {
+    if (!payload?.taskId) return errorResponse(ErrorCodes.Validation, 'Task id required')
+    return this.importJson({ actorToken: payload.actorToken, taskId: payload.taskId, json: payload.json })
+  }
+
+  async markTaskReadyForReview(payload: { actorToken?: string; projectId?: string; taskId?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ taskId: string; statusId: string; statusName: string }>> {
+    if (!payload?.taskId) return errorResponse(ErrorCodes.Validation, 'Task id required')
+    const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
+    if (!access.ok || !access.data) return access as ServiceResponse<{ taskId: string; statusId: string; statusName: string }>
+    if (payload.projectId && payload.projectId !== access.data.task.projectId) return errorResponse(ErrorCodes.Validation, 'Project id does not match task')
+    const statuses = await this.statuses.ensureProjectDefaults(access.data.task.projectId, access.data.actorOrgId)
+    const target = this.reviewTargetStatus(statuses)
+    if (!target) return errorResponse(ErrorCodes.Validation, 'Project has no statuses')
+    const updated = await this.repo.update(access.data.task.id, { status: target.id })
+    if (!updated) return errorResponse(ErrorCodes.NotFound, 'Task not found')
+    await this.subtaskRepo.updateStatusesByTask(access.data.task.id, target.id)
+    this.emitTaskUpdated(access.data.task.projectId, access.data.task.id, 'ready_for_review')
+    await this.signalCodexTerminalRun(access.data.task.id)
+    return okResponse({ taskId: access.data.task.id, statusId: target.id, statusName: target.name })
   }
 
   async exportSnapshot(payload: ExportTaskSnapshotRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ exportFolderPath: string; writtenFiles: string[]; skippedFiles: string[] }>> {
@@ -369,6 +835,327 @@ export class TaskService {
       }
     }
     return okResponse({ exportFolderPath, writtenFiles, skippedFiles })
+  }
+
+  async runCodex(payload: RunTaskCodexRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ runFolderPath: string; workspacePath: string; exportWorkspacePath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; command: string }>> {
+    if (!payload?.taskId || !payload.projectId) return errorResponse(ErrorCodes.Validation, 'Task and project id are required')
+    if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex gateway is required')
+    if (!payload.model?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex model is required')
+    const zipBuffer = zipBufferFromPayload(payload.zipBytes)
+    if (!zipBuffer?.length) return errorResponse(ErrorCodes.Validation, 'Task ZIP bytes are required')
+    if (process.platform !== 'darwin') return errorResponse(ErrorCodes.Validation, 'External Codex run currently requires macOS Terminal.app.')
+
+    const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
+    if (!access.ok || !access.data) return access as ServiceResponse<{ runFolderPath: string; workspacePath: string; exportWorkspacePath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; command: string }>
+    const project = await this.projects.get(payload.projectId)
+    if (!project || project.id !== access.data.task.projectId) return errorResponse(ErrorCodes.NotFound, 'Project not found')
+    if (project.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
+    const gateway = await this.gateways.get(payload.gatewayId)
+    if (!gateway || gateway.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Codex gateway is invalid')
+    const runtimeWorkspaceId = projectCodexRuntimeWorkspaceId(project)
+    if (!runtimeWorkspaceId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is required')
+    const runtimeWorkspace = await this.workspaces.get(runtimeWorkspaceId)
+    if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
+
+    const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-codex-run-'))
+    let preserveRunFolderOnError = false
+    try {
+      const exportWorkspacePath = join(runFolderPath, 'workspace')
+      const runtimeWorkspacePath = runtimeWorkspace.rootPath
+      await mkdir(exportWorkspacePath, { recursive: true })
+      await mkdir(runtimeWorkspacePath, { recursive: true })
+      const zipName = sanitizeFileName(payload.zipName, 'task.zip')
+      await writeFile(join(runFolderPath, zipName.endsWith('.zip') ? zipName : `${zipName}.zip`), zipBuffer)
+
+      const files = unzipSync(new Uint8Array(zipBuffer))
+      const workspaceRoot = resolve(exportWorkspacePath)
+      for (const [relativePath, bytes] of Object.entries(files)) {
+        const targetPath = resolve(exportWorkspacePath, relativePath)
+        if (targetPath !== workspaceRoot && !targetPath.startsWith(`${workspaceRoot}${sep}`)) {
+          throw new Error(`Unsafe ZIP entry: ${relativePath}`)
+        }
+        if (relativePath.endsWith('/')) {
+          await mkdir(targetPath, { recursive: true })
+          continue
+        }
+        await mkdir(dirname(targetPath), { recursive: true })
+        await writeFile(targetPath, Buffer.from(bytes))
+      }
+
+      const { codexPath } = codexCliConfig(gateway.template)
+      const model = payload.model.trim()
+      const prompt = initialCodexPrompt(exportWorkspacePath, runtimeWorkspacePath, project.id, access.data.task.id)
+      const wrapperPath = join(runFolderPath, 'run-codex.sh')
+      const finishFilePath = join(runFolderPath, 'codex-finished.signal')
+      const runTerminalTitle = terminalTitle(`OMC Codex ${access.data.task.id}`)
+      const codexCommand = [
+        shellQuote(codexPath),
+        '--cd', shellQuote(runtimeWorkspacePath),
+        '--add-dir', shellQuote(exportWorkspacePath),
+        '--model', shellQuote(model),
+        '--sandbox', 'workspace-write',
+        '--ask-for-approval', 'never',
+        '-c', shellQuote(codexTrustedProjectConfig(runtimeWorkspacePath)),
+        '-c', shellQuote(codexTrustedProjectConfig(exportWorkspacePath)),
+        shellQuote(prompt)
+      ].join(' ')
+      const loginShellCommand = [
+        'set -e',
+        `cd ${shellQuote(runtimeWorkspacePath)}`,
+        'echo "Open Mission Control Codex run"',
+        `echo "Runtime workspace: ${runtimeWorkspacePath.replace(/"/g, '\\"')}"`,
+        `echo "Export files: ${exportWorkspacePath.replace(/"/g, '\\"')}"`,
+        'echo "Export directory files:"',
+        `ls -la ${shellQuote(exportWorkspacePath)}`,
+        codexCommand
+      ].join('\n')
+      const wrapper = [
+        '#!/bin/zsh',
+        'set -e',
+        `RUN_DIR=${shellQuote(runFolderPath)}`,
+        `FINISH_FILE=${shellQuote(finishFilePath)}`,
+        `TERMINAL_TITLE=${shellQuote(runTerminalTitle)}`,
+        'cleanup() { rm -rf "$RUN_DIR"; }',
+        'trap cleanup EXIT',
+        'printf \'\\033]0;%s\\007\' "$TERMINAL_TITLE"',
+        `/bin/zsh -lic ${shellQuote(`${loginShellCommand}\n`)}` + ' &',
+        'CODEX_PID=$!',
+        '(',
+        '  while kill -0 "$CODEX_PID" 2>/dev/null; do',
+        '    if [ -f "$FINISH_FILE" ]; then',
+        '      kill "$CODEX_PID" 2>/dev/null || true',
+        '      sleep 1',
+        '      kill -KILL "$CODEX_PID" 2>/dev/null || true',
+        '      break',
+        '    fi',
+        '    sleep 1',
+        '  done',
+        ') &',
+        'wait "$CODEX_PID"'
+      ].join('\n')
+      await writeFile(wrapperPath, wrapper, 'utf8')
+      await chmod(wrapperPath, 0o700)
+      const terminalCommand = `/bin/zsh ${shellQuote(wrapperPath)}`
+      await writeFile(join(runFolderPath, 'run-meta.json'), JSON.stringify({
+        taskId: payload.taskId,
+        projectId: payload.projectId,
+        gatewayId: gateway.id,
+        model,
+        codexPath,
+        runFolderPath,
+        workspacePath: runtimeWorkspacePath,
+        runtimeWorkspaceId,
+        runtimeWorkspacePath,
+        exportWorkspacePath,
+        zipName: payload.zipName,
+        finishFilePath,
+        terminalTitle: runTerminalTitle,
+        command: codexCommand,
+        terminalCommand
+      }, null, 2), 'utf8')
+
+      preserveRunFolderOnError = true
+      this.codexTerminalRuns.set(access.data.task.id, { finishFilePath, terminalTitle: runTerminalTitle })
+      await execFileAsync('osascript', [
+        '-e',
+        'tell application "Terminal"',
+        '-e',
+        'activate',
+        '-e',
+        `do script ${appleScriptString(terminalCommand)}`,
+        '-e',
+        'end tell'
+      ], { timeout: 10_000 })
+
+      return okResponse({
+        runFolderPath,
+        workspacePath: runtimeWorkspacePath,
+        runtimeWorkspacePath,
+        exportWorkspacePath,
+        model,
+        gatewayId: gateway.id,
+        command: codexCommand
+      })
+    } catch (error) {
+      if (!preserveRunFolderOnError) await rm(runFolderPath, { recursive: true, force: true })
+      return errorResponse(ErrorCodes.Internal, error instanceof Error ? error.message : 'Unable to launch Codex terminal')
+    }
+  }
+
+  private async startPlannerBridge(context: PlannerBridgeContext, bridgeToken: string): Promise<{ url: string; close: () => Promise<void> }> {
+    const server = createServer(async (request, response) => {
+      try {
+        if (request.method !== 'POST' || request.url !== '/tool') {
+          sendJson(response, 404, { ok: false, error: { message: 'Not found' } })
+          return
+        }
+        const authHeader = request.headers.authorization ?? ''
+        if (authHeader !== `Bearer ${bridgeToken}`) {
+          sendJson(response, 401, { ok: false, error: { message: 'Unauthorized' } })
+          return
+        }
+        const body = await readRequestBody(request) as Record<string, unknown>
+        const tool = typeof body.tool === 'string' ? body.tool : ''
+        const args = body.arguments && typeof body.arguments === 'object' && !Array.isArray(body.arguments)
+          ? body.arguments as Record<string, unknown>
+          : {}
+        const json = Object.prototype.hasOwnProperty.call(args, 'json') ? args.json : args
+        let result: ServiceResponse<unknown>
+        if (tool === 'omc_get_task_context') {
+          result = await this.plannerContext({ actorToken: context.actorToken, projectId: context.projectId, taskId: context.taskId })
+        } else if (tool === 'omc_validate_task_json') {
+          result = await this.plannerValidateJson({ actorToken: context.actorToken, projectId: context.projectId, taskId: context.taskId, json })
+        } else if (tool === 'omc_create_task_from_json') {
+          result = await this.plannerCreateFromJson({ actorToken: context.actorToken, projectId: context.projectId, taskId: context.taskId, json })
+        } else if (tool === 'omc_update_task_from_json') {
+          result = await this.plannerUpdateFromJson({ actorToken: context.actorToken, projectId: context.projectId, taskId: context.taskId, json })
+        } else {
+          sendJson(response, 400, { ok: false, error: { message: `Unknown OMC planner tool: ${tool}` } })
+          return
+        }
+        sendJson(response, result.ok ? 200 : 400, result)
+      } catch (error) {
+        sendJson(response, 500, { ok: false, error: { message: error instanceof Error ? error.message : 'Planner bridge failed' } })
+      }
+    })
+    await new Promise<void>((resolveListen, rejectListen) => {
+      server.once('error', rejectListen)
+      server.listen(0, '127.0.0.1', () => resolveListen())
+    })
+    const address = server.address()
+    if (!address || typeof address === 'string') {
+      await new Promise<void>((resolveClose) => server.close(() => resolveClose()))
+      throw new Error('Unable to start planner bridge')
+    }
+    return {
+      url: `http://127.0.0.1:${address.port}`,
+      close: () => new Promise((resolveClose) => server.close(() => resolveClose()))
+    }
+  }
+
+  async planWithCodex(payload: PlanTaskCodexRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<PlannerLaunchResult>> {
+    if (!payload?.taskId || !payload.projectId) return errorResponse(ErrorCodes.Validation, 'Task and project id are required')
+    if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex gateway is required')
+    if (!payload.model?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex model is required')
+    if (process.platform !== 'darwin') return errorResponse(ErrorCodes.Validation, 'Codex task planning currently requires macOS Terminal.app.')
+
+    const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
+    if (!access.ok || !access.data) {
+      return errorResponse(access.error?.code ?? ErrorCodes.Forbidden, access.error?.message ?? 'Access denied', access.error?.details)
+    }
+    const project = await this.projects.get(payload.projectId)
+    if (!project || project.id !== access.data.task.projectId) return errorResponse(ErrorCodes.NotFound, 'Project not found')
+    if (project.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
+    const gateway = await this.gateways.get(payload.gatewayId)
+    if (!gateway || gateway.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Codex gateway is invalid')
+    const runtimeWorkspaceId = projectCodexRuntimeWorkspaceId(project)
+    if (!runtimeWorkspaceId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is required')
+    const runtimeWorkspace = await this.workspaces.get(runtimeWorkspaceId)
+    if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
+
+    const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-codex-planner-'))
+    let bridge: { url: string; close: () => Promise<void> } | null = null
+    let preserveRunFolderOnError = false
+    try {
+      const runtimeWorkspacePath = runtimeWorkspace.rootPath
+      await mkdir(runtimeWorkspacePath, { recursive: true })
+      const bridgeToken = randomUUID()
+      bridge = await this.startPlannerBridge({
+        actorToken: payload.actorToken,
+        projectId: project.id,
+        taskId: access.data.task.id
+      }, bridgeToken)
+
+      const mcpScriptPath = join(runFolderPath, 'omc-task-planner-mcp.mjs')
+      const contextPath = join(runFolderPath, 'planner-context.json')
+      await writeFile(mcpScriptPath, omcTaskPlannerMcpScript(), 'utf8')
+      await chmod(mcpScriptPath, 0o700)
+      await writeFile(contextPath, JSON.stringify({
+        projectId: project.id,
+        taskId: access.data.task.id,
+        gatewayId: gateway.id,
+        model: payload.model,
+        runtimeWorkspacePath,
+        bridgeUrl: bridge.url
+      }, null, 2), 'utf8')
+
+      const { codexPath } = codexCliConfig(gateway.template)
+      const model = payload.model.trim()
+      const prompt = initialPlannerPrompt(project.id, access.data.task.id)
+      const codexCommand = [
+        shellQuote(codexPath),
+        '--cd', shellQuote(runtimeWorkspacePath),
+        '--model', shellQuote(model),
+        '--sandbox', 'workspace-write',
+        '--ask-for-approval', 'on-request',
+        '-c', shellQuote(codexTrustedProjectConfig(runtimeWorkspacePath)),
+        '-c', shellQuote(`mcp_servers.omc_task_planner.command=${JSON.stringify('node')}`),
+        '-c', shellQuote(`mcp_servers.omc_task_planner.args=${JSON.stringify([mcpScriptPath])}`),
+        '-c', shellQuote(`mcp_servers.omc_task_planner.env.OMC_MCP_BRIDGE_URL=${JSON.stringify(bridge.url)}`),
+        '-c', shellQuote(`mcp_servers.omc_task_planner.env.OMC_MCP_BRIDGE_TOKEN=${JSON.stringify(bridgeToken)}`),
+        '-c', shellQuote(`mcp_servers.omc_task_planner.env.OMC_MCP_CONTEXT_PATH=${JSON.stringify(contextPath)}`),
+        shellQuote(prompt)
+      ].join(' ')
+      const wrapperPath = join(runFolderPath, 'run-codex-planner.sh')
+      const wrapper = [
+        '#!/bin/zsh',
+        'set -e',
+        `cd ${shellQuote(runtimeWorkspacePath)}`,
+        'echo "Open Mission Control Codex task planner"',
+        `echo "Project: ${project.name.replace(/"/g, '\\"')}"`,
+        `echo "Source task: ${access.data.task.title.replace(/"/g, '\\"')}"`,
+        'echo "MCP bridge is scoped to this project and task."',
+        codexCommand
+      ].join('\n')
+      await writeFile(wrapperPath, wrapper, 'utf8')
+      await chmod(wrapperPath, 0o700)
+      const terminalCommand = `/bin/zsh ${shellQuote(wrapperPath)}`
+      await writeFile(join(runFolderPath, 'run-meta.json'), JSON.stringify({
+        taskId: access.data.task.id,
+        projectId: project.id,
+        gatewayId: gateway.id,
+        model,
+        codexPath,
+        runFolderPath,
+        runtimeWorkspaceId,
+        runtimeWorkspacePath,
+        mcpScriptPath,
+        bridgeUrl: bridge.url,
+        command: codexCommand,
+        terminalCommand
+      }, null, 2), 'utf8')
+
+      preserveRunFolderOnError = true
+      await execFileAsync('osascript', [
+        '-e',
+        'tell application "Terminal"',
+        '-e',
+        'activate',
+        '-e',
+        `do script ${appleScriptString(terminalCommand)}`,
+        '-e',
+        'end tell'
+      ], { timeout: 10_000 })
+
+      const cleanupTimer = setTimeout(() => {
+        void bridge?.close()
+        void rm(runFolderPath, { recursive: true, force: true })
+      }, 8 * 60 * 60 * 1000)
+      cleanupTimer.unref?.()
+
+      return okResponse({
+        runFolderPath,
+        runtimeWorkspacePath,
+        model,
+        gatewayId: gateway.id,
+        command: codexCommand,
+        bridgeUrl: bridge.url
+      })
+    } catch (error) {
+      await bridge?.close()
+      if (!preserveRunFolderOnError) await rm(runFolderPath, { recursive: true, force: true })
+      return errorResponse(ErrorCodes.Internal, error instanceof Error ? error.message : 'Unable to launch Codex task planner')
+    }
   }
 
   async update(

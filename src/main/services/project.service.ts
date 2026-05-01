@@ -1,11 +1,12 @@
 import { AppError } from '../../shared/errors/index.js'
 import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
-import { Project, TaskAttachment } from '../../shared/types/entities.js'
+import { Project, ProjectCodexSettings, TaskAttachment } from '../../shared/types/entities.js'
 import type { ExportProjectWorkspaceRequest, MoveProjectWorkspaceRequest, UpdateProjectRequest } from '../../shared/contracts/ipc.js'
 import { AuthService } from './auth.service.js'
 import { ProjectRepository } from '../../db/repositories/project-repo.js'
 import { WorkspaceRepository } from '../../db/repositories/workspace-repo.js'
+import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
 import { TaskRepository, TaskSubtaskRepository } from '../../db/repositories/task-repo.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { copyFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
@@ -17,6 +18,7 @@ export class ProjectService {
     private readonly auth: AuthService,
     private readonly repo: ProjectRepository,
     private readonly workspaces: WorkspaceRepository,
+    private readonly gateways: GatewayRepository,
     private readonly tasks: TaskRepository,
     private readonly subtasks: TaskSubtaskRepository
   ) {}
@@ -65,9 +67,36 @@ export class ProjectService {
       if (!workspaceId.ok) return errorResponse(workspaceId.error?.code ?? ErrorCodes.Validation, workspaceId.error?.message ?? 'Workspace is invalid', workspaceId.error?.details)
       payload.workspaceId = workspaceId.data ?? null
     }
+    if ('codex' in payload) {
+      const codex = await this.normalizeCodexSettings(actor.user.organizationId, payload.codex)
+      if (!codex.ok) return errorResponse(codex.error?.code ?? ErrorCodes.Validation, codex.error?.message ?? 'Codex settings are invalid', codex.error?.details)
+      payload.metrics = {
+        ...(current.metrics ?? {}),
+        ...(payload.metrics ?? {}),
+        codex: codex.data ?? {}
+      }
+      delete payload.codex
+    }
     const updated = await this.repo.update(payload.id, payload)
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Project not found')
     return okResponse(updated)
+  }
+
+  private async normalizeCodexSettings(orgId: string, codex: ProjectCodexSettings | undefined): Promise<ServiceResponse<ProjectCodexSettings>> {
+    if (!codex) return okResponse({})
+    const gatewayId = typeof codex.gatewayId === 'string' && codex.gatewayId.trim() ? codex.gatewayId.trim() : null
+    if (gatewayId) {
+      const gateway = await this.gateways.get(gatewayId)
+      if (!gateway || gateway.organizationId !== orgId) return errorResponse(ErrorCodes.Validation, 'Codex gateway is invalid')
+    }
+    const runtimeWorkspaceId = await this.normalizeWorkspaceId(orgId, codex.runtimeWorkspaceId)
+    if (!runtimeWorkspaceId.ok) return runtimeWorkspaceId as ServiceResponse<ProjectCodexSettings>
+    const defaultModel = typeof codex.defaultModel === 'string' && codex.defaultModel.trim() ? codex.defaultModel.trim() : null
+    return okResponse({
+      gatewayId,
+      runtimeWorkspaceId: runtimeWorkspaceId.data ?? null,
+      defaultModel
+    })
   }
 
   async remove(payload: { actorToken?: string; id?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ ok: true }>> {

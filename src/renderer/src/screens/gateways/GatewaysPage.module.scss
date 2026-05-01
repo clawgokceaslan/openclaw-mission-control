@@ -99,8 +99,8 @@
 .tableHead,
 .tableRow {
   display: grid;
-  grid-template-columns: 1.05fr 1.8fr 0.7fr 0.95fr 0.7fr 0.95fr 3fr;
-  min-width: 1280px;
+  grid-template-columns: 1.1fr 2fr 0.75fr 0.9fr 1.2fr;
+  min-width: 920px;
 }
 
 .tableHead {
@@ -324,7 +324,7 @@
 
 .modal,
 .confirm {
-  width: min(680px, 100%);
+  width: min(520px, 100%);
   border: 1px solid var(--omc-input-border);
   border-radius: 18px;
   background: var(--omc-surface);
@@ -349,6 +349,20 @@
     color: var(--omc-text-strong);
   }
 
+  header > button {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--omc-input-border);
+    border-radius: 10px;
+    background: var(--omc-surface);
+    color: var(--omc-text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    line-height: 1;
+  }
+
   label {
     display: grid;
     gap: 7px;
@@ -357,12 +371,35 @@
     font-weight: 900;
   }
 
-  input {
+  input,
+  select {
+    box-sizing: border-box;
+    width: 100%;
     min-height: 42px;
     border: 1px solid var(--omc-border);
     border-radius: 11px;
     padding: 0 12px;
+    background: var(--omc-surface);
     color: var(--omc-text-strong);
+  }
+
+  footer {
+    flex-wrap: wrap;
+
+    button {
+      min-height: 38px;
+      border: 1px solid var(--omc-input-border);
+      border-radius: 10px;
+      background: var(--omc-surface);
+      color: var(--omc-text-strong);
+      padding: 0 14px;
+      font-weight: 850;
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+    }
   }
 }
 
@@ -541,4 +578,39 @@
 .failed {
   background: var(--omc-danger-bg) !important;
   color: var(--omc-danger) !important;
+}
+
+@media (width <= 760px) {
+  .header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .headerActions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .backdrop {
+    padding: 12px;
+  }
+
+  .modal,
+  .confirm {
+    width: 100%;
+    border-radius: 14px;
+  }
+
+  .modal {
+    padding: 16px;
+
+    header,
+    footer {
+      align-items: stretch;
+    }
+
+    footer button {
+      flex: 1 1 140px;
+    }
+  }
 }

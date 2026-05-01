@@ -27,7 +27,9 @@ export const IPC_CHANNELS = {
   },
   appSettings: {
     getActiveGateway: 'app-settings:get-active-gateway',
-    setActiveGateway: 'app-settings:set-active-gateway'
+    setActiveGateway: 'app-settings:set-active-gateway',
+    getMcpSetup: 'app-settings:get-mcp-setup',
+    installMcpClient: 'app-settings:install-mcp-client'
   },
   statuses: {
     list: 'statuses:list',
@@ -55,6 +57,12 @@ export const IPC_CHANNELS = {
     commentRemove: 'tasks:comment:remove',
     skillsSet: 'tasks:skills:set',
     exportSnapshot: 'tasks:export-snapshot',
+    runCodex: 'tasks:run-codex',
+    planWithCodex: 'tasks:plan-with-codex',
+    plannerContext: 'tasks:planner-context',
+    plannerValidateJson: 'tasks:planner-validate-json',
+    plannerCreateFromJson: 'tasks:planner-create-from-json',
+    plannerUpdateFromJson: 'tasks:planner-update-from-json',
     importJson: 'tasks:import-json'
   },
   taskTemplates: {
@@ -72,9 +80,7 @@ export const IPC_CHANNELS = {
     get: 'agents:get',
     create: 'agents:create',
     update: 'agents:update',
-    remove: 'agents:remove',
-    syncOpenClaw: 'agents:sync-openclaw',
-    syncAllOpenClawUnsynced: 'agents:sync-all-openclaw-unsynced'
+    remove: 'agents:remove'
   },
   gateways: {
     list: 'gateways:list',
@@ -86,24 +92,8 @@ export const IPC_CHANNELS = {
     sessions: 'gateways:sessions',
     commands: 'gateways:commands',
     commandsHistory: 'gateways:commands-history',
-    templates: 'gateways:templates',
-    sendCommand: 'gateways:send-command',
-    connect: 'gateways:connect',
-    disconnect: 'gateways:disconnect',
-    pairDevice: 'gateways:pair-device',
-    resetPairing: 'gateways:reset-pairing',
-    testConnection: 'gateways:test-connection',
-    testMessage: 'gateways:test-message',
-    rpcMethods: 'gateways:rpc-methods',
-    rpcCall: 'gateways:rpc-call',
-    chatSend: 'gateways:chat-send',
-    chatHistory: 'gateways:chat-history',
-    sessionsPatch: 'gateways:sessions-patch',
-    sessionsDelete: 'gateways:sessions-delete',
-    openClawBoards: 'gateways:openclaw-boards',
-    openClawAgents: 'gateways:openclaw-agents',
-    openClawSkills: 'gateways:openclaw-skills',
-    openClawTags: 'gateways:openclaw-tags'
+    codexModels: 'gateways:codex-models',
+    templates: 'gateways:templates'
   },
   webhooks: {
     list: 'webhooks:list',
@@ -237,6 +227,27 @@ export interface ImportTaskJsonRequest {
   json?: unknown
 }
 
+export interface PlanTaskCodexRequest {
+  actorToken?: string
+  projectId?: string
+  taskId?: string
+  gatewayId?: string
+  model?: string
+}
+
+export interface TaskPlannerContextRequest {
+  actorToken?: string
+  projectId?: string
+  taskId?: string
+}
+
+export interface TaskPlannerJsonRequest {
+  actorToken?: string
+  projectId?: string
+  taskId?: string
+  json?: unknown
+}
+
 export interface ImportTaskTemplateJsonRequest {
   actorToken?: string
   id?: string
@@ -273,17 +284,6 @@ export interface RemoveSkillRequest {
   id?: string
 }
 
-export interface SyncOpenClawAgentRequest {
-  actorToken?: string
-  id?: string
-  gatewayId?: string
-}
-
-export interface SyncAllOpenClawAgentsRequest {
-  actorToken?: string
-  gatewayId?: string
-}
-
 export interface UpdateProjectRequest {
   actorToken?: string
   id?: string
@@ -294,6 +294,12 @@ export interface UpdateProjectRequest {
   generalContext?: string
   generalPrompt?: string
   defaultOutput?: string
+  metrics?: Record<string, unknown>
+  codex?: {
+    gatewayId?: string | null
+    runtimeWorkspaceId?: string | null
+    defaultModel?: string | null
+  }
 }
 
 export interface MoveProjectWorkspaceRequest {
@@ -369,6 +375,16 @@ export interface ExportTaskSnapshotRequest {
   attachments?: ProjectExportAttachmentInput[]
 }
 
+export interface RunTaskCodexRequest {
+  actorToken?: string
+  taskId?: string
+  projectId?: string
+  zipName?: string
+  zipBytes?: ArrayBuffer | Uint8Array | number[]
+  gatewayId?: string
+  model?: string
+}
+
 export interface UpsertGatewayRequest {
   actorToken?: string
   id?: string
@@ -381,6 +397,13 @@ export interface UpsertGatewayRequest {
   allowSelfSignedTls?: boolean
   disableDevicePairing?: boolean
   autoConnect?: boolean
+  codexPath?: string
+  provider?: 'codex_cli'
+}
+
+export interface InstallMcpClientRequest {
+  actorToken?: string
+  client?: 'codex' | 'claude_desktop'
 }
 
 export interface WorkspaceRequest {
@@ -411,13 +434,13 @@ export const SERVICE_MAP = {
   auth: ['login', 'logout', 'me', 'inviteValidate', 'updateProfile'],
   projects: ['list', 'get', 'create', 'update', 'moveWorkspace', 'exportWorkspace', 'remove'],
   workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
-  appSettings: ['getActiveGateway', 'setActiveGateway'],
+  appSettings: ['getActiveGateway', 'setActiveGateway', 'getMcpSetup', 'installMcpClient'],
   statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
-  tasks: ['list', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'importJson'],
+  tasks: ['list', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runCodex', 'planWithCodex', 'plannerContext', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
   taskTemplates: ['list', 'create', 'update', 'remove', 'importJson'],
   attachments: ['upload'],
-  agents: ['list', 'get', 'create', 'update', 'remove', 'syncOpenClaw', 'syncAllOpenClawUnsynced'],
-  gateways: ['list', 'get', 'create', 'update', 'remove', 'status', 'sessions', 'commands', 'commandsHistory', 'templates', 'sendCommand', 'connect', 'disconnect', 'pairDevice', 'resetPairing', 'testConnection', 'testMessage', 'rpcMethods', 'rpcCall', 'chatSend', 'chatHistory', 'sessionsPatch', 'sessionsDelete', 'openClawBoards', 'openClawAgents', 'openClawSkills', 'openClawTags'],
+  agents: ['list', 'get', 'create', 'update', 'remove'],
+  gateways: ['list', 'get', 'create', 'update', 'remove', 'status', 'sessions', 'commands', 'commandsHistory', 'codexModels', 'templates'],
   webhooks: ['list', 'create', 'update', 'remove'],
   skills: ['list', 'listPage', 'create', 'update', 'remove', 'listPacks'],
   organization: ['me', 'listMembers', 'createInvite'],
@@ -570,6 +593,20 @@ export const SERVICE_ROUTING: {
       action: 'setActiveGateway',
       method: 'setActiveGateway',
       channel: IPC_CHANNELS.appSettings.setActiveGateway,
+      requiresAuth: true
+    },
+    getMcpSetup: {
+      domain: 'appSettings',
+      action: 'getMcpSetup',
+      method: 'getMcpSetup',
+      channel: IPC_CHANNELS.appSettings.getMcpSetup,
+      requiresAuth: true
+    },
+    installMcpClient: {
+      domain: 'appSettings',
+      action: 'installMcpClient',
+      method: 'installMcpClient',
+      channel: IPC_CHANNELS.appSettings.installMcpClient,
       requiresAuth: true
     }
   },
@@ -737,6 +774,48 @@ export const SERVICE_ROUTING: {
       channel: IPC_CHANNELS.tasks.exportSnapshot,
       requiresAuth: true
     },
+    runCodex: {
+      domain: 'tasks',
+      action: 'runCodex',
+      method: 'runCodex',
+      channel: IPC_CHANNELS.tasks.runCodex,
+      requiresAuth: true
+    },
+    planWithCodex: {
+      domain: 'tasks',
+      action: 'planWithCodex',
+      method: 'planWithCodex',
+      channel: IPC_CHANNELS.tasks.planWithCodex,
+      requiresAuth: true
+    },
+    plannerContext: {
+      domain: 'tasks',
+      action: 'plannerContext',
+      method: 'plannerContext',
+      channel: IPC_CHANNELS.tasks.plannerContext,
+      requiresAuth: true
+    },
+    plannerValidateJson: {
+      domain: 'tasks',
+      action: 'plannerValidateJson',
+      method: 'plannerValidateJson',
+      channel: IPC_CHANNELS.tasks.plannerValidateJson,
+      requiresAuth: true
+    },
+    plannerCreateFromJson: {
+      domain: 'tasks',
+      action: 'plannerCreateFromJson',
+      method: 'plannerCreateFromJson',
+      channel: IPC_CHANNELS.tasks.plannerCreateFromJson,
+      requiresAuth: true
+    },
+    plannerUpdateFromJson: {
+      domain: 'tasks',
+      action: 'plannerUpdateFromJson',
+      method: 'plannerUpdateFromJson',
+      channel: IPC_CHANNELS.tasks.plannerUpdateFromJson,
+      requiresAuth: true
+    },
     importJson: {
       domain: 'tasks',
       action: 'importJson',
@@ -826,20 +905,6 @@ export const SERVICE_ROUTING: {
       method: 'remove',
       channel: IPC_CHANNELS.agents.remove,
       requiresAuth: true
-    },
-    syncOpenClaw: {
-      domain: 'agents',
-      action: 'syncOpenClaw',
-      method: 'syncOpenClaw',
-      channel: IPC_CHANNELS.agents.syncOpenClaw,
-      requiresAuth: true
-    },
-    syncAllOpenClawUnsynced: {
-      domain: 'agents',
-      action: 'syncAllOpenClawUnsynced',
-      method: 'syncAllOpenClawUnsynced',
-      channel: IPC_CHANNELS.agents.syncAllOpenClawUnsynced,
-      requiresAuth: true
     }
   },
   gateways: {
@@ -906,130 +971,18 @@ export const SERVICE_ROUTING: {
       channel: IPC_CHANNELS.gateways.commandsHistory,
       requiresAuth: true
     },
+    codexModels: {
+      domain: 'gateways',
+      action: 'codexModels',
+      method: 'codexModels',
+      channel: IPC_CHANNELS.gateways.codexModels,
+      requiresAuth: true
+    },
     templates: {
       domain: 'gateways',
       action: 'templates',
       method: 'templates',
       channel: IPC_CHANNELS.gateways.templates,
-      requiresAuth: true
-    },
-    sendCommand: {
-      domain: 'gateways',
-      action: 'sendCommand',
-      method: 'sendCommand',
-      channel: IPC_CHANNELS.gateways.sendCommand,
-      requiresAuth: true
-    },
-    connect: {
-      domain: 'gateways',
-      action: 'connect',
-      method: 'connect',
-      channel: IPC_CHANNELS.gateways.connect,
-      requiresAuth: true
-    },
-    disconnect: {
-      domain: 'gateways',
-      action: 'disconnect',
-      method: 'disconnect',
-      channel: IPC_CHANNELS.gateways.disconnect,
-      requiresAuth: true
-    },
-    pairDevice: {
-      domain: 'gateways',
-      action: 'pairDevice',
-      method: 'pairDevice',
-      channel: IPC_CHANNELS.gateways.pairDevice,
-      requiresAuth: true
-    },
-    resetPairing: {
-      domain: 'gateways',
-      action: 'resetPairing',
-      method: 'resetPairing',
-      channel: IPC_CHANNELS.gateways.resetPairing,
-      requiresAuth: true
-    },
-    testConnection: {
-      domain: 'gateways',
-      action: 'testConnection',
-      method: 'testConnection',
-      channel: IPC_CHANNELS.gateways.testConnection,
-      requiresAuth: true
-    },
-    testMessage: {
-      domain: 'gateways',
-      action: 'testMessage',
-      method: 'testMessage',
-      channel: IPC_CHANNELS.gateways.testMessage,
-      requiresAuth: true
-    },
-    rpcMethods: {
-      domain: 'gateways',
-      action: 'rpcMethods',
-      method: 'rpcMethods',
-      channel: IPC_CHANNELS.gateways.rpcMethods,
-      requiresAuth: true
-    },
-    rpcCall: {
-      domain: 'gateways',
-      action: 'rpcCall',
-      method: 'rpcCall',
-      channel: IPC_CHANNELS.gateways.rpcCall,
-      requiresAuth: true
-    },
-    chatSend: {
-      domain: 'gateways',
-      action: 'chatSend',
-      method: 'chatSend',
-      channel: IPC_CHANNELS.gateways.chatSend,
-      requiresAuth: true
-    },
-    chatHistory: {
-      domain: 'gateways',
-      action: 'chatHistory',
-      method: 'chatHistory',
-      channel: IPC_CHANNELS.gateways.chatHistory,
-      requiresAuth: true
-    },
-    sessionsPatch: {
-      domain: 'gateways',
-      action: 'sessionsPatch',
-      method: 'sessionsPatch',
-      channel: IPC_CHANNELS.gateways.sessionsPatch,
-      requiresAuth: true
-    },
-    sessionsDelete: {
-      domain: 'gateways',
-      action: 'sessionsDelete',
-      method: 'sessionsDelete',
-      channel: IPC_CHANNELS.gateways.sessionsDelete,
-      requiresAuth: true
-    },
-    openClawBoards: {
-      domain: 'gateways',
-      action: 'openClawBoards',
-      method: 'openClawBoards',
-      channel: IPC_CHANNELS.gateways.openClawBoards,
-      requiresAuth: true
-    },
-    openClawAgents: {
-      domain: 'gateways',
-      action: 'openClawAgents',
-      method: 'openClawAgents',
-      channel: IPC_CHANNELS.gateways.openClawAgents,
-      requiresAuth: true
-    },
-    openClawSkills: {
-      domain: 'gateways',
-      action: 'openClawSkills',
-      method: 'openClawSkills',
-      channel: IPC_CHANNELS.gateways.openClawSkills,
-      requiresAuth: true
-    },
-    openClawTags: {
-      domain: 'gateways',
-      action: 'openClawTags',
-      method: 'openClawTags',
-      channel: IPC_CHANNELS.gateways.openClawTags,
       requiresAuth: true
     }
   },

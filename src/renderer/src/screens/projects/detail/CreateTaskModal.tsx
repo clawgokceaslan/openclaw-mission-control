@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { LuCalendarPlus, LuFlag, LuFolder, LuTag, LuUpload, LuUserPlus, LuX } from 'react-icons/lu'
+import { LuCalendarPlus, LuFlag, LuFolder, LuListChecks, LuTag, LuUpload, LuUserPlus, LuX } from 'react-icons/lu'
 import type { Agent, Project, Tag, TaskEntity, TaskTemplate } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { MarkdownDescriptionEditor } from '@renderer/components/markdown/MarkdownDescriptionEditor'
@@ -118,10 +118,22 @@ export function CreateTaskModal({ open, project, projects = [], selectedProjectI
               />
             </div>
           ) : null}
-          <div className={styles.createTaskTags}>
-            <AppSelect mode="single" variant="borderless" options={templateOptions} value={selectedTemplate} onChange={applyTemplate} isClearable placeholder="Start from template..." />
+          <div className={styles.createTaskTemplatePicker}>
+            <div className={styles.createTaskFieldLabel}>
+              <LuListChecks size={15} />
+              <span>Template</span>
+            </div>
+            <AppSelect
+              mode="single"
+              options={templateOptions}
+              value={selectedTemplate}
+              onChange={applyTemplate}
+              isClearable
+              placeholder={templateOptions.length ? 'Start from template...' : 'No templates yet'}
+              isDisabled={!templateOptions.length}
+            />
           </div>
-          <input className={styles.createTaskTitle} autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Task Name or type '/' for commands" />
+          <input className={styles.createTaskTitle} autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Task name" />
           <MarkdownDescriptionEditor
             className={styles.createTaskDescription}
             value={description}
@@ -129,11 +141,14 @@ export function CreateTaskModal({ open, project, projects = [], selectedProjectI
             placeholder="Add description, notes, checklists or code..."
             minHeight={116}
           />
-          <div className={styles.createTaskChips}>
-            <div className={styles.createTaskSelectChip}>
+          <div className={styles.createTaskMetaGrid}>
+            <div className={styles.createTaskSelectField}>
+              <div className={styles.createTaskFieldLabel}>
+                <span>Status</span>
+              </div>
               <AppSelect
                 mode="single"
-                variant="borderless"
+                className={styles.createTaskStatusSelect}
                 options={statusOptions}
                 value={statusOptions.find((option) => option.value === status) ?? statusOptions[0] ?? null}
                 onChange={(option) => {
@@ -141,11 +156,13 @@ export function CreateTaskModal({ open, project, projects = [], selectedProjectI
                 }}
               />
             </div>
-            <div className={styles.createTaskSelectChip}>
-              <LuUserPlus size={14} />
+            <div className={styles.createTaskSelectField}>
+              <div className={styles.createTaskFieldLabel}>
+                <LuUserPlus size={15} />
+                <span>Assignee</span>
+              </div>
               <AppSelect
                 mode="single"
-                variant="borderless"
                 options={agentOptions}
                 value={selectedAgent}
                 onChange={setSelectedAgent}
@@ -153,11 +170,26 @@ export function CreateTaskModal({ open, project, projects = [], selectedProjectI
                 placeholder="Assignee"
               />
             </div>
-            <span><LuCalendarPlus size={14} /> Due date</span>
-            <span><LuFlag size={14} /> Priority</span>
-            <span><LuTag size={14} /> Tags</span>
+            <div className={styles.createTaskStaticField}>
+              <div className={styles.createTaskFieldLabel}>
+                <LuCalendarPlus size={15} />
+                <span>Due date</span>
+              </div>
+              <span>None</span>
+            </div>
+            <div className={styles.createTaskStaticField}>
+              <div className={styles.createTaskFieldLabel}>
+                <LuFlag size={15} />
+                <span>Priority</span>
+              </div>
+              <span>Normal</span>
+            </div>
           </div>
           <div className={styles.createTaskTags}>
+            <div className={styles.createTaskFieldLabel}>
+              <LuTag size={15} />
+              <span>Tags</span>
+            </div>
             <AppSelect mode="multi" variant="borderless" options={tagOptions} value={selectedTags} onChange={(value) => setSelectedTags(Array.isArray(value) ? value : [])} placeholder="Search or add tags..." />
           </div>
           <div className={styles.createTaskFooter}>

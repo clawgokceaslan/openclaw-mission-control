@@ -13,6 +13,7 @@ export const APP_ROUTES = {
   GATEWAYS: '/gateways',
   GATEWAYS_NEW: '/gateways/new',
   GATEWAY_DETAIL: '/gateways/:gatewayId',
+  SETTINGS: '/settings',
   DOCUMENTATION: '/documentation',
   DOCUMENTATION_GATEWAY: '/documentation/gateway',
   SKILLS: '/skills',

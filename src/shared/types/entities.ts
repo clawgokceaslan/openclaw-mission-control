@@ -29,6 +29,12 @@ export interface Project {
   updatedAt: number
 }
 
+export interface ProjectCodexSettings {
+  gatewayId?: string | null
+  runtimeWorkspaceId?: string | null
+  defaultModel?: string | null
+}
+
 export interface Workspace {
   id: string
   organizationId: string
@@ -136,6 +142,10 @@ export interface TaskTemplatePayload {
   outputFormatId?: string | null
   comments?: TaskComment[]
   attachments?: TaskAttachment[]
+  codex?: {
+    gatewayId?: string | null
+    model?: string | null
+  }
   subtasks?: Array<{
     title?: string
     status?: string
@@ -219,12 +229,27 @@ export interface Gateway {
   status: 'online' | 'offline' | 'connecting'
   endpoint: string
   token: string
-  template?: OpenClawGatewayConfig | Record<string, unknown>
+  template?: CodexCliGatewayConfig | OpenClawGatewayConfig | Record<string, unknown>
   createdAt: number
   updatedAt: number
 }
 
-export type GatewayProvider = 'openclaw'
+export type GatewayProvider = 'codex_cli' | 'openclaw'
+
+export interface CodexCliModel {
+  id: string
+  label: string
+  source?: string
+  recommended?: boolean
+}
+
+export interface CodexCliGatewayConfig {
+  provider: 'codex_cli'
+  codexPath?: string
+  models?: CodexCliModel[]
+  lastModelRefreshAt?: number
+  lastModelRefreshError?: string
+}
 export type OpenClawGatewayPairingStatus = 'not_paired' | 'requested' | 'paired' | 'rejected' | 'failed'
 
 export interface OpenClawGatewayDeviceIdentity {

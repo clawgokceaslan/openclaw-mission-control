@@ -1,33 +1,17 @@
 import { CSSProperties, FormEvent, MouseEvent, PointerEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { LuChevronDown, LuPencil, LuPlug, LuPlus, LuRefreshCw, LuStar, LuTrash2, LuUnplug, LuWandSparkles } from 'react-icons/lu'
+import { LuChevronDown, LuPencil, LuPlus, LuRefreshCw, LuStar, LuTrash2 } from 'react-icons/lu'
 import styles from './GatewaysPage.module.scss'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
-import { Gateway, OpenClawGatewayConfig, OpenClawGatewayTestResult } from '@shared/types/entities'
+import { CodexCliGatewayConfig, CodexCliModel, Gateway } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 
 interface GatewayFormState {
   id?: string
   name: string
-  endpoint: string
-  workspaceRoot: string
-  token: string
-  clearToken?: boolean
-  allowSelfSignedTls: boolean
-  disableDevicePairing: boolean
-  autoConnect: boolean
-}
-
-interface GatewayTestModalState {
-  status: 'sending' | 'success' | 'failed'
-  gatewayId: string
-  gatewayName: string
-  startedAt: number
-  prompt: string
-  result?: OpenClawGatewayTestResult
-  error?: string
+  cliProvider: 'codex_cli' | 'claude_cli'
 }
 
 type ActiveGatewayResponse = {
@@ -41,71 +25,32 @@ type ActionsMenuState = {
   top: number
 }
 
+type CodexModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }
+
 const emptyForm: GatewayFormState = {
   name: '',
-  endpoint: '',
-  workspaceRoot: '',
-  token: '',
-  clearToken: false,
-  allowSelfSignedTls: false,
-  disableDevicePairing: false,
-  autoConnect: false
+  cliProvider: 'codex_cli'
 }
 
-function configOf(gateway: Gateway): OpenClawGatewayConfig {
-  const deviceIdentity = gateway.template?.deviceIdentity && typeof gateway.template.deviceIdentity === 'object'
-    ? gateway.template.deviceIdentity as OpenClawGatewayConfig['deviceIdentity']
-    : undefined
+function configOf(gateway: Gateway): CodexCliGatewayConfig {
+  const template = gateway.template && typeof gateway.template === 'object' && !Array.isArray(gateway.template)
+    ? gateway.template as Partial<CodexCliGatewayConfig>
+    : {}
   return {
-    provider: 'openclaw',
-    apiBaseUrl: String(gateway.template?.apiBaseUrl ?? ''),
-    authMode: String(gateway.template?.authMode ?? 'device_pairing') as OpenClawGatewayConfig['authMode'],
-    workspaceRoot: typeof gateway.template?.workspaceRoot === 'string' ? gateway.template.workspaceRoot : undefined,
-    allowSelfSignedTls: Boolean(gateway.template?.allowSelfSignedTls),
-    disableDevicePairing: gateway.template?.disableDevicePairing === undefined ? false : Boolean(gateway.template.disableDevicePairing),
-    autoConnect: Boolean(gateway.template?.autoConnect),
-    lastHandshakeAt: typeof gateway.template?.lastHandshakeAt === 'number' ? gateway.template.lastHandshakeAt : undefined,
-    protocolVersion: typeof gateway.template?.protocolVersion === 'string' ? gateway.template.protocolVersion : undefined,
-    capabilities: Array.isArray(gateway.template?.capabilities) ? gateway.template.capabilities.map(String) : undefined,
-    deviceIdentity,
-    pairingStatus: typeof gateway.template?.pairingStatus === 'string' ? gateway.template.pairingStatus as OpenClawGatewayConfig['pairingStatus'] : 'not_paired',
-    lastPairingError: typeof gateway.template?.lastPairingError === 'string' ? gateway.template.lastPairingError : undefined
+    provider: 'codex_cli',
+    codexPath: typeof template.codexPath === 'string' && template.codexPath.trim() ? template.codexPath : gateway.endpoint || 'codex',
+    models: Array.isArray(template.models) ? template.models : [],
+    lastModelRefreshAt: typeof template.lastModelRefreshAt === 'number' ? template.lastModelRefreshAt : undefined,
+    lastModelRefreshError: typeof template.lastModelRefreshError === 'string' ? template.lastModelRefreshError : undefined
   }
 }
 
 function formFromGateway(gateway: Gateway): GatewayFormState {
-  const config = configOf(gateway)
   return {
     id: gateway.id,
     name: gateway.name,
-    endpoint: gateway.endpoint,
-    workspaceRoot: config.workspaceRoot ?? '',
-    token: '',
-    clearToken: false,
-    allowSelfSignedTls: Boolean(config.allowSelfSignedTls),
-    disableDevicePairing: config.disableDevicePairing === undefined ? false : Boolean(config.disableDevicePairing),
-    autoConnect: Boolean(config.autoConnect)
+    cliProvider: 'codex_cli'
   }
-}
-
-function formatTime(value?: number): string {
-  if (!value) return 'Never'
-  return new Date(value).toLocaleString()
-}
-
-function pairingLabel(status?: OpenClawGatewayConfig['pairingStatus']): string {
-  if (status === 'paired') return 'Paired'
-  if (status === 'requested') return 'Approval required'
-  if (status === 'rejected') return 'Rejected'
-  if (status === 'failed') return 'Failed'
-  return 'Not paired'
-}
-
-function pairingClass(status?: OpenClawGatewayConfig['pairingStatus']): string {
-  if (status === 'paired') return styles.paired
-  if (status === 'requested') return styles.requested
-  if (status === 'rejected' || status === 'failed') return styles.failedPairing
-  return styles.notPaired
 }
 
 export function GatewaysPage() {
@@ -117,7 +62,6 @@ export function GatewaysPage() {
   const [modal, setModal] = useState<GatewayFormState | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Gateway | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
-  const [testModal, setTestModal] = useState<GatewayTestModalState | null>(null)
   const [actionsMenu, setActionsMenu] = useState<ActionsMenuState | null>(null)
   const [activeGatewayId, setActiveGatewayId] = useState<string | null>(null)
   const tableRef = useRef<HTMLDivElement | null>(null)
@@ -163,7 +107,7 @@ export function GatewaysPage() {
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase()
     if (!needle) return items
-    return items.filter((item) => `${item.name} ${item.endpoint}`.toLowerCase().includes(needle))
+    return items.filter((item) => `${item.name} ${configOf(item).codexPath ?? item.endpoint}`.toLowerCase().includes(needle))
   }, [items, search])
 
   const invokeAction = async (channel: string, payload: Record<string, unknown>, success: string) => {
@@ -197,6 +141,28 @@ export function GatewaysPage() {
     setError(null)
   }
 
+  const refreshModels = async (gateway: Gateway) => {
+    setActionsMenu(null)
+    setBusyId(gateway.id)
+    const response = await invokeBridge<CodexModelsResponse>(IPC_CHANNELS.gateways.codexModels, {
+      actorToken: token,
+      gatewayId: gateway.id
+    })
+    setBusyId(null)
+    if (!response.ok) {
+      setError(response.error?.message ?? 'Model refresh failed.')
+      return
+    }
+    if (response.data?.error) {
+      setError(response.data.error)
+      setNotice(response.data.cached ? 'Model refresh failed; cached models are still available.' : null)
+    } else {
+      setError(null)
+      setNotice(`${response.data?.models.length ?? 0} model(s) refreshed.`)
+    }
+    await refresh()
+  }
+
   const toggleActionsMenu = (gatewayId: string, event: MouseEvent<HTMLButtonElement>) => {
     const rect = event.currentTarget.getBoundingClientRect()
     setActionsMenu((current) => {
@@ -213,16 +179,16 @@ export function GatewaysPage() {
   const submitGateway = async (event: FormEvent) => {
     event.preventDefault()
     if (!modal) return
+    if (modal.cliProvider === 'claude_cli') {
+      setError('Claude CLI is not available yet.')
+      return
+    }
     const payload = {
       id: modal.id,
       name: modal.name,
-      endpoint: modal.endpoint,
-      workspaceRoot: modal.workspaceRoot,
-      token: modal.token,
-      clearToken: Boolean(modal.clearToken),
-      allowSelfSignedTls: modal.allowSelfSignedTls,
-      disableDevicePairing: modal.disableDevicePairing,
-      autoConnect: modal.autoConnect
+      endpoint: 'codex',
+      codexPath: 'codex',
+      provider: 'codex_cli'
     }
     const ok = await invokeAction(
       modal.id ? IPC_CHANNELS.gateways.update : IPC_CHANNELS.gateways.create,
@@ -230,48 +196,6 @@ export function GatewaysPage() {
       modal.id ? 'Gateway updated.' : 'Gateway created.'
     )
     if (ok) setModal(null)
-  }
-
-  const testGateway = async (gateway: Gateway) => {
-    const prompt = 'How are you?'
-    const startedAt = Date.now()
-    setTestModal({
-      status: 'sending',
-      gatewayId: gateway.id,
-      gatewayName: gateway.name,
-      startedAt,
-      prompt
-    })
-    setBusyId(gateway.id)
-    const response = await invokeBridge<OpenClawGatewayTestResult>(IPC_CHANNELS.gateways.testMessage, {
-      actorToken: token,
-      gatewayId: gateway.id
-    })
-    setBusyId(null)
-    if (!response.ok) {
-      setTestModal({
-        status: 'failed',
-        gatewayId: gateway.id,
-        gatewayName: gateway.name,
-        startedAt,
-        prompt,
-        error: response.error?.message ?? 'Gateway test failed.'
-      })
-      return
-    }
-    const result = response.data as OpenClawGatewayTestResult
-    setTestModal({
-      status: result.ok ? 'success' : 'failed',
-      gatewayId: gateway.id,
-      gatewayName: gateway.name,
-      startedAt,
-      prompt,
-      result,
-      error: result.ok ? undefined : result.message
-    })
-    setNotice(null)
-    setError(null)
-    await refresh()
   }
 
   const startTableDrag = (event: PointerEvent<HTMLDivElement>) => {
@@ -310,7 +234,7 @@ export function GatewaysPage() {
       <header className={styles.header}>
         <div>
           <h1>Gateways</h1>
-          <p>Manage OpenClaw gateway connections. {items.length} gateway total.</p>
+          <p>Manage local CLI gateways. {items.length} gateway total.</p>
         </div>
         <div className={styles.headerActions}>
           <button className={styles.secondaryButton} type="button" onClick={() => void refresh()}>
@@ -342,16 +266,14 @@ export function GatewaysPage() {
       >
         <div className={styles.tableHead}>
           <span>Name</span>
-          <span>WS URL</span>
+          <span>CLI</span>
           <span>Status</span>
-          <span>Pairing</span>
-          <span>Token</span>
-          <span>Last handshake</span>
+          <span>Models</span>
           <span>Actions</span>
         </div>
         {filtered.map((gateway) => {
-          const config = configOf(gateway)
           const isActive = activeGatewayId === gateway.id
+          const config = configOf(gateway)
           return (
             <div className={styles.tableRow} key={gateway.id}>
               <span>
@@ -359,26 +281,14 @@ export function GatewaysPage() {
                   <Link to={`${APP_ROUTES.GATEWAYS}/${gateway.id}`}>{gateway.name}</Link>
                   {isActive ? <b className={styles.activeBadge}>Active</b> : null}
                 </span>
-                <small>OpenClaw</small>
+                <small>Local CLI</small>
               </span>
-              <span className={styles.mono}>{gateway.endpoint}</span>
+              <span>Codex CLI</span>
               <span>
                 <b className={`${styles.statusPill} ${styles[gateway.status]}`}>{gateway.status}</b>
               </span>
-              <span>
-                <b className={`${styles.statusPill} ${pairingClass(config.pairingStatus)}`}>{pairingLabel(config.pairingStatus)}</b>
-              </span>
-              <span className={styles.mono}>{gateway.token || 'No token'}</span>
-              <span>{formatTime(config.lastHandshakeAt)}</span>
+              <span className={styles.mono}>{config.models?.length ?? 0} cached</span>
               <span className={styles.actions}>
-                <button disabled={busyId === gateway.id} onClick={() => void invokeAction(IPC_CHANNELS.gateways.connect, { gatewayId: gateway.id }, 'Gateway connected.')}>
-                  <LuPlug size={14} />
-                  Connect
-                </button>
-                <button disabled={busyId === gateway.id} onClick={() => void testGateway(gateway)}>
-                  <LuWandSparkles size={14} />
-                  Test
-                </button>
                 <button className={styles.moreButton} data-gateway-actions onClick={(event) => toggleActionsMenu(gateway.id, event)}>
                   Actions
                   <LuChevronDown size={14} />
@@ -389,21 +299,13 @@ export function GatewaysPage() {
                       <LuStar size={14} />
                       {isActive ? 'Active gateway' : 'Set active'}
                     </button>
-                    <button disabled={busyId === gateway.id} onClick={() => { setActionsMenu(null); void invokeAction(IPC_CHANNELS.gateways.pairDevice, { gatewayId: gateway.id }, 'Pairing request sent.') }}>
-                      <LuPlug size={14} />
-                      Pair
-                    </button>
-                    <button disabled={busyId === gateway.id} onClick={() => { setActionsMenu(null); void invokeAction(IPC_CHANNELS.gateways.disconnect, { gatewayId: gateway.id }, 'Gateway disconnected.') }}>
-                      <LuUnplug size={14} />
-                      Disconnect
-                    </button>
-                    <button disabled={busyId === gateway.id} onClick={() => { setActionsMenu(null); void invokeAction(IPC_CHANNELS.gateways.resetPairing, { gatewayId: gateway.id }, 'Pairing identity reset.') }}>
-                      <LuRefreshCw size={14} />
-                      Reset pair
-                    </button>
                     <button onClick={() => { setActionsMenu(null); setModal(formFromGateway(gateway)) }}>
                       <LuPencil size={14} />
                       Edit
+                    </button>
+                    <button disabled={busyId === gateway.id} onClick={() => void refreshModels(gateway)}>
+                      <LuRefreshCw size={14} />
+                      Refresh models
                     </button>
                     <button className={styles.dangerText} onClick={() => { setActionsMenu(null); setDeleteTarget(gateway) }}>
                       <LuTrash2 size={14} />
@@ -415,7 +317,7 @@ export function GatewaysPage() {
             </div>
           )
         })}
-        {filtered.length === 0 && <div className={styles.empty}>No OpenClaw gateways configured.</div>}
+        {filtered.length === 0 && <div className={styles.empty}>No Codex CLI gateways configured.</div>}
       </div>
 
       {modal && (
@@ -430,42 +332,16 @@ export function GatewaysPage() {
               <input value={modal.name} onChange={(event) => setModal({ ...modal, name: event.target.value })} required />
             </label>
             <label>
-              Gateway WS URL *
-              <input value={modal.endpoint} onChange={(event) => setModal({ ...modal, endpoint: event.target.value })} placeholder="wss://gateway.example/ws" required />
+              Provider
+              <select value={modal.cliProvider} onChange={(event) => setModal({ ...modal, cliProvider: event.target.value as GatewayFormState['cliProvider'] })}>
+                <option value="codex_cli">Codex CLI</option>
+                <option value="claude_cli">Claude CLI</option>
+              </select>
             </label>
-            <label>
-              OpenClaw workspace root
-              <input value={modal.workspaceRoot} onChange={(event) => setModal({ ...modal, workspaceRoot: event.target.value })} placeholder="Leave empty for relative agents/<id>, or use a valid OpenClaw host path" />
-            </label>
-            <label>
-              Gateway Token
-              <input
-                value={modal.token}
-                onChange={(event) => setModal({ ...modal, token: event.target.value })}
-                placeholder={modal.id ? '•••••••• (leave empty to keep existing token)' : 'Bearer token'}
-              />
-            </label>
-            {modal.id && (
-              <label className={styles.checkRow}>
-                <input type="checkbox" checked={Boolean(modal.clearToken)} onChange={(event) => setModal({ ...modal, clearToken: event.target.checked })} />
-                Reset stored token
-              </label>
-            )}
-            <label className={styles.checkRow}>
-              <input type="checkbox" checked={modal.allowSelfSignedTls} onChange={(event) => setModal({ ...modal, allowSelfSignedTls: event.target.checked })} />
-              Allow self-signed TLS certificates
-            </label>
-            <label className={styles.checkRow}>
-              <input type="checkbox" checked={modal.disableDevicePairing} onChange={(event) => setModal({ ...modal, disableDevicePairing: event.target.checked })} />
-              Advanced: use Control UI token mode instead of device pairing
-            </label>
-            <label className={styles.checkRow}>
-              <input type="checkbox" checked={modal.autoConnect} onChange={(event) => setModal({ ...modal, autoConnect: event.target.checked })} />
-              Auto connect on app start
-            </label>
+            {modal.cliProvider === 'claude_cli' ? <p className={styles.error}>Claude CLI is not available yet.</p> : null}
             <footer>
               <button type="button" onClick={() => setModal(null)}>Cancel</button>
-              <button className={styles.primaryButton} type="submit">{modal.id ? 'Save changes' : 'Create gateway'}</button>
+              <button className={styles.primaryButton} type="submit" disabled={modal.cliProvider === 'claude_cli'}>{modal.id ? 'Save changes' : 'Create gateway'}</button>
             </footer>
           </form>
         </div>
@@ -492,56 +368,6 @@ export function GatewaysPage() {
         </div>
       )}
 
-      {testModal && (
-        <div className={styles.backdrop} onMouseDown={() => setTestModal(null)}>
-          <div className={styles.resultModal} onMouseDown={(event) => event.stopPropagation()}>
-            <header>
-              <div>
-                <small>OpenClaw TEST message</small>
-                <h2>{testModal.gatewayName}</h2>
-              </div>
-              <button onClick={() => setTestModal(null)}>×</button>
-            </header>
-            <div className={styles.resultSummary}>
-              <span className={`${styles.resultStatus} ${styles[testModal.status]}`}>{testModal.status}</span>
-              <span>Duration: {Date.now() - testModal.startedAt}ms</span>
-            </div>
-            <div className={styles.chatFlow}>
-              {testModal.prompt && (
-                <div className={styles.userBubble}>
-                  <small>You</small>
-                  <p>{testModal.prompt}</p>
-                </div>
-              )}
-              <div className={styles.gatewayBubble}>
-                <small>OpenClaw Gateway</small>
-                {testModal.status === 'sending' && <p>Pairing/connect check, then sending “How are you?”...</p>}
-                {testModal.status !== 'sending' && (
-                  <p>
-                    {testModal.result?.ok
-                      ? String(testModal.result.details?.aiResponseText || 'OpenClaw returned an empty assistant response.')
-                      : testModal.result?.message ?? testModal.error ?? 'OpenClaw did not respond successfully.'}
-                  </p>
-                )}
-              </div>
-            </div>
-            {testModal.result && (
-              <details className={styles.rawDetails}>
-                <summary>Raw response</summary>
-                <pre>{JSON.stringify(testModal.result, null, 2)}</pre>
-              </details>
-            )}
-            <footer>
-              {testModal.result && (
-                <button onClick={() => void navigator.clipboard?.writeText(JSON.stringify(testModal.result, null, 2))}>
-                  Copy JSON
-                </button>
-              )}
-              <button onClick={() => setTestModal(null)}>Close</button>
-            </footer>
-          </div>
-        </div>
-      )}
     </section>
   )
 }

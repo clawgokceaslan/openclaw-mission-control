@@ -1,8 +1,8 @@
 import { type CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { LuBot, LuFilter, LuListChecks, LuListTodo, LuPaperclip, LuPencil, LuPlus, LuSearch, LuSlidersHorizontal, LuSparkles, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
+import { LuBot, LuFilter, LuListChecks, LuListTodo, LuPaperclip, LuPencil, LuPlus, LuSearch, LuSettings2, LuSlidersHorizontal, LuSparkles, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
-import type { Agent, CustomField, OutputFormat, Skill, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskJsonImportResult, TaskTemplate, TaskTemplatePayload } from '@shared/types/entities'
+import type { Agent, CodexCliGatewayConfig, CodexCliModel, CustomField, Gateway, OutputFormat, Skill, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskJsonImportResult, TaskTemplate, TaskTemplatePayload } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { MarkdownDescriptionEditor, prefixDataFormatTokens, type DescriptionDataFormat } from '@renderer/components/markdown/MarkdownDescriptionEditor'
 import { AttachmentTable, storedAttachmentRows } from '@renderer/components/attachments/AttachmentTable'
@@ -20,12 +20,13 @@ import detailStyles from '../projects/ProjectDetailPage.module.scss'
 import styles from './TaskTemplatesPage.module.scss'
 
 type SaveState = 'saved' | 'dirty' | 'saving' | 'failed'
-type BuilderTab = 'subtasks' | 'customFields' | 'checklist' | 'attachments' | 'agent' | 'skills'
+type BuilderTab = 'subtasks' | 'customFields' | 'checklist' | 'attachments' | 'agent' | 'skills' | 'model'
 type TemplateSubtaskDetailTab = 'agent' | 'skills' | 'customFields' | 'attachments'
 type DraftSubtask = NonNullable<TaskTemplatePayload['subtasks']>[number] & { uiId: string }
 type TextDraftRow = { id: string; title: string }
 type CustomFieldDraftRow = { id: string; field: AppSelectOption | null; value: string }
 type DataFormatRole = OutputFormat['formatRole']
+type CodexModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }
 
 const SAVE_DELAY_MS = 700
 const DEFAULT_DETAIL_RATIO = 0.72
@@ -82,8 +83,42 @@ function normalizeTemplate(value?: TaskTemplatePayload): TaskTemplatePayload {
     checklistItems: Array.isArray(value?.checklistItems) ? value.checklistItems : [],
     comments: Array.isArray(value?.comments) ? value.comments : [],
     attachments: normalizeAttachments(value?.attachments),
+    codex: value?.codex && typeof value.codex === 'object' && !Array.isArray(value.codex) ? value.codex : undefined,
     subtasks: Array.isArray(value?.subtasks) ? value.subtasks : []
   }
+}
+
+function codexModelsFromGateways(gateways: Gateway[]): CodexCliModel[] {
+  const byId = new Map<string, CodexCliModel>()
+  for (const gateway of gateways) {
+    const template = gateway.template && typeof gateway.template === 'object' && !Array.isArray(gateway.template)
+      ? gateway.template as Partial<CodexCliGatewayConfig>
+      : {}
+    for (const model of template.models ?? []) {
+      if (!byId.has(model.id)) byId.set(model.id, model)
+    }
+  }
+  return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id))
+}
+
+function codexConfigOf(gateway?: Gateway | null): CodexCliGatewayConfig {
+  const template = gateway?.template && typeof gateway.template === 'object' && !Array.isArray(gateway.template)
+    ? gateway.template as Partial<CodexCliGatewayConfig>
+    : {}
+  return {
+    provider: 'codex_cli',
+    codexPath: typeof template.codexPath === 'string' ? template.codexPath : gateway?.endpoint ?? 'codex',
+    models: Array.isArray(template.models) ? template.models : [],
+    lastModelRefreshAt: typeof template.lastModelRefreshAt === 'number' ? template.lastModelRefreshAt : undefined,
+    lastModelRefreshError: typeof template.lastModelRefreshError === 'string' ? template.lastModelRefreshError : undefined
+  }
+}
+
+function codexOverride(gatewayId?: string | null, model?: string | null): TaskTemplatePayload['codex'] | undefined {
+  const next: NonNullable<TaskTemplatePayload['codex']> = {}
+  if (gatewayId) next.gatewayId = gatewayId
+  if (model) next.model = model
+  return Object.keys(next).length > 0 ? next : undefined
 }
 
 function toDraftSubtasks(template: TaskTemplatePayload): DraftSubtask[] {
@@ -223,6 +258,7 @@ export function TaskTemplatesPage() {
   const navigate = useNavigate()
   const [items, setItems] = useState<TaskTemplate[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
+  const [gateways, setGateways] = useState<Gateway[]>([])
   const [tags, setTags] = useState<Tag[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
   const [customFields, setCustomFields] = useState<CustomField[]>([])
@@ -282,6 +318,8 @@ export function TaskTemplatesPage() {
   const [isJsonImportOpen, setIsJsonImportOpen] = useState(false)
   const [jsonImportTarget, setJsonImportTarget] = useState<'create' | 'edit'>('create')
   const [isJsonImporting, setIsJsonImporting] = useState(false)
+  const [codexModelLoading, setCodexModelLoading] = useState(false)
+  const [codexModelError, setCodexModelError] = useState<string | null>(null)
 
   const templateBodyRef = useRef<HTMLDivElement | null>(null)
   const subtaskClickTimerRef = useRef<number | null>(null)
@@ -294,12 +332,14 @@ export function TaskTemplatesPage() {
   const descriptionRef = useRef('')
   const templateRef = useRef<TaskTemplatePayload>(defaultTemplate())
   const subtasksRef = useRef<DraftSubtask[]>([])
+  const lastCodexModelRefreshRef = useRef<string | null>(null)
 
   const refresh = async () => {
     setLoading(true)
-    const [templatesResponse, agentsResponse, tagsResponse, skillsResponse, customFieldsResponse, outputFormatsResponse] = await Promise.all([
+    const [templatesResponse, agentsResponse, gatewaysResponse, tagsResponse, skillsResponse, customFieldsResponse, outputFormatsResponse] = await Promise.all([
       loadList<TaskTemplate[]>(IPC_CHANNELS.taskTemplates.list, token),
       loadList<Agent[]>(IPC_CHANNELS.agents.list, token),
+      loadList<Gateway[]>(IPC_CHANNELS.gateways.list, token),
       loadList<Tag[]>(IPC_CHANNELS.customFields.tagsList, token),
       loadList<Skill[]>(IPC_CHANNELS.skills.list, token),
       loadList<CustomField[]>(IPC_CHANNELS.customFields.list, token),
@@ -313,6 +353,7 @@ export function TaskTemplatesPage() {
     }
     setItems(Array.isArray(templatesResponse.data) ? templatesResponse.data : [])
     setAgents(Array.isArray(agentsResponse.data) ? agentsResponse.data : [])
+    setGateways(Array.isArray(gatewaysResponse.data) ? gatewaysResponse.data : [])
     setTags(Array.isArray(tagsResponse.data) ? tagsResponse.data : [])
     setSkills(Array.isArray(skillsResponse.data) ? skillsResponse.data : [])
     setCustomFields(Array.isArray(customFieldsResponse.data) ? customFieldsResponse.data : [])
@@ -333,6 +374,24 @@ export function TaskTemplatesPage() {
   useEffect(() => {
     void refresh()
   }, [token])
+
+  const refreshCodexGatewayModels = async (gatewayId: string) => {
+    if (!gatewayId) return
+    setCodexModelLoading(true)
+    setCodexModelError(null)
+    const response = await invokeBridge<CodexModelsResponse>(IPC_CHANNELS.gateways.codexModels, {
+      actorToken: token,
+      gatewayId
+    })
+    setCodexModelLoading(false)
+    if (!response.ok || !response.data) {
+      setCodexModelError(response.error?.message ?? 'Unable to load Codex models')
+      return
+    }
+    setGateways((current) => current.map((gateway) => gateway.id === response.data!.gateway.id ? response.data!.gateway : gateway))
+    if (response.data.error) setCodexModelError(response.data.error)
+    lastCodexModelRefreshRef.current = gatewayId
+  }
 
   useEffect(() => {
     editingRef.current = editing
@@ -406,7 +465,25 @@ export function TaskTemplatesPage() {
   const inputFormatOptions = useMemo(() => outputFormats.filter((format) => format.formatRole === 'input').map((format) => ({ label: format.name, value: format.id })), [outputFormats])
   const outputFormatOptions = useMemo(() => outputFormats.filter((format) => format.formatRole !== 'input').map((format) => ({ label: format.name, value: format.id })), [outputFormats])
   const outputFormatById = useMemo(() => new Map(outputFormats.map((format) => [format.id, format])), [outputFormats])
+  const codexModelOptions = useMemo(() => codexModelsFromGateways(gateways), [gateways])
+  const codexGatewayOptions = useMemo<AppSelectOption[]>(() => gateways.map((gateway) => ({ label: gateway.name, value: gateway.id })), [gateways])
+  const templateCodexGatewayId = templateDraft.codex?.gatewayId ?? ''
+  const templateCodexModel = templateDraft.codex?.model ?? ''
+  const selectedTemplateGateway = templateCodexGatewayId ? gateways.find((gateway) => gateway.id === templateCodexGatewayId) ?? null : null
+  const templateGatewayModelOptions = useMemo<CodexCliModel[]>(() => {
+    if (!selectedTemplateGateway) return codexModelOptions
+    return codexConfigOf(selectedTemplateGateway).models ?? []
+  }, [codexModelOptions, selectedTemplateGateway])
+  const templateGatewayOptions = codexGatewayOptions
+  const selectedTemplateGatewayOption = templateCodexGatewayId ? templateGatewayOptions.find((option) => option.value === templateCodexGatewayId) ?? null : null
+  const templateModelOptions = useMemo<AppSelectOption[]>(() => templateGatewayModelOptions.map((model) => ({ label: model.label || model.id, value: model.id })), [templateGatewayModelOptions])
+  const selectedTemplateModelOption = templateModelOptions.find((option) => option.value === templateCodexModel) ?? null
   const selectedSubtask = useMemo(() => draftSubtasks.find((subtask) => subtask.uiId === selectedSubtaskId) ?? null, [draftSubtasks, selectedSubtaskId])
+  useEffect(() => {
+    if (!editing || activeTab !== 'model' || !templateCodexGatewayId) return
+    const shouldRefresh = lastCodexModelRefreshRef.current !== templateCodexGatewayId || templateGatewayModelOptions.length === 0
+    if (shouldRefresh && !codexModelLoading) void refreshCodexGatewayModels(templateCodexGatewayId)
+  }, [editing, activeTab, templateCodexGatewayId, templateGatewayModelOptions.length, codexModelLoading])
   useEffect(() => {
     setSubtaskCommentDraft('')
     setEditingSubtaskCommentId(null)
@@ -1579,6 +1656,7 @@ export function TaskTemplatesPage() {
                       <button type="button" className={activeTab === 'attachments' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setActiveTab('attachments')}><LuPaperclip size={15} />Attachments</button>
                       <button type="button" className={activeTab === 'agent' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setActiveTab('agent')}><LuBot size={15} />Agent</button>
                       <button type="button" className={activeTab === 'skills' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setActiveTab('skills')}><LuSparkles size={15} />Skills</button>
+                      <button type="button" className={activeTab === 'model' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setActiveTab('model')}><LuSettings2 size={15} />Model</button>
                     </div>
                     {activeTab === 'subtasks' ? (
                       <>
@@ -1751,6 +1829,62 @@ export function TaskTemplatesPage() {
                           ctaDescription="Select one or more default skills for this template."
                           onChange={(skillIds) => patchTemplate({ skillIds })}
                         />
+                      </>
+                    ) : activeTab === 'model' ? (
+                      <>
+                        <div className={detailStyles.detailSectionHeader}>
+                          <div>
+                            <h4>Model</h4>
+                            <p>{templateDraft.codex?.model || 'Project default'}</p>
+                          </div>
+                        </div>
+                        <div className={detailStyles.codexSummaryCard}>
+                          <div>
+                            <span>Gateway</span>
+                            <strong>{templateCodexGatewayId ? selectedTemplateGateway?.name ?? templateCodexGatewayId : 'Project default gateway'}</strong>
+                          </div>
+                          <div>
+                            <span>Model</span>
+                            <strong>{templateCodexModel || 'Project default model'}</strong>
+                          </div>
+                        </div>
+                        <div className={detailStyles.settingsFormGrid}>
+                          <label>
+                            <span>Template gateway</span>
+                            <AppSelect
+                              value={selectedTemplateGatewayOption}
+                              options={templateGatewayOptions}
+                              placeholder="Use project default gateway"
+                              isClearable
+                              onChange={(option) => {
+                                const nextGatewayId = option?.value ?? ''
+                                const nextGateway = nextGatewayId ? gateways.find((gateway) => gateway.id === nextGatewayId) : null
+                                const models = nextGateway ? codexConfigOf(nextGateway).models ?? [] : codexModelOptions
+                                const nextModel = templateCodexModel && models.some((model) => model.id === templateCodexModel) ? templateCodexModel : ''
+                                setCodexModelError(null)
+                                patchTemplate({ codex: codexOverride(nextGatewayId || null, nextModel || null) })
+                              }}
+                            />
+                          </label>
+                          <label>
+                            <span>Template model</span>
+                            <AppSelect
+                              value={selectedTemplateModelOption}
+                              options={templateModelOptions}
+                              placeholder={codexModelLoading ? 'Loading models...' : 'Use project default model'}
+                              isClearable
+                              isDisabled={templateModelOptions.length === 0}
+                              onChange={(option) => patchTemplate({ codex: codexOverride(templateCodexGatewayId || null, option?.value ?? null) })}
+                            />
+                          </label>
+                        </div>
+                        {codexModelLoading ? (
+                          <p className={detailStyles.customFieldEmpty}>Loading models from Codex CLI...</p>
+                        ) : codexModelError ? (
+                          <p className={detailStyles.customFieldEmpty}>{codexModelError}</p>
+                        ) : templateModelOptions.length === 0 ? (
+                          <p className={detailStyles.customFieldEmpty}>No cached Codex models yet. Refresh models from Gateways to populate explicit options.</p>
+                        ) : null}
                       </>
                     ) : null}
               </section>

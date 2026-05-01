@@ -1,10 +1,10 @@
 import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { LuDownload, LuPencil, LuPlus, LuRefreshCw, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
+import { LuDownload, LuPencil, LuPlus, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
 import styles from './AgentsPage.module.scss'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
-import { Agent, AgentReasoningLevel, AgentStep, OpenClawAgentSyncResult } from '@shared/types/entities'
+import { Agent, AgentReasoningLevel, AgentStep } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { buildSingleAgentMarkdown } from '@renderer/utils/entityMarkdown'
@@ -156,7 +156,6 @@ export function AgentsPage() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [syncing, setSyncing] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [mode, setMode] = useState<'create' | 'edit'>('create')
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null)
@@ -295,53 +294,6 @@ export function AgentsPage() {
     closeImportModal()
   }
 
-  const syncAgent = async (agentId: string, showSuccess = true): Promise<OpenClawAgentSyncResult | null> => {
-    const response = await invokeBridge<OpenClawAgentSyncResult>(IPC_CHANNELS.agents.syncOpenClaw, {
-      actorToken: token,
-      id: agentId
-    })
-    if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Unable to sync agent with OpenClaw.')
-      return null
-    }
-    if (response.data.status === 'failed') {
-      setError(response.data.error ?? 'Agent sync failed.')
-      return response.data
-    }
-    setError(null)
-    if (showSuccess) setNotice(response.data.status === 'skipped' ? 'Agent already synced.' : 'Agent synced with OpenClaw.')
-    return response.data
-  }
-
-  const syncAllAgents = async () => {
-    setSyncing(true)
-    const response = await invokeBridge<OpenClawAgentSyncResult[]>(IPC_CHANNELS.agents.syncAllOpenClawUnsynced, {
-      actorToken: token
-    })
-    setSyncing(false)
-    if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Unable to sync agents with OpenClaw.')
-      return
-    }
-    const failed = response.data.filter((item) => item.status === 'failed')
-    const synced = response.data.filter((item) => item.status === 'synced')
-    const skipped = response.data.filter((item) => item.status === 'skipped')
-    if (failed.length > 0) {
-      const details = failed
-        .map((item) => item.error)
-        .filter((message): message is string => Boolean(message?.trim()))
-        .slice(0, 3)
-        .join(' | ')
-      setError(`${failed.length} agent sync failed. ${synced.length} synced, ${skipped.length} skipped.${details ? ` ${details}` : ''}`)
-      return
-    }
-    setError(null)
-    setNotice(skipped.length > 0
-      ? `${synced.length} agents synced. ${skipped.length} skipped.`
-      : `${synced.length} agents synced.`
-    )
-  }
-
   const downloadAgent = (agent: Agent) => {
     downloadMarkdownFile('AGENT.md', buildSingleAgentMarkdown(agent))
   }
@@ -384,11 +336,7 @@ export function AgentsPage() {
     const savedAgent = response.data as Agent | undefined
     closeModal()
     await refresh()
-    if (savedAgent?.id) {
-      const syncResult = await syncAgent(savedAgent.id, false)
-      if (syncResult?.status === 'synced') setNotice('Agent saved and synced with OpenClaw.')
-      if (syncResult?.status === 'failed') setNotice('Agent saved locally. OpenClaw sync needs attention.')
-    }
+    if (savedAgent?.id) setNotice('Agent saved.')
   }
 
   const removeAgent = async () => {
@@ -439,10 +387,6 @@ export function AgentsPage() {
           <p>{items.length} agents configured.</p>
         </div>
         <div className={styles.headerActions}>
-          <button type="button" className={styles.secondaryButton} onClick={() => void syncAllAgents()} disabled={loading || syncing}>
-            <LuRefreshCw size={16} />
-            {syncing ? 'Syncing...' : 'Sync'}
-          </button>
           <button type="button" className={styles.primaryButton} onClick={openCreate} disabled={loading}>
             <LuPlus size={16} />
             Add agent
@@ -484,9 +428,6 @@ export function AgentsPage() {
             <span className={styles.actionsCell}>
               <button type="button" className={styles.iconButton} onClick={() => downloadAgent(agent)} aria-label={`Download ${agent.name} AGENT.md`}>
                 <LuDownload size={15} />
-              </button>
-              <button type="button" className={styles.iconButton} onClick={() => void syncAgent(agent.id)} aria-label={`Sync ${agent.name} with OpenClaw`}>
-                <LuRefreshCw size={15} />
               </button>
               <button type="button" className={styles.iconButton} onClick={() => openEdit(agent)} aria-label={`Edit ${agent.name}`}>
                 <LuPencil size={15} />

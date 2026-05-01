@@ -701,7 +701,7 @@ export function buildProjectWorkspaceExportTaskPayload(context: ExportContext): 
   return { taskId: context.task.id, taskMarkdown, agentMarkdown, skillsMarkdown, attachments: attachments.filter((attachment): attachment is TaskAttachment & { ownerId: string; exportName: string } => Boolean(attachment)) }
 }
 
-export async function downloadTaskZip(context: ExportContext): Promise<void> {
+export async function buildTaskZipArchive(context: ExportContext): Promise<{ fileName: string; archive: Uint8Array }> {
   const zip: ZipInput = {}
   const exportStatuses: AttachmentExportStatus[] = []
   const subtaskExportStatuses: SubtaskExportStatusMap = {}
@@ -719,5 +719,10 @@ export async function downloadTaskZip(context: ExportContext): Promise<void> {
   if (skillsMarkdown.trim()) zip['Skills.md'] = strToU8(skillsMarkdown)
   if (taskMarkdown.trim()) zip['Task.md'] = strToU8(taskMarkdown)
   const archive = zipSync(zip)
-  downloadBlob(`${safeName(context.task.title, 'task')}.zip`, new Blob([archive], { type: 'application/zip' }))
+  return { fileName: `${safeName(context.task.title, 'task')}.zip`, archive }
+}
+
+export async function downloadTaskZip(context: ExportContext): Promise<void> {
+  const { fileName, archive } = await buildTaskZipArchive(context)
+  downloadBlob(fileName, new Blob([archive], { type: 'application/zip' }))
 }

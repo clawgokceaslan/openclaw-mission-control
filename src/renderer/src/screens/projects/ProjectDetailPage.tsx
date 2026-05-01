@@ -21,8 +21,8 @@ import {
   LuX
 } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
-import { invokeBridge, loadList } from '@renderer/utils/api'
-import { Agent, CustomField, OpenClawAgentSyncResult, OutputFormat, Project, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, TaskTemplate, Workspace } from '@shared/types/entities'
+import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
+import { Agent, CodexCliGatewayConfig, CodexCliModel, Gateway, OutputFormat, Project, ProjectCodexSettings, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, TaskTemplate, Workspace, CustomField } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { MarkdownDescriptionEditor, prefixDataFormatTokens, type DescriptionDataFormat } from '@renderer/components/markdown/MarkdownDescriptionEditor'
@@ -40,7 +40,7 @@ import { TaskJsonImportModal } from './detail/TaskJsonImportModal'
 import { AgentAssignmentPanel, SkillsAssignmentPanel } from './detail/AssignmentPanels'
 import { TaskDetailModal } from './detail/TaskDetailModal'
 import { TaskDetailContent } from './detail/TaskDetailContent'
-import { buildAgentMarkdown, buildProjectWorkspaceExportTaskPayload, buildSkillsMarkdown, buildTaskMarkdown, downloadMarkdownFile, downloadTaskZip } from './detail/taskExport'
+import { buildAgentMarkdown, buildProjectWorkspaceExportTaskPayload, buildSkillsMarkdown, buildTaskMarkdown, buildTaskZipArchive, downloadMarkdownFile, downloadTaskZip } from './detail/taskExport'
 import { PROJECT_STATUS_COLUMNS, columnsFromProjectStatuses, resolveProjectStatusColumn } from './detail/status'
 import styles from './ProjectDetailPage.module.scss'
 
@@ -50,9 +50,9 @@ const MIN_DETAIL_WIDTH = 420
 const MIN_COMMENTS_WIDTH = 320
 
 type DetailViewMode = 'task' | 'subtask'
-type DetailTab = 'subtasks' | 'customFields' | 'checklist' | 'attachments' | 'details' | 'agent' | 'skills'
+type DetailTab = 'subtasks' | 'customFields' | 'checklist' | 'attachments' | 'details' | 'agent' | 'skills' | 'model'
 type ProjectPromptTab = 'context' | 'prompt' | 'output'
-type ProjectSettingsTab = 'statuses' | 'workspace' | 'projectGroup' | 'agents'
+type ProjectSettingsTab = 'statuses' | 'workspace' | 'projectGroup' | 'agents' | 'codex'
 type ProjectViewMode = 'list' | 'table' | 'board'
 type TextDraftRow = { id: string; title: string }
 type CustomFieldDraftRow = { id: string; field: AppSelectOption | null; value: string }
@@ -60,6 +60,52 @@ type DataFormatRole = OutputFormat['formatRole']
 type TableColumnKind = 'index' | 'name' | 'assignee' | 'status' | 'due' | 'tags' | 'subtasks' | 'priority' | 'custom'
 type TableColumnConfig = { id: string; kind: TableColumnKind; label: string; width: number; required?: boolean; customFieldId?: string }
 type ProjectTableViewConfig = { columns?: TableColumnConfig[]; columnWidths?: Record<string, number> }
+type CodexModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }
+
+function projectCodexSettings(project: Project | null): ProjectCodexSettings {
+  const value = project?.metrics?.codex
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const record = value as Record<string, unknown>
+  return {
+    gatewayId: typeof record.gatewayId === 'string' ? record.gatewayId : null,
+    runtimeWorkspaceId: typeof record.runtimeWorkspaceId === 'string' ? record.runtimeWorkspaceId : null,
+    defaultModel: typeof record.defaultModel === 'string' ? record.defaultModel : null
+  }
+}
+
+function codexConfigOf(gateway?: Gateway | null): CodexCliGatewayConfig {
+  const template = gateway?.template && typeof gateway.template === 'object' && !Array.isArray(gateway.template)
+    ? gateway.template as Partial<CodexCliGatewayConfig>
+    : {}
+  return {
+    provider: 'codex_cli',
+    codexPath: typeof template.codexPath === 'string' ? template.codexPath : gateway?.endpoint ?? 'codex',
+    models: Array.isArray(template.models) ? template.models : [],
+    lastModelRefreshAt: typeof template.lastModelRefreshAt === 'number' ? template.lastModelRefreshAt : undefined,
+    lastModelRefreshError: typeof template.lastModelRefreshError === 'string' ? template.lastModelRefreshError : undefined
+  }
+}
+
+function taskCodexModel(task: TaskEntity | null | undefined): string {
+  const codex = task?.payload?.codex
+  return codex && typeof codex === 'object' && !Array.isArray(codex) && typeof (codex as Record<string, unknown>).model === 'string'
+    ? String((codex as Record<string, unknown>).model)
+    : ''
+}
+
+function taskCodexGatewayId(task: TaskEntity | null | undefined): string {
+  const codex = task?.payload?.codex
+  return codex && typeof codex === 'object' && !Array.isArray(codex) && typeof (codex as Record<string, unknown>).gatewayId === 'string'
+    ? String((codex as Record<string, unknown>).gatewayId)
+    : ''
+}
+
+function codexPayloadOverride(gatewayId: string, model: string): Record<string, string> | undefined {
+  const next: Record<string, string> = {}
+  if (gatewayId) next.gatewayId = gatewayId
+  if (model) next.model = model
+  return Object.keys(next).length > 0 ? next : undefined
+}
 
 function resizeTitleTextarea(element: HTMLTextAreaElement | null) {
   if (!element) return
@@ -370,6 +416,7 @@ export function ProjectDetailPage() {
   const [projectGroups, setProjectGroups] = useState<ProjectGroup[]>([])
   const [tasks, setTasks] = useState<TaskEntity[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
+  const [gateways, setGateways] = useState<Gateway[]>([])
   const [tags, setTags] = useState<Tag[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
   const [customFields, setCustomFields] = useState<CustomField[]>([])
@@ -407,6 +454,15 @@ export function ProjectDetailPage() {
   const [projectPromptOutput, setProjectPromptOutput] = useState('')
   const [projectPromptError, setProjectPromptError] = useState<string | null>(null)
   const [isProjectPromptSaving, setIsProjectPromptSaving] = useState(false)
+  const [codexGatewayId, setCodexGatewayId] = useState('')
+  const [codexRuntimeWorkspaceId, setCodexRuntimeWorkspaceId] = useState('')
+  const [codexDefaultModel, setCodexDefaultModel] = useState('')
+  const [codexModelLoading, setCodexModelLoading] = useState(false)
+  const [codexModelError, setCodexModelError] = useState<string | null>(null)
+  const [codexSaving, setCodexSaving] = useState(false)
+  const [codexRunLaunching, setCodexRunLaunching] = useState(false)
+  const [codexPlanLaunching, setCodexPlanLaunching] = useState(false)
+  const [codexRunFeedback, setCodexRunFeedback] = useState<{ kind: 'error' | 'success'; message: string } | null>(null)
   const [statusDrafts, setStatusDrafts] = useState<ProjectStatus[]>([])
   const [statusMapping, setStatusMapping] = useState<Record<string, string>>({})
   const [createTaskStatus, setCreateTaskStatus] = useState<TaskEntity['status']>('pending')
@@ -471,18 +527,20 @@ export function ProjectDetailPage() {
   const subtaskStatusMenuRef = useRef<HTMLDivElement | null>(null)
   const subtaskClickTimerRef = useRef<number | null>(null)
   const keepActivityBottomRef = useRef(true)
+  const lastCodexModelRefreshRef = useRef<string | null>(null)
 
   const projectLoadError = projectId ? null : 'Project id not found.'
 
   const refresh = async () => {
     if (!projectId) return
-    const [projectResponse, taskResponse, tagsResponse, skillsResponse, customFieldsResponse, agentsResponse, outputFormatsResponse, taskTemplatesResponse, statusesResponse, workspacesResponse, statusTemplatesResponse, projectGroupsResponse] = await Promise.all([
+    const [projectResponse, taskResponse, tagsResponse, skillsResponse, customFieldsResponse, agentsResponse, gatewaysResponse, outputFormatsResponse, taskTemplatesResponse, statusesResponse, workspacesResponse, statusTemplatesResponse, projectGroupsResponse] = await Promise.all([
       invokeBridge<Project>(IPC_CHANNELS.projects.get, { actorToken: token, id: projectId }),
       invokeBridge<TaskEntity[]>(IPC_CHANNELS.tasks.list, { actorToken: token, projectId }),
       loadList<Tag[]>(IPC_CHANNELS.customFields.tagsList, token),
       loadList<Skill[]>(IPC_CHANNELS.skills.list, token),
       loadList<CustomField[]>(IPC_CHANNELS.customFields.list, token),
       loadList<Agent[]>(IPC_CHANNELS.agents.list, token),
+      loadList<Gateway[]>(IPC_CHANNELS.gateways.list, token),
       loadList<OutputFormat[]>(IPC_CHANNELS.outputFormats.list, token),
       loadList<TaskTemplate[]>(IPC_CHANNELS.taskTemplates.list, token),
       invokeBridge<ProjectStatus[]>(IPC_CHANNELS.statuses.getProjectStatuses, { actorToken: token, projectId }),
@@ -503,6 +561,7 @@ export function ProjectDetailPage() {
     setSkills(Array.isArray(skillsResponse.data) ? skillsResponse.data : [])
     setCustomFields(Array.isArray(customFieldsResponse.data) ? customFieldsResponse.data : [])
     setAgents(Array.isArray(agentsResponse.data) ? agentsResponse.data : [])
+    setGateways(Array.isArray(gatewaysResponse.data) ? gatewaysResponse.data : [])
     setOutputFormats(Array.isArray(outputFormatsResponse.data) ? outputFormatsResponse.data : [])
     setTaskTemplates(Array.isArray(taskTemplatesResponse.data) ? taskTemplatesResponse.data : [])
     setProjectStatuses(Array.isArray(statusesResponse.data) ? statusesResponse.data : [])
@@ -521,6 +580,24 @@ export function ProjectDetailPage() {
   useEffect(() => {
     void refresh()
   }, [projectId, token])
+
+  useEffect(() => {
+    const onTaskUpdated = (...args: unknown[]) => {
+      const payload = (args[1] ?? args[0]) as { projectId?: string; taskId?: string; action?: string } | undefined
+      if (!payload?.projectId || payload.projectId !== projectId) return
+      void refresh()
+      if (payload.action === 'created' && payload.taskId) setSelectedTaskId(payload.taskId)
+    }
+    subscribeToChannel(IPC_CHANNELS.events.taskUpdated, onTaskUpdated)
+    return () => unsubscribeFromChannel(IPC_CHANNELS.events.taskUpdated, onTaskUpdated)
+  }, [projectId, token])
+
+  useEffect(() => {
+    const codex = projectCodexSettings(project)
+    setCodexGatewayId(codex.gatewayId ?? '')
+    setCodexRuntimeWorkspaceId(codex.runtimeWorkspaceId ?? '')
+    setCodexDefaultModel(codex.defaultModel ?? '')
+  }, [project?.id, project?.metrics])
 
   const chooseProjectWorkspaceFolder = async () => {
     const pickResponse = await invokeBridge<{ rootPath: string } | null>(IPC_CHANNELS.workspaces.pickFolder, { actorToken: token })
@@ -553,6 +630,17 @@ export function ProjectDetailPage() {
     if (!project?.workspaceId) return null
     return workspaces.find((workspace) => workspace.id === project.workspaceId) ?? null
   }, [project?.workspaceId, workspaces])
+
+  const savedCodexSettings = useMemo(() => projectCodexSettings(project), [project])
+  const selectedCodexGateway = useMemo(() => gateways.find((gateway) => gateway.id === (codexGatewayId || savedCodexSettings.gatewayId)) ?? null, [codexGatewayId, gateways, savedCodexSettings.gatewayId])
+  const selectedCodexConfig = useMemo(() => codexConfigOf(selectedCodexGateway), [selectedCodexGateway])
+  const codexModelOptions = selectedCodexConfig.models ?? []
+  const codexGatewayOptions = useMemo<AppSelectOption[]>(() => gateways.map((gateway) => ({ label: gateway.name, value: gateway.id })), [gateways])
+  const workspaceOptions = useMemo<AppSelectOption[]>(() => workspaces.map((workspace) => ({ label: workspace.name, value: workspace.id })), [workspaces])
+  const projectCodexModelOptions = useMemo<AppSelectOption[]>(() => codexModelOptions.map((model) => ({ label: model.label || model.id, value: model.id })), [codexModelOptions])
+  const selectedCodexGatewayOption = codexGatewayOptions.find((option) => option.value === codexGatewayId) ?? null
+  const selectedRuntimeWorkspaceOption = workspaceOptions.find((option) => option.value === codexRuntimeWorkspaceId) ?? null
+  const selectedDefaultModelOption = projectCodexModelOptions.find((option) => option.value === codexDefaultModel) ?? null
 
   useEffect(() => {
     let cancelled = false
@@ -588,6 +676,53 @@ export function ProjectDetailPage() {
     const workspace = await createWorkspaceFromDraft()
     if (workspace) await updateProjectWorkspace(workspace.id)
   }
+
+  const saveProjectCodexSettings = async () => {
+    if (!project) return
+    setCodexSaving(true)
+    const response = await invokeBridge<Project>(IPC_CHANNELS.projects.update, {
+      actorToken: token,
+      id: project.id,
+      codex: {
+        gatewayId: codexGatewayId || null,
+        runtimeWorkspaceId: codexRuntimeWorkspaceId || null,
+        defaultModel: codexDefaultModel || null
+      }
+    })
+    setCodexSaving(false)
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? 'Unable to save Codex settings')
+      return
+    }
+    setProject(response.data)
+    setError(null)
+  }
+
+  const refreshCodexGatewayModels = async (gatewayId: string) => {
+    if (!gatewayId) return
+    setCodexModelLoading(true)
+    setCodexModelError(null)
+    const response = await invokeBridge<CodexModelsResponse>(IPC_CHANNELS.gateways.codexModels, {
+      actorToken: token,
+      gatewayId
+    })
+    setCodexModelLoading(false)
+    if (!response.ok || !response.data) {
+      setCodexModelError(response.error?.message ?? 'Unable to load Codex models')
+      return
+    }
+    setGateways((current) => current.map((gateway) => gateway.id === response.data!.gateway.id ? response.data!.gateway : gateway))
+    if (response.data.error) setCodexModelError(response.data.error)
+    const modelIds = new Set(response.data.models.map((model) => model.id))
+    if (gatewayId === codexGatewayId && codexDefaultModel && !modelIds.has(codexDefaultModel)) setCodexDefaultModel('')
+    lastCodexModelRefreshRef.current = gatewayId
+  }
+
+  useEffect(() => {
+    if (projectSettingsTab !== 'codex' || !codexGatewayId) return
+    const shouldRefresh = lastCodexModelRefreshRef.current !== codexGatewayId || codexModelOptions.length === 0
+    if (shouldRefresh && !codexModelLoading) void refreshCodexGatewayModels(codexGatewayId)
+  }, [projectSettingsTab, codexGatewayId, codexModelOptions.length])
 
   const updateProjectGroupMembership = async (nextGroupId: string | null) => {
     if (!project) return
@@ -676,6 +811,20 @@ export function ProjectDetailPage() {
     () => hydratedTasks.find((task) => task.id === selectedTaskId) ?? null,
     [hydratedTasks, selectedTaskId]
   )
+  useEffect(() => {
+    setCodexRunFeedback(null)
+  }, [selectedTaskId])
+  const selectedTaskGatewayId = taskCodexGatewayId(selectedTask)
+  const effectiveTaskGatewayId = selectedTaskGatewayId || savedCodexSettings.gatewayId || ''
+  const effectiveTaskGateway = gateways.find((gateway) => gateway.id === effectiveTaskGatewayId) ?? null
+  const taskModelOptions = useMemo<AppSelectOption[]>(() => (codexConfigOf(effectiveTaskGateway).models ?? []).map((model) => ({ label: model.label || model.id, value: model.id })), [effectiveTaskGateway])
+  const selectedTaskGatewayOption = selectedTaskGatewayId ? codexGatewayOptions.find((option) => option.value === selectedTaskGatewayId) ?? null : null
+  const selectedTaskModelOption = taskModelOptions.find((option) => option.value === taskCodexModel(selectedTask)) ?? null
+  useEffect(() => {
+    if (detailTab !== 'model' || !effectiveTaskGatewayId) return
+    const shouldRefresh = lastCodexModelRefreshRef.current !== effectiveTaskGatewayId || taskModelOptions.length === 0
+    if (shouldRefresh && !codexModelLoading) void refreshCodexGatewayModels(effectiveTaskGatewayId)
+  }, [detailTab, effectiveTaskGatewayId, taskModelOptions.length, codexModelLoading])
 
   useEffect(() => {
     const nextDescription = prefixDataFormatTokens(
@@ -1106,6 +1255,93 @@ export function ProjectDetailPage() {
   }, [agents, customFields, project, projectGroupForExport, projectStatuses, selectedTask, skills, tags])
   const selectedTaskAgentMarkdown = selectedTaskExportContext ? buildAgentMarkdown(selectedTaskExportContext) : ''
   const selectedTaskSkillsMarkdown = selectedTaskExportContext ? buildSkillsMarkdown(selectedTaskExportContext) : ''
+  const selectedTaskRunGatewayId = selectedTask ? taskCodexGatewayId(selectedTask) || savedCodexSettings.gatewayId || '' : ''
+  const selectedTaskRunModel = selectedTask ? taskCodexModel(selectedTask) || savedCodexSettings.defaultModel || '' : ''
+  const canRunSelectedTaskWithCodex = Boolean(selectedTaskExportContext && selectedTaskRunGatewayId && selectedTaskRunModel)
+  const canPlanSelectedTaskWithCodex = Boolean(selectedTask && selectedTaskRunGatewayId && selectedTaskRunModel)
+
+  const runSelectedTaskWithCodex = async () => {
+    if (!selectedTask || !selectedTaskExportContext || !project) {
+      setCodexRunFeedback({ kind: 'error', message: 'Task is not ready for a Codex run.' })
+      return
+    }
+    const gatewayId = taskCodexGatewayId(selectedTask) || savedCodexSettings.gatewayId || ''
+    const model = taskCodexModel(selectedTask) || savedCodexSettings.defaultModel || ''
+    if (!gatewayId) {
+      setCodexRunFeedback({ kind: 'error', message: 'Configure a Codex gateway before running this task.' })
+      setDetailTab('model')
+      return
+    }
+    if (!model) {
+      setCodexRunFeedback({ kind: 'error', message: 'Choose a Codex model before running this task.' })
+      setDetailTab('model')
+      return
+    }
+    setCodexRunFeedback(null)
+    setCodexRunLaunching(true)
+    try {
+      const { fileName, archive } = await buildTaskZipArchive(selectedTaskExportContext)
+      const response = await invokeBridge<{ runFolderPath: string; workspacePath: string; model: string; gatewayId: string; command?: string }>(IPC_CHANNELS.tasks.runCodex, {
+        actorToken: token,
+        taskId: selectedTask.id,
+        projectId: project.id,
+        zipName: fileName,
+        zipBytes: archive,
+        gatewayId,
+        model
+      })
+      if (!response.ok) {
+        setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex terminal' })
+        return
+      }
+      setCodexRunFeedback({ kind: 'success', message: `Codex terminal launched. Workspace: ${response.data.workspacePath}` })
+      setError(null)
+    } catch (error) {
+      setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to launch Codex terminal' })
+    } finally {
+      setCodexRunLaunching(false)
+    }
+  }
+
+  const planSelectedTaskWithCodex = async () => {
+    if (!selectedTask || !project) {
+      setCodexRunFeedback({ kind: 'error', message: 'Task is not ready for Codex planning.' })
+      return
+    }
+    const gatewayId = taskCodexGatewayId(selectedTask) || savedCodexSettings.gatewayId || ''
+    const model = taskCodexModel(selectedTask) || savedCodexSettings.defaultModel || ''
+    if (!gatewayId) {
+      setCodexRunFeedback({ kind: 'error', message: 'Configure a Codex gateway before planning this task.' })
+      setDetailTab('model')
+      return
+    }
+    if (!model) {
+      setCodexRunFeedback({ kind: 'error', message: 'Choose a Codex model before planning this task.' })
+      setDetailTab('model')
+      return
+    }
+    setCodexRunFeedback(null)
+    setCodexPlanLaunching(true)
+    try {
+      const response = await invokeBridge<{ runFolderPath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; bridgeUrl?: string; command?: string }>(IPC_CHANNELS.tasks.planWithCodex, {
+        actorToken: token,
+        taskId: selectedTask.id,
+        projectId: project.id,
+        gatewayId,
+        model
+      })
+      if (!response.ok) {
+        setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex planner' })
+        return
+      }
+      setCodexRunFeedback({ kind: 'success', message: `Codex planner launched. Runtime workspace: ${response.data.runtimeWorkspacePath}` })
+      setError(null)
+    } catch (error) {
+      setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to launch Codex planner' })
+    } finally {
+      setCodexPlanLaunching(false)
+    }
+  }
 
   const closeSelectedTaskDetail = () => {
     setSelectedTaskId(null)
@@ -1251,26 +1487,6 @@ export function ProjectDetailPage() {
     await refresh()
   }
 
-  const syncAgentForUse = async (agentId?: string | null) => {
-    if (!agentId) return null
-    try {
-      const response = await invokeBridge<OpenClawAgentSyncResult>(IPC_CHANNELS.agents.syncOpenClaw, {
-        actorToken: token,
-        id: agentId
-      })
-      if (!response.ok) return response.error?.message ?? 'Agent was saved locally, but OpenClaw sync failed'
-      if (response.data?.status === 'failed') return response.data.error ?? 'Agent was saved locally, but OpenClaw sync failed'
-      return null
-    } catch (error) {
-      return error instanceof Error ? error.message : 'Agent was saved locally, but OpenClaw sync failed'
-    }
-  }
-
-  const syncAgentForUseWarning = async (agentId?: string | null) => {
-    const warning = await syncAgentForUse(agentId)
-    if (warning) setError(warning)
-  }
-
   const openCreateTask = (status: TaskEntity['status'] = defaultStatus) => {
     setCreateTaskStatus(status)
     setIsCreateTaskOpen(true)
@@ -1300,10 +1516,9 @@ export function ProjectDetailPage() {
         input: { ...input, projectId },
         templates: taskTemplates,
         statusColumns,
-        defaultStatus,
-        outputFormats,
-        onAgentUsed: syncAgentForUse
-      })
+      defaultStatus,
+      outputFormats
+    })
       if (result.warnings[0]) setError(result.warnings[0])
       setIsCreateTaskOpen(false)
       setCreateTaskInitialTitle('')
@@ -1747,7 +1962,34 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update task agent')
       return
     }
-    void syncAgentForUseWarning(agentId)
+    await refresh()
+  }
+
+  const setTaskCodexSelection = async (patch: { gatewayId?: string | null; model?: string | null }) => {
+    if (!selectedTask) return
+    const nextPayload: Record<string, unknown> = { ...(selectedTask.payload ?? {}) }
+    const currentCodex = nextPayload.codex && typeof nextPayload.codex === 'object' && !Array.isArray(nextPayload.codex)
+      ? nextPayload.codex as Record<string, unknown>
+      : {}
+    const currentGatewayId = typeof currentCodex.gatewayId === 'string' ? currentCodex.gatewayId : ''
+    const currentModel = typeof currentCodex.model === 'string' ? currentCodex.model : ''
+    const nextGatewayId = patch.gatewayId === undefined ? currentGatewayId : patch.gatewayId ?? ''
+    const nextModel = patch.model === undefined ? currentModel : patch.model ?? ''
+    const override = codexPayloadOverride(nextGatewayId, nextModel)
+    if (override) {
+      nextPayload.codex = override
+    } else {
+      nextPayload.codex = undefined
+    }
+    const response = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
+      actorToken: token,
+      id: selectedTask.id,
+      payload: nextPayload
+    })
+    if (!response.ok) {
+      setError(response.error?.message ?? 'Unable to update task model')
+      return
+    }
     await refresh()
   }
 
@@ -1768,7 +2010,6 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update subtask agent')
       return
     }
-    void syncAgentForUseWarning(agentId)
     await refresh()
   }
 
@@ -2142,7 +2383,6 @@ export function ProjectDetailPage() {
         setError(updateResponse.error?.message ?? 'Subtask created, but details could not be saved')
       }
     }
-    void syncAgentForUseWarning(input.agentId)
     setIsAddSubtaskOpen(false)
     await refresh()
   }
@@ -2738,7 +2978,7 @@ export function ProjectDetailPage() {
           setCreateTaskInitialTitle('')
           setCreateTaskInitialTemplateId(null)
         }}
-        onCreate={(input) => void handleCreateTask({ ...input, projectId })}
+        onCreate={(input) => void handleCreateTask({ ...input, projectId: projectId ?? input.projectId })}
       />
 
       <AddSubtaskModal
@@ -2932,6 +3172,13 @@ export function ProjectDetailPage() {
                 >
                   Agents
                 </button>
+                <button
+                  type="button"
+                  className={`${styles.projectPromptTab} ${projectSettingsTab === 'codex' ? styles.projectPromptTabActive : ''}`}
+                  onClick={() => setProjectSettingsTab('codex')}
+                >
+                  Gateway settings
+                </button>
               </div>
             </div>
             <div className={styles.projectSettingsBody}>
@@ -3120,6 +3367,58 @@ export function ProjectDetailPage() {
                   )}
                 </div>
               ) : null}
+              {projectSettingsTab === 'codex' ? (
+                <div className={styles.settingsPanel}>
+                  <div className={styles.settingsPanelHeader}>
+                    <div>
+                      <h4>Gateway settings</h4>
+                      <p>Choose the CLI gateway, runtime workspace, and default Codex model for this project.</p>
+                    </div>
+                  </div>
+                  <div className={styles.settingsFormGrid}>
+                    <label>
+                      <span>Active gateway</span>
+                      <AppSelect
+                        value={selectedCodexGatewayOption}
+                        options={codexGatewayOptions}
+                        placeholder="Select gateway"
+                        onChange={(option) => {
+                          const nextGatewayId = option?.value ?? ''
+                          const nextGateway = gateways.find((item) => item.id === nextGatewayId)
+                          const models = codexConfigOf(nextGateway).models ?? []
+                          setCodexGatewayId(nextGatewayId)
+                          setCodexModelError(null)
+                          if (!models.some((model) => model.id === codexDefaultModel)) setCodexDefaultModel('')
+                        }}
+                      />
+                    </label>
+                    <label>
+                      <span>Runtime workspace</span>
+                      <AppSelect
+                        value={selectedRuntimeWorkspaceOption}
+                        options={workspaceOptions}
+                        placeholder="Select workspace"
+                        onChange={(option) => setCodexRuntimeWorkspaceId(option?.value ?? '')}
+                      />
+                    </label>
+                    <label>
+                      <span>Default model</span>
+                      <AppSelect
+                        value={selectedDefaultModelOption}
+                        options={projectCodexModelOptions}
+                        placeholder={codexModelLoading ? 'Loading models...' : codexModelOptions.length > 0 ? 'Select default model' : 'Select a gateway to load models'}
+                        isDisabled={!codexGatewayId || codexModelOptions.length === 0}
+                        onChange={(option) => setCodexDefaultModel(option?.value ?? '')}
+                      />
+                    </label>
+                  </div>
+                  {codexModelLoading ? <div className={styles.settingsEmptyState}>Loading models from Codex CLI...</div> : null}
+                  {codexModelError ? <div className={styles.settingsEmptyState}>{codexModelError}</div> : null}
+                  {selectedCodexGateway && codexModelOptions.length === 0 ? (
+                    <div className={styles.settingsEmptyState}>No models are available yet. Model inspect runs automatically when this gateway is selected.</div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
             <footer className={styles.createTaskFooter}>
               {projectSettingsTab === 'statuses' ? (
@@ -3137,6 +3436,13 @@ export function ProjectDetailPage() {
                   <span>Project group assignment controls where this project appears in group views.</span>
                   <button type="button" onClick={() => projectGroupForExport ? void saveSelectedProjectGroup() : setIsStatusEditorOpen(false)} disabled={projectGroupSaving || Boolean(projectGroupForExport && !projectGroupNameDraft.trim())}>
                     {projectGroupForExport ? 'Save group' : 'Done'}
+                  </button>
+                </>
+              ) : projectSettingsTab === 'codex' ? (
+                <>
+                  <span>Task and template model tabs inherit this gateway default unless they explicitly override it.</span>
+                  <button type="button" onClick={() => void saveProjectCodexSettings()} disabled={codexSaving || !codexGatewayId || !codexRuntimeWorkspaceId || !codexDefaultModel}>
+                    {codexSaving ? 'Saving...' : 'Save Codex settings'}
                   </button>
                 </>
               ) : (
@@ -3290,6 +3596,12 @@ export function ProjectDetailPage() {
             }}
             onDownloadAgentMarkdown={selectedTaskAgentMarkdown.trim() ? () => downloadMarkdownFile('Agents.md', selectedTaskAgentMarkdown) : undefined}
             onDownloadSkillsMarkdown={selectedTaskSkillsMarkdown.trim() ? () => downloadMarkdownFile('Skills.md', selectedTaskSkillsMarkdown) : undefined}
+            onRunCodex={() => void runSelectedTaskWithCodex()}
+            isRunCodexBusy={codexRunLaunching}
+            isRunCodexDisabled={!canRunSelectedTaskWithCodex}
+            onPlanWithCodex={() => void planSelectedTaskWithCodex()}
+            isPlanWithCodexBusy={codexPlanLaunching}
+            isPlanWithCodexDisabled={!canPlanSelectedTaskWithCodex}
             onImportJson={() => setIsTaskImportOpen(true)}
           >
             <TaskDetailContent
@@ -3323,6 +3635,11 @@ export function ProjectDetailPage() {
                     {selectedTask.title}
                   </button>
                 </section>
+                {codexRunFeedback ? (
+                  <section className={`${styles.codexRunFeedback} ${codexRunFeedback.kind === 'error' ? styles.codexRunFeedbackError : styles.codexRunFeedbackSuccess}`}>
+                    {codexRunFeedback.message}
+                  </section>
+                ) : null}
 
                 <section className={styles.detailTop}>
                   <div className={styles.taskTypeRow}>
@@ -3663,6 +3980,14 @@ export function ProjectDetailPage() {
                           <LuSparkles size={15} />
                           Skills
                         </button>
+                        <button
+                          type="button"
+                          className={detailTab === 'model' ? styles.tabActive : styles.tabBtn}
+                          onClick={() => setDetailTab('model')}
+                        >
+                          <LuSettings2 size={15} />
+                          Model
+                        </button>
                       </div>
                       {detailTab === 'subtasks' ? (
                         <>
@@ -4000,6 +4325,71 @@ export function ProjectDetailPage() {
                             ctaDescription="Select one or more skills needed for this task."
                             onChange={setTaskSkills}
                           />
+                        </>
+                      ) : detailTab === 'model' ? (
+                        <>
+                          <div className={styles.detailSectionHeader}>
+                            <div>
+                              <h4>Model</h4>
+                              <p>{taskCodexModel(selectedTask) || `Project default: ${savedCodexSettings.defaultModel ?? 'Not configured'}`}</p>
+                            </div>
+                          </div>
+                          {!savedCodexSettings.gatewayId || !savedCodexSettings.defaultModel ? (
+                            <div className={styles.tabCtaCard}>
+                              <div>
+                                <strong>Project Codex settings required</strong>
+                                <span>Configure a gateway and default model in Project settings first.</span>
+                              </div>
+                              <button type="button" className={styles.tabActionButton} onClick={() => { setIsStatusEditorOpen(true); setProjectSettingsTab('codex') }}>
+                                Open settings
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className={styles.codexSummaryCard}>
+                                <div>
+                                  <span>Gateway</span>
+                                  <strong>{selectedTaskGatewayId ? effectiveTaskGateway?.name ?? selectedTaskGatewayId : `Project default: ${selectedCodexGateway?.name ?? savedCodexSettings.gatewayId}`}</strong>
+                                </div>
+                                <div>
+                                  <span>Model</span>
+                                  <strong>{taskCodexModel(selectedTask) || `Project default: ${savedCodexSettings.defaultModel}`}</strong>
+                                </div>
+                              </div>
+                              <div className={styles.settingsFormGrid}>
+                                <label>
+                                  <span>Task gateway</span>
+                                  <AppSelect
+                                    value={selectedTaskGatewayOption}
+                                    options={codexGatewayOptions}
+                                    placeholder={`Use project default gateway: ${selectedCodexGateway?.name ?? savedCodexSettings.gatewayId}`}
+                                    isClearable
+                                    onChange={(option) => {
+                                      const nextGatewayId = option?.value ?? ''
+                                      const nextGateway = gateways.find((gateway) => gateway.id === (nextGatewayId || savedCodexSettings.gatewayId))
+                                      const models = codexConfigOf(nextGateway).models ?? []
+                                      const currentModel = taskCodexModel(selectedTask)
+                                      void setTaskCodexSelection({
+                                        gatewayId: nextGatewayId || null,
+                                        model: currentModel && models.some((model) => model.id === currentModel) ? currentModel : null
+                                      })
+                                    }}
+                                  />
+                                </label>
+                                <label>
+                                  <span>Task model</span>
+                                  <AppSelect
+                                    value={selectedTaskModelOption}
+                                    options={taskModelOptions}
+                                    placeholder={`Use project default model: ${savedCodexSettings.defaultModel}`}
+                                    isClearable
+                                    isDisabled={taskModelOptions.length === 0}
+                                    onChange={(option) => void setTaskCodexSelection({ model: option?.value ?? null })}
+                                  />
+                                </label>
+                              </div>
+                            </>
+                          )}
                         </>
                       ) : null}
                     </>

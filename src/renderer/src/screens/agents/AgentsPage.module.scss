@@ -281,8 +281,8 @@
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: min(780px, calc(100vw - 36px));
-  max-height: min(86vh, 860px);
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
   border: 1px solid var(--omc-border-subtle);
   border-radius: 18px;
   background: var(--omc-surface);
@@ -308,15 +308,21 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 14px;
 
   h2 {
+    min-width: 0;
     margin: 0;
     color: var(--omc-text-strong);
     font-size: 1rem;
     font-weight: 850;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   button {
+    flex: 0 0 auto;
     width: 32px;
     height: 32px;
     border: 1px solid var(--omc-input-border);
@@ -330,9 +336,11 @@
 }
 
 .modalHeaderActions {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .modalHeader .headerActionButton {
@@ -343,6 +351,7 @@
   color: var(--omc-text-strong);
   font-size: 0.82rem;
   font-weight: 850;
+  white-space: nowrap;
 }
 
 .agentForm {
@@ -380,6 +389,7 @@
   input,
   select,
   textarea {
+    box-sizing: border-box;
     width: 100%;
     border: 1px solid var(--omc-input-border);
     border-radius: 10px;
@@ -395,6 +405,7 @@
   }
 
   textarea {
+    min-height: 96px;
     resize: vertical;
   }
 }
@@ -533,6 +544,7 @@
   border-top: 1px solid var(--omc-border-subtle);
   padding-top: 16px;
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 10px;
 }
@@ -554,7 +566,50 @@
     flex-direction: column;
   }
 
+  .headerActions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .agentModal,
+  .confirmModal,
+  .importModal {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+    border-radius: 14px;
+  }
+
+  .modalHeader {
+    min-height: 54px;
+    padding: 0 14px;
+  }
+
+  .modalHeader .headerActionButton {
+    width: 32px;
+    padding: 0;
+    font-size: 0;
+    gap: 0;
+  }
+
+  .agentFormContent,
+  .importBody,
+  .confirmBody {
+    padding: 14px;
+  }
+
+  .agentForm > .modalFooter {
+    padding: 12px 14px;
+  }
+
   .formGrid {
     grid-template-columns: 1fr;
+  }
+
+  .modalFooter {
+    flex-wrap: wrap;
+
+    button {
+      flex: 1 1 140px;
+    }
   }
 }

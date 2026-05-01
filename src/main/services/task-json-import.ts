@@ -10,6 +10,7 @@ type FieldType = CustomField['type']
 export type NormalizedTaskJsonImport = {
   title: string
   description: string
+  status: string
   agentId: string | null
   tagIds: string[]
   skillIds: string[]
@@ -23,6 +24,7 @@ export type NormalizedTaskJsonImport = {
 export type NormalizedImportedSubtask = {
   title: string
   description: string
+  status: string
   agentId: string | null
   assigneeName: string
   tagIds: string[]
@@ -33,7 +35,7 @@ export type NormalizedImportedSubtask = {
   dueAt?: number
 }
 
-const UNSUPPORTED_KEYS = ['status', 'inputFormatId', 'outputFormatId', 'attachments', 'agent', 'skills']
+const UNSUPPORTED_KEYS = ['inputFormatId', 'outputFormatId', 'attachments', 'agent', 'skills']
 
 function asObject(value: unknown): ImportObject {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as ImportObject : {}
@@ -156,6 +158,7 @@ export class TaskJsonImportNormalizer {
     const title = typeof root.title === 'string' ? root.title.trim() : ''
     if (!title) throw new Error('title is required.')
     const description = typeof root.description === 'string' ? root.description : ''
+    const status = typeof root.status === 'string' ? root.status.trim() : ''
     const tagIds = await this.resolveTags(root.tags)
     const customFieldValues = await this.resolveCustomFields(root.customFields)
     const checklistItems = normalizeChecklist(root.checklist)
@@ -171,6 +174,7 @@ export class TaskJsonImportNormalizer {
       subtasks.push({
         title: subtaskTitle,
         description: typeof subtask.description === 'string' ? subtask.description : '',
+        status: typeof subtask.status === 'string' ? subtask.status.trim() : '',
         agentId: null,
         assigneeName: '',
         tagIds: await this.resolveTags(subtask.tags),
@@ -184,6 +188,7 @@ export class TaskJsonImportNormalizer {
     return {
       title,
       description,
+      status,
       agentId: null,
       tagIds,
       skillIds: [],
@@ -199,7 +204,7 @@ export class TaskJsonImportNormalizer {
     return {
       title: normalized.title,
       description: normalized.description,
-      status: '',
+      status: normalized.status,
       agentId: normalized.agentId,
       tagIds: normalized.tagIds,
       skillIds: normalized.skillIds,
@@ -211,7 +216,7 @@ export class TaskJsonImportNormalizer {
       attachments: [],
       subtasks: normalized.subtasks.map((subtask) => ({
         title: subtask.title,
-        status: '',
+        status: subtask.status,
         agentId: subtask.agentId,
         dueAt: subtask.dueAt,
         inputFormatId: null,

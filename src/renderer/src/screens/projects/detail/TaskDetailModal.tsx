@@ -1,5 +1,5 @@
-import { DragEvent, ReactNode, useEffect, useRef, useState } from 'react'
-import { LuCopy, LuDownload, LuExternalLink, LuFileText, LuHistory, LuEllipsis, LuPencil, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
+import { DragEvent, PointerEvent, ReactNode, useEffect, useRef, useState } from 'react'
+import { LuCopy, LuDownload, LuExternalLink, LuFileText, LuHistory, LuEllipsis, LuPencil, LuPlay, LuSparkles, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
 import styles from './TaskDetailModal.module.scss'
 
 interface TaskDetailModalProps {
@@ -17,6 +17,12 @@ interface TaskDetailModalProps {
   onDownloadTaskMarkdown?: () => void
   onDownloadAgentMarkdown?: () => void
   onDownloadSkillsMarkdown?: () => void
+  onRunCodex?: () => void
+  isRunCodexBusy?: boolean
+  isRunCodexDisabled?: boolean
+  onPlanWithCodex?: () => void
+  isPlanWithCodexBusy?: boolean
+  isPlanWithCodexDisabled?: boolean
   onImportJson?: () => void
 }
 
@@ -35,6 +41,12 @@ export function TaskDetailModal({
   onDownloadTaskMarkdown,
   onDownloadAgentMarkdown,
   onDownloadSkillsMarkdown,
+  onRunCodex,
+  isRunCodexBusy = false,
+  isRunCodexDisabled = false,
+  onPlanWithCodex,
+  isPlanWithCodexBusy = false,
+  isPlanWithCodexDisabled = false,
   onImportJson
 }: TaskDetailModalProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -68,6 +80,155 @@ export function TaskDetailModal({
     void navigator.clipboard?.writeText(url.toString())
     setIsMenuOpen(false)
   }
+
+  const runHeaderAction = (event: PointerEvent<HTMLButtonElement>, action: () => void) => {
+    event.preventDefault()
+    event.stopPropagation()
+    action()
+  }
+
+  const actions = (
+    <>
+      {!hideTaskActions ? (
+        <>
+          {onImportJson ? (
+            <button
+              type="button"
+              className={styles.iconButton}
+              onPointerDown={(event) => runHeaderAction(event, onImportJson)}
+              aria-label="Import JSON"
+            >
+              <LuUpload size={16} />
+            </button>
+          ) : null}
+          {hasDownloadActions ? (
+            <div className={styles.menuWrap} ref={downloadMenuRef}>
+              <button
+                type="button"
+                className={`${styles.iconButton} ${isDownloadMenuOpen ? styles.iconButtonActive : ''}`}
+                onPointerDown={(event) => runHeaderAction(event, () => {
+                  setIsMenuOpen(false)
+                  setIsDownloadMenuOpen((value) => !value)
+                })}
+                aria-label="Download task"
+              >
+                <LuDownload size={17} />
+              </button>
+              {isDownloadMenuOpen ? (
+                <div className={styles.menu} role="menu">
+                  {onDownloadZip ? (
+                    <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadZip() }}><LuDownload size={15} /> Download ZIP</button>
+                  ) : null}
+                  {onDownloadTaskMarkdown ? (
+                    <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadTaskMarkdown() }}><LuFileText size={15} /> Download Task.md</button>
+                  ) : null}
+                  {onDownloadAgentMarkdown ? (
+                    <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadAgentMarkdown() }}><LuFileText size={15} /> Download Agents.md</button>
+                  ) : null}
+                  {onDownloadSkillsMarkdown ? (
+                    <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadSkillsMarkdown() }}><LuFileText size={15} /> Download Skills.md</button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <div className={styles.menuWrap} ref={menuRef}>
+            <button
+              type="button"
+              className={`${styles.iconButton} ${isMenuOpen ? styles.iconButtonActive : ''}`}
+              onPointerDown={(event) => runHeaderAction(event, () => {
+                setIsDownloadMenuOpen(false)
+                setIsMenuOpen((value) => !value)
+              })}
+              aria-label="Task actions"
+            >
+              <LuEllipsis size={18} />
+            </button>
+            {isMenuOpen ? (
+              <div className={styles.menu} role="menu">
+                <button type="button" onClick={copyTaskLink}><LuExternalLink size={15} /> Copy link</button>
+                <button type="button" onClick={copyTaskId}><LuCopy size={15} /> Copy task ID</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMenuOpen(false)
+                    onEditTitle()
+                  }}
+                >
+                  <LuPencil size={15} /> Edit title
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMenuOpen(false)
+                    onOpenActivity()
+                  }}
+                >
+                  <LuHistory size={15} /> Open activity logs
+                </button>
+                <button
+                  type="button"
+                  className={styles.dangerAction}
+                  onClick={() => {
+                    setIsMenuOpen(false)
+                    onDeleteTask()
+                  }}
+                >
+                  <LuTrash2 size={15} /> Delete task
+                </button>
+              </div>
+            ) : null}
+          </div>
+          <div className={styles.primaryActions}>
+            {onPlanWithCodex ? (
+              <button
+                type="button"
+                className={`${styles.iconButton} ${styles.planButton}`}
+                onPointerDown={(event) => runHeaderAction(event, () => {
+                  if (!isPlanWithCodexBusy) onPlanWithCodex()
+                })}
+                disabled={isPlanWithCodexBusy}
+                aria-label="Plan task with Codex"
+                title={isPlanWithCodexDisabled ? 'Configure Codex gateway and model before planning this task.' : 'Plan task with Codex'}
+              >
+                <LuSparkles size={16} />
+              </button>
+            ) : null}
+            {onRunCodex ? (
+              <button
+                type="button"
+                className={`${styles.iconButton} ${styles.runButton}`}
+                onPointerDown={(event) => runHeaderAction(event, () => {
+                  if (!isRunCodexBusy) onRunCodex()
+                })}
+                disabled={isRunCodexBusy}
+                aria-label="Run task with Codex"
+                title={isRunCodexDisabled ? 'Configure Codex gateway and model before running this task.' : 'Run task with Codex'}
+              >
+                <LuPlay size={16} />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={styles.iconButton}
+              onPointerDown={(event) => runHeaderAction(event, onOpenActivity)}
+              aria-label="Open activity logs"
+            >
+              <LuHistory size={16} />
+            </button>
+          </div>
+        </>
+      ) : null}
+      <button
+        type="button"
+        className={styles.iconButton}
+        onPointerDown={(event) => runHeaderAction(event, onClose)}
+        aria-label="Close task modal"
+      >
+        <LuX size={18} />
+      </button>
+    </>
+  )
 
   return (
     <>
@@ -109,99 +270,7 @@ export function TaskDetailModal({
             <span className={styles.headerTitle}>{title}</span>
           </div>
           <div className={styles.headerActions}>
-            {!hideTaskActions ? (
-              <>
-                <button type="button" className={styles.iconButton} onClick={onOpenActivity} aria-label="Open activity logs">
-                  <LuHistory size={16} />
-                </button>
-                {onImportJson ? (
-                  <button type="button" className={styles.iconButton} onClick={onImportJson} aria-label="Import JSON">
-                    <LuUpload size={16} />
-                  </button>
-                ) : null}
-                {hasDownloadActions ? (
-                  <div className={styles.menuWrap} ref={downloadMenuRef}>
-                    <button
-                      type="button"
-                      className={`${styles.iconButton} ${isDownloadMenuOpen ? styles.iconButtonActive : ''}`}
-                      onClick={() => {
-                        setIsMenuOpen(false)
-                        setIsDownloadMenuOpen((value) => !value)
-                      }}
-                      aria-label="Download task"
-                    >
-                      <LuDownload size={17} />
-                    </button>
-                    {isDownloadMenuOpen ? (
-                      <div className={styles.menu} role="menu">
-                        {onDownloadZip ? (
-                          <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadZip() }}><LuDownload size={15} /> Download ZIP</button>
-                        ) : null}
-                        {onDownloadTaskMarkdown ? (
-                          <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadTaskMarkdown() }}><LuFileText size={15} /> Download Task.md</button>
-                        ) : null}
-                        {onDownloadAgentMarkdown ? (
-                          <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadAgentMarkdown() }}><LuFileText size={15} /> Download Agents.md</button>
-                        ) : null}
-                        {onDownloadSkillsMarkdown ? (
-                          <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadSkillsMarkdown() }}><LuFileText size={15} /> Download Skills.md</button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-                <div className={styles.menuWrap} ref={menuRef}>
-                  <button
-                    type="button"
-                    className={`${styles.iconButton} ${isMenuOpen ? styles.iconButtonActive : ''}`}
-                    onClick={() => {
-                      setIsDownloadMenuOpen(false)
-                      setIsMenuOpen((value) => !value)
-                    }}
-                    aria-label="Task actions"
-                  >
-                    <LuEllipsis size={18} />
-                  </button>
-                  {isMenuOpen ? (
-                    <div className={styles.menu} role="menu">
-                      <button type="button" onClick={copyTaskLink}><LuExternalLink size={15} /> Copy link</button>
-                      <button type="button" onClick={copyTaskId}><LuCopy size={15} /> Copy task ID</button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsMenuOpen(false)
-                          onEditTitle()
-                        }}
-                      >
-                        <LuPencil size={15} /> Edit title
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsMenuOpen(false)
-                          onOpenActivity()
-                        }}
-                      >
-                        <LuHistory size={15} /> Open activity logs
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.dangerAction}
-                        onClick={() => {
-                          setIsMenuOpen(false)
-                          onDeleteTask()
-                        }}
-                      >
-                        <LuTrash2 size={15} /> Delete task
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              </>
-            ) : null}
-            <button type="button" className={styles.iconButton} onClick={onClose} aria-label="Close task modal">
-              <LuX size={18} />
-            </button>
+            {actions}
           </div>
         </header>
         {children}

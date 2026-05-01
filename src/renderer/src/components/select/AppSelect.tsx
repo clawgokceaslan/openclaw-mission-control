@@ -15,6 +15,7 @@ type BaseProps = {
   options: AppSelectOption[]
   placeholder?: string
   isClearable?: boolean
+  isDisabled?: boolean
   onCreateOption?: (value: string) => void
   variant?: 'default' | 'borderless'
 }
@@ -41,12 +42,22 @@ export function AppSelect(props: AppSelectProps) {
     options,
     placeholder = 'Select...',
     isClearable = false,
+    isDisabled = false,
     onCreateOption,
     variant = 'default'
   } = props
   const isMulti = props.mode === 'multi'
   const Component = props.creatable ? CreatableSelect : Select
+  const menuPortalTarget = typeof document === 'undefined' ? undefined : document.body
   const selectStyles = useMemo<StylesConfig<AppSelectOption, boolean>>(() => ({
+    menuPortal: (base) => ({
+      ...base,
+      zIndex: 1700
+    }),
+    menu: (base) => ({
+      ...base,
+      minWidth: 'max(100%, 180px)'
+    }),
     multiValue: (base, state) => {
       const color = state.data.color
       if (!color) return base
@@ -99,8 +110,11 @@ export function AppSelect(props: AppSelectProps) {
       value={props.value as AppSelectOption[] | AppSelectOption | null}
       isMulti={isMulti}
       isClearable={isClearable}
+      isDisabled={isDisabled}
       placeholder={placeholder}
       menuPlacement="auto"
+      menuPosition="fixed"
+      menuPortalTarget={menuPortalTarget}
       onCreateOption={onCreateOption}
       styles={selectStyles}
       formatOptionLabel={(option) => (
