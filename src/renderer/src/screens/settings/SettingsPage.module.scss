@@ -97,6 +97,73 @@
   flex: 0 0 auto;
 }
 
+.statusCtaRow {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mcpStatusBadge {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 8px;
+  background: var(--omc-surface-muted);
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 4px 10px;
+
+  > span {
+    width: 10px;
+    height: 10px;
+    margin-top: 5px;
+    border-radius: 50%;
+    background: var(--omc-text-muted);
+  }
+
+  strong,
+  small {
+    min-width: 0;
+  }
+
+  strong {
+    color: var(--omc-text-strong);
+    font-size: 0.94rem;
+  }
+
+  small {
+    grid-column: 2;
+    color: var(--omc-text-muted);
+    line-height: 1.45;
+  }
+}
+
+.mcpStatusOnline {
+  border-color: var(--omc-success-border);
+  background: var(--omc-success-bg);
+
+  > span {
+    background: var(--omc-success-strong);
+  }
+}
+
+.mcpStatusOffline {
+  border-color: var(--omc-danger-border);
+  background: var(--omc-danger-bg);
+
+  > span {
+    background: var(--omc-danger);
+  }
+}
+
+.mcpStatusUnknown {
+  > span {
+    background: var(--omc-text-muted);
+  }
+}
+
 .infoGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -225,6 +292,10 @@
   .clientGrid,
   .infoGrid {
     grid-template-columns: 1fr;
+  }
+
+  .statusCtaRow {
+    display: grid;
   }
 
   .header {

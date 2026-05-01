@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { LuCheck, LuClipboard, LuPlugZap, LuRefreshCw, LuTerminal } from 'react-icons/lu'
-import { IPC_CHANNELS } from '@shared/contracts/ipc'
+import { IPC_CHANNELS, type McpStatusResponse } from '@shared/contracts/ipc'
 import { invokeBridge } from '@renderer/utils/api'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import styles from './SettingsPage.module.scss'
@@ -33,7 +33,8 @@ export function SettingsPage() {
   const [setup, setSetup] = useState<McpSetupInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [busy, setBusy] = useState<InstallClient | 'refresh' | null>(null)
+  const [mcpStatus, setMcpStatus] = useState<McpStatusResponse | null>(null)
+  const [busy, setBusy] = useState<InstallClient | 'refresh' | 'status' | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
 
   const refresh = async () => {
@@ -49,8 +50,26 @@ export function SettingsPage() {
     setSetup(response.data)
   }
 
+  const testMcpStatus = async () => {
+    setBusy('status')
+    const response = await invokeBridge<McpStatusResponse>(IPC_CHANNELS.appSettings.getMcpStatus, { actorToken: token })
+    setBusy(null)
+    if (!response.ok || !response.data) {
+      setMcpStatus({
+        available: false,
+        name: 'openmissioncontrol',
+        bridgeUrl: null,
+        checkedAt: new Date().toISOString(),
+        startedAt: null,
+        message: response.error?.message ?? 'MCP status could not be checked.'
+      })
+      return
+    }
+    setMcpStatus(response.data)
+  }
+
   useEffect(() => {
-    void refresh()
+    void refresh().then(() => testMcpStatus())
   }, [token])
 
   const install = async (client: InstallClient) => {
@@ -67,6 +86,7 @@ export function SettingsPage() {
     setError(null)
     setNotice(`${clientLabels[client]} configured at ${response.data.path}. Restart the client to load the Open Mission Control tools.`)
     await refresh()
+    await testMcpStatus()
   }
 
   const copy = async (key: string, value: string) => {
@@ -98,6 +118,30 @@ export function SettingsPage() {
             <h2>MCP connection</h2>
             <p>External agents use this local bridge while Open Mission Control is running.</p>
           </div>
+        </div>
+        <div className={styles.statusCtaRow}>
+          <div className={`${styles.mcpStatusBadge} ${mcpStatus?.available ? styles.mcpStatusOnline : mcpStatus ? styles.mcpStatusOffline : styles.mcpStatusUnknown}`}>
+            <span aria-hidden="true" />
+            <strong>{busy === 'status' ? 'Checking MCP...' : mcpStatus?.available ? 'MCP online' : mcpStatus ? 'MCP offline' : 'MCP not tested'}</strong>
+            <small>
+              {mcpStatus
+                ? `${mcpStatus.message} Checked ${new Date(mcpStatus.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`
+                : 'Run a live check against the local bridge.'}
+            </small>
+            {mcpStatus?.error ? <small>{mcpStatus.error}</small> : null}
+            {mcpStatus?.stdioProbe ? (
+              <small>
+                Bridge {mcpStatus.bridgeAvailable ? 'ok' : 'failed'} · stdio {mcpStatus.stdioProbe.ok ? 'ok' : 'failed'}
+                {' '}· initialize {mcpStatus.stdioProbe.initializeOk ? 'ok' : 'failed'}
+                {' '}· tools/list {mcpStatus.stdioProbe.toolsListOk ? `ok (${mcpStatus.stdioProbe.toolCount ?? 0})` : 'failed'}
+                {' '}· {mcpStatus.stdioProbe.durationMs}ms
+              </small>
+            ) : null}
+          </div>
+          <button className={styles.primaryButton} type="button" onClick={() => void testMcpStatus()} disabled={busy === 'status'}>
+            <LuRefreshCw size={15} />
+            {busy === 'status' ? 'Testing...' : 'Test MCP connection'}
+          </button>
         </div>
         <div className={styles.infoGrid}>
           <span>

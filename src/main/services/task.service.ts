@@ -36,6 +36,7 @@ import { StatusRepository } from '../../db/repositories/status-repo.js'
 import { WorkspaceRepository } from '../../db/repositories/workspace-repo.js'
 import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
 import { TaskJsonImportNormalizer } from './task-json-import.js'
+import { safeConsole } from '../utils/safe-output.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -314,11 +315,38 @@ function sendJson(response: ServerResponse, statusCode: number, value: unknown):
   response.end(JSON.stringify(value))
 }
 
+function sanitizeMcpLogValue(value: unknown): unknown {
+  const seen = new WeakSet<object>()
+  const sensitiveKeys = new Set(['authorization', 'token', 'actortoken', 'bridgetoken', 'password'])
+  try {
+    const json = JSON.stringify(value, (key, rawValue) => {
+      if (sensitiveKeys.has(key.toLowerCase())) return '[redacted]'
+      if (rawValue && typeof rawValue === 'object') {
+        if (seen.has(rawValue)) return '[circular]'
+        seen.add(rawValue)
+      }
+      return rawValue
+    })
+    if (!json) return value
+    if (json.length > 8000) return `${json.slice(0, 8000)}... [truncated]`
+    return JSON.parse(json)
+  } catch {
+    return '[unserializable]'
+  }
+}
+
+function logPlannerMcpBridgeEvent(event: string, data: Record<string, unknown>): void {
+  safeConsole.info(`[planner-mcp-bridge] ${event}`, sanitizeMcpLogValue(data))
+}
+
 function omcTaskPlannerMcpScript(): string {
   return `#!/usr/bin/env node
+import { createRequire } from 'node:module';
+
 const bridgeUrl = process.env.OMC_MCP_BRIDGE_URL;
 const bridgeToken = process.env.OMC_MCP_BRIDGE_TOKEN;
 const contextPath = process.env.OMC_MCP_CONTEXT_PATH;
+const moduleRoot = process.env.OMC_MCP_MODULE_ROOT;
 
 if (!bridgeUrl || !bridgeToken) {
   console.error('OMC MCP bridge environment is missing.');
@@ -346,8 +374,15 @@ const tools = [
   tool('omc_get_task_context', 'Read the scoped Open Mission Control project and source task context.', {}, []),
   tool('omc_validate_task_json', 'Validate and normalize one planned task JSON object without writing.', { json: jsonSchema }, ['json']),
   tool('omc_create_task_from_json', 'Create a new task in the scoped project from one planned task JSON object.', { json: jsonSchema }, ['json']),
-  tool('omc_update_task_from_json', 'Update the scoped source task from one planned task JSON object.', { json: jsonSchema }, ['json'])
+  tool('omc_update_task_from_json', 'Update the scoped source task from one planned task JSON object.', { json: jsonSchema }, ['json']),
+  tool('omc_finish_task_planning', 'Close this Codex planning terminal after planning is complete.', {}, [])
 ];
+
+const protocolVersion = '2024-11-05';
+const serverInfo = { name: 'omc-task-planner', version: '0.1.0' };
+const emptyResources = [];
+const emptyResourceTemplates = [];
+const emptyPrompts = [];
 
 async function callBridge(toolName, args) {
   const response = await fetch(bridgeUrl + '/tool', {
@@ -372,20 +407,63 @@ async function callBridge(toolName, args) {
   return payload.data ?? payload;
 }
 
+async function sdkToolResult(toolName, args) {
+  try {
+    const data = await callBridge(toolName, args);
+    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  } catch (error) {
+    return {
+      isError: true,
+      content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }]
+    };
+  }
+}
+
+async function maybeStartSdkServer() {
+  if (!moduleRoot) return false;
+  try {
+    const require = createRequire(moduleRoot.endsWith('package.json') ? moduleRoot : moduleRoot + '/package.json');
+    const { McpServer } = await import(require.resolve('@modelcontextprotocol/sdk/server/mcp.js'));
+    const { StdioServerTransport } = await import(require.resolve('@modelcontextprotocol/sdk/server/stdio.js'));
+    const { z } = await import(require.resolve('zod'));
+    const server = new McpServer({ name: 'omc-task-planner', version: '0.1.0' });
+    server.tool('omc_get_task_context', 'Read the scoped Open Mission Control project and source task context.', {}, (args) => sdkToolResult('omc_get_task_context', args));
+    server.tool('omc_validate_task_json', 'Validate and normalize one planned task JSON object without writing.', { json: z.unknown() }, (args) => sdkToolResult('omc_validate_task_json', args));
+    server.tool('omc_create_task_from_json', 'Create a new task in the scoped project from one planned task JSON object.', { json: z.unknown() }, (args) => sdkToolResult('omc_create_task_from_json', args));
+    server.tool('omc_update_task_from_json', 'Update the scoped source task from one planned task JSON object.', { json: z.unknown() }, (args) => sdkToolResult('omc_update_task_from_json', args));
+    server.tool('omc_finish_task_planning', 'Close this Codex planning terminal after planning is complete.', {}, (args) => sdkToolResult('omc_finish_task_planning', args));
+    await server.connect(new StdioServerTransport());
+    if (contextPath) console.error('Open Mission Control task planner MCP ready via SDK: ' + contextPath);
+    return true;
+  } catch {
+    console.error('Open Mission Control task planner MCP SDK unavailable; using compatibility transport.');
+    return false;
+  }
+}
+
 async function handle(message) {
+  if (!message || typeof message !== 'object') return;
   if (message.method === 'initialize') {
     writeMessage({
       jsonrpc: '2.0',
       id: message.id,
       result: {
-        protocolVersion: '2024-11-05',
-        capabilities: { tools: {} },
-        serverInfo: { name: 'omc-task-planner', version: '0.1.0' }
+        protocolVersion,
+        capabilities: {
+          tools: {},
+          resources: {},
+          prompts: {}
+        },
+        serverInfo
       }
     });
     return;
   }
   if (message.method === 'notifications/initialized') return;
+  if (message.method === 'ping') {
+    writeMessage({ jsonrpc: '2.0', id: message.id, result: {} });
+    return;
+  }
   if (message.method === 'tools/list') {
     writeMessage({ jsonrpc: '2.0', id: message.id, result: { tools } });
     return;
@@ -410,6 +488,22 @@ async function handle(message) {
         }
       });
     }
+    return;
+  }
+  if (message.method === 'resources/list') {
+    writeMessage({ jsonrpc: '2.0', id: message.id, result: { resources: emptyResources } });
+    return;
+  }
+  if (message.method === 'resources/templates/list') {
+    writeMessage({ jsonrpc: '2.0', id: message.id, result: { resourceTemplates: emptyResourceTemplates } });
+    return;
+  }
+  if (message.method === 'prompts/list') {
+    writeMessage({ jsonrpc: '2.0', id: message.id, result: { prompts: emptyPrompts } });
+    return;
+  }
+  if (message.method === 'completion/complete') {
+    writeMessage({ jsonrpc: '2.0', id: message.id, result: { completion: { values: [], total: 0, hasMore: false } } });
     return;
   }
   if (message.id !== undefined) {
@@ -443,13 +537,14 @@ function pump() {
   }
 }
 
-process.stdin.on('data', (chunk) => {
-  buffer = Buffer.concat([buffer, chunk]);
-  pump();
-});
-
-if (contextPath) {
-  console.error('Open Mission Control task planner MCP ready: ' + contextPath);
+if (!(await maybeStartSdkServer())) {
+  process.stdin.on('data', (chunk) => {
+    buffer = Buffer.concat([buffer, chunk]);
+    pump();
+  });
+  if (contextPath) {
+    console.error('Open Mission Control task planner MCP ready: ' + contextPath);
+  }
 }
 `
 }
@@ -773,7 +868,7 @@ export class TaskService {
   async markTaskReadyForReview(payload: { actorToken?: string; projectId?: string; taskId?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ taskId: string; statusId: string; statusName: string }>> {
     if (!payload?.taskId) return errorResponse(ErrorCodes.Validation, 'Task id required')
     const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
-    if (!access.ok || !access.data) return access as ServiceResponse<{ taskId: string; statusId: string; statusName: string }>
+    if (!access.ok || !access.data) return access as unknown as ServiceResponse<{ taskId: string; statusId: string; statusName: string }>
     if (payload.projectId && payload.projectId !== access.data.task.projectId) return errorResponse(ErrorCodes.Validation, 'Project id does not match task')
     const statuses = await this.statuses.ensureProjectDefaults(access.data.task.projectId, access.data.actorOrgId)
     const target = this.reviewTargetStatus(statuses)
@@ -977,6 +1072,7 @@ export class TaskService {
         command: codexCommand
       })
     } catch (error) {
+      this.codexTerminalRuns.delete(payload.taskId)
       if (!preserveRunFolderOnError) await rm(runFolderPath, { recursive: true, force: true })
       return errorResponse(ErrorCodes.Internal, error instanceof Error ? error.message : 'Unable to launch Codex terminal')
     }
@@ -984,14 +1080,40 @@ export class TaskService {
 
   private async startPlannerBridge(context: PlannerBridgeContext, bridgeToken: string): Promise<{ url: string; close: () => Promise<void> }> {
     const server = createServer(async (request, response) => {
+      const requestStartedAt = Date.now()
+      logPlannerMcpBridgeEvent('http-request', {
+        method: request.method,
+        url: request.url,
+        remoteAddress: request.socket.remoteAddress,
+        projectId: context.projectId,
+        taskId: context.taskId
+      })
       try {
         if (request.method !== 'POST' || request.url !== '/tool') {
           sendJson(response, 404, { ok: false, error: { message: 'Not found' } })
+          logPlannerMcpBridgeEvent('http-response', {
+            method: request.method,
+            url: request.url,
+            statusCode: 404,
+            ok: false,
+            durationMs: Date.now() - requestStartedAt,
+            projectId: context.projectId,
+            taskId: context.taskId
+          })
           return
         }
         const authHeader = request.headers.authorization ?? ''
         if (authHeader !== `Bearer ${bridgeToken}`) {
           sendJson(response, 401, { ok: false, error: { message: 'Unauthorized' } })
+          logPlannerMcpBridgeEvent('http-response', {
+            method: request.method,
+            url: request.url,
+            statusCode: 401,
+            ok: false,
+            durationMs: Date.now() - requestStartedAt,
+            projectId: context.projectId,
+            taskId: context.taskId
+          })
           return
         }
         const body = await readRequestBody(request) as Record<string, unknown>
@@ -999,6 +1121,14 @@ export class TaskService {
         const args = body.arguments && typeof body.arguments === 'object' && !Array.isArray(body.arguments)
           ? body.arguments as Record<string, unknown>
           : {}
+        const toolStartedAt = Date.now()
+        logPlannerMcpBridgeEvent('tool-request', {
+          tool,
+          arguments: args,
+          projectId: context.projectId,
+          taskId: context.taskId,
+          remoteAddress: request.socket.remoteAddress
+        })
         const json = Object.prototype.hasOwnProperty.call(args, 'json') ? args.json : args
         let result: ServiceResponse<unknown>
         if (tool === 'omc_get_task_context') {
@@ -1009,12 +1139,56 @@ export class TaskService {
           result = await this.plannerCreateFromJson({ actorToken: context.actorToken, projectId: context.projectId, taskId: context.taskId, json })
         } else if (tool === 'omc_update_task_from_json') {
           result = await this.plannerUpdateFromJson({ actorToken: context.actorToken, projectId: context.projectId, taskId: context.taskId, json })
+          if (result.ok && context.finishFilePath) {
+            await writeFile(context.finishFilePath, `finished ${new Date().toISOString()}\n`, 'utf8').catch(() => undefined)
+            if (context.terminalTitle) {
+              setTimeout(() => {
+                void closeTerminalWindowByTitle(context.terminalTitle ?? '')
+              }, 1_500).unref?.()
+            }
+          }
+        } else if (tool === 'omc_finish_task_planning') {
+          if (context.finishFilePath) await writeFile(context.finishFilePath, `finished ${new Date().toISOString()}\n`, 'utf8').catch(() => undefined)
+          if (context.terminalTitle) {
+            setTimeout(() => {
+              void closeTerminalWindowByTitle(context.terminalTitle ?? '')
+            }, 1_500).unref?.()
+          }
+          result = okResponse({ closed: true })
         } else {
           sendJson(response, 400, { ok: false, error: { message: `Unknown OMC planner tool: ${tool}` } })
+          logPlannerMcpBridgeEvent('tool-response', {
+            tool,
+            ok: false,
+            statusCode: 400,
+            durationMs: Date.now() - toolStartedAt,
+            projectId: context.projectId,
+            taskId: context.taskId,
+            error: `Unknown OMC planner tool: ${tool}`
+          })
           return
         }
         sendJson(response, result.ok ? 200 : 400, result)
+        logPlannerMcpBridgeEvent('tool-response', {
+          tool,
+          ok: result.ok,
+          statusCode: result.ok ? 200 : 400,
+          durationMs: Date.now() - toolStartedAt,
+          projectId: context.projectId,
+          taskId: context.taskId,
+          data: result.ok ? result.data : undefined,
+          error: result.ok ? undefined : result.error
+        })
       } catch (error) {
+        logPlannerMcpBridgeEvent('tool-error', {
+          method: request.method,
+          url: request.url,
+          statusCode: 500,
+          durationMs: Date.now() - requestStartedAt,
+          projectId: context.projectId,
+          taskId: context.taskId,
+          error: error instanceof Error ? error.message : String(error)
+        })
         sendJson(response, 500, { ok: false, error: { message: error instanceof Error ? error.message : 'Planner bridge failed' } })
       }
     })
@@ -1027,6 +1201,11 @@ export class TaskService {
       await new Promise<void>((resolveClose) => server.close(() => resolveClose()))
       throw new Error('Unable to start planner bridge')
     }
+    logPlannerMcpBridgeEvent('started', {
+      bridgeUrl: `http://127.0.0.1:${address.port}`,
+      projectId: context.projectId,
+      taskId: context.taskId
+    })
     return {
       url: `http://127.0.0.1:${address.port}`,
       close: () => new Promise((resolveClose) => server.close(() => resolveClose()))
@@ -1060,10 +1239,14 @@ export class TaskService {
       const runtimeWorkspacePath = runtimeWorkspace.rootPath
       await mkdir(runtimeWorkspacePath, { recursive: true })
       const bridgeToken = randomUUID()
+      const finishFilePath = join(runFolderPath, 'planner-finished.signal')
+      const runTerminalTitle = terminalTitle(`OMC Planner ${access.data.task.id}`)
       bridge = await this.startPlannerBridge({
         actorToken: payload.actorToken,
         projectId: project.id,
-        taskId: access.data.task.id
+        taskId: access.data.task.id,
+        finishFilePath,
+        terminalTitle: runTerminalTitle
       }, bridgeToken)
 
       const mcpScriptPath = join(runFolderPath, 'omc-task-planner-mcp.mjs')
@@ -1091,21 +1274,39 @@ export class TaskService {
         '-c', shellQuote(codexTrustedProjectConfig(runtimeWorkspacePath)),
         '-c', shellQuote(`mcp_servers.omc_task_planner.command=${JSON.stringify('node')}`),
         '-c', shellQuote(`mcp_servers.omc_task_planner.args=${JSON.stringify([mcpScriptPath])}`),
+        '-c', shellQuote('mcp_servers.omc_task_planner.startup_timeout_sec=120'),
         '-c', shellQuote(`mcp_servers.omc_task_planner.env.OMC_MCP_BRIDGE_URL=${JSON.stringify(bridge.url)}`),
         '-c', shellQuote(`mcp_servers.omc_task_planner.env.OMC_MCP_BRIDGE_TOKEN=${JSON.stringify(bridgeToken)}`),
         '-c', shellQuote(`mcp_servers.omc_task_planner.env.OMC_MCP_CONTEXT_PATH=${JSON.stringify(contextPath)}`),
+        '-c', shellQuote(`mcp_servers.omc_task_planner.env.OMC_MCP_MODULE_ROOT=${JSON.stringify(process.cwd())}`),
         shellQuote(prompt)
       ].join(' ')
       const wrapperPath = join(runFolderPath, 'run-codex-planner.sh')
       const wrapper = [
         '#!/bin/zsh',
         'set -e',
+        `FINISH_FILE=${shellQuote(finishFilePath)}`,
+        `TERMINAL_TITLE=${shellQuote(runTerminalTitle)}`,
         `cd ${shellQuote(runtimeWorkspacePath)}`,
+        'printf \'\\033]0;%s\\007\' "$TERMINAL_TITLE"',
         'echo "Open Mission Control Codex task planner"',
         `echo "Project: ${project.name.replace(/"/g, '\\"')}"`,
         `echo "Source task: ${access.data.task.title.replace(/"/g, '\\"')}"`,
         'echo "MCP bridge is scoped to this project and task."',
-        codexCommand
+        `${codexCommand} &`,
+        'CODEX_PID=$!',
+        '(',
+        '  while kill -0 "$CODEX_PID" 2>/dev/null; do',
+        '    if [ -f "$FINISH_FILE" ]; then',
+        '      kill "$CODEX_PID" 2>/dev/null || true',
+        '      sleep 1',
+        '      kill -KILL "$CODEX_PID" 2>/dev/null || true',
+        '      break',
+        '    fi',
+        '    sleep 1',
+        '  done',
+        ') &',
+        'wait "$CODEX_PID"'
       ].join('\n')
       await writeFile(wrapperPath, wrapper, 'utf8')
       await chmod(wrapperPath, 0o700)
@@ -1121,6 +1322,8 @@ export class TaskService {
         runtimeWorkspacePath,
         mcpScriptPath,
         bridgeUrl: bridge.url,
+        finishFilePath,
+        terminalTitle: runTerminalTitle,
         command: codexCommand,
         terminalCommand
       }, null, 2), 'utf8')
