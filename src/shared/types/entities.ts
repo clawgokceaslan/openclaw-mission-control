@@ -157,6 +157,12 @@ export interface TaskTemplate {
   updatedAt: number
 }
 
+export interface TaskJsonImportResult {
+  task?: TaskEntity
+  template?: TaskTemplate
+  warnings: string[]
+}
+
 export interface Agent {
   id: string
   organizationId: string
@@ -240,6 +246,8 @@ export interface OpenClawGatewayConfig {
   protocolVersion?: string
   capabilities?: string[]
   deviceIdentity?: OpenClawGatewayDeviceIdentity
+  deviceToken?: string
+  deviceScopes?: string[]
   pairingStatus?: OpenClawGatewayPairingStatus
   lastPairingError?: string
 }
@@ -300,6 +308,33 @@ export interface OpenClawTagSummary {
   name?: string
   color?: string
   [key: string]: unknown
+}
+
+export type OpenClawResourceType = 'agent' | 'skill'
+export type OpenClawSyncStatus = 'pending' | 'synced' | 'failed'
+
+export interface OpenClawResourceMapping {
+  id: string
+  organizationId: string
+  gatewayId: string
+  resourceType: OpenClawResourceType
+  localId: string
+  openClawId: string
+  syncStatus: OpenClawSyncStatus
+  contentHash?: string
+  lastSyncedAt?: number
+  lastError?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface OpenClawAgentSyncResult {
+  agentId: string
+  gatewayId: string
+  openClawId: string
+  status: 'synced' | 'failed' | 'skipped'
+  contentHash?: string
+  error?: string
 }
 
 export interface GatewayHistoryItem {

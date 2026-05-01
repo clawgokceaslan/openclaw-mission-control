@@ -29,6 +29,12 @@
   }
 }
 
+.headerActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .primaryButton,
 .secondaryButton,
 .dangerButton {
@@ -65,13 +71,20 @@
 }
 
 .error,
-.formError {
+.formError,
+.notice {
   margin: 0;
   border: 1px solid var(--omc-danger-border);
   border-radius: 10px;
   background: var(--omc-danger-bg);
   color: var(--omc-danger-strong);
   padding: 10px 12px;
+}
+
+.notice {
+  border-color: var(--omc-success-border);
+  background: var(--omc-success-bg);
+  color: var(--omc-success-strong);
 }
 
 .tableCard {
@@ -98,7 +111,7 @@
 .tableRow {
   min-width: 1080px;
   display: grid;
-  grid-template-columns: minmax(190px, 1.1fr) minmax(190px, 1fr) 130px 90px 110px 120px 96px;
+  grid-template-columns: minmax(190px, 1.1fr) minmax(190px, 1fr) 130px 90px 110px 120px 168px;
   gap: 16px;
   align-items: center;
 }
@@ -255,6 +268,13 @@
   background: var(--omc-modal-backdrop);
 }
 
+.importModalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 122;
+  background: var(--omc-modal-backdrop);
+}
+
 .agentModal {
   position: fixed;
   z-index: 121;
@@ -274,6 +294,11 @@
 
 .confirmModal {
   width: min(520px, calc(100vw - 36px));
+}
+
+.importModal {
+  z-index: 123;
+  width: min(680px, calc(100vw - 36px));
 }
 
 .modalHeader {
@@ -304,7 +329,36 @@
   }
 }
 
+.modalHeaderActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modalHeader .headerActionButton {
+  width: auto;
+  min-height: 32px;
+  padding: 0 10px;
+  gap: 7px;
+  color: var(--omc-text-strong);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
 .agentForm {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.agentForm > .modalFooter {
+  padding: 16px 20px;
+  background: var(--omc-surface);
+}
+
+.agentFormContent {
+  min-height: 0;
   padding: 20px;
   display: grid;
   gap: 16px;
@@ -342,6 +396,66 @@
 
   textarea {
     resize: vertical;
+  }
+}
+
+.importBody {
+  padding: 20px;
+  display: grid;
+  gap: 16px;
+  overflow: auto;
+
+  label {
+    display: grid;
+    gap: 8px;
+  }
+
+  label > span,
+  .importExample > span {
+    color: var(--omc-text-muted);
+    font-size: 0.78rem;
+    font-weight: 850;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  textarea {
+    width: 100%;
+    min-height: 260px;
+    border: 1px solid var(--omc-input-border);
+    border-radius: 10px;
+    background: var(--omc-surface);
+    color: var(--omc-text-strong);
+    padding: 10px 12px;
+    outline: none;
+    resize: vertical;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    font-size: 0.88rem;
+    line-height: 1.5;
+
+    &:focus {
+      border-color: var(--omc-accent);
+      box-shadow: 0 0 0 3px var(--omc-nav-hover-bg);
+    }
+  }
+}
+
+.importExample {
+  display: grid;
+  gap: 8px;
+
+  pre {
+    max-height: 220px;
+    margin: 0;
+    overflow: auto;
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 10px;
+    background: var(--omc-surface-soft);
+    color: var(--omc-text);
+    padding: 12px;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
   }
 }
 

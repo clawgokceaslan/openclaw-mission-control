@@ -1,5 +1,5 @@
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
-import type { OutputFormat, Skill, TaskComment, TaskEntity, TaskSubtask, TaskTemplate } from '@shared/types/entities'
+import type { OutputFormat, Skill, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, TaskTemplate } from '@shared/types/entities'
 import { prefixDataFormatTokens } from '@renderer/components/markdown/MarkdownDescriptionEditor'
 import { invokeBridge } from '@renderer/utils/api'
 import type { ProjectStatusColumn } from './status'
@@ -12,6 +12,7 @@ export type CreateTaskInput = {
   tagIds: string[]
   agentId?: string | null
   templateId?: string | null
+  importJson?: string | null
 }
 
 export type CreateTaskWithTemplateContext = {
@@ -22,6 +23,7 @@ export type CreateTaskWithTemplateContext = {
   statusColumns: ProjectStatusColumn[]
   defaultStatus: TaskEntity['status']
   outputFormats: OutputFormat[]
+  onAgentUsed?: (agentId: string) => Promise<string | null | undefined> | string | null | undefined
 }
 
 export type CreateTaskWithTemplateResult = {
@@ -47,11 +49,33 @@ function hasPatch(value: Record<string, unknown>) {
   return Object.keys(value).length > 0
 }
 
+async function syncAgentWarning(onAgentUsed: CreateTaskWithTemplateContext['onAgentUsed'], agentId?: string | null) {
+  if (!agentId || !onAgentUsed) return null
+  try {
+    return await onAgentUsed(agentId)
+  } catch (error) {
+    return error instanceof Error ? error.message : 'Agent was saved locally, but OpenClaw sync failed'
+  }
+}
+
 export async function createTaskWithTemplate(context: CreateTaskWithTemplateContext): Promise<CreateTaskWithTemplateResult> {
-  const { actorToken, userName, input, templates, statusColumns, defaultStatus, outputFormats } = context
+  const { actorToken, userName, input, templates, statusColumns, defaultStatus, outputFormats, onAgentUsed } = context
   const selectedTemplate = input.templateId ? templates.find((template) => template.id === input.templateId) : null
   const templatePayload = selectedTemplate?.template
   const warnings: string[] = []
+
+  if (input.importJson?.trim()) {
+    const importResponse = await invokeBridge<TaskJsonImportResult>(IPC_CHANNELS.tasks.importJson, {
+      actorToken,
+      projectId: input.projectId,
+      json: input.importJson
+    })
+    if (!importResponse.ok || !importResponse.data?.task) {
+      throw new Error(importResponse.error?.message ?? 'Task JSON import failed')
+    }
+    warnings.push(...(importResponse.data.warnings ?? []))
+    return { task: importResponse.data.task, warnings }
+  }
 
   const normalizeStatus = (value?: string | null) => {
     if (value && statusColumns.some((column) => column.status === value)) return value as TaskEntity['status']
@@ -71,6 +95,8 @@ export async function createTaskWithTemplate(context: CreateTaskWithTemplateCont
   }
 
   const task = createResponse.data
+  const agentWarning = await syncAgentWarning(onAgentUsed, input.agentId)
+  if (agentWarning) warnings.push(agentWarning)
   if (input.tagIds.length > 0) {
     const tagResponse = await invokeBridge(IPC_CHANNELS.tasks.tagsSet, {
       actorToken,
@@ -147,6 +173,8 @@ export async function createTaskWithTemplate(context: CreateTaskWithTemplateCont
         payload: subtaskPayload
       })
       if (!subtaskUpdateResponse.ok) warnings.push(subtaskUpdateResponse.error?.message ?? 'Task created, but template subtask details could not be applied')
+      const agentWarning = await syncAgentWarning(onAgentUsed, templateSubtask.agentId)
+      if (agentWarning) warnings.push(agentWarning)
     }
   }
 

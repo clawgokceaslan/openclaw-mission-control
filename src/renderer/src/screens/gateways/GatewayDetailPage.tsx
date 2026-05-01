@@ -21,6 +21,7 @@ type TabKey = 'overview' | 'pairing' | 'sessions' | 'chat' | 'rpc' | 'events' | 
 interface SettingsState {
   name: string
   endpoint: string
+  workspaceRoot: string
   token: string
   clearToken?: boolean
   allowSelfSignedTls: boolean
@@ -46,6 +47,7 @@ function configOf(gateway: Gateway): OpenClawGatewayConfig {
     provider: 'openclaw',
     apiBaseUrl: String(gateway.template?.apiBaseUrl ?? ''),
     authMode: String(gateway.template?.authMode ?? 'device_pairing') as OpenClawGatewayConfig['authMode'],
+    workspaceRoot: typeof gateway.template?.workspaceRoot === 'string' ? gateway.template.workspaceRoot : undefined,
     allowSelfSignedTls: Boolean(gateway.template?.allowSelfSignedTls),
     disableDevicePairing: gateway.template?.disableDevicePairing === undefined ? false : Boolean(gateway.template.disableDevicePairing),
     autoConnect: Boolean(gateway.template?.autoConnect),
@@ -63,6 +65,7 @@ function settingsFromGateway(gateway: Gateway): SettingsState {
   return {
     name: gateway.name,
     endpoint: gateway.endpoint,
+    workspaceRoot: config.workspaceRoot ?? '',
     token: '',
     clearToken: false,
     allowSelfSignedTls: Boolean(config.allowSelfSignedTls),
@@ -337,6 +340,7 @@ export function GatewayDetailPage() {
         <form className={styles.settingsForm} onSubmit={saveSettings}>
           <label>Name<input value={settings.name} onChange={(event) => setSettings({ ...settings, name: event.target.value })} /></label>
           <label>Gateway WS URL<input value={settings.endpoint} onChange={(event) => setSettings({ ...settings, endpoint: event.target.value })} /></label>
+          <label>OpenClaw workspace root<input value={settings.workspaceRoot} onChange={(event) => setSettings({ ...settings, workspaceRoot: event.target.value })} placeholder="Leave empty for relative agents/<id>, or use a valid OpenClaw host path" /></label>
           <label>Replace token<input value={settings.token} onChange={(event) => setSettings({ ...settings, token: event.target.value })} placeholder="•••••••• (leave empty to keep existing token)" /></label>
           <label className={styles.checkRow}><input type="checkbox" checked={Boolean(settings.clearToken)} onChange={(event) => setSettings({ ...settings, clearToken: event.target.checked })} /> Reset stored token</label>
           <label className={styles.checkRow}><input type="checkbox" checked={settings.allowSelfSignedTls} onChange={(event) => setSettings({ ...settings, allowSelfSignedTls: event.target.checked })} /> Allow self-signed TLS certificates</label>

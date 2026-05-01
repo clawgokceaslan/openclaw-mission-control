@@ -1,10 +1,12 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { LuCalendarPlus, LuFlag, LuFolder, LuTag, LuUserPlus, LuX } from 'react-icons/lu'
+import { LuCalendarPlus, LuFlag, LuFolder, LuTag, LuUpload, LuUserPlus, LuX } from 'react-icons/lu'
 import type { Agent, Project, Tag, TaskEntity, TaskTemplate } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { MarkdownDescriptionEditor } from '@renderer/components/markdown/MarkdownDescriptionEditor'
 import type { ProjectStatusColumn } from './status'
 import { statusOptionsFromColumns } from './status'
+import { TaskJsonImportModal } from './TaskJsonImportModal'
+import { parseTaskJsonImportPreview } from './taskJsonImport'
 import styles from '../ProjectDetailPage.module.scss'
 
 interface CreateTaskModalProps {
@@ -23,7 +25,7 @@ interface CreateTaskModalProps {
   error?: string | null
   onClose: () => void
   onProjectChange?: (projectId: string) => void
-  onCreate: (input: { projectId: string; title: string; description: string; status: TaskEntity['status']; tagIds: string[]; agentId?: string | null; templateId?: string | null }) => void
+  onCreate: (input: { projectId: string; title: string; description: string; status: TaskEntity['status']; tagIds: string[]; agentId?: string | null; templateId?: string | null; importJson?: string | null }) => void
 }
 
 export function CreateTaskModal({ open, project, projects = [], selectedProjectId, tags, agents, templates, statusColumns, defaultStatus, initialTitle = '', initialTemplateId = null, busy, error, onClose, onProjectChange, onCreate }: CreateTaskModalProps) {
@@ -33,6 +35,8 @@ export function CreateTaskModal({ open, project, projects = [], selectedProjectI
   const [selectedTags, setSelectedTags] = useState<AppSelectOption[]>([])
   const [selectedAgent, setSelectedAgent] = useState<AppSelectOption | null>(null)
   const [selectedTemplate, setSelectedTemplate] = useState<AppSelectOption | null>(null)
+  const [isImportOpen, setIsImportOpen] = useState(false)
+  const [importJson, setImportJson] = useState<string | null>(null)
   const tagOptions = tags.map((tag) => ({ label: tag.name, value: tag.id, color: tag.color }))
   const agentOptions = agents.map((agent) => ({ label: agent.name, value: agent.id }))
   const templateOptions = templates.map((template) => ({ label: template.name, value: template.id }))
@@ -62,6 +66,8 @@ export function CreateTaskModal({ open, project, projects = [], selectedProjectI
     setStatus(defaultStatus)
     setSelectedTags([])
     setSelectedAgent(null)
+    setImportJson(null)
+    setIsImportOpen(false)
     const templateOption = initialTemplateId ? templates.map((template) => ({ label: template.name, value: template.id })).find((option) => option.value === initialTemplateId) ?? null : null
     setSelectedTemplate(templateOption)
     if (templateOption) applyTemplate(templateOption)
@@ -77,7 +83,7 @@ export function CreateTaskModal({ open, project, projects = [], selectedProjectI
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (!title.trim() || !currentProjectId) return
-    onCreate({ projectId: currentProjectId, title: title.trim(), description: description.trim(), status, tagIds: selectedTags.map((tag) => tag.value), agentId: selectedAgent?.value ?? null, templateId: selectedTemplate?.value ?? null })
+    onCreate({ projectId: currentProjectId, title: title.trim(), description: description.trim(), status, tagIds: selectedTags.map((tag) => tag.value), agentId: selectedAgent?.value ?? null, templateId: selectedTemplate?.value ?? null, importJson })
   }
 
   return (
@@ -86,7 +92,10 @@ export function CreateTaskModal({ open, project, projects = [], selectedProjectI
       <section className={styles.createTaskModal} role="dialog" aria-modal="true" aria-label="Create task">
         <header className={styles.createTaskHeader}>
           <div className={styles.createTaskTabs}><span className={styles.createTaskTabActive}>Task</span></div>
-          <button type="button" onClick={onClose} aria-label="Close create task"><LuX size={17} /></button>
+          <div className={styles.createTaskHeaderActions}>
+            <button type="button" onClick={() => setIsImportOpen(true)} aria-label="Import task JSON"><LuUpload size={16} /> Import JSON</button>
+            <button type="button" onClick={onClose} aria-label="Close create task"><LuX size={17} /></button>
+          </div>
         </header>
         <form className={styles.createTaskBody} onSubmit={submit}>
           <div className={styles.createTaskContext}>
@@ -157,6 +166,22 @@ export function CreateTaskModal({ open, project, projects = [], selectedProjectI
           </div>
         </form>
       </section>
+      <TaskJsonImportModal
+        open={isImportOpen}
+        title="Import task JSON"
+        busy={busy}
+        onClose={() => setIsImportOpen(false)}
+        onImport={(jsonText) => {
+          const preview = parseTaskJsonImportPreview(jsonText)
+          setTitle(preview.title)
+          setDescription(preview.description)
+          setSelectedTemplate(null)
+          setSelectedTags([])
+          setSelectedAgent(null)
+          setImportJson(jsonText)
+          setIsImportOpen(false)
+        }}
+      />
     </>
   )
 }

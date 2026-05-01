@@ -89,9 +89,9 @@ export function AttachmentTable({ rows, uploading = false, onUpload, onRemove, o
                 <td>{formatFileSize(row.size)}</td>
                 <td>
                   <div className={styles.actionGroup}>
-                    <button type="button" onClick={() => void download(row)}>İndir</button>
-                    <button type="button" onClick={() => void copyLink(row)}>Kopyala</button>
-                    <button type="button" className={styles.dangerAction} onClick={() => setDeleteTarget(row)}>Sil</button>
+                    <button type="button" onClick={() => void download(row)}>Download</button>
+                    <button type="button" onClick={() => void copyLink(row)}>Copy link</button>
+                    <button type="button" className={styles.dangerAction} onClick={() => setDeleteTarget(row)}>Delete</button>
                   </div>
                 </td>
               </tr>
@@ -132,10 +132,11 @@ export function AttachmentTable({ rows, uploading = false, onUpload, onRemove, o
   )
 }
 
-export function storedAttachmentRows(attachments: TaskAttachment[], source = 'Attachments'): AttachmentRow[] {
+export function storedAttachmentRows(attachments: TaskAttachment[], source = 'Attachments', owner?: Pick<AttachmentRow, 'ownerType' | 'ownerId' | 'ownerTitle'>): AttachmentRow[] {
   return attachments.map((attachment) => ({
     ...attachment,
     source,
-    origin: 'stored'
+    origin: 'stored',
+    ...owner
   }))
 }

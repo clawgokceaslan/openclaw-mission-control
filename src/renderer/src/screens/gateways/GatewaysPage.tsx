@@ -1,6 +1,6 @@
-import { FormEvent, PointerEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { CSSProperties, FormEvent, MouseEvent, PointerEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { LuChevronDown, LuPencil, LuPlug, LuPlus, LuRefreshCw, LuTrash2, LuUnplug, LuWandSparkles } from 'react-icons/lu'
+import { LuChevronDown, LuPencil, LuPlug, LuPlus, LuRefreshCw, LuStar, LuTrash2, LuUnplug, LuWandSparkles } from 'react-icons/lu'
 import styles from './GatewaysPage.module.scss'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
@@ -12,6 +12,7 @@ interface GatewayFormState {
   id?: string
   name: string
   endpoint: string
+  workspaceRoot: string
   token: string
   clearToken?: boolean
   allowSelfSignedTls: boolean
@@ -29,9 +30,21 @@ interface GatewayTestModalState {
   error?: string
 }
 
+type ActiveGatewayResponse = {
+  gatewayId: string | null
+  gateway?: Gateway | null
+}
+
+type ActionsMenuState = {
+  gatewayId: string
+  left: number
+  top: number
+}
+
 const emptyForm: GatewayFormState = {
   name: '',
   endpoint: '',
+  workspaceRoot: '',
   token: '',
   clearToken: false,
   allowSelfSignedTls: false,
@@ -47,6 +60,7 @@ function configOf(gateway: Gateway): OpenClawGatewayConfig {
     provider: 'openclaw',
     apiBaseUrl: String(gateway.template?.apiBaseUrl ?? ''),
     authMode: String(gateway.template?.authMode ?? 'device_pairing') as OpenClawGatewayConfig['authMode'],
+    workspaceRoot: typeof gateway.template?.workspaceRoot === 'string' ? gateway.template.workspaceRoot : undefined,
     allowSelfSignedTls: Boolean(gateway.template?.allowSelfSignedTls),
     disableDevicePairing: gateway.template?.disableDevicePairing === undefined ? false : Boolean(gateway.template.disableDevicePairing),
     autoConnect: Boolean(gateway.template?.autoConnect),
@@ -65,6 +79,7 @@ function formFromGateway(gateway: Gateway): GatewayFormState {
     id: gateway.id,
     name: gateway.name,
     endpoint: gateway.endpoint,
+    workspaceRoot: config.workspaceRoot ?? '',
     token: '',
     clearToken: false,
     allowSelfSignedTls: Boolean(config.allowSelfSignedTls),
@@ -103,12 +118,16 @@ export function GatewaysPage() {
   const [deleteTarget, setDeleteTarget] = useState<Gateway | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [testModal, setTestModal] = useState<GatewayTestModalState | null>(null)
-  const [actionsMenuId, setActionsMenuId] = useState<string | null>(null)
+  const [actionsMenu, setActionsMenu] = useState<ActionsMenuState | null>(null)
+  const [activeGatewayId, setActiveGatewayId] = useState<string | null>(null)
   const tableRef = useRef<HTMLDivElement | null>(null)
   const dragRef = useRef({ active: false, startX: 0, scrollLeft: 0, moved: false })
 
   const refresh = async () => {
-    const response = await loadList<Gateway[]>(IPC_CHANNELS.gateways.list, token)
+    const [response, activeResponse] = await Promise.all([
+      loadList<Gateway[]>(IPC_CHANNELS.gateways.list, token),
+      invokeBridge<ActiveGatewayResponse>(IPC_CHANNELS.appSettings.getActiveGateway, { actorToken: token })
+    ])
     if (!response.ok) {
       setError(response.error?.message ?? 'Gateways could not be loaded.')
       setItems([])
@@ -116,11 +135,30 @@ export function GatewaysPage() {
     }
     setError(null)
     setItems((response.data as Gateway[] | undefined) ?? [])
+    setActiveGatewayId(activeResponse.ok ? activeResponse.data?.gatewayId ?? null : null)
   }
 
   useEffect(() => {
     void refresh()
   }, [token])
+
+  useEffect(() => {
+    if (!actionsMenu) return
+    const closeFromOutside = (event: globalThis.PointerEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('[data-gateway-actions]')) return
+      setActionsMenu(null)
+    }
+    const closeMenu = () => setActionsMenu(null)
+    window.addEventListener('pointerdown', closeFromOutside)
+    window.addEventListener('resize', closeMenu)
+    window.addEventListener('scroll', closeMenu, true)
+    return () => {
+      window.removeEventListener('pointerdown', closeFromOutside)
+      window.removeEventListener('resize', closeMenu)
+      window.removeEventListener('scroll', closeMenu, true)
+    }
+  }, [actionsMenu])
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -142,6 +180,36 @@ export function GatewaysPage() {
     return true
   }
 
+  const setActiveGateway = async (gateway: Gateway) => {
+    setActionsMenu(null)
+    setBusyId(gateway.id)
+    const response = await invokeBridge<ActiveGatewayResponse>(IPC_CHANNELS.appSettings.setActiveGateway, {
+      actorToken: token,
+      gatewayId: gateway.id
+    })
+    setBusyId(null)
+    if (!response.ok) {
+      setError(response.error?.message ?? 'Active gateway could not be updated.')
+      return
+    }
+    setActiveGatewayId(response.data?.gatewayId ?? gateway.id)
+    setNotice(`${gateway.name} is now the active gateway.`)
+    setError(null)
+  }
+
+  const toggleActionsMenu = (gatewayId: string, event: MouseEvent<HTMLButtonElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    setActionsMenu((current) => {
+      if (current?.gatewayId === gatewayId) return null
+      const width = 204
+      return {
+        gatewayId,
+        left: Math.max(12, Math.min(rect.right - width, window.innerWidth - width - 12)),
+        top: Math.max(12, Math.min(rect.bottom + 6, window.innerHeight - 260))
+      }
+    })
+  }
+
   const submitGateway = async (event: FormEvent) => {
     event.preventDefault()
     if (!modal) return
@@ -149,6 +217,7 @@ export function GatewaysPage() {
       id: modal.id,
       name: modal.name,
       endpoint: modal.endpoint,
+      workspaceRoot: modal.workspaceRoot,
       token: modal.token,
       clearToken: Boolean(modal.clearToken),
       allowSelfSignedTls: modal.allowSelfSignedTls,
@@ -282,10 +351,14 @@ export function GatewaysPage() {
         </div>
         {filtered.map((gateway) => {
           const config = configOf(gateway)
+          const isActive = activeGatewayId === gateway.id
           return (
             <div className={styles.tableRow} key={gateway.id}>
               <span>
-                <Link to={`${APP_ROUTES.GATEWAYS}/${gateway.id}`}>{gateway.name}</Link>
+                <span className={styles.nameLine}>
+                  <Link to={`${APP_ROUTES.GATEWAYS}/${gateway.id}`}>{gateway.name}</Link>
+                  {isActive ? <b className={styles.activeBadge}>Active</b> : null}
+                </span>
                 <small>OpenClaw</small>
               </span>
               <span className={styles.mono}>{gateway.endpoint}</span>
@@ -306,29 +379,33 @@ export function GatewaysPage() {
                   <LuWandSparkles size={14} />
                   Test
                 </button>
-                <button className={styles.moreButton} onClick={() => setActionsMenuId((current) => current === gateway.id ? null : gateway.id)}>
+                <button className={styles.moreButton} data-gateway-actions onClick={(event) => toggleActionsMenu(gateway.id, event)}>
                   Actions
                   <LuChevronDown size={14} />
                 </button>
-                {actionsMenuId === gateway.id ? (
-                  <div className={styles.actionsMenu}>
-                    <button disabled={busyId === gateway.id} onClick={() => { setActionsMenuId(null); void invokeAction(IPC_CHANNELS.gateways.pairDevice, { gatewayId: gateway.id }, 'Pairing request sent.') }}>
+                {actionsMenu?.gatewayId === gateway.id ? (
+                  <div className={styles.actionsMenu} data-gateway-actions style={{ left: actionsMenu.left, top: actionsMenu.top } as CSSProperties}>
+                    <button disabled={busyId === gateway.id || isActive} onClick={() => void setActiveGateway(gateway)}>
+                      <LuStar size={14} />
+                      {isActive ? 'Active gateway' : 'Set active'}
+                    </button>
+                    <button disabled={busyId === gateway.id} onClick={() => { setActionsMenu(null); void invokeAction(IPC_CHANNELS.gateways.pairDevice, { gatewayId: gateway.id }, 'Pairing request sent.') }}>
                       <LuPlug size={14} />
                       Pair
                     </button>
-                    <button disabled={busyId === gateway.id} onClick={() => { setActionsMenuId(null); void invokeAction(IPC_CHANNELS.gateways.disconnect, { gatewayId: gateway.id }, 'Gateway disconnected.') }}>
+                    <button disabled={busyId === gateway.id} onClick={() => { setActionsMenu(null); void invokeAction(IPC_CHANNELS.gateways.disconnect, { gatewayId: gateway.id }, 'Gateway disconnected.') }}>
                       <LuUnplug size={14} />
                       Disconnect
                     </button>
-                    <button disabled={busyId === gateway.id} onClick={() => { setActionsMenuId(null); void invokeAction(IPC_CHANNELS.gateways.resetPairing, { gatewayId: gateway.id }, 'Pairing identity reset.') }}>
+                    <button disabled={busyId === gateway.id} onClick={() => { setActionsMenu(null); void invokeAction(IPC_CHANNELS.gateways.resetPairing, { gatewayId: gateway.id }, 'Pairing identity reset.') }}>
                       <LuRefreshCw size={14} />
                       Reset pair
                     </button>
-                    <button onClick={() => { setActionsMenuId(null); setModal(formFromGateway(gateway)) }}>
+                    <button onClick={() => { setActionsMenu(null); setModal(formFromGateway(gateway)) }}>
                       <LuPencil size={14} />
                       Edit
                     </button>
-                    <button className={styles.dangerText} onClick={() => { setActionsMenuId(null); setDeleteTarget(gateway) }}>
+                    <button className={styles.dangerText} onClick={() => { setActionsMenu(null); setDeleteTarget(gateway) }}>
                       <LuTrash2 size={14} />
                       Delete
                     </button>
@@ -355,6 +432,10 @@ export function GatewaysPage() {
             <label>
               Gateway WS URL *
               <input value={modal.endpoint} onChange={(event) => setModal({ ...modal, endpoint: event.target.value })} placeholder="wss://gateway.example/ws" required />
+            </label>
+            <label>
+              OpenClaw workspace root
+              <input value={modal.workspaceRoot} onChange={(event) => setModal({ ...modal, workspaceRoot: event.target.value })} placeholder="Leave empty for relative agents/<id>, or use a valid OpenClaw host path" />
             </label>
             <label>
               Gateway Token

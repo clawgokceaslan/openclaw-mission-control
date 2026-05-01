@@ -1,8 +1,8 @@
 import { type CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { LuBot, LuFilter, LuListChecks, LuListTodo, LuPaperclip, LuPencil, LuPlus, LuSearch, LuSlidersHorizontal, LuSparkles, LuTrash2, LuX } from 'react-icons/lu'
+import { LuBot, LuFilter, LuListChecks, LuListTodo, LuPaperclip, LuPencil, LuPlus, LuSearch, LuSlidersHorizontal, LuSparkles, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
-import type { Agent, CustomField, OutputFormat, Skill, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskTemplate, TaskTemplatePayload } from '@shared/types/entities'
+import type { Agent, CustomField, OutputFormat, Skill, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskJsonImportResult, TaskTemplate, TaskTemplatePayload } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { MarkdownDescriptionEditor, prefixDataFormatTokens, type DescriptionDataFormat } from '@renderer/components/markdown/MarkdownDescriptionEditor'
 import { AttachmentTable, storedAttachmentRows } from '@renderer/components/attachments/AttachmentTable'
@@ -13,12 +13,15 @@ import { Stack } from 'react-bootstrap'
 import { AgentAssignmentPanel, SkillsAssignmentPanel } from '../projects/detail/AssignmentPanels'
 import { TaskDetailModal } from '../projects/detail/TaskDetailModal'
 import { TaskDetailContent } from '../projects/detail/TaskDetailContent'
+import { TaskJsonImportModal } from '../projects/detail/TaskJsonImportModal'
+import { parseTaskJsonImportPreview } from '../projects/detail/taskJsonImport'
 import { PROJECT_STATUS_COLUMNS, resolveProjectStatusColumn } from '../projects/detail/status'
 import detailStyles from '../projects/ProjectDetailPage.module.scss'
 import styles from './TaskTemplatesPage.module.scss'
 
 type SaveState = 'saved' | 'dirty' | 'saving' | 'failed'
 type BuilderTab = 'subtasks' | 'customFields' | 'checklist' | 'attachments' | 'agent' | 'skills'
+type TemplateSubtaskDetailTab = 'agent' | 'skills' | 'customFields' | 'attachments'
 type DraftSubtask = NonNullable<TaskTemplatePayload['subtasks']>[number] & { uiId: string }
 type TextDraftRow = { id: string; title: string }
 type CustomFieldDraftRow = { id: string; field: AppSelectOption | null; value: string }
@@ -235,12 +238,14 @@ export function TaskTemplatesPage() {
   const [deleteTarget, setDeleteTarget] = useState<TaskTemplate | null>(null)
   const [createName, setCreateName] = useState('')
   const [createDescription, setCreateDescription] = useState('')
+  const [createImportJson, setCreateImportJson] = useState<string | null>(null)
   const [editing, setEditing] = useState<TaskTemplate | null>(null)
   const [nameDraft, setNameDraft] = useState('')
   const [descriptionDraft, setDescriptionDraft] = useState('')
   const [templateDraft, setTemplateDraft] = useState<TaskTemplatePayload>(defaultTemplate())
   const [draftSubtasks, setDraftSubtasks] = useState<DraftSubtask[]>([])
   const [activeTab, setActiveTab] = useState<BuilderTab>('subtasks')
+  const [subtaskDetailTab, setSubtaskDetailTab] = useState<TemplateSubtaskDetailTab>('agent')
   const [selectedSubtaskId, setSelectedSubtaskId] = useState<string | null>(null)
   const [checklistDraft, setChecklistDraft] = useState('')
   const [subtaskTitleDraft, setSubtaskTitleDraft] = useState('')
@@ -274,6 +279,9 @@ export function TaskTemplatesPage() {
   const [dataFormatTarget, setDataFormatTarget] = useState<{ role: DataFormatRole; scope: 'template' | 'subtask' } | null>(null)
   const [quickOutputFormatName, setQuickOutputFormatName] = useState('')
   const [quickOutputFormatDescription, setQuickOutputFormatDescription] = useState('')
+  const [isJsonImportOpen, setIsJsonImportOpen] = useState(false)
+  const [jsonImportTarget, setJsonImportTarget] = useState<'create' | 'edit'>('create')
+  const [isJsonImporting, setIsJsonImporting] = useState(false)
 
   const templateBodyRef = useRef<HTMLDivElement | null>(null)
   const subtaskClickTimerRef = useRef<number | null>(null)
@@ -418,6 +426,15 @@ export function TaskTemplatesPage() {
   })() : null
   const selectedSubtaskStatus = selectedSubtask?.status || PROJECT_STATUS_COLUMNS[0].status
   const selectedSubtaskStatusColumn = resolveProjectStatusColumn(selectedSubtaskStatus, PROJECT_STATUS_COLUMNS)
+  const selectedSubtaskTags = tagOptions.filter((option) => getSubtaskTagIds(selectedSubtask).includes(option.value))
+  const selectedSubtaskAgentObject = (() => {
+    const agentId = getSubtaskAgentId(selectedSubtask)
+    return agentId ? agents.find((agent) => agent.id === agentId) ?? null : null
+  })()
+  const selectedSubtaskSkillObjects = (() => {
+    const skillIds = new Set(getSubtaskSkillIds(selectedSubtask))
+    return skills.filter((skill) => skillIds.has(skill.id))
+  })()
   const selectedSubtaskInputFormat = (() => {
     const id = getSubtaskInputFormatId(selectedSubtask)
     const format = id ? outputFormatById.get(id) : null
@@ -428,10 +445,20 @@ export function TaskTemplatesPage() {
     const format = id ? outputFormatById.get(id) : null
     return format ? { label: format.name, value: format.id } : null
   })()
-  const templateAttachmentRows = useMemo<AttachmentRow[]>(() => [
-    ...storedAttachmentRows(normalizeAttachments(templateDraft.attachments)),
-    ...attachmentRowsFromDescription(descriptionDraft, 'Description')
-  ], [descriptionDraft, templateDraft.attachments])
+  const templateAttachmentRows = useMemo<AttachmentRow[]>(() => {
+    const templateOwner = { ownerType: 'template' as const, ownerId: editing?.id ?? 'draft-template', ownerTitle: nameDraft }
+    return [
+      ...storedAttachmentRows(normalizeAttachments(templateDraft.attachments), 'Template attachments', templateOwner),
+      ...attachmentRowsFromDescription(descriptionDraft, 'Template description', templateOwner),
+      ...draftSubtasks.flatMap((subtask) => {
+        const owner = { ownerType: 'templateSubtask' as const, ownerId: subtask.uiId, ownerTitle: subtask.title }
+        return [
+          ...storedAttachmentRows(getSubtaskAttachments(subtask), `Subtask: ${subtask.title}`, owner),
+          ...attachmentRowsFromDescription(getSubtaskDescription(subtask), `Subtask description: ${subtask.title}`, owner)
+        ]
+      })
+    ]
+  }, [descriptionDraft, draftSubtasks, editing?.id, nameDraft, templateDraft.attachments])
   const subtaskAttachmentRows = useMemo<AttachmentRow[]>(() => [
     ...storedAttachmentRows(getSubtaskAttachments(selectedSubtask)),
     ...attachmentRowsFromDescription(getSubtaskDescription(selectedSubtask), 'Subtask description')
@@ -581,6 +608,31 @@ export function TaskTemplatesPage() {
   }
 
   const removeTemplateAttachment = (row: AttachmentRow) => {
+    if (row.ownerType === 'templateSubtask' && row.ownerId) {
+      const targetSubtask = subtasksRef.current.find((subtask) => subtask.uiId === row.ownerId)
+      if (!targetSubtask) return
+      patchSubtasks((current) => current.map((subtask) => {
+        if (subtask.uiId !== row.ownerId) return subtask
+        const payload = getSubtaskPayload(subtask)
+        if (row.origin === 'stored') {
+          return {
+            ...subtask,
+            payload: {
+              ...payload,
+              attachments: getSubtaskAttachments(subtask).filter((attachment) => attachment.id !== row.id)
+            }
+          }
+        }
+        return {
+          ...subtask,
+          payload: {
+            ...payload,
+            description: removeAttachmentFromMarkdown(getSubtaskDescription(subtask), row.url)
+          }
+        }
+      }))
+      return
+    }
     if (row.origin === 'stored') {
       patchTemplate({
         attachments: normalizeAttachments(templateRef.current.attachments).filter((attachment) => attachment.id !== row.id)
@@ -605,6 +657,7 @@ export function TaskTemplatesPage() {
   const openCreate = () => {
     setCreateName('')
     setCreateDescription('')
+    setCreateImportJson(null)
     setFormError(null)
     setCreateOpen(true)
   }
@@ -616,6 +669,7 @@ export function TaskTemplatesPage() {
     if (!shouldOpen) return
     setCreateName(state?.name ?? searchParams.get('name') ?? '')
     setCreateDescription('')
+    setCreateImportJson(null)
     setFormError(null)
     setCreateOpen(true)
     navigate(location.pathname, { replace: true, state: null })
@@ -628,6 +682,23 @@ export function TaskTemplatesPage() {
       return
     }
     setLoading(true)
+    if (createImportJson?.trim()) {
+      const response = await invokeBridge<TaskJsonImportResult>(IPC_CHANNELS.taskTemplates.importJson, {
+        actorToken: token,
+        json: createImportJson
+      })
+      setLoading(false)
+      if (!response.ok || !response.data?.template) {
+        setFormError(response.error?.message ?? 'Unable to import task template JSON')
+        return
+      }
+      setCreateOpen(false)
+      setCreateImportJson(null)
+      if (response.data.warnings.length > 0) setError(response.data.warnings.join(' '))
+      setItems((current) => [response.data?.template as TaskTemplate, ...current])
+      openBuilder(response.data.template)
+      return
+    }
     const response = await invokeBridge<TaskTemplate>(IPC_CHANNELS.taskTemplates.create, {
       actorToken: token,
       name: createName.trim(),
@@ -646,6 +717,34 @@ export function TaskTemplatesPage() {
     setCreateOpen(false)
     setItems((current) => [response.data as TaskTemplate, ...current])
     openBuilder(response.data)
+  }
+
+  const importTemplateJson = async (jsonText: string) => {
+    if (jsonImportTarget === 'create') {
+      const preview = parseTaskJsonImportPreview(jsonText)
+      setCreateName(preview.title)
+      setCreateDescription(preview.description)
+      setCreateImportJson(jsonText)
+      setIsJsonImportOpen(false)
+      return
+    }
+    if (!editingRef.current) return
+    setIsJsonImporting(true)
+    const response = await invokeBridge<TaskJsonImportResult>(IPC_CHANNELS.taskTemplates.importJson, {
+      actorToken: token,
+      id: editingRef.current.id,
+      json: jsonText
+    })
+    setIsJsonImporting(false)
+    if (!response.ok || !response.data?.template) {
+      setSaveState('failed')
+      setSaveError(response.error?.message ?? 'Unable to import task template JSON')
+      return
+    }
+    setIsJsonImportOpen(false)
+    setSaveError(response.data.warnings.length > 0 ? response.data.warnings.join(' ') : null)
+    setItems((current) => current.map((item) => item.id === response.data?.template?.id ? response.data.template : item))
+    openBuilder(response.data.template)
   }
 
   const openBuilder = (template: TaskTemplate) => {
@@ -952,6 +1051,7 @@ export function TaskTemplatesPage() {
     if (subtaskClickTimerRef.current) window.clearTimeout(subtaskClickTimerRef.current)
     subtaskClickTimerRef.current = window.setTimeout(() => {
       setSelectedSubtaskId(subtaskId)
+      setSubtaskDetailTab('agent')
       subtaskClickTimerRef.current = null
     }, 180)
   }
@@ -1341,7 +1441,19 @@ export function TaskTemplatesPage() {
           <section className={styles.modal} role="dialog" aria-modal="true" aria-label="Create task template">
             <header className={styles.modalHeader}>
               <h2>Create task template</h2>
-              <button type="button" className={styles.modalClose} onClick={() => setCreateOpen(false)} aria-label="Close create modal"><LuX size={16} /></button>
+              <div className={detailStyles.createTaskHeaderActions}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setJsonImportTarget('create')
+                    setIsJsonImportOpen(true)
+                  }}
+                >
+                  <LuUpload size={15} />
+                  Import JSON
+                </button>
+                <button type="button" className={styles.modalClose} onClick={() => setCreateOpen(false)} aria-label="Close create modal"><LuX size={16} /></button>
+              </div>
             </header>
             <form className={styles.form} onSubmit={createTemplate}>
               {formError ? <p className={styles.formError}>{formError}</p> : null}
@@ -1365,6 +1477,10 @@ export function TaskTemplatesPage() {
           onEditTitle={() => undefined}
           onDeleteTask={() => setDeleteTarget(editing)}
           onFilesDrop={(files) => void uploadTemplateAttachments(files)}
+          onImportJson={() => {
+            setJsonImportTarget('edit')
+            setIsJsonImportOpen(true)
+          }}
         >
           <TaskDetailContent
             bodyRef={templateBodyRef}
@@ -1418,17 +1534,19 @@ export function TaskTemplatesPage() {
                   placeholder="Task title from template"
                 />
                 <div className={detailStyles.aiHint}>Template description and task body are saved automatically</div>
-                <div className={detailStyles.metaGrid}>
-                  <div className={detailStyles.metaCell}>
-                    <span className={detailStyles.metaLabel}>Status</span>
-                    <span className={detailStyles.metaValue}>{templateDraft.status || 'Target project default'}</span>
-                  </div>
-                </div>
-
                 <div className={detailStyles.topControlGrid}>
+                  <div
+                    className={`${detailStyles.topControlBlock} ${detailStyles.topControlCard} ${detailStyles.statusControlCard}`}
+                    style={{ '--status-accent': PROJECT_STATUS_COLUMNS[0].accent } as CSSProperties}
+                  >
+                    <span className={detailStyles.metaLabel}>Status</span>
+                    <span className={detailStyles.statusPreviewPill}>
+                      <span />
+                      Target project default
+                    </span>
+                  </div>
                   <div className={`${detailStyles.topControlBlock} ${detailStyles.topControlCard}`}>
                     <span className={detailStyles.metaLabel}>Tags (shared)</span>
-                    <p className={detailStyles.topControlSummary}>{selectedTags.length > 0 ? `${selectedTags.length} selected` : 'Empty'}</p>
                     <AppSelect mode="multi" variant="borderless" className={detailStyles.tagInlineSelect} value={selectedTags} options={tagOptions} onChange={(value) => patchTemplate({ tagIds: Array.isArray(value) ? value.map((item) => item.value) : [] })} placeholder="Search tags..." />
                   </div>
                 </div>
@@ -1682,26 +1800,41 @@ export function TaskTemplatesPage() {
                     <span className={detailStyles.taskTypePill}>Subtask</span>
                     <span className={detailStyles.projectContext}>in template</span>
                   </div>
-                  <textarea
-                    className={detailStyles.titleInput}
-                    value={selectedSubtask.title ?? ''}
-                    ref={resizeTitleTextarea}
-                    rows={1}
-                    onInput={(event) => resizeTitleTextarea(event.currentTarget)}
-                    onChange={(event) => updateSelectedSubtask({ title: event.target.value })}
-                  />
+                  {editingTemplateSubtaskId === selectedSubtask.uiId ? (
+                    <textarea
+                      autoFocus
+                      className={detailStyles.titleInput}
+                      value={templateSubtaskDraft}
+                      ref={resizeTitleTextarea}
+                      rows={1}
+                      onInput={(event) => resizeTitleTextarea(event.currentTarget)}
+                      onChange={(event) => setTemplateSubtaskDraft(event.target.value)}
+                      onBlur={saveTemplateSubtaskRename}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                          event.preventDefault()
+                          saveTemplateSubtaskRename()
+                        }
+                        if (event.key === 'Escape') {
+                          setEditingTemplateSubtaskId(null)
+                          setTemplateSubtaskDraft('')
+                        }
+                      }}
+                    />
+                  ) : (
+                    <h3
+                      className={detailStyles.detailTitle}
+                      onClick={() => startTemplateSubtaskRename(selectedSubtask)}
+                    >
+                      {selectedSubtask.title || 'Untitled subtask'}
+                    </h3>
+                  )}
                   <div className={detailStyles.topControlGrid}>
                     <div
                       className={`${detailStyles.topControlBlock} ${detailStyles.topControlCard} ${detailStyles.statusControlCard}`}
                       style={{ '--status-accent': selectedSubtaskStatusColumn.accent } as CSSProperties}
                     >
                       <span className={detailStyles.metaLabel}>Status</span>
-                      <p className={detailStyles.topControlSummary}>
-                        <span className={detailStyles.statusPreviewPill}>
-                          <span />
-                          {selectedSubtaskStatusColumn.title}
-                        </span>
-                      </p>
                       <AppSelect
                         mode="single"
                         variant="borderless"
@@ -1717,7 +1850,106 @@ export function TaskTemplatesPage() {
                         }}
                       />
                     </div>
+                    <div className={`${detailStyles.topControlBlock} ${detailStyles.topControlCard}`}>
+                      <span className={detailStyles.metaLabel}>Tags</span>
+                      <AppSelect
+                        mode="multi"
+                        variant="borderless"
+                        className={detailStyles.tagInlineSelect}
+                        value={selectedSubtaskTags}
+                        options={tagOptions}
+                        onChange={(value) => updateSelectedSubtaskPayload({ tagIds: Array.isArray(value) ? value.map((item) => item.value) : [] })}
+                        placeholder="Search tags..."
+                      />
+                    </div>
                   </div>
+                </section>
+                <section className={detailStyles.drawerSection}>
+                  <div className={detailStyles.detailSectionHeader}>
+                    <div>
+                      <h4>Description</h4>
+                      <p>{saveState === 'saving' ? 'Saving...' : saveState === 'dirty' ? 'Editing' : 'Ready'}</p>
+                    </div>
+                  </div>
+                  <MarkdownDescriptionEditor
+                    value={getSubtaskDescription(selectedSubtask)}
+                    className={detailStyles.descriptionField}
+                    minHeight={220}
+                    placeholder="Add subtask description, notes, checklists or code..."
+                    enableDataFormatCommands
+                    dataFormats={outputFormats}
+                    onCreateDataFormat={createDescriptionDataFormat}
+                    onChange={(nextValue) => updateSelectedSubtaskPayload({ description: nextValue, inputFormatId: '', outputFormatId: '' })}
+                    onCommit={() => void persistNow()}
+                  />
+                </section>
+                <section className={detailStyles.drawerSection}>
+                  <div className={detailStyles.tabRow}>
+                    <button type="button" className={subtaskDetailTab === 'agent' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setSubtaskDetailTab('agent')}><LuBot size={15} />Agent</button>
+                    <button type="button" className={subtaskDetailTab === 'skills' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setSubtaskDetailTab('skills')}><LuSparkles size={15} />Skills</button>
+                    <button type="button" className={subtaskDetailTab === 'customFields' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setSubtaskDetailTab('customFields')}><LuSlidersHorizontal size={15} />Custom fields</button>
+                    <button type="button" className={subtaskDetailTab === 'attachments' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setSubtaskDetailTab('attachments')}><LuPaperclip size={15} />Attachments</button>
+                  </div>
+                  {subtaskDetailTab === 'agent' ? (
+                    <>
+                      <div className={detailStyles.detailSectionHeader}>
+                        <div>
+                          <h4>Agent</h4>
+                          <p>{selectedSubtaskAgentObject?.name ?? 'Unassigned'}</p>
+                        </div>
+                      </div>
+                      <AgentAssignmentPanel
+                        agent={selectedSubtaskAgentObject}
+                        agents={agents}
+                        ctaDescription="Choose the default agent for this template subtask."
+                        onChange={(agentId) => {
+                          const agent = agentId ? agents.find((item) => item.id === agentId) : null
+                          updateSelectedSubtaskPayload({
+                            agentId: agentId ?? '',
+                            assigneeId: agentId ?? '',
+                            assigneeName: agent?.name ?? ''
+                          })
+                        }}
+                      />
+                    </>
+                  ) : subtaskDetailTab === 'skills' ? (
+                    <>
+                      <div className={detailStyles.detailSectionHeader}>
+                        <div>
+                          <h4>Skills</h4>
+                          <p>{selectedSubtaskSkillObjects.length} selected</p>
+                        </div>
+                      </div>
+                      <SkillsAssignmentPanel
+                        selectedSkills={selectedSubtaskSkillObjects}
+                        skills={skills}
+                        source="Subtask"
+                        ctaDescription="Select one or more default skills for this template subtask."
+                        onChange={(skillIds) => updateSelectedSubtaskPayload({ skillIds })}
+                      />
+                    </>
+                  ) : subtaskDetailTab === 'customFields' ? (
+                    renderCustomFields(getSubtaskCustomFields(selectedSubtask), true)
+                  ) : subtaskDetailTab === 'attachments' ? (
+                    <>
+                      <div className={detailStyles.detailSectionHeader}>
+                        <div>
+                          <h4>Attachments</h4>
+                          <p>{subtaskAttachmentRows.length} files</p>
+                        </div>
+                      </div>
+                      <AttachmentTable
+                        rows={subtaskAttachmentRows}
+                        uploading={isAttachmentUploading}
+                        onUpload={(files) => void uploadTemplateSubtaskAttachments(files)}
+                        onRemove={removeTemplateSubtaskAttachment}
+                        onError={(message) => {
+                          setSaveState('failed')
+                          setSaveError(message)
+                        }}
+                      />
+                    </>
+                  ) : null}
                 </section>
               </div>
             </div>
@@ -2053,6 +2285,14 @@ export function TaskTemplatesPage() {
           </section>
         </>
       ) : null}
+
+      <TaskJsonImportModal
+        open={isJsonImportOpen}
+        title={jsonImportTarget === 'create' ? 'Import task template JSON' : 'Import template JSON'}
+        busy={isJsonImporting || loading}
+        onClose={() => setIsJsonImportOpen(false)}
+        onImport={(jsonText) => void importTemplateJson(jsonText)}
+      />
 
       {deleteTarget ? (
         <>

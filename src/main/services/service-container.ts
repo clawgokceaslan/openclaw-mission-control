@@ -8,6 +8,7 @@ import { TaskRepository, TaskSkillRepository, TaskSubtaskRepository, TaskTagRepo
 import { TaskTemplateRepository } from '../../db/repositories/task-template-repo.js'
 import { AgentRepository } from '../../db/repositories/agent-repo.js'
 import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
+import { OpenClawResourceMappingRepository } from '../../db/repositories/openclaw-resource-mapping-repo.js'
 import { WebhookRepository } from '../../db/repositories/webhook-repo.js'
 import { SkillRepository, PackRepository } from '../../db/repositories/skill-repo.js'
 import { OrganizationRepository } from '../../db/repositories/org-repo.js'
@@ -77,6 +78,7 @@ export async function createAppContext(): Promise<AppContext> {
   const taskSkillRepo = new TaskSkillRepository(db)
   const agentRepo = new AgentRepository(db)
   const gatewayRepo = new GatewayRepository(db)
+  const openClawResourceMappingRepo = new OpenClawResourceMappingRepository(db)
   const gatewayRuntime = new OpenClawGatewayRuntimeRegistry()
   const webhookRepo = new WebhookRepository(db)
   const skillRepo = new SkillRepository(db)
@@ -98,9 +100,9 @@ export async function createAppContext(): Promise<AppContext> {
     workspaces: new WorkspaceService(auth, workspaceRepo),
     appSettings: new AppSettingsService(auth, appSettingsRepo, gatewayRepo),
     statuses: new StatusService(auth, statusRepo, projectRepo),
-    tasks: new TaskService(auth, taskRepo, taskSubtaskRepo, taskTagRepo, taskSkillRepo, projectRepo, tagRepo, skillRepo, agentRepo, statusRepo, workspaceRepo),
-    taskTemplates: new TaskTemplateService(auth, taskTemplateRepo),
-    agents: new AgentService(auth, agentRepo),
+    tasks: new TaskService(auth, taskRepo, taskSubtaskRepo, taskTagRepo, taskSkillRepo, projectRepo, tagRepo, skillRepo, customFieldRepo, agentRepo, statusRepo, workspaceRepo),
+    taskTemplates: new TaskTemplateService(auth, taskTemplateRepo, agentRepo, tagRepo, skillRepo, customFieldRepo),
+    agents: new AgentService(auth, agentRepo, gatewayRepo, appSettingsRepo, openClawResourceMappingRepo, gatewayRuntime),
     gateways: new GatewayService(auth, gatewayRepo, eventBus, gatewayRuntime, appSettingsRepo),
     webhooks: new WebhookService(auth, webhookRepo),
     skills: new SkillService(auth, skillRepo, packRepo),

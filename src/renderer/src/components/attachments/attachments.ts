@@ -10,6 +10,9 @@ export interface AttachmentRow {
   size: number
   source: string
   origin: 'stored' | 'description'
+  ownerType?: 'task' | 'subtask' | 'template' | 'templateSubtask'
+  ownerId?: string
+  ownerTitle?: string
   createdAt?: number
 }
 
@@ -46,7 +49,7 @@ export function normalizeAttachments(value: unknown): TaskAttachment[] {
   })
 }
 
-export function attachmentRowsFromDescription(markdown: string, source: string): AttachmentRow[] {
+export function attachmentRowsFromDescription(markdown: string, source: string, owner?: Pick<AttachmentRow, 'ownerType' | 'ownerId' | 'ownerTitle'>): AttachmentRow[] {
   const rows: AttachmentRow[] = []
   const seen = new Set<string>()
   for (const match of markdown.matchAll(URL_PATTERN)) {
@@ -57,14 +60,16 @@ export function attachmentRowsFromDescription(markdown: string, source: string):
     if (!url || seen.has(url)) continue
     seen.add(url)
     const label = match[2] || match[8] || ''
+    const ownerKey = owner?.ownerType && owner.ownerId ? `${owner.ownerType}:${owner.ownerId}` : source
     rows.push({
-      id: `description:${source}:${url}`,
+      id: `description:${ownerKey}:${url}`,
       name: label.trim() || fileNameFromUrl(url),
       url,
       type: typeFromName(url),
       size: 0,
       source,
-      origin: 'description'
+      origin: 'description',
+      ...owner
     })
   }
   return rows

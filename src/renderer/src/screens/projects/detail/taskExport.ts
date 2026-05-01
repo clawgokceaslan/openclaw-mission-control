@@ -117,6 +117,14 @@ function anchorFor(prefix: string, value: string) {
   return `${prefix}-${safeName(value, 'item').toLowerCase()}`
 }
 
+function subtaskLabel(subtask: TaskSubtask, index: number): string {
+  return `Subtask ${index + 1}: ${subtask.title}`
+}
+
+function subtaskAnchor(subtask: TaskSubtask, index: number): string {
+  return `subtask-${index + 1}-${safeName(subtask.title, 'subtask').toLowerCase()}`
+}
+
 function markdownCell(value: unknown): string {
   if (value === undefined || value === null || value === '') return '-'
   return String(value).replace(/\|/g, '\\|').replace(/\n/g, ' ')
@@ -133,6 +141,20 @@ function humanizeStatus(value: string | undefined, statuses?: ProjectStatus[]): 
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/\b\w/g, (match) => match.toUpperCase())
+}
+
+function subtaskStatusAction(subtask: TaskSubtask, statuses?: ProjectStatus[]): { label: string; shouldBypass: boolean; action: string } {
+  const label = humanizeStatus(subtask.status, statuses)
+  const status = statuses?.find((item) => item.id === subtask.status)
+  const normalized = `${status?.category ?? ''} ${label} ${subtask.status ?? ''}`.toLowerCase()
+  const shouldBypass = status?.category === 'done'
+    || status?.category === 'closed'
+    || /\b(done|closed|complete|completed)\b|tamamland|kapat[ıi]ld/.test(normalized)
+  return {
+    label,
+    shouldBypass,
+    action: shouldBypass ? `Bypass - status is ${label}` : 'Process'
+  }
 }
 
 function agentDescription(agent: Agent): string {
@@ -230,12 +252,12 @@ function agentReferencesMarkdown(task: TaskEntity, agents: Agent[]): string {
     const target = agent ? `Agents.md#${anchorFor('agent', agent.id)}` : 'missing metadata'
     rows.push(`| Task | ${markdownCell(agent?.name ?? task.agentId)} | ${markdownCell(agent?.title ?? '-')} | ${markdownCell(agent ? agentDescription(agent) || '-' : 'missing metadata')} | ${markdownCell(agent && agentPrompt(agent) ? `See ${target}` : '-')} | ${markdownCell(task.title)} | ${markdownCell(target)} |`)
   }
-  for (const subtask of task.subtasks ?? []) {
+  for (const [index, subtask] of (task.subtasks ?? []).entries()) {
     const agentId = getSubtaskAgentId(subtask)
     if (!agentId) continue
     const agent = agents.find((item) => item.id === agentId)
     const target = agent ? `Agents.md#${anchorFor('agent', agent.id)}` : 'missing metadata'
-    rows.push(`| Subtask | ${markdownCell(agent?.name ?? agentId)} | ${markdownCell(agent?.title ?? '-')} | ${markdownCell(agent ? agentDescription(agent) || '-' : 'missing metadata')} | ${markdownCell(agent && agentPrompt(agent) ? `See ${target}` : '-')} | ${markdownCell(subtask.title)} | ${markdownCell(target)} |`)
+    rows.push(`| ${markdownCell(subtaskLabel(subtask, index))} | ${markdownCell(agent?.name ?? agentId)} | ${markdownCell(agent?.title ?? '-')} | ${markdownCell(agent ? agentDescription(agent) || '-' : 'missing metadata')} | ${markdownCell(agent && agentPrompt(agent) ? `See ${target}` : '-')} | ${markdownCell(subtaskLabel(subtask, index))} | ${markdownCell(target)} |`)
   }
   if (!rows.length) return ''
   return ['| Source | Agent | Title | Description | Prompt | Used in | Details |', '| --- | --- | --- | --- | --- | --- | --- |', ...rows].join('\n')
@@ -246,10 +268,10 @@ function skillReferencesMarkdown(task: TaskEntity, skills: Skill[]): string {
   for (const skill of task.skills ?? []) {
     rows.push(`| Task | ${markdownCell(skill.name)} | ${markdownCell(task.title)} | ${markdownCell(`Skills.md#${anchorFor('skill', skill.id)}`)} |`)
   }
-  for (const subtask of task.subtasks ?? []) {
+  for (const [index, subtask] of (task.subtasks ?? []).entries()) {
     for (const skillId of getSubtaskSkillIds(subtask)) {
       const skill = skills.find((item) => item.id === skillId)
-      rows.push(`| Subtask | ${markdownCell(skill?.name ?? skillId)} | ${markdownCell(subtask.title)} | ${markdownCell(skill ? `Skills.md#${anchorFor('skill', skill.id)}` : 'missing metadata')} |`)
+      rows.push(`| ${markdownCell(subtaskLabel(subtask, index))} | ${markdownCell(skill?.name ?? skillId)} | ${markdownCell(subtaskLabel(subtask, index))} | ${markdownCell(skill ? `Skills.md#${anchorFor('skill', skill.id)}` : 'missing metadata')} |`)
     }
   }
   if (!rows.length) return ''
@@ -300,6 +322,8 @@ function subtaskFlowLabels(subtask: TaskSubtask): string[] {
 function buildAiExecutionFlow(context: ExportContext): string {
   const { task } = context
   const subtasks = task.subtasks ?? []
+  const actionableSubtasks = subtasks.filter((subtask) => !subtaskStatusAction(subtask, context.projectStatuses).shouldBypass)
+  const bypassedSubtasks = subtasks.length - actionableSubtasks.length
   const taskAttachments = getTaskAttachments(task)
   const subtaskAttachments = subtasks.flatMap(getSubtaskAttachments)
   const hasProjectRules = Boolean(
@@ -324,10 +348,12 @@ function buildAiExecutionFlow(context: ExportContext): string {
   if (hasAgentReferences) nodes.push(['Load Agents.md', 'agent prompts + steps'])
   if (hasSkillReferences) nodes.push(['Load Skills.md', 'skill instructions'])
   if (subtasks.length) {
-    const subtaskLabels = Array.from(new Set(subtasks.flatMap(subtaskFlowLabels)))
+    const subtaskLabels = Array.from(new Set(actionableSubtasks.flatMap(subtaskFlowLabels)))
     nodes.push([
-      `Process ${subtasks.length} Subtask${subtasks.length === 1 ? '' : 's'}`,
-      'in listed order',
+      actionableSubtasks.length
+        ? `Process ${actionableSubtasks.length} Subtask${actionableSubtasks.length === 1 ? '' : 's'}`
+        : 'Process 0 Subtasks',
+      bypassedSubtasks ? `bypass ${bypassedSubtasks} done/closed` : 'in numeric order',
       subtaskLabels.length ? subtaskLabels.join(' + ') : 'title + status'
     ])
   }
@@ -344,11 +370,11 @@ function buildAiExecutionFlow(context: ExportContext): string {
     diagram,
     '```',
     '',
-    'Execution rule: Follow this flow top-to-bottom. Skip nodes that are absent from this file/package.'
+    'Execution rule: Follow this flow top-to-bottom. Process subtasks strictly in numeric order from the Subtasks Index. Bypass subtasks marked Done or Closed. Skip nodes that are absent from this file/package.'
   ].join('\n')
 }
 
-function buildDetailsMarkdown(rows: Array<[string, unknown]>, description?: string, promptLevel = 3): string {
+function buildDetailsMarkdown(rows: Array<[string, unknown]>, description?: string, promptLevel = 3, promptTitle = 'Description / Prompt'): string {
   const table = [
     '| Field | Value |',
     '| --- | --- |',
@@ -356,32 +382,37 @@ function buildDetailsMarkdown(rows: Array<[string, unknown]>, description?: stri
       .filter(([, value]) => value !== undefined && value !== null && value !== '')
       .map(([label, value]) => `| ${markdownCell(label)} | ${markdownCell(formatInlineValue(value))} |`)
   ].join('\n')
-  const prompt = description?.trim() ? `\n\n${'#'.repeat(promptLevel)} Description / Prompt\n${description.trim()}` : ''
+  const prompt = description?.trim() ? `\n\n${'#'.repeat(promptLevel)} ${promptTitle}\n${description.trim()}` : ''
   return `${table}${prompt}`
 }
 
-function buildSubtaskSection(subtask: TaskSubtask, context: ExportContext, exportStatuses: AttachmentExportStatus[] = []): string {
+function buildSubtaskSection(subtask: TaskSubtask, index: number, context: ExportContext, exportStatuses: AttachmentExportStatus[] = []): string {
   const payload = getPayload(subtask)
   const tagIds = getSubtaskTagIds(subtask)
   const attachments = getSubtaskAttachments(subtask)
+  const label = subtaskLabel(subtask, index)
+  const statusAction = subtaskStatusAction(subtask, context.projectStatuses)
   const details = buildDetailsMarkdown([
-    ['Title', subtask.title],
-    ['Status', humanizeStatus(subtask.status, context.projectStatuses)],
+    ['Subtask number', index + 1],
+    ['Subtask title', subtask.title],
+    ['Parent task', context.task.title],
+    ['Status', statusAction.label],
+    ['AI action', statusAction.action],
     ['Tags', tagIds.length ? tagsMarkdown(tagIds, context.tags) : 'None'],
     ['Created', formatDate(subtask.createdAt)],
     ['Updated', formatDate(subtask.updatedAt)]
-  ], getSubtaskDescription(subtask), 4)
-  const sections = [`## [SUBTASK] ${subtask.title}\n\n### Details\n${details}`]
+  ], getSubtaskDescription(subtask), 4, 'Subtask Description / Prompt')
+  const sections = [`## ${label} - Status: ${statusAction.label}\n<a id="${subtaskAnchor(subtask, index)}"></a>\n\n### Subtask Details\n${details}`]
   if (tagIds.length) pushSection(sections, 'Tags', tagDetailsMarkdown(tagIds, context.tags), 3)
   pushSection(sections, 'Comments', commentsMarkdown(getSubtaskComments(subtask)), 3)
   pushSection(sections, 'Custom Fields', customFieldsMarkdown(payload.customFields as Record<string, unknown> | undefined, context.customFields), 3)
   pushSection(sections, 'Checklist', checklistMarkdown(getSubtaskChecklist(subtask)), 3)
-  pushSection(sections, 'Attachments Manifest', attachmentsMarkdown(attachments, `[SUBTASK] ${subtask.title}`, exportStatuses), 3)
+  pushSection(sections, 'Attachments Manifest', attachmentsMarkdown(attachments, label, exportStatuses), 3)
   const subtaskAgentId = getSubtaskAgentId(subtask)
   if (subtaskAgentId) {
     const agent = context.agents.find((item) => item.id === subtaskAgentId)
     const target = agent ? `Agents.md#${anchorFor('agent', agent.id)}` : 'missing metadata'
-    pushSection(sections, 'Agent References', `| Source | Agent | Title | Description | Prompt | Used in | Details |\n| --- | --- | --- | --- | --- | --- | --- |\n| Subtask | ${markdownCell(agent?.name ?? subtaskAgentId)} | ${markdownCell(agent?.title ?? '-')} | ${markdownCell(agent ? agentDescription(agent) || '-' : 'missing metadata')} | ${markdownCell(agent && agentPrompt(agent) ? `See ${target}` : '-')} | ${markdownCell(subtask.title)} | ${markdownCell(target)} |`, 3)
+    pushSection(sections, 'Agent References', `| Source | Agent | Title | Description | Prompt | Used in | Details |\n| --- | --- | --- | --- | --- | --- | --- |\n| ${markdownCell(label)} | ${markdownCell(agent?.name ?? subtaskAgentId)} | ${markdownCell(agent?.title ?? '-')} | ${markdownCell(agent ? agentDescription(agent) || '-' : 'missing metadata')} | ${markdownCell(agent && agentPrompt(agent) ? `See ${target}` : '-')} | ${markdownCell(label)} | ${markdownCell(target)} |`, 3)
   }
   const subtaskSkillIds = getSubtaskSkillIds(subtask)
   if (subtaskSkillIds.length) {
@@ -390,7 +421,7 @@ function buildSubtaskSection(subtask: TaskSubtask, context: ExportContext, expor
       '| --- | --- | --- | --- |',
       ...subtaskSkillIds.map((skillId) => {
         const skill = context.skills.find((item) => item.id === skillId)
-        return `| Subtask | ${markdownCell(skill?.name ?? skillId)} | ${markdownCell(subtask.title)} | ${markdownCell(skill ? `Skills.md#${anchorFor('skill', skill.id)}` : 'missing metadata')} |`
+        return `| ${markdownCell(label)} | ${markdownCell(skill?.name ?? skillId)} | ${markdownCell(label)} | ${markdownCell(skill ? `Skills.md#${anchorFor('skill', skill.id)}` : 'missing metadata')} |`
       })
     ].join('\n'), 3)
   }
@@ -423,6 +454,7 @@ export function buildTaskMarkdown(context: ExportContext, exportStatuses: Attach
     ['Project group', context.projectGroup?.name ?? 'None'],
     ['Tags', taskTagIds.length ? tagsMarkdown(taskTagIds, tags) : 'None'],
     ['Subtasks', subtasks.length],
+    ['Subtask details', subtasks.length ? 'See Subtasks Index and numbered Subtask sections below. Process them in numeric order.' : 'None'],
     ['Attachments', taskAttachments.length + subtaskAttachments.length],
     ['Created', formatDate(task.createdAt)],
     ['Updated', formatDate(task.updatedAt)]
@@ -435,8 +467,13 @@ export function buildTaskMarkdown(context: ExportContext, exportStatuses: Attach
   pushSection(sections, 'Attachment Folder', attachmentFolderMarkdown(exportStatuses))
   pushSection(sections, 'Agent References', agentReferencesMarkdown(task, context.agents))
   pushSection(sections, 'Skill References', skillReferencesMarkdown(task, context.skills))
-  if (subtasks.length) pushSection(sections, 'Subtasks Index', subtasks.map((subtask) => `- [SUBTASK] ${subtask.title} (${humanizeStatus(subtask.status, context.projectStatuses)})`).join('\n'))
-  for (const subtask of subtasks) sections.push(buildSubtaskSection(subtask, context, subtaskExportStatuses[subtask.id] ?? []))
+  if (subtasks.length) {
+    pushSection(sections, 'Subtasks Index', subtasks.map((subtask, index) => {
+      const statusAction = subtaskStatusAction(subtask, context.projectStatuses)
+      return `${index + 1}. [${subtaskLabel(subtask, index)}](#${subtaskAnchor(subtask, index)}) - Status: ${statusAction.label} - AI action: ${statusAction.action}`
+    }).join('\n'))
+  }
+  for (const [index, subtask] of subtasks.entries()) sections.push(buildSubtaskSection(subtask, index, context, subtaskExportStatuses[subtask.id] ?? []))
   return `${sections.join(SECTION_SEPARATOR)}\n`
 }
 
@@ -451,7 +488,7 @@ export function buildAgentMarkdown(context: ExportContext): string {
     refs.set(agent.id, current)
   }
   add(context.task.agentId, `Task: ${context.task.title}`)
-  for (const subtask of context.task.subtasks ?? []) add(getSubtaskAgentId(subtask), `Subtask: ${subtask.title}`)
+  for (const [index, subtask] of (context.task.subtasks ?? []).entries()) add(getSubtaskAgentId(subtask), subtaskLabel(subtask, index))
   if (!refs.size) return ''
   const sections = ['# Agents']
   for (const { agent, sources } of Array.from(refs.values()).sort((a, b) => a.agent.name.localeCompare(b.agent.name, 'tr'))) {
@@ -513,8 +550,8 @@ export function buildSkillsMarkdown(context: ExportContext): string {
     refs.set(skill.id, current)
   }
   for (const skill of context.task.skills ?? []) add(skill, `Task: ${context.task.title}`)
-  for (const subtask of context.task.subtasks ?? []) {
-    for (const skillId of getSubtaskSkillIds(subtask)) add(context.skills.find((skill) => skill.id === skillId), `Subtask: ${subtask.title}`)
+  for (const [index, subtask] of (context.task.subtasks ?? []).entries()) {
+    for (const skillId of getSubtaskSkillIds(subtask)) add(context.skills.find((skill) => skill.id === skillId), subtaskLabel(subtask, index))
   }
   if (!refs.size) return ''
   const sections = ['# Skills']
@@ -632,7 +669,7 @@ export function buildProjectWorkspaceExportTaskPayload(context: ExportContext): 
     }
   })
   const subtaskExportStatuses: SubtaskExportStatusMap = {}
-  for (const subtask of context.task.subtasks ?? []) {
+  for (const [index, subtask] of (context.task.subtasks ?? []).entries()) {
     subtaskExportStatuses[subtask.id] = getSubtaskAttachments(subtask).map((attachment) => {
       const name = uniqueAttachmentName(usedAttachmentNames, attachment.name, subtask.id)
       return {
@@ -641,7 +678,7 @@ export function buildProjectWorkspaceExportTaskPayload(context: ExportContext): 
         status: attachment.url.startsWith('file://') ? 'included' as const : 'linked' as const,
         url: attachment.url,
         ownerId: subtask.id,
-        source: `[SUBTASK] ${subtask.title}`
+        source: subtaskLabel(subtask, index)
       }
     })
   }
@@ -670,8 +707,8 @@ export async function downloadTaskZip(context: ExportContext): Promise<void> {
   const subtaskExportStatuses: SubtaskExportStatusMap = {}
   const usedAttachmentNames = new Set<string>()
   exportStatuses.push(...await addAttachmentFiles(zip, 'attachments', getTaskAttachments(context.task), usedAttachmentNames, context.task.id, 'Task'))
-  for (const subtask of context.task.subtasks ?? []) {
-    const subtaskStatuses = await addAttachmentFiles(zip, 'attachments', getSubtaskAttachments(subtask), usedAttachmentNames, subtask.id, `[SUBTASK] ${subtask.title}`)
+  for (const [index, subtask] of (context.task.subtasks ?? []).entries()) {
+    const subtaskStatuses = await addAttachmentFiles(zip, 'attachments', getSubtaskAttachments(subtask), usedAttachmentNames, subtask.id, subtaskLabel(subtask, index))
     subtaskExportStatuses[subtask.id] = subtaskStatuses
     exportStatuses.push(...subtaskStatuses)
   }

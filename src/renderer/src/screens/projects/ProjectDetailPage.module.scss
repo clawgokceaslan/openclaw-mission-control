@@ -3513,6 +3513,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
 
   button {
     border: none;
@@ -3529,6 +3530,8 @@
   gap: 24px;
   height: 100%;
   align-items: center;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .createTaskTabActive {
@@ -4233,6 +4236,207 @@
 
   button:disabled {
     opacity: 0.6;
+  }
+}
+
+.createTaskHeaderActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+
+  button {
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 8px;
+    background: var(--omc-table-header);
+    color: var(--omc-text);
+    width: auto;
+    height: 34px;
+    min-height: 34px;
+    padding: 0 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-weight: 750;
+    white-space: nowrap;
+  }
+
+  button:last-child {
+    width: 34px;
+    padding: 0;
+    border-radius: 999px;
+  }
+}
+
+.jsonImportModal {
+  position: fixed;
+  z-index: 1601;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(720px, calc(100vw - 32px));
+  max-height: min(780px, calc(100vh - 48px));
+  background: var(--omc-surface);
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 12px;
+  box-shadow: var(--omc-shadow-xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.jsonImportHeader,
+.jsonImportFooter {
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--omc-border-subtle);
+
+  h4 {
+    margin: 0;
+  }
+
+  p {
+    margin: 3px 0 0;
+    color: var(--omc-text-muted);
+    font-size: 0.86rem;
+  }
+
+  button {
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 8px;
+    background: var(--omc-table-header);
+    color: var(--omc-text);
+    min-height: 34px;
+    padding: 0 12px;
+    font-weight: 750;
+  }
+}
+
+.jsonImportFooter {
+  border-bottom: 0;
+  border-top: 1px solid var(--omc-border-subtle);
+
+  button:last-child {
+    border-color: transparent;
+    background: var(--omc-warning);
+    color: var(--omc-inverse-text);
+  }
+}
+
+.jsonDropZone {
+  margin: 16px 18px 0;
+  border: 1px dashed var(--omc-border-strong);
+  border-radius: 10px;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--omc-text-muted);
+  background: var(--omc-table-header);
+  font-weight: 750;
+}
+
+.jsonDropZoneActive {
+  border-color: var(--omc-warning);
+  color: var(--omc-text);
+}
+
+.jsonImportField {
+  padding: 16px 18px 0;
+  display: grid;
+  gap: 8px;
+
+  span {
+    font-size: 0.8rem;
+    font-weight: 800;
+    color: var(--omc-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  textarea {
+    min-height: 260px;
+    resize: vertical;
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 10px;
+    background: var(--omc-input-bg);
+    color: var(--omc-text);
+    padding: 12px;
+    font: 0.86rem/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+}
+
+.jsonImportGuide {
+  margin: 12px 18px;
+  font-size: 0.86rem;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 10px;
+  background: var(--omc-table-header);
+  overflow: hidden;
+
+  header {
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--omc-border-subtle);
+    color: var(--omc-text);
+    font-weight: 800;
+  }
+
+  .jsonImportDownloads {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  button {
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 8px;
+    background: var(--omc-surface);
+    color: var(--omc-text);
+    min-height: 30px;
+    padding: 0 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 750;
+  }
+
+  dl {
+    margin: 0;
+    padding: 10px 12px;
+    display: grid;
+    gap: 8px;
+    max-height: 190px;
+    overflow: auto;
+  }
+
+  dl > div {
+    display: grid;
+    grid-template-columns: 118px 1fr;
+    gap: 10px;
+  }
+
+  dt {
+    color: var(--omc-text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-weight: 800;
+  }
+
+  dd {
+    margin: 0;
+    color: var(--omc-text-muted);
+    line-height: 1.4;
   }
 }
 

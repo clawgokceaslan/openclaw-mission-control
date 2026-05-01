@@ -1,12 +1,14 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { marked } from 'marked'
-import { LuEye, LuPencil, LuPlus, LuTrash2, LuX } from 'react-icons/lu'
+import { LuDownload, LuEye, LuPencil, LuPlus, LuTrash2, LuX } from 'react-icons/lu'
 import { IPC_CHANNELS, type PaginatedResponse } from '@shared/contracts/ipc'
 import type { Skill } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge } from '@renderer/utils/api'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
+import { buildSingleSkillMarkdown } from '@renderer/utils/entityMarkdown'
+import { downloadMarkdownFile } from '../projects/detail/taskExport'
 import styles from './SkillsPage.module.scss'
 
 const PAGE_SIZE_OPTIONS: AppSelectOption[] = [
@@ -189,6 +191,10 @@ export function SkillsPage() {
     await loadSkills()
   }
 
+  const downloadSkill = (skill: Skill) => {
+    downloadMarkdownFile('SKILL.md', buildSingleSkillMarkdown(skill))
+  }
+
   return (
     <section className={styles.page}>
       <header className={styles.header}>
@@ -254,6 +260,9 @@ export function SkillsPage() {
               </button>
             </span>
             <span className={styles.actionCell}>
+              <button type="button" onClick={() => downloadSkill(skill)} aria-label={`Download ${skill.name} SKILL.md`}>
+                <LuDownload size={15} />
+              </button>
               <button type="button" onClick={() => openEdit(skill)} aria-label={`Edit ${skill.name}`}>
                 <LuPencil size={15} />
               </button>

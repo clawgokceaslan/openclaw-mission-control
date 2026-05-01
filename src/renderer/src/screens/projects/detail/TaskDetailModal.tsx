@@ -1,5 +1,5 @@
 import { DragEvent, ReactNode, useEffect, useRef, useState } from 'react'
-import { LuCopy, LuDownload, LuExternalLink, LuFileText, LuHistory, LuEllipsis, LuPencil, LuTrash2, LuX } from 'react-icons/lu'
+import { LuCopy, LuDownload, LuExternalLink, LuFileText, LuHistory, LuEllipsis, LuPencil, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
 import styles from './TaskDetailModal.module.scss'
 
 interface TaskDetailModalProps {
@@ -17,6 +17,7 @@ interface TaskDetailModalProps {
   onDownloadTaskMarkdown?: () => void
   onDownloadAgentMarkdown?: () => void
   onDownloadSkillsMarkdown?: () => void
+  onImportJson?: () => void
 }
 
 export function TaskDetailModal({
@@ -33,7 +34,8 @@ export function TaskDetailModal({
   onDownloadZip,
   onDownloadTaskMarkdown,
   onDownloadAgentMarkdown,
-  onDownloadSkillsMarkdown
+  onDownloadSkillsMarkdown,
+  onImportJson
 }: TaskDetailModalProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isDownloadMenuOpen, setIsDownloadMenuOpen] = useState(false)
@@ -101,7 +103,7 @@ export function TaskDetailModal({
           if (files.length > 0) onFilesDrop(files)
         }}
       >
-        {isDraggingFiles ? <div className={styles.dropOverlay}>Dosyaları buraya bırakın</div> : null}
+        {isDraggingFiles ? <div className={styles.dropOverlay}>Drop files here</div> : null}
         <header className={styles.header}>
           <div className={styles.headerLeft}>
             <span className={styles.headerTitle}>{title}</span>
@@ -112,6 +114,11 @@ export function TaskDetailModal({
                 <button type="button" className={styles.iconButton} onClick={onOpenActivity} aria-label="Open activity logs">
                   <LuHistory size={16} />
                 </button>
+                {onImportJson ? (
+                  <button type="button" className={styles.iconButton} onClick={onImportJson} aria-label="Import JSON">
+                    <LuUpload size={16} />
+                  </button>
+                ) : null}
                 {hasDownloadActions ? (
                   <div className={styles.menuWrap} ref={downloadMenuRef}>
                     <button

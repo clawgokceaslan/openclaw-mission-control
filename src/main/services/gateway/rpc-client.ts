@@ -12,6 +12,8 @@ type ClientEvent =
 
 const BACKOFFS = [1000, 2000, 5000, 10000, 30000]
 const PROTOCOL_VERSION = 3
+const REQUEST_TIMEOUT_MS = 30000
+const CONNECT_CHALLENGE_TIMEOUT_MS = 15000
 const WS_OPEN = 1
 const CONTROL_UI_CLIENT_ID = 'openclaw-control-ui'
 const CONTROL_UI_CLIENT_MODE = 'ui'
@@ -36,6 +38,13 @@ interface PendingRpc {
   timer: NodeJS.Timeout
 }
 
+class OpenClawRpcError extends Error {
+  constructor(message: string, readonly details?: Record<string, unknown>) {
+    super(message)
+    this.name = 'OpenClawRpcError'
+  }
+}
+
 function asConfig(gateway: Gateway): OpenClawGatewayConfig {
   const rawIdentity = gateway.template?.deviceIdentity
   const deviceIdentity = rawIdentity && typeof rawIdentity === 'object'
@@ -53,6 +62,8 @@ function asConfig(gateway: Gateway): OpenClawGatewayConfig {
     protocolVersion: typeof gateway.template?.protocolVersion === 'string' ? gateway.template.protocolVersion : undefined,
     capabilities: Array.isArray(gateway.template?.capabilities) ? gateway.template.capabilities.map(String) : undefined,
     deviceIdentity,
+    deviceToken: typeof gateway.template?.deviceToken === 'string' ? gateway.template.deviceToken : undefined,
+    deviceScopes: Array.isArray(gateway.template?.deviceScopes) ? gateway.template.deviceScopes.map(String) : undefined,
     pairingStatus: typeof gateway.template?.pairingStatus === 'string' ? gateway.template.pairingStatus as OpenClawGatewayConfig['pairingStatus'] : undefined,
     lastPairingError: typeof gateway.template?.lastPairingError === 'string' ? gateway.template.lastPairingError : undefined
   }
@@ -71,13 +82,6 @@ function normalizeEventType(payload: Record<string, unknown>): string {
   if (payload.type === 'event' && typeof payload.event === 'string') return `openclaw.${payload.event}`
   const rawType = String(payload.type ?? payload.event ?? payload.kind ?? '')
   return rawType ? `openclaw.${rawType}` : 'openclaw.event.unknown'
-}
-
-function gatewayUrlWithToken(rawUrl: string, token: string): string {
-  if (!token) return rawUrl
-  const parsed = new URL(rawUrl)
-  parsed.searchParams.set('token', token)
-  return parsed.toString()
 }
 
 function controlUiOrigin(rawUrl: string): string | undefined {
@@ -149,14 +153,14 @@ function buildDeviceAuthPayload(input: {
   return parts.join('|')
 }
 
-function buildDeviceConnectPayload(identity: OpenClawGatewayDeviceIdentity, token: string, nonce?: string): Record<string, unknown> {
+function buildDeviceConnectPayload(identity: OpenClawGatewayDeviceIdentity, token: string, scopes: string[], nonce?: string): Record<string, unknown> {
   const signedAt = Date.now()
   const payload = buildDeviceAuthPayload({
     deviceId: identity.deviceId,
     clientId: DEVICE_CLIENT_ID,
     clientMode: DEVICE_CLIENT_MODE,
     role: 'operator',
-    scopes: OPERATOR_SCOPES,
+    scopes,
     signedAt,
     token,
     nonce
@@ -172,8 +176,10 @@ function buildDeviceConnectPayload(identity: OpenClawGatewayDeviceIdentity, toke
 }
 
 function connectParams(gateway: Gateway, firstMessage?: Record<string, unknown> | null): Record<string, unknown> {
-  const token = (gateway.token ?? '').trim()
   const config = asConfig(gateway)
+  const sharedToken = (gateway.token ?? '').trim()
+  const deviceToken = config.deviceToken?.trim() ?? ''
+  const token = sharedToken || deviceToken
   const useControlUi = Boolean(config.disableDevicePairing)
   const noncePayload = firstMessage?.type === 'event' && firstMessage.event === 'connect.challenge' && firstMessage.payload && typeof firstMessage.payload === 'object'
     ? firstMessage.payload as Record<string, unknown>
@@ -183,7 +189,7 @@ function connectParams(gateway: Gateway, firstMessage?: Record<string, unknown> 
     minProtocol: PROTOCOL_VERSION,
     maxProtocol: PROTOCOL_VERSION,
     role: 'operator',
-    scopes: OPERATOR_SCOPES,
+    scopes: sharedToken ? OPERATOR_SCOPES : config.deviceScopes?.length ? config.deviceScopes : OPERATOR_SCOPES,
     client: {
       id: useControlUi ? CONTROL_UI_CLIENT_ID : DEVICE_CLIENT_ID,
       version: '1.0.0',
@@ -196,23 +202,39 @@ function connectParams(gateway: Gateway, firstMessage?: Record<string, unknown> 
     if (!config.deviceIdentity?.publicKeyPem || !config.deviceIdentity?.privateKeyPem) {
       throw new Error('Gateway device identity is missing. Pair device before connecting.')
     }
-    params.device = buildDeviceConnectPayload(config.deviceIdentity, token, nonce)
+    params.device = buildDeviceConnectPayload(config.deviceIdentity, token, params.scopes as string[], nonce)
   }
   return params
 }
 
-function isGatewayErrorPayload(payload: unknown): string | null {
+function gatewayErrorFromPayload(payload: unknown): OpenClawRpcError | null {
   if (!payload || typeof payload !== 'object') return null
   const record = payload as Record<string, unknown>
   if (record.ok === false && record.error && typeof record.error === 'object') {
-    const message = (record.error as Record<string, unknown>).message
-    return typeof message === 'string' ? message : 'OpenClaw gateway error'
+    const error = record.error as Record<string, unknown>
+    const message = error.message
+    const details = error.details && typeof error.details === 'object' && !Array.isArray(error.details)
+      ? error.details as Record<string, unknown>
+      : undefined
+    return new OpenClawRpcError(typeof message === 'string' ? message : 'OpenClaw gateway error', details)
   }
   if (record.error && typeof record.error === 'object') {
-    const message = (record.error as Record<string, unknown>).message
-    return typeof message === 'string' ? message : 'OpenClaw gateway error'
+    const error = record.error as Record<string, unknown>
+    const message = error.message
+    const details = error.details && typeof error.details === 'object' && !Array.isArray(error.details)
+      ? error.details as Record<string, unknown>
+      : undefined
+    return new OpenClawRpcError(typeof message === 'string' ? message : 'OpenClaw gateway error', details)
   }
   return null
+}
+
+function startupRetryAfterMs(error: unknown): number | null {
+  if (!(error instanceof OpenClawRpcError)) return null
+  if (error.details?.reason !== 'startup-sidecars') return null
+  const retryAfterMs = Number(error.details.retryAfterMs ?? 1000)
+  if (!Number.isFinite(retryAfterMs) || retryAfterMs < 0) return 1000
+  return Math.min(retryAfterMs, 5000)
 }
 
 export class OpenClawGatewayClient extends EventEmitter {
@@ -222,6 +244,7 @@ export class OpenClawGatewayClient extends EventEmitter {
   private backoffIndex = 0
   private pending = new Map<string, PendingRpc>()
   private firstMessageResolver: ((payload: Record<string, unknown> | null) => void) | null = null
+  private lastConnectPayload: unknown = null
 
   constructor(private readonly gateway: Gateway) {
     super()
@@ -254,7 +277,7 @@ export class OpenClawGatewayClient extends EventEmitter {
     this.emitClient({ type: 'disconnected', payload: { manual: true } })
   }
 
-  async rpc<T = unknown>(method: string, params?: Record<string, unknown>, timeoutMs = 10000): Promise<T> {
+  async rpc<T = unknown>(method: string, params?: Record<string, unknown>, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
     if (!this.ws || this.ws.readyState !== WS_OPEN) throw new Error('Gateway websocket is not connected')
     const id = randomUUID()
     const message = { type: 'req', id, method, params: params ?? {} }
@@ -285,6 +308,7 @@ export class OpenClawGatewayClient extends EventEmitter {
     const sessionKey = `openmissioncontrol:${gatewayId ?? this.gateway.id}:test`
     try {
       await this.connect()
+      details.connect = this.lastConnectPayload
       details.status = await this.rpc('status', {}, timeoutMs)
       details.session = await this.rpc('sessions.patch', { key: sessionKey, label: 'OpenMissionControl Gateway Test' }, timeoutMs)
       const beforeHistory = await this.fetchChatHistory(sessionKey).catch((error) => ({
@@ -331,6 +355,7 @@ export class OpenClawGatewayClient extends EventEmitter {
     const details: Record<string, unknown> = {}
     try {
       await this.connect()
+      details.connect = this.lastConnectPayload
       details.status = await this.rpc('status', {}, timeoutMs)
       this.disconnect()
       return {
@@ -356,9 +381,7 @@ export class OpenClawGatewayClient extends EventEmitter {
     await new Promise<void>((resolve, reject) => {
       let settled = false
       const config = this.config
-      const token = (this.gateway.token ?? '').trim()
-      const url = gatewayUrlWithToken(this.gateway.endpoint, token)
-      const ws = createWebSocket(url, Boolean(config.allowSelfSignedTls))
+      const ws = createWebSocket(this.gateway.endpoint, Boolean(config.allowSelfSignedTls))
       this.ws = ws
 
       ws.onopen = () => {
@@ -396,13 +419,24 @@ export class OpenClawGatewayClient extends EventEmitter {
   }
 
   private async finishOpenHandshake(): Promise<unknown> {
-    const firstMessage = await this.waitFirstMessage(2000)
+    const firstMessage = await this.waitFirstMessage(CONNECT_CHALLENGE_TIMEOUT_MS)
     if (firstMessage) {
       this.emitClient({ type: 'event', eventType: 'openclaw.connect.challenge', payload: firstMessage })
     }
-    const payload = await this.rpc('connect', connectParams(this.gateway, firstMessage), 10000)
-    this.emitClient({ type: 'event', eventType: 'openclaw.connect.ok', payload: payload && typeof payload === 'object' ? payload as Record<string, unknown> : { payload } })
-    return payload
+    const startedAt = Date.now()
+    while (true) {
+      try {
+        const payload = await this.rpc('connect', connectParams(this.gateway, firstMessage), REQUEST_TIMEOUT_MS)
+        this.lastConnectPayload = payload
+        this.emitClient({ type: 'event', eventType: 'openclaw.connect.ok', payload: payload && typeof payload === 'object' ? payload as Record<string, unknown> : { payload } })
+        return payload
+      } catch (error) {
+        const retryAfterMs = startupRetryAfterMs(error)
+        if (retryAfterMs === null || Date.now() - startedAt + retryAfterMs > REQUEST_TIMEOUT_MS) throw error
+        this.emitClient({ type: 'event', eventType: 'openclaw.connect.retry', payload: { reason: 'startup-sidecars', retryAfterMs } })
+        await new Promise((resolve) => setTimeout(resolve, retryAfterMs))
+      }
+    }
   }
 
   private async fetchChatHistory(sessionKey: string): Promise<Record<string, unknown>> {
@@ -493,9 +527,9 @@ export class OpenClawGatewayClient extends EventEmitter {
     if (pending) {
       clearTimeout(pending.timer)
       this.pending.delete(id)
-      const error = isGatewayErrorPayload(parsed)
+      const error = gatewayErrorFromPayload(parsed)
       if (error) {
-        pending.reject(new Error(error))
+        pending.reject(error)
         return
       }
       if (parsed.type === 'res') {

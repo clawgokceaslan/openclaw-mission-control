@@ -22,7 +22,7 @@ import {
 } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
-import { Agent, CustomField, OutputFormat, Project, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskSubtask, TaskTemplate, Workspace } from '@shared/types/entities'
+import { Agent, CustomField, OpenClawAgentSyncResult, OutputFormat, Project, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, TaskTemplate, Workspace } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { MarkdownDescriptionEditor, prefixDataFormatTokens, type DescriptionDataFormat } from '@renderer/components/markdown/MarkdownDescriptionEditor'
@@ -36,6 +36,7 @@ import { ProjectTableView } from './detail/ProjectTableView'
 import { CreateTaskModal } from './detail/CreateTaskModal'
 import { createTaskWithTemplate, type CreateTaskInput } from './detail/createTaskWithTemplate'
 import { AddSubtaskModal } from './detail/AddSubtaskModal'
+import { TaskJsonImportModal } from './detail/TaskJsonImportModal'
 import { AgentAssignmentPanel, SkillsAssignmentPanel } from './detail/AssignmentPanels'
 import { TaskDetailModal } from './detail/TaskDetailModal'
 import { TaskDetailContent } from './detail/TaskDetailContent'
@@ -432,6 +433,8 @@ export function ProjectDetailPage() {
   const [subtaskCommentDraft, setSubtaskCommentDraft] = useState('')
   const [editingSubtaskCommentId, setEditingSubtaskCommentId] = useState<string | null>(null)
   const [isAddSubtaskOpen, setIsAddSubtaskOpen] = useState(false)
+  const [isTaskImportOpen, setIsTaskImportOpen] = useState(false)
+  const [isTaskImporting, setIsTaskImporting] = useState(false)
   const [subtaskRows, setSubtaskRows] = useState<TextDraftRow[]>([{ id: createLocalId(), title: '' }])
   const [isChecklistModalOpen, setIsChecklistModalOpen] = useState(false)
   const [checklistRows, setChecklistRows] = useState<TextDraftRow[]>([{ id: createLocalId(), title: '' }])
@@ -1054,9 +1057,17 @@ export function ProjectDetailPage() {
 
   const taskAttachmentRows = useMemo<AttachmentRow[]>(() => {
     if (!selectedTask) return []
+    const taskOwner = { ownerType: 'task' as const, ownerId: selectedTask.id, ownerTitle: selectedTask.title }
     return [
-      ...storedAttachmentRows(getTaskAttachments(selectedTask)),
-      ...attachmentRowsFromDescription(descriptionDraft, 'Description')
+      ...storedAttachmentRows(getTaskAttachments(selectedTask), 'Task attachments', taskOwner),
+      ...attachmentRowsFromDescription(descriptionDraft, 'Task description', taskOwner),
+      ...(selectedTask.subtasks ?? []).flatMap((subtask) => {
+        const owner = { ownerType: 'subtask' as const, ownerId: subtask.id, ownerTitle: subtask.title }
+        return [
+          ...storedAttachmentRows(getSubtaskAttachments(subtask), `Subtask: ${subtask.title}`, owner),
+          ...attachmentRowsFromDescription(getSubtaskDescription(subtask), `Subtask description: ${subtask.title}`, owner)
+        ]
+      })
     ]
   }, [descriptionDraft, selectedTask])
 
@@ -1240,6 +1251,26 @@ export function ProjectDetailPage() {
     await refresh()
   }
 
+  const syncAgentForUse = async (agentId?: string | null) => {
+    if (!agentId) return null
+    try {
+      const response = await invokeBridge<OpenClawAgentSyncResult>(IPC_CHANNELS.agents.syncOpenClaw, {
+        actorToken: token,
+        id: agentId
+      })
+      if (!response.ok) return response.error?.message ?? 'Agent was saved locally, but OpenClaw sync failed'
+      if (response.data?.status === 'failed') return response.data.error ?? 'Agent was saved locally, but OpenClaw sync failed'
+      return null
+    } catch (error) {
+      return error instanceof Error ? error.message : 'Agent was saved locally, but OpenClaw sync failed'
+    }
+  }
+
+  const syncAgentForUseWarning = async (agentId?: string | null) => {
+    const warning = await syncAgentForUse(agentId)
+    if (warning) setError(warning)
+  }
+
   const openCreateTask = (status: TaskEntity['status'] = defaultStatus) => {
     setCreateTaskStatus(status)
     setIsCreateTaskOpen(true)
@@ -1270,7 +1301,8 @@ export function ProjectDetailPage() {
         templates: taskTemplates,
         statusColumns,
         defaultStatus,
-        outputFormats
+        outputFormats,
+        onAgentUsed: syncAgentForUse
       })
       if (result.warnings[0]) setError(result.warnings[0])
       setIsCreateTaskOpen(false)
@@ -1561,13 +1593,12 @@ export function ProjectDetailPage() {
     }
   }
 
-  const saveSubtaskAttachments = async (attachments: TaskAttachment[]) => {
-    if (!selectedSubtask) return
+  const saveSubtaskAttachmentsFor = async (subtask: TaskSubtask, attachments: TaskAttachment[]) => {
     const response = await invokeBridge<TaskSubtask>(IPC_CHANNELS.tasks.subtasksUpdate, {
       actorToken: token,
-      id: selectedSubtask.id,
+      id: subtask.id,
       payload: {
-        ...getSubtaskPayload(selectedSubtask),
+        ...getSubtaskPayload(subtask),
         attachments
       }
     })
@@ -1576,6 +1607,11 @@ export function ProjectDetailPage() {
       return
     }
     await refresh()
+  }
+
+  const saveSubtaskAttachments = async (attachments: TaskAttachment[]) => {
+    if (!selectedSubtask) return
+    await saveSubtaskAttachmentsFor(selectedSubtask, attachments)
   }
 
   const uploadSubtaskAttachments = async (files: File[]) => {
@@ -1623,6 +1659,34 @@ export function ProjectDetailPage() {
 
   const removeTaskAttachment = async (row: AttachmentRow) => {
     if (!selectedTask) return
+    if (row.ownerType === 'subtask' && row.ownerId) {
+      const targetSubtask = (selectedTask.subtasks ?? []).find((subtask) => subtask.id === row.ownerId)
+      if (!targetSubtask) return
+      if (row.origin === 'stored') {
+        await saveSubtaskAttachmentsFor(targetSubtask, getSubtaskAttachments(targetSubtask).filter((attachment) => attachment.id !== row.id))
+        return
+      }
+      const nextDescription = removeAttachmentFromMarkdown(getSubtaskDescription(targetSubtask), row.url)
+      if (selectedSubtask?.id === targetSubtask.id) {
+        setSubtaskDescriptionDraft(nextDescription)
+      }
+      setIsSubtaskDescriptionSaving(true)
+      const response = await invokeBridge<TaskSubtask>(IPC_CHANNELS.tasks.subtasksUpdate, {
+        actorToken: token,
+        id: targetSubtask.id,
+        payload: {
+          ...getSubtaskPayload(targetSubtask),
+          description: nextDescription
+        }
+      })
+      setIsSubtaskDescriptionSaving(false)
+      if (!response.ok) {
+        setError(response.error?.message ?? 'Unable to remove subtask attachment')
+        return
+      }
+      await refresh()
+      return
+    }
     if (row.origin === 'stored') {
       await saveTaskAttachments(getTaskAttachments(selectedTask).filter((attachment) => attachment.id !== row.id))
       return
@@ -1683,6 +1747,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update task agent')
       return
     }
+    void syncAgentForUseWarning(agentId)
     await refresh()
   }
 
@@ -1703,6 +1768,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update subtask agent')
       return
     }
+    void syncAgentForUseWarning(agentId)
     await refresh()
   }
 
@@ -2076,6 +2142,7 @@ export function ProjectDetailPage() {
         setError(updateResponse.error?.message ?? 'Subtask created, but details could not be saved')
       }
     }
+    void syncAgentForUseWarning(input.agentId)
     setIsAddSubtaskOpen(false)
     await refresh()
   }
@@ -2105,6 +2172,27 @@ export function ProjectDetailPage() {
     setIsAddSubtaskOpen(false)
     setSubtaskRows([{ id: createLocalId(), title: '' }])
     await refresh()
+  }
+
+  const importSelectedTaskJson = async (jsonText: string) => {
+    if (!selectedTask) return
+    setIsTaskImporting(true)
+    const response = await invokeBridge<TaskJsonImportResult>(IPC_CHANNELS.tasks.importJson, {
+      actorToken: token,
+      taskId: selectedTask.id,
+      json: jsonText
+    })
+    setIsTaskImporting(false)
+    if (!response.ok || !response.data?.task) {
+      setError(response.error?.message ?? 'Task JSON import failed')
+      return
+    }
+    setIsTaskImportOpen(false)
+    if (response.data.warnings.length > 0) setError(response.data.warnings.join(' '))
+    await refresh()
+    setSelectedTaskId(response.data.task.id)
+    setDetailViewMode('task')
+    setSelectedSubtaskId(null)
   }
 
   const saveChecklistItems = async (items: TaskChecklistItem[]) => {
@@ -3202,6 +3290,7 @@ export function ProjectDetailPage() {
             }}
             onDownloadAgentMarkdown={selectedTaskAgentMarkdown.trim() ? () => downloadMarkdownFile('Agents.md', selectedTaskAgentMarkdown) : undefined}
             onDownloadSkillsMarkdown={selectedTaskSkillsMarkdown.trim() ? () => downloadMarkdownFile('Skills.md', selectedTaskSkillsMarkdown) : undefined}
+            onImportJson={() => setIsTaskImportOpen(true)}
           >
             <TaskDetailContent
               bodyRef={modalBodyRef}
@@ -3279,12 +3368,6 @@ export function ProjectDetailPage() {
                       style={{ '--status-accent': resolveColumnByStatus(selectedTask.status).accent } as CSSProperties}
                     >
                       <span className={styles.metaLabel}>Status</span>
-                      <p className={styles.topControlSummary}>
-                        <span className={styles.statusPreviewPill}>
-                          <span />
-                          {resolveColumnByStatus(selectedTask.status).title}
-                        </span>
-                      </p>
                       <AppSelect
                         mode="single"
                         variant="borderless"
@@ -3302,11 +3385,6 @@ export function ProjectDetailPage() {
                     </div>
                     <div className={`${styles.topControlBlock} ${styles.topControlCard}`}>
                       <span className={styles.metaLabel}>Tags (shared)</span>
-                      <p className={styles.topControlSummary}>
-                        {selectedTaskTagOptions.length > 0
-                          ? `${selectedTaskTagOptions.length} selected`
-                          : 'Empty'}
-                      </p>
                       <AppSelect
                         mode="multi"
                         creatable
@@ -4031,12 +4109,6 @@ export function ProjectDetailPage() {
                       style={{ '--status-accent': resolveColumnByStatus(selectedSubtask.status).accent } as CSSProperties}
                     >
                       <span className={styles.metaLabel}>Status</span>
-                      <p className={styles.topControlSummary}>
-                        <span className={styles.statusPreviewPill}>
-                          <span />
-                          {resolveColumnByStatus(selectedSubtask.status).title}
-                        </span>
-                      </p>
                       <AppSelect
                         mode="single"
                         variant="borderless"
@@ -4054,9 +4126,6 @@ export function ProjectDetailPage() {
                     </div>
                     <div className={`${styles.topControlBlock} ${styles.topControlCard}`}>
                       <span className={styles.metaLabel}>Tags</span>
-                      <p className={styles.topControlSummary}>
-                        {selectedSubtaskTagOptions.length > 0 ? `${selectedSubtaskTagOptions.length} selected` : 'Empty'}
-                      </p>
                       <AppSelect
                         mode="multi"
                         creatable
@@ -4190,6 +4259,11 @@ export function ProjectDetailPage() {
                               </div>
                             ))}
                           </div>
+                        ) : (
+                          <p className={styles.customFieldEmpty}>No custom fields on this subtask.</p>
+                        )}
+                      </div>
+                    </div>
                   ) : detailTab === 'attachments' ? (
                     <>
                       <div className={styles.detailSectionHeader}>
@@ -4206,11 +4280,6 @@ export function ProjectDetailPage() {
                         onError={setError}
                       />
                     </>
-                  ) : (
-                          <p className={styles.customFieldEmpty}>No custom fields on this subtask.</p>
-                        )}
-                      </div>
-                    </div>
                   ) : null}
                 </section>
               </div>
@@ -4218,6 +4287,14 @@ export function ProjectDetailPage() {
             </TaskDetailContent>
           </TaskDetailModal>
         ) : null}
+
+          <TaskJsonImportModal
+            open={isTaskImportOpen}
+            title="Import task JSON"
+            busy={isTaskImporting}
+            onClose={() => setIsTaskImportOpen(false)}
+            onImport={(jsonText) => void importSelectedTaskJson(jsonText)}
+          />
 
           {isCustomFieldModalOpen ? (
             <>

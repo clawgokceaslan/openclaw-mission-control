@@ -146,6 +146,31 @@
   }
 }
 
+.nameLine {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+
+  a {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.activeBadge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: var(--omc-info-bg);
+  color: var(--omc-primary-strong);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .mono {
   overflow: hidden;
   color: var(--omc-text-muted);
@@ -225,11 +250,9 @@
 }
 
 .actionsMenu {
-  position: absolute;
-  z-index: 8;
-  right: 12px;
-  top: calc(100% - 8px);
-  width: 190px;
+  position: fixed;
+  z-index: 80;
+  width: 204px;
   border: 1px solid var(--omc-border);
   border-radius: 12px;
   background: var(--omc-surface);

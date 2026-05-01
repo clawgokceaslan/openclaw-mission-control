@@ -7,21 +7,23 @@ import { errorResponse, okResponse, ServiceResponse } from '../../shared/contrac
 import type {
   AddTaskCommentRequest,
   ExportTaskSnapshotRequest,
+  ImportTaskJsonRequest,
   RemoveTaskCommentRequest,
   SetTaskSkillsRequest,
   SetTaskTagsRequest,
   UpdateTaskSubtaskRequest,
   UpdateTaskCommentRequest
 } from '../../shared/contracts/ipc.js'
-import type { Skill, Tag, TaskChecklistItem, TaskComment, TaskEntity, TaskSubtask } from '../../shared/types/entities.js'
+import type { Skill, Tag, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask } from '../../shared/types/entities.js'
 import { AuthService } from './auth.service.js'
 import { TaskRepository, TaskSkillRepository, TaskSubtaskRepository, TaskTagRepository } from '../../db/repositories/task-repo.js'
 import { ProjectRepository } from '../../db/repositories/project-repo.js'
-import { TagRepository } from '../../db/repositories/custom-field-repo.js'
+import { CustomFieldRepository, TagRepository } from '../../db/repositories/custom-field-repo.js'
 import { SkillRepository } from '../../db/repositories/skill-repo.js'
 import { AgentRepository } from '../../db/repositories/agent-repo.js'
 import { StatusRepository } from '../../db/repositories/status-repo.js'
 import { WorkspaceRepository } from '../../db/repositories/workspace-repo.js'
+import { TaskJsonImportNormalizer } from './task-json-import.js'
 
 type TaskPayload = Record<string, unknown> & {
   description?: string
@@ -123,6 +125,7 @@ export class TaskService {
     private readonly projects: ProjectRepository,
     private readonly tags: TagRepository,
     private readonly skills: SkillRepository,
+    private readonly customFields: CustomFieldRepository,
     private readonly agents: AgentRepository,
     private readonly statuses: StatusRepository,
     private readonly workspaces: WorkspaceRepository
@@ -242,6 +245,79 @@ export class TaskService {
     })
     const [task] = await this.enrichTasks([row])
     return okResponse(task)
+  }
+
+  async importJson(payload: ImportTaskJsonRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<TaskJsonImportResult>> {
+    const actor = await this.auth.requireActor(payload?.actorToken)
+    const targetTask = payload.taskId ? await this.repo.get(payload.taskId) : undefined
+    const projectId = targetTask?.projectId ?? payload.projectId
+    if (!projectId) return errorResponse(ErrorCodes.Validation, 'Project id required')
+    const projectOrg = await this.findProjectOrg(projectId)
+    if (!projectOrg || projectOrg !== actor.user.organizationId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
+    if (payload.taskId && !targetTask) return errorResponse(ErrorCodes.NotFound, 'Task not found')
+
+    let imported
+    try {
+      imported = await new TaskJsonImportNormalizer(actor.user.organizationId, this.agents, this.tags, this.skills, this.customFields).normalize(payload.json)
+    } catch (error) {
+      return errorResponse(ErrorCodes.Validation, error instanceof Error ? error.message : 'Invalid import JSON')
+    }
+
+    const statusResponse = await this.normalizeStatus(projectId, actor.user.organizationId, undefined)
+    if (!statusResponse.ok) return errorResponse(statusResponse.error?.code ?? ErrorCodes.Validation, statusResponse.error?.message ?? 'Project has no statuses')
+    const firstStatus = statusResponse.data ?? ''
+    const rootPayload = {
+      ...(targetTask?.payload ?? {}),
+      description: imported.description,
+      comments: imported.comments,
+      customFields: imported.customFieldValues,
+      checklist: imported.checklistItems,
+      inputFormatId: '',
+      outputFormatId: ''
+    }
+
+    const taskRow = targetTask
+      ? await this.repo.update(targetTask.id, {
+        title: imported.title,
+        status: firstStatus,
+        agentId: targetTask.agentId ?? null,
+        payload: rootPayload
+      })
+      : await this.repo.create({
+        projectId,
+        title: imported.title,
+        status: firstStatus,
+        agentId: imported.agentId,
+        payload: rootPayload,
+        result: {}
+      })
+    if (!taskRow) return errorResponse(ErrorCodes.NotFound, 'Task not found')
+
+    await this.taskTagRepo.setTaskTags(taskRow.id, imported.tagIds)
+    if (!targetTask) await this.taskSkillRepo.setTaskSkills(taskRow.id, imported.skillIds)
+    await this.subtaskRepo.removeByTask(taskRow.id)
+    for (const subtask of imported.subtasks) {
+      const created = await this.subtaskRepo.create({ taskId: taskRow.id, title: subtask.title, status: firstStatus })
+      await this.subtaskRepo.update(created.id, {
+        payload: {
+          description: subtask.description,
+          agentId: subtask.agentId ?? '',
+          assigneeId: subtask.agentId ?? '',
+          assigneeName: subtask.assigneeName,
+          tagIds: subtask.tagIds,
+          skillIds: subtask.skillIds,
+          customFields: subtask.customFieldValues,
+          checklistItems: subtask.checklistItems,
+          comments: subtask.comments,
+          inputFormatId: '',
+          outputFormatId: '',
+          ...(subtask.dueAt ? { dueAt: subtask.dueAt } : {})
+        }
+      })
+    }
+
+    const [task] = await this.enrichTasks([taskRow])
+    return okResponse({ task, warnings: imported.warnings })
   }
 
   async exportSnapshot(payload: ExportTaskSnapshotRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ exportFolderPath: string; writtenFiles: string[]; skippedFiles: string[] }>> {

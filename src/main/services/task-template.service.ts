@@ -1,8 +1,13 @@
 import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
-import type { TaskTemplate, TaskTemplatePayload } from '../../shared/types/entities.js'
+import type { TaskJsonImportResult, TaskTemplate, TaskTemplatePayload } from '../../shared/types/entities.js'
+import type { ImportTaskTemplateJsonRequest } from '../../shared/contracts/ipc.js'
 import { TaskTemplateRepository } from '../../db/repositories/task-template-repo.js'
+import { AgentRepository } from '../../db/repositories/agent-repo.js'
+import { CustomFieldRepository, TagRepository } from '../../db/repositories/custom-field-repo.js'
+import { SkillRepository } from '../../db/repositories/skill-repo.js'
 import { AuthService } from './auth.service.js'
+import { TaskJsonImportNormalizer } from './task-json-import.js'
 
 function normalizeTemplate(value: unknown): TaskTemplatePayload {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as TaskTemplatePayload : {}
@@ -11,7 +16,11 @@ function normalizeTemplate(value: unknown): TaskTemplatePayload {
 export class TaskTemplateService {
   constructor(
     private readonly auth: AuthService,
-    private readonly repo: TaskTemplateRepository
+    private readonly repo: TaskTemplateRepository,
+    private readonly agents: AgentRepository,
+    private readonly tags: TagRepository,
+    private readonly skills: SkillRepository,
+    private readonly customFields: CustomFieldRepository
   ) {}
 
   async list(payload: { actorToken?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<TaskTemplate[]>> {
@@ -40,6 +49,37 @@ export class TaskTemplateService {
     })
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Task template not found')
     return okResponse(updated)
+  }
+
+  async importJson(payload: ImportTaskTemplateJsonRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<TaskJsonImportResult>> {
+    const actor = await this.auth.requireActor(payload?.actorToken)
+    let normalized
+    try {
+      const normalizer = new TaskJsonImportNormalizer(actor.user.organizationId, this.agents, this.tags, this.skills, this.customFields)
+      normalized = await normalizer.normalize(payload.json)
+      const templatePayload = normalizer.toTemplatePayload(normalized)
+      if (payload.id) {
+        const current = await this.repo.get(actor.user.organizationId, payload.id)
+        if (!current) return errorResponse(ErrorCodes.NotFound, 'Task template not found')
+        templatePayload.agentId = current.template.agentId ?? null
+        templatePayload.skillIds = Array.isArray(current.template.skillIds) ? current.template.skillIds : []
+        const updated = await this.repo.update(actor.user.organizationId, payload.id, {
+          name: normalized.title,
+          description: normalized.description || undefined,
+          template: templatePayload
+        })
+        if (!updated) return errorResponse(ErrorCodes.NotFound, 'Task template not found')
+        return okResponse({ template: updated, warnings: normalized.warnings })
+      }
+      const created = await this.repo.create(actor.user.organizationId, {
+        name: normalized.title,
+        description: normalized.description || undefined,
+        template: templatePayload
+      })
+      return okResponse({ template: created, warnings: normalized.warnings })
+    } catch (error) {
+      return errorResponse(ErrorCodes.Validation, error instanceof Error ? error.message : 'Invalid import JSON')
+    }
   }
 
   async remove(payload: { actorToken?: string; id?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ ok: true }>> {

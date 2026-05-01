@@ -60,6 +60,8 @@ function openClawConfig(input: UpsertGatewayRequest, current?: Gateway): OpenCla
     protocolVersion: String(currentTemplate.protocolVersion ?? '3'),
     capabilities: currentTemplate.capabilities,
     deviceIdentity: currentTemplate.deviceIdentity,
+    deviceToken: currentTemplate.deviceToken,
+    deviceScopes: currentTemplate.deviceScopes,
     pairingStatus: currentTemplate.pairingStatus ?? (currentTemplate.deviceIdentity ? 'not_paired' : undefined),
     lastPairingError: currentTemplate.lastPairingError
   }
@@ -70,6 +72,32 @@ function pairingStatusFromError(message: string): OpenClawGatewayPairingStatus {
   if (lower.includes('reject') || lower.includes('denied')) return 'rejected'
   if (lower.includes('pair') || lower.includes('approve') || lower.includes('pending') || lower.includes('not allowed')) return 'requested'
   return 'failed'
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+
+function connectPayloadFrom(value: unknown): Record<string, unknown> | undefined {
+  const record = asRecord(value)
+  return asRecord(record?.connect) ?? record
+}
+
+function templateWithSuccessfulHandshake(gateway: Gateway, source?: unknown): OpenClawGatewayConfig {
+  const template = { ...((gateway.template ?? {}) as OpenClawGatewayConfig) }
+  const connect = connectPayloadFrom(source)
+  const auth = asRecord(connect?.auth)
+  const deviceToken = typeof auth?.deviceToken === 'string' && auth.deviceToken.trim() ? auth.deviceToken.trim() : undefined
+  const scopes = Array.isArray(auth?.scopes) ? auth.scopes.map(String).filter(Boolean) : undefined
+  return {
+    ...template,
+    lastHandshakeAt: Date.now(),
+    protocolVersion: String(connect?.protocol ?? template.protocolVersion ?? '3'),
+    ...(deviceToken ? { deviceToken } : {}),
+    ...(scopes?.length ? { deviceScopes: scopes } : {}),
+    pairingStatus: 'paired',
+    lastPairingError: undefined
+  }
 }
 
 export class GatewayService {
@@ -174,7 +202,7 @@ export class GatewayService {
         if (event.type === 'connected') {
           await this.repo.update(gateway.id, {
             status: 'online',
-            template: { ...(gateway.template ?? {}), lastHandshakeAt: Date.now(), protocolVersion: '3', pairingStatus: 'paired', lastPairingError: undefined }
+            template: templateWithSuccessfulHandshake(gateway, event.payload)
           })
           await this.repo.setSessionState(gateway.id, 'connected', event.payload, 0)
           await this.repo.appendHistory(gateway.id, 'gateway.connected', event.payload)
@@ -238,17 +266,10 @@ export class GatewayService {
     })
     const client = new OpenClawGatewayClient(gateway)
     const result = await client.handshakeStatus()
-    const now = Date.now()
     if (result.ok) {
       const updated = await this.repo.update(gateway.id, {
         status: 'online',
-        template: {
-          ...(gateway.template ?? {}),
-          pairingStatus: 'paired',
-          lastPairingError: undefined,
-          lastHandshakeAt: now,
-          protocolVersion: '3'
-        }
+        template: templateWithSuccessfulHandshake(gateway, result.details)
       })
       await this.repo.setSessionState(gateway.id, 'connected', result.details, 0)
       await this.repo.appendHistory(gateway.id, 'openclaw.pairing.paired', result as unknown as Record<string, unknown>)
@@ -279,6 +300,8 @@ export class GatewayService {
     this.runtime.disconnect(gateway.id)
     const template = { ...((gateway.template ?? {}) as OpenClawGatewayConfig) }
     delete template.deviceIdentity
+    delete template.deviceToken
+    delete template.deviceScopes
     delete template.lastPairingError
     const updated = await this.repo.update(gateway.id, {
       status: 'offline',
@@ -298,7 +321,7 @@ export class GatewayService {
     if (result.ok) {
       await this.repo.update(gateway.id, {
         status: 'online',
-        template: { ...(gateway.template ?? {}), lastHandshakeAt: Date.now(), protocolVersion: '3', pairingStatus: 'paired', lastPairingError: undefined }
+        template: templateWithSuccessfulHandshake(gateway, result.details)
       })
       await this.repo.setSessionState(gateway.id, 'connected', result.details, 0)
     } else {
@@ -322,7 +345,7 @@ export class GatewayService {
     if (result.ok) {
       await this.repo.update(gateway.id, {
         status: 'online',
-        template: { ...(gateway.template ?? {}), lastHandshakeAt: Date.now(), protocolVersion: '3', pairingStatus: 'paired', lastPairingError: undefined }
+        template: templateWithSuccessfulHandshake(gateway, result.details)
       })
       await this.repo.setSessionState(gateway.id, 'connected', result.details, 0)
       await this.repo.appendHistory(gateway.id, 'openclaw.test-message.ok', result as unknown as Record<string, unknown>)
@@ -500,7 +523,7 @@ export class GatewayService {
         if (event.type === 'connected') {
           await this.repo.update(gateway.id, {
             status: 'online',
-            template: { ...(gateway.template ?? {}), lastHandshakeAt: Date.now(), protocolVersion: '3', pairingStatus: 'paired', lastPairingError: undefined }
+            template: templateWithSuccessfulHandshake(gateway, event.payload)
           })
           await this.repo.setSessionState(gateway.id, 'connected', event.payload, 0)
           await this.repo.appendHistory(gateway.id, 'gateway.connected', event.payload)
@@ -621,6 +644,7 @@ export class GatewayService {
         createdAt: template.deviceIdentity.createdAt
       }
     }
+    if (template.deviceToken) template.deviceToken = maskToken(template.deviceToken)
     return {
       ...gateway,
       token: maskToken(gateway.token),

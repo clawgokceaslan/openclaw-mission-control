@@ -54,13 +54,15 @@ export const IPC_CHANNELS = {
     commentUpdate: 'tasks:comment:update',
     commentRemove: 'tasks:comment:remove',
     skillsSet: 'tasks:skills:set',
-    exportSnapshot: 'tasks:export-snapshot'
+    exportSnapshot: 'tasks:export-snapshot',
+    importJson: 'tasks:import-json'
   },
   taskTemplates: {
     list: 'task-templates:list',
     create: 'task-templates:create',
     update: 'task-templates:update',
-    remove: 'task-templates:remove'
+    remove: 'task-templates:remove',
+    importJson: 'task-templates:import-json'
   },
   attachments: {
     upload: 'attachments:upload'
@@ -70,7 +72,9 @@ export const IPC_CHANNELS = {
     get: 'agents:get',
     create: 'agents:create',
     update: 'agents:update',
-    remove: 'agents:remove'
+    remove: 'agents:remove',
+    syncOpenClaw: 'agents:sync-openclaw',
+    syncAllOpenClawUnsynced: 'agents:sync-all-openclaw-unsynced'
   },
   gateways: {
     list: 'gateways:list',
@@ -226,6 +230,19 @@ export interface SetTaskSkillsRequest {
   skillIds?: string[]
 }
 
+export interface ImportTaskJsonRequest {
+  actorToken?: string
+  projectId?: string
+  taskId?: string
+  json?: unknown
+}
+
+export interface ImportTaskTemplateJsonRequest {
+  actorToken?: string
+  id?: string
+  json?: unknown
+}
+
 export interface ListSkillsPageRequest {
   actorToken?: string
   page?: number
@@ -254,6 +271,17 @@ export interface UpdateSkillRequest {
 export interface RemoveSkillRequest {
   actorToken?: string
   id?: string
+}
+
+export interface SyncOpenClawAgentRequest {
+  actorToken?: string
+  id?: string
+  gatewayId?: string
+}
+
+export interface SyncAllOpenClawAgentsRequest {
+  actorToken?: string
+  gatewayId?: string
 }
 
 export interface UpdateProjectRequest {
@@ -385,10 +413,10 @@ export const SERVICE_MAP = {
   workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
   appSettings: ['getActiveGateway', 'setActiveGateway'],
   statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
-  tasks: ['list', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot'],
-  taskTemplates: ['list', 'create', 'update', 'remove'],
+  tasks: ['list', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'importJson'],
+  taskTemplates: ['list', 'create', 'update', 'remove', 'importJson'],
   attachments: ['upload'],
-  agents: ['list', 'get', 'create', 'update', 'remove'],
+  agents: ['list', 'get', 'create', 'update', 'remove', 'syncOpenClaw', 'syncAllOpenClawUnsynced'],
   gateways: ['list', 'get', 'create', 'update', 'remove', 'status', 'sessions', 'commands', 'commandsHistory', 'templates', 'sendCommand', 'connect', 'disconnect', 'pairDevice', 'resetPairing', 'testConnection', 'testMessage', 'rpcMethods', 'rpcCall', 'chatSend', 'chatHistory', 'sessionsPatch', 'sessionsDelete', 'openClawBoards', 'openClawAgents', 'openClawSkills', 'openClawTags'],
   webhooks: ['list', 'create', 'update', 'remove'],
   skills: ['list', 'listPage', 'create', 'update', 'remove', 'listPacks'],
@@ -708,6 +736,13 @@ export const SERVICE_ROUTING: {
       method: 'exportSnapshot',
       channel: IPC_CHANNELS.tasks.exportSnapshot,
       requiresAuth: true
+    },
+    importJson: {
+      domain: 'tasks',
+      action: 'importJson',
+      method: 'importJson',
+      channel: IPC_CHANNELS.tasks.importJson,
+      requiresAuth: true
     }
   },
   taskTemplates: {
@@ -737,6 +772,13 @@ export const SERVICE_ROUTING: {
       action: 'remove',
       method: 'remove',
       channel: IPC_CHANNELS.taskTemplates.remove,
+      requiresAuth: true
+    },
+    importJson: {
+      domain: 'taskTemplates',
+      action: 'importJson',
+      method: 'importJson',
+      channel: IPC_CHANNELS.taskTemplates.importJson,
       requiresAuth: true
     }
   },
@@ -783,6 +825,20 @@ export const SERVICE_ROUTING: {
       action: 'remove',
       method: 'remove',
       channel: IPC_CHANNELS.agents.remove,
+      requiresAuth: true
+    },
+    syncOpenClaw: {
+      domain: 'agents',
+      action: 'syncOpenClaw',
+      method: 'syncOpenClaw',
+      channel: IPC_CHANNELS.agents.syncOpenClaw,
+      requiresAuth: true
+    },
+    syncAllOpenClawUnsynced: {
+      domain: 'agents',
+      action: 'syncAllOpenClawUnsynced',
+      method: 'syncAllOpenClawUnsynced',
+      channel: IPC_CHANNELS.agents.syncAllOpenClawUnsynced,
       requiresAuth: true
     }
   },
