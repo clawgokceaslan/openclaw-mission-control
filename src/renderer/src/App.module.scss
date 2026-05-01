@@ -274,10 +274,10 @@
 .topbarInner {
   min-height: 64px;
   display: grid;
-  grid-template-columns: minmax(180px, 250px) minmax(240px, 1fr) auto;
+  grid-template-columns: minmax(260px, 340px) minmax(240px, 1fr) auto;
   align-items: center;
   gap: 16px;
-  padding: 0 18px 0 max(84px, env(titlebar-area-x, 0px));
+  padding: 0 18px;
 }
 
 .brandArea {
@@ -285,6 +285,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  margin-left: 68px;
 }
 
 .brandText {
@@ -1163,8 +1164,8 @@
 
 @media (width <= 1200px) {
   .topbarInner {
-    grid-template-columns: 220px 1fr auto;
-    padding: 0 12px 0 84px;
+    grid-template-columns: 300px 1fr auto;
+    padding: 0 12px;
   }
 
   .shell {
