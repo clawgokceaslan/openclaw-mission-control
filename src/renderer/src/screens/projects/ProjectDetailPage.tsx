@@ -1495,6 +1495,14 @@ export function ProjectDetailPage() {
     }
     return Array.from(grouped.values()).sort((a, b) => b.at - a.at)
   }, [chatActivityMessages])
+  const runningChatConversationIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const conversation of chatConversations) {
+      if (conversation.status === 'running' || conversation.status === 'in_progress') ids.add(conversation.id)
+    }
+    return ids
+  }, [chatConversations])
+  const hasRunningChatConversation = runningChatConversationIds.size > 0
   const visibleChatMessages = useMemo(() => {
     const messages = selectedChatConversationId === 'all'
       ? chatActivityMessages
@@ -1686,10 +1694,11 @@ export function ProjectDetailPage() {
       setSelectedChatConversationId(response.data.conversationId)
       setChatDraft('')
       setChatAttachments([])
-      setCodexRunFeedback({
-        kind: 'success',
-        message: response.data.executionMode === 'exec' ? 'Codex chat is running.' : 'Codex terminal chat launched.'
-      })
+      setCodexRunFeedback(
+        response.data.executionMode === 'terminal'
+          ? { kind: 'success', message: 'Codex terminal chat launched.' }
+          : null
+      )
     } catch (error) {
       setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to send Codex chat message.' })
     } finally {
@@ -5416,7 +5425,14 @@ export function ProjectDetailPage() {
                     className={selectedChatConversationId === 'all' ? styles.chatConversationActive : ''}
                     onClick={() => setSelectedChatConversationId('all')}
                   >
-                    <span>All conversations</span>
+                    <span>
+                      All conversations
+                      {hasRunningChatConversation ? (
+                        <em className={styles.chatSidebarLoader} aria-label="Codex chat is running">
+                          <i /><i /><i />
+                        </em>
+                      ) : null}
+                    </span>
                     <small>{chatActivityMessages.length} messages</small>
                   </button>
                   {chatConversations.map((conversation) => (
@@ -5428,7 +5444,13 @@ export function ProjectDetailPage() {
                     >
                       <span>
                         {conversation.title}
-                        <i className={`${styles.chatStatusBadge} ${styles[`chatStatus_${conversation.status}`] ?? ''}`}>{conversation.status}</i>
+                        <b className={`${styles.chatStatusBadge} ${styles[`chatStatus_${conversation.status}`] ?? ''}`}>
+                          {runningChatConversationIds.has(conversation.id) ? (
+                            <em className={styles.chatSidebarLoader} aria-label="Codex chat is running">
+                              <i /><i /><i />
+                            </em>
+                          ) : conversation.status}
+                        </b>
                       </span>
                       <small>{conversation.count} messages · {formatChatTime(conversation.at)}</small>
                       {conversation.model ? <small>{conversation.model}</small> : null}
