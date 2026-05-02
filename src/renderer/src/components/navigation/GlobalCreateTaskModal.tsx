@@ -5,7 +5,7 @@ import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { Agent, OutputFormat, Project, ProjectStatus, Tag, TaskTemplate } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList } from '@renderer/utils/api'
-import { CreateTaskModal } from '@renderer/screens/projects/detail/CreateTaskModal'
+import { CreateTaskPopup } from '@renderer/screens/projects/popups/CreateTaskPopup'
 import { createTaskWithTemplate, type CreateTaskInput } from '@renderer/screens/projects/detail/createTaskWithTemplate'
 import { PROJECT_STATUS_COLUMNS, columnsFromProjectStatuses } from '@renderer/screens/projects/detail/status'
 import type { GlobalTaskCreateInitial } from './UniversalCommand'
@@ -98,7 +98,7 @@ export function GlobalCreateTaskModal({ open, initial, onClose }: GlobalCreateTa
   }
 
   return (
-    <CreateTaskModal
+    <CreateTaskPopup
       open={open}
       project={projects.find((project) => project.id === selectedProjectId) ?? null}
       projects={projects}

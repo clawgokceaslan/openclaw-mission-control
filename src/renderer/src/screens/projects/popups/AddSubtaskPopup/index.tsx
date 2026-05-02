@@ -1,8 +1,8 @@
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from 'react'
 import { LuPlus, LuTrash2, LuX } from 'react-icons/lu'
 import type { Agent, TaskSubtask } from '@shared/types/entities'
-import type { ProjectStatusColumn } from './status'
-import styles from '../ProjectDetailPage.module.scss'
+import type { ProjectStatusColumn } from '../../detail/status'
+import styles from '../../ProjectDetailPage.module.scss'
 
 type AddSubtaskInput = {
   title: string
@@ -17,7 +17,7 @@ type SubtaskRow = {
   title: string
 }
 
-interface AddSubtaskModalProps {
+interface AddSubtaskPopupProps {
   open: boolean
   projectName: string
   taskTitle: string
@@ -37,7 +37,7 @@ function createRow(): SubtaskRow {
   }
 }
 
-export function AddSubtaskModal({ open, projectName, taskTitle, defaultStatus, busy, onClose, onCreate, onCreateMany }: AddSubtaskModalProps) {
+export function AddSubtaskPopup({ open, projectName, taskTitle, defaultStatus, busy, onClose, onCreate, onCreateMany }: AddSubtaskPopupProps) {
   const [rows, setRows] = useState<SubtaskRow[]>([createRow()])
   const nextFocusRowIdRef = useRef<string | null>(null)
 

@@ -1,8 +1,8 @@
 import { DragEvent, PointerEvent, ReactNode, useEffect, useRef, useState } from 'react'
 import { LuCopy, LuDownload, LuExternalLink, LuFileText, LuMessageSquare, LuEllipsis, LuPencil, LuPlay, LuSparkles, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
-import styles from './TaskDetailModal.module.scss'
+import styles from './index.module.scss'
 
-interface TaskDetailModalProps {
+interface TaskDetailPopupProps {
   taskId: string
   children: ReactNode
   onClose: () => void
@@ -26,7 +26,7 @@ interface TaskDetailModalProps {
   onImportJson?: () => void
 }
 
-export function TaskDetailModal({
+export function TaskDetailPopup({
   taskId,
   children,
   onClose,
@@ -48,7 +48,7 @@ export function TaskDetailModal({
   isPlanWithCodexBusy = false,
   isPlanWithCodexDisabled = false,
   onImportJson
-}: TaskDetailModalProps) {
+}: TaskDetailPopupProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isDownloadMenuOpen, setIsDownloadMenuOpen] = useState(false)
   const [isDraggingFiles, setIsDraggingFiles] = useState(false)

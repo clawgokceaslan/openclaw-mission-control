@@ -11,9 +11,9 @@ import { invokeBridge, loadList } from '@renderer/utils/api'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { Stack } from 'react-bootstrap'
 import { AgentAssignmentPanel, SkillsAssignmentPanel } from '../projects/detail/AssignmentPanels'
-import { TaskDetailModal } from '../projects/detail/TaskDetailModal'
+import { TaskDetailPopup } from '../projects/popups/TaskDetailPopup'
 import { TaskDetailContent } from '../projects/detail/TaskDetailContent'
-import { TaskJsonImportModal } from '../projects/detail/TaskJsonImportModal'
+import { TaskJsonImportPopup } from '../projects/popups/TaskJsonImportPopup'
 import { parseTaskJsonImportPreview } from '../projects/detail/taskJsonImport'
 import { PROJECT_STATUS_COLUMNS, resolveProjectStatusColumn } from '../projects/detail/status'
 import detailStyles from '../projects/ProjectDetailPage.module.scss'
@@ -1548,7 +1548,7 @@ export function TaskTemplatesPage() {
 
       {editing ? (
         <>
-        <TaskDetailModal
+        <TaskDetailPopup
           taskId={editing.id}
           onClose={() => void closeBuilder()}
           onOpenActivity={() => undefined}
@@ -1891,9 +1891,9 @@ export function TaskTemplatesPage() {
               </section>
             </div>
           </TaskDetailContent>
-        </TaskDetailModal>
+        </TaskDetailPopup>
         {selectedSubtask ? (
-          <TaskDetailModal
+          <TaskDetailPopup
             taskId={selectedSubtask.uiId}
             title="Subtask detail"
             nested
@@ -2089,7 +2089,7 @@ export function TaskTemplatesPage() {
               </div>
             </div>
             </TaskDetailContent>
-          </TaskDetailModal>
+          </TaskDetailPopup>
         ) : null}
         </>
       ) : null}
@@ -2421,7 +2421,7 @@ export function TaskTemplatesPage() {
         </>
       ) : null}
 
-      <TaskJsonImportModal
+      <TaskJsonImportPopup
         open={isJsonImportOpen}
         title={jsonImportTarget === 'create' ? 'Import task template JSON' : 'Import template JSON'}
         busy={isJsonImporting || loading}

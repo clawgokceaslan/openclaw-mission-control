@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
-  LuCheck,
   LuBot,
+  LuCheck,
   LuChevronDown,
-  LuCircleStop,
   LuColumns3,
   LuFlag,
   LuListChecks,
@@ -14,17 +13,13 @@ import {
   LuPencil,
   LuPlay,
   LuPlus,
-  LuCloudUpload,
   LuSettings2,
-  LuSignal,
   LuSlidersHorizontal,
-  LuSend,
   LuSparkles,
   LuTrash2,
   LuX
 } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
-import { formatUsageSummary } from '@shared/utils/codex-events'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { Agent, Gateway, OutputFormat, Project, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, TaskTemplate, Workspace, CustomField } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
@@ -32,21 +27,16 @@ import { AppSelect, type AppSelectOption } from '@renderer/components/select/App
 import { MarkdownDescriptionEditor, prefixDataFormatTokens, type DescriptionDataFormat } from '@renderer/components/markdown/MarkdownDescriptionEditor'
 import { AttachmentTable, storedAttachmentRows } from '@renderer/components/attachments/AttachmentTable'
 import { AttachmentRow, attachmentRowsFromDescription, removeAttachmentFromMarkdown, uploadTaskAttachment } from '@renderer/components/attachments/attachments'
-import { Card, Form, Stack } from 'react-bootstrap'
+import { Stack } from 'react-bootstrap'
 import { ProjectDetailHeader } from './detail/ProjectDetailHeader'
 import { ProjectBoardView } from './detail/ProjectBoardView'
 import { ProjectListView } from './detail/ProjectListView'
 import { ProjectTableView } from './detail/ProjectTableView'
-import { CreateTaskModal } from './detail/CreateTaskModal'
 import { createTaskWithTemplate, type CreateTaskInput } from './detail/createTaskWithTemplate'
-import { AddSubtaskModal } from './detail/AddSubtaskModal'
-import { TaskJsonImportModal } from './detail/TaskJsonImportModal'
 import { AgentAssignmentPanel, SkillsAssignmentPanel } from './detail/AssignmentPanels'
-import { TaskDetailModal } from './detail/TaskDetailModal'
 import { TaskDetailContent } from './detail/TaskDetailContent'
 import { buildAgentMarkdown, buildProjectWorkspaceExportTaskPayload, buildSkillsMarkdown, buildTaskMarkdown, buildTaskZipArchive, downloadMarkdownFile, downloadTaskZip } from './detail/taskExport'
 import { PROJECT_STATUS_COLUMNS, columnsFromProjectStatuses, resolveProjectStatusColumn } from './detail/status'
-import { CodexChatMessageItem } from './detail/chat/CodexChatMessageItem'
 import {
   CHAT_COMPOSER_MAX_HEIGHT,
   CHAT_COMPOSER_MIN_HEIGHT,
@@ -55,7 +45,6 @@ import {
   activityMessagesFromTask,
   asCodexThread,
   asCommentThread,
-  formatChatTime,
   parseHistoryPatch,
   usageFromMetadata
 } from './detail/chat/chatUtils'
@@ -106,13 +95,24 @@ import type {
   DetailViewMode,
   ProjectPromptTab,
   ProjectSettingsTab,
+  ProjectTableViewConfig,
   ProjectViewMode,
   SlashCommand,
   TableColumnConfig,
+  TaskActivityMessage,
   TaskHistoryItem,
   TextDraftRow,
   ThreadEntry
 } from './detail/types'
+import { ActivityPopup } from './popups/ActivityPopup'
+import { AddSubtaskPopup } from './popups/AddSubtaskPopup'
+import { ChecklistPopup } from './popups/ChecklistPopup'
+import { CreateTaskPopup } from './popups/CreateTaskPopup'
+import { CustomFieldPopup } from './popups/CustomFieldPopup'
+import { OutputFormatPopup } from './popups/OutputFormatPopup'
+import { ProjectPromptSettingsPopup } from './popups/ProjectPromptSettingsPopup'
+import { TaskDetailPopup } from './popups/TaskDetailPopup'
+import { TaskJsonImportPopup } from './popups/TaskJsonImportPopup'
 import styles from './ProjectDetailPage.module.scss'
 
 const DETAIL_RATIO_KEY = 'omc:task-modal:detail-ratio'
@@ -3068,7 +3068,7 @@ export function ProjectDetailPage() {
       {renderActiveView()}
 
       {isCreateTaskOpen ? (
-        <CreateTaskModal
+        <CreateTaskPopup
           open
           project={project}
           tags={tags}
@@ -3089,7 +3089,7 @@ export function ProjectDetailPage() {
       ) : null}
 
       {selectedTask && isAddSubtaskOpen ? (
-        <AddSubtaskModal
+        <AddSubtaskPopup
           open
           projectName={project.name}
           taskTitle={selectedTask.title}
@@ -3142,102 +3142,20 @@ export function ProjectDetailPage() {
       ) : null}
 
       {isProjectPromptSettingsOpen ? (
-        <>
-          <div className={styles.createTaskBackdrop} onClick={() => setIsProjectPromptSettingsOpen(false)} />
-          <section className={`${styles.createTaskModal} ${styles.projectPromptModal}`} role="dialog" aria-modal="true" aria-label="Project prompt settings">
-            <header className={styles.createTaskHeader}>
-              <div className={styles.projectPromptTabs}>
-                <button
-                  type="button"
-                  className={`${styles.projectPromptTab} ${projectPromptTab === 'context' ? styles.projectPromptTabActive : ''}`}
-                  onClick={() => setProjectPromptTab('context')}
-                >
-                  Context
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.projectPromptTab} ${projectPromptTab === 'prompt' ? styles.projectPromptTabActive : ''}`}
-                  onClick={() => setProjectPromptTab('prompt')}
-                >
-                  Prompt
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.projectPromptTab} ${projectPromptTab === 'output' ? styles.projectPromptTabActive : ''}`}
-                  onClick={() => setProjectPromptTab('output')}
-                >
-                  Output
-                </button>
-              </div>
-              <button type="button" onClick={() => setIsProjectPromptSettingsOpen(false)} aria-label="Close prompt settings"><LuX size={17} /></button>
-            </header>
-                <div className={styles.projectPromptBody}>
-                  {projectPromptTab === 'context' ? (
-                <label className={styles.projectPromptField}>
-                  <div className={styles.projectPromptFieldHeader}>
-                    <span>General context</span>
-                    <span className={styles.projectPromptCounter}>{projectPromptContext.length}/4000</span>
-                  </div>
-                  <Form.Control
-                    as="textarea"
-                    rows={10}
-                    className={styles.projectPromptTextarea}
-                    value={projectPromptContext}
-                    onChange={(event) => setProjectPromptContext(event.target.value)}
-                    placeholder="Add common project context..."
-                    maxLength={4000}
-                  />
-                  <small className={styles.projectPromptHint}>Shared across all project tasks to keep task generation consistent.</small>
-                </label>
-              ) : null}
-              {projectPromptTab === 'prompt' ? (
-                <label className={styles.projectPromptField}>
-                  <div className={styles.projectPromptFieldHeader}>
-                    <span>General prompt</span>
-                    <span className={styles.projectPromptCounter}>{projectPromptPrompt.length}/4000</span>
-                  </div>
-                  <Form.Control
-                    as="textarea"
-                    rows={10}
-                    className={styles.projectPromptTextarea}
-                    value={projectPromptPrompt}
-                    onChange={(event) => setProjectPromptPrompt(event.target.value)}
-                    placeholder="Set shared instructions for this project..."
-                    maxLength={4000}
-                  />
-                  <small className={styles.projectPromptHint}>Guides how agent should act while planning or drafting in this project.</small>
-                </label>
-              ) : null}
-              {projectPromptTab === 'output' ? (
-                <label className={styles.projectPromptField}>
-                  <div className={styles.projectPromptFieldHeader}>
-                    <span>Default output</span>
-                    <span className={styles.projectPromptCounter}>{projectPromptOutput.length}/3000</span>
-                  </div>
-                  <Form.Control
-                    as="textarea"
-                    rows={10}
-                    className={styles.projectPromptTextarea}
-                    value={projectPromptOutput}
-                    onChange={(event) => setProjectPromptOutput(event.target.value)}
-                    placeholder="Set default output format..."
-                    maxLength={3000}
-                  />
-                  <small className={styles.projectPromptHint}>Default response format that will be suggested for all generated outputs.</small>
-                </label>
-              ) : null}
-            </div>
-            {projectPromptError ? <p className={styles.error}>{projectPromptError}</p> : null}
-            <footer className={styles.projectPromptFooter}>
-              <button type="button" onClick={() => setIsProjectPromptSettingsOpen(false)} disabled={isProjectPromptSaving}>
-                Cancel
-              </button>
-              <button type="button" onClick={() => void saveProjectPromptSettings()} disabled={isProjectPromptSaving}>
-                {isProjectPromptSaving ? 'Saving...' : 'Save'}
-              </button>
-            </footer>
-          </section>
-        </>
+        <ProjectPromptSettingsPopup
+          tab={projectPromptTab}
+          context={projectPromptContext}
+          prompt={projectPromptPrompt}
+          output={projectPromptOutput}
+          error={projectPromptError}
+          saving={isProjectPromptSaving}
+          onTabChange={setProjectPromptTab}
+          onContextChange={setProjectPromptContext}
+          onPromptChange={setProjectPromptPrompt}
+          onOutputChange={setProjectPromptOutput}
+          onClose={() => setIsProjectPromptSettingsOpen(false)}
+          onSave={() => void saveProjectPromptSettings()}
+        />
       ) : null}
 
       {isStatusEditorOpen ? (
@@ -3685,7 +3603,7 @@ export function ProjectDetailPage() {
 
       {selectedTask ? (
         <>
-          <TaskDetailModal
+          <TaskDetailPopup
             taskId={selectedTask.id}
             onClose={closeSelectedTaskDetail}
             onOpenActivity={() => setIsActivityModalOpen(true)}
@@ -4506,10 +4424,10 @@ export function ProjectDetailPage() {
               </div>
 
           </TaskDetailContent>
-        </TaskDetailModal>
+        </TaskDetailPopup>
 
         {selectedSubtask && detailViewMode === 'subtask' ? (
-          <TaskDetailModal
+          <TaskDetailPopup
             taskId={selectedSubtask.id}
             title="Subtask detail"
             nested
@@ -4778,11 +4696,11 @@ export function ProjectDetailPage() {
               </div>
             </div>
             </TaskDetailContent>
-          </TaskDetailModal>
+          </TaskDetailPopup>
         ) : null}
 
           {isTaskImportOpen ? (
-            <TaskJsonImportModal
+            <TaskJsonImportPopup
               open
               title="Import task JSON"
               busy={isTaskImporting}
@@ -4792,626 +4710,140 @@ export function ProjectDetailPage() {
           ) : null}
 
           {isCustomFieldModalOpen ? (
-            <>
-              <div className={styles.createTaskBackdrop} onClick={() => setIsCustomFieldModalOpen(false)} />
-              <section className={`${styles.createTaskModal} ${styles.fieldFlowModal}`} role="dialog" aria-modal="true" aria-label="Add custom field">
-                <header className={styles.createTaskHeader}>
-                  <div className={styles.createTaskTabs}><span className={styles.createTaskTabActive}>Custom field</span></div>
-                  <button type="button" onClick={() => setIsCustomFieldModalOpen(false)} aria-label="Close custom field modal"><LuX size={17} /></button>
-                </header>
-                <div className={styles.createTaskBody}>
-                  {customFieldError ? <p className={styles.customFieldError}>{customFieldError}</p> : null}
-                  <div className={styles.multiAddList}>
-                    {customFieldRows.map((row, index) => {
-                      const field = customFields.find((item) => item.id === row.field?.value)
-                      const assignedIds = detailViewMode === 'subtask' && selectedSubtask
-                        ? new Set(Object.keys(getSubtaskCustomFieldValues(selectedSubtask)))
-                        : new Set(Object.keys(selectedTask?.customFieldValues ?? {}))
-                      const selectedOtherIds = new Set(customFieldRows.filter((entry) => entry.id !== row.id && entry.field).map((entry) => entry.field?.value ?? ''))
-                      const rowOptions = customFields
-                        .filter((item) => !assignedIds.has(item.id) && !selectedOtherIds.has(item.id))
-                        .map((item) => ({ value: item.id, label: item.name }))
-                      return (
-                        <div key={row.id} className={styles.multiCustomFieldRow}>
-                          <span>{index + 1}</span>
-                          <div className={styles.multiCustomFieldMain}>
-                            <label className={styles.multiCustomFieldControl}>
-                              <span>Field</span>
-                              <AppSelect
-                                mode="single"
-                                value={row.field}
-                                options={rowOptions}
-                                onChange={(option) => {
-                                  if (Array.isArray(option)) return
-                                  const nextField = customFields.find((item) => item.id === option?.value)
-                                  setCustomFieldRows((current) => current.map((entry) => entry.id === row.id
-                                    ? { ...entry, field: option, value: nextField ? customFieldValueToDraft(nextField, nextField.defaultValue) : '' }
-                                    : entry))
-                                  setCustomFieldError(null)
-                                }}
-                                placeholder="Choose field..."
-                              />
-                            </label>
-                            <label className={styles.multiCustomFieldControl}>
-                              <span>
-                                Value
-                                {field ? <em>{field.type}</em> : null}
-                              </span>
-                              {field?.type === 'boolean' ? (
-                                <select
-                                  value={row.value || 'false'}
-                                  onChange={(event) => setCustomFieldRows((current) => current.map((entry) => entry.id === row.id ? { ...entry, value: event.target.value } : entry))}
-                                >
-                                  <option value="true">True</option>
-                                  <option value="false">False</option>
-                                </select>
-                              ) : (
-                                <textarea
-                                  rows={field?.type === 'json' ? 4 : 1}
-                                  value={row.value}
-                                  onChange={(event) => setCustomFieldRows((current) => current.map((entry) => entry.id === row.id ? { ...entry, value: event.target.value } : entry))}
-                                  onKeyDown={(event) => {
-                                    if (event.key === 'Enter' && !event.shiftKey && field?.type !== 'json') {
-                                      event.preventDefault()
-                                      setCustomFieldRows((current) => [...current, { id: createLocalId(), field: null, value: '' }])
-                                    }
-                                  }}
-                                  placeholder={field?.type === 'json' ? '{ "value": true }' : 'Value'}
-                                />
-                              )}
-                            </label>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setCustomFieldRows((current) => current.length > 1 ? current.filter((entry) => entry.id !== row.id) : [{ id: createLocalId(), field: null, value: '' }])}
-                            aria-label="Remove custom field row"
-                          >
-                            <LuTrash2 size={14} />
-                          </button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                  <div className={styles.modalInlineActions}>
-                    <button type="button" className={styles.modalAddRowButton} onClick={() => setCustomFieldRows((current) => [...current, { id: createLocalId(), field: null, value: '' }])}>
-                      <LuPlus size={15} />
-                      Add row
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.modalAddRowButton}
-                      onClick={() => {
-                        setQuickFieldName('')
-                        setQuickFieldType('text')
-                        setIsCreateCustomFieldOpen(true)
-                      }}
-                    >
-                      <LuPlus size={15} />
-                      Add new custom field
-                    </button>
-                  </div>
-                  <footer className={styles.modalFooterActions}>
-                    <button type="button" onClick={() => setIsCustomFieldModalOpen(false)}>Cancel</button>
-                    <button type="button" className={styles.primaryModalAction} onClick={() => void saveCustomFieldRows()}>Save all</button>
-                  </footer>
-                  {isCreateCustomFieldOpen ? (
-                    <>
-                      <div className={styles.nestedCreateBackdrop} onClick={() => setIsCreateCustomFieldOpen(false)} />
-                      <section className={styles.nestedCreateDialog} role="dialog" aria-modal="true" aria-label="Add new custom field">
-                        <header>
-                          <h4>Add new custom field</h4>
-                          <button type="button" onClick={() => setIsCreateCustomFieldOpen(false)} aria-label="Close custom field create popup"><LuX size={15} /></button>
-                        </header>
-                        <div className={styles.nestedCreateBody}>
-                          <input
-                            autoFocus
-                            value={quickFieldName}
-                            onChange={(event) => setQuickFieldName(event.target.value)}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter') {
-                                event.preventDefault()
-                                void createCustomFieldFromModal()
-                              }
-                            }}
-                            placeholder="Field name"
-                          />
-                          <select value={quickFieldType} onChange={(event) => setQuickFieldType(event.target.value as CustomField['type'])}>
-                            <option value="text">Text</option>
-                            <option value="number">Number</option>
-                            <option value="boolean">Boolean</option>
-                            <option value="json">JSON</option>
-                          </select>
-                        </div>
-                        <footer>
-                          <button type="button" onClick={() => setIsCreateCustomFieldOpen(false)}>Cancel</button>
-                          <button type="button" onClick={() => void createCustomFieldFromModal()} disabled={!quickFieldName.trim()}>Create</button>
-                        </footer>
-                      </section>
-                    </>
-                  ) : null}
-                </div>
-              </section>
-            </>
+            <CustomFieldPopup
+              rows={customFieldRows}
+              customFields={customFields}
+              assignedFieldIds={detailViewMode === 'subtask' && selectedSubtask ? new Set(Object.keys(getSubtaskCustomFieldValues(selectedSubtask))) : new Set(Object.keys(selectedTask?.customFieldValues ?? {}))}
+              error={customFieldError}
+              createOpen={isCreateCustomFieldOpen}
+              quickFieldName={quickFieldName}
+              quickFieldType={quickFieldType}
+              onRowsChange={setCustomFieldRows}
+              onCreateRow={() => ({ id: createLocalId(), field: null, value: '' })}
+              onCreateOpenChange={setIsCreateCustomFieldOpen}
+              onQuickFieldNameChange={setQuickFieldName}
+              onQuickFieldTypeChange={setQuickFieldType}
+              onClose={() => setIsCustomFieldModalOpen(false)}
+              onSave={() => void saveCustomFieldRows()}
+              onCreateField={() => void createCustomFieldFromModal()}
+              onErrorClear={() => setCustomFieldError(null)}
+            />
           ) : null}
 
           {isChecklistModalOpen ? (
-            <>
-              <div className={styles.createTaskBackdrop} onClick={() => setIsChecklistModalOpen(false)} />
-              <section className={`${styles.createTaskModal} ${styles.fieldFlowModal}`} role="dialog" aria-modal="true" aria-label="Add checklist items">
-                <header className={styles.createTaskHeader}>
-                  <div className={styles.createTaskTabs}><span className={styles.createTaskTabActive}>Checklist</span></div>
-                  <button type="button" onClick={() => setIsChecklistModalOpen(false)} aria-label="Close checklist modal"><LuX size={17} /></button>
-                </header>
-                <form className={styles.createTaskBody} onSubmit={(event) => {
-                  event.preventDefault()
-                  void addChecklistItems()
-                }}>
-                  <div className={styles.multiAddList}>
-                    {checklistRows.map((row, index) => (
-                      <div key={row.id} className={styles.multiAddRow}>
-                        <span>{index + 1}</span>
-                        <input
-                          autoFocus={index === 0}
-                          value={row.title}
-                          onChange={(event) => setChecklistRows((current) => current.map((entry) => entry.id === row.id ? { ...entry, title: event.target.value } : entry))}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                              event.preventDefault()
-                              setChecklistRows((current) => [...current, { id: createLocalId(), title: '' }])
-                            }
-                            if (event.key === 'Escape') {
-                              event.preventDefault()
-                              setIsChecklistModalOpen(false)
-                            }
-                          }}
-                          placeholder="Checklist item title"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setChecklistRows((current) => current.length > 1 ? current.filter((entry) => entry.id !== row.id) : [{ id: createLocalId(), title: '' }])}
-                          aria-label="Remove checklist row"
-                        >
-                          <LuTrash2 size={14} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  <button type="button" className={styles.modalAddRowButton} onClick={() => setChecklistRows((current) => [...current, { id: createLocalId(), title: '' }])}>
-                    <LuPlus size={15} />
-                    Add row
-                  </button>
-                  <footer className={styles.createTaskFooter}>
-                    <span>Enter adds another row.</span>
-                    <button type="submit" disabled={!checklistRows.some((row) => row.title.trim())}>Save all</button>
-                  </footer>
-                </form>
-              </section>
-            </>
+            <ChecklistPopup
+              rows={checklistRows}
+              onRowsChange={setChecklistRows}
+              onCreateRow={() => ({ id: createLocalId(), title: '' })}
+              onClose={() => setIsChecklistModalOpen(false)}
+              onSave={() => void addChecklistItems()}
+            />
           ) : null}
 
           {isOutputFormatModalOpen ? (
-            <>
-              <div className={styles.createTaskBackdrop} onClick={() => setIsOutputFormatModalOpen(false)} />
-              <section className={`${styles.createTaskModal} ${styles.fieldFlowModal}`} role="dialog" aria-modal="true" aria-label="Set data format">
-                <header className={styles.createTaskHeader}>
-                  <div className={styles.createTaskTabs}><span className={styles.createTaskTabActive}>{dataFormatRoleDraft === 'input' ? 'Input data format' : 'Output data format'}</span></div>
-                  <button type="button" onClick={() => setIsOutputFormatModalOpen(false)} aria-label="Close data format modal"><LuX size={17} /></button>
-                </header>
-                <div className={styles.createTaskBody}>
-                  <div className={styles.modalField}>
-                    <span>Select data format</span>
-                    <AppSelect
-                      mode="single"
-                      value={outputFormatDraftOption}
-                      options={dataFormatRoleDraft === 'input' ? inputFormatOptions : outputFormatOptions}
-                      onChange={(option) => {
-                        if (Array.isArray(option)) return
-                        setOutputFormatDraftOption(option)
-                      }}
-                      placeholder="No data format"
-                      isClearable
-                    />
-                  </div>
-                  <div className={styles.modalInlineActions}>
-                    <button
-                      type="button"
-                      className={styles.modalAddRowButton}
-                      onClick={() => {
-                        setQuickOutputFormatName('')
-                        setQuickOutputFormatDescription('')
-                        setIsCreateOutputFormatOpen(true)
-                      }}
-                    >
-                      <LuPlus size={15} />
-                      Add new data format
-                    </button>
-                  </div>
-                  <footer className={styles.modalFooterActions}>
-                    <button type="button" onClick={() => setIsOutputFormatModalOpen(false)}>Cancel</button>
-                    <button type="button" className={styles.primaryModalAction} onClick={() => void saveTaskOutputFormatFromModal()}>Save</button>
-                  </footer>
-                  {isCreateOutputFormatOpen ? (
-                    <>
-                      <div className={styles.nestedCreateBackdrop} onClick={() => setIsCreateOutputFormatOpen(false)} />
-                      <section className={styles.nestedCreateDialog} role="dialog" aria-modal="true" aria-label="Add new data format">
-                        <header>
-                          <h4>Add new data format</h4>
-                          <button type="button" onClick={() => setIsCreateOutputFormatOpen(false)} aria-label="Close data format create popup"><LuX size={15} /></button>
-                        </header>
-                        <div className={styles.nestedCreateBody}>
-                          <input
-                            autoFocus
-                            value={quickOutputFormatName}
-                            onChange={(event) => setQuickOutputFormatName(event.target.value)}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter') {
-                                event.preventDefault()
-                                void createOutputFormatFromModal()
-                              }
-                            }}
-                            placeholder="Format name"
-                          />
-                          <input value={quickOutputFormatDescription} onChange={(event) => setQuickOutputFormatDescription(event.target.value)} placeholder="Description (optional)" />
-                        </div>
-                        <footer>
-                          <button type="button" onClick={() => setIsCreateOutputFormatOpen(false)}>Cancel</button>
-                          <button type="button" onClick={() => void createOutputFormatFromModal()} disabled={!quickOutputFormatName.trim()}>Create</button>
-                        </footer>
-                      </section>
-                    </>
-                  ) : null}
-                </div>
-              </section>
-            </>
+            <OutputFormatPopup
+              role={dataFormatRoleDraft}
+              draftOption={outputFormatDraftOption}
+              options={dataFormatRoleDraft === 'input' ? inputFormatOptions : outputFormatOptions}
+              createOpen={isCreateOutputFormatOpen}
+              quickName={quickOutputFormatName}
+              quickDescription={quickOutputFormatDescription}
+              onDraftOptionChange={setOutputFormatDraftOption}
+              onCreateOpenChange={setIsCreateOutputFormatOpen}
+              onQuickNameChange={setQuickOutputFormatName}
+              onQuickDescriptionChange={setQuickOutputFormatDescription}
+              onClose={() => setIsOutputFormatModalOpen(false)}
+              onSave={() => void saveTaskOutputFormatFromModal()}
+              onCreate={() => void createOutputFormatFromModal()}
+            />
           ) : null}
 
           {isActivityModalOpen ? (
-            <>
-              <div className={styles.activityBackdrop} onClick={() => setIsActivityModalOpen(false)} />
-              <section
-                className={`${styles.modalShell} ${styles.activityModalShell}`}
-                role="dialog"
-                aria-modal="true"
-                aria-label="Codex chat"
-                onDragEnter={handleChatDragEnter}
-                onDragOver={handleChatDragOver}
-                onDragLeave={handleChatDragLeave}
-                onDrop={handleChatDrop}
-              >
-                {chatDragDepth > 0 ? (
-                  <div className={styles.chatDropOverlay}>
-                    <LuCloudUpload size={30} />
-                    <strong>Drop files to attach</strong>
-                    <span>They will be sent with your next Codex message.</span>
-                  </div>
-                ) : null}
-                <aside className={styles.chatSidebar}>
-                  <div className={styles.chatBrand}>
-                    <span className={styles.chatBrandIcon}><LuMessageSquare size={17} /></span>
-                    <strong>Chat</strong>
-                    <span>{selectedTask?.title ?? 'Task'}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className={`${styles.chatNewConversationButton} ${isStartingNewChat ? styles.chatConversationActive : ''}`}
-                    onClick={() => {
-                      setIsStartingNewChat(true)
-                      setSelectedChatConversationId('')
-                      setChatComposerMode('chat')
-                      setCodexRunFeedback(null)
-                      setTimeout(() => chatDraftTextareaRef.current?.focus(), 0)
-                    }}
-                  >
-                    <span>
-                      <span><LuPlus size={14} /> New follow-up</span>
-                      <b className={styles.chatStatusBadge}>New</b>
-                    </span>
-                    <small>Start a separate Follow-up thread</small>
-                  </button>
-                  {sidebarChatConversations.map((conversation) => (
-                    <button
-                      type="button"
-                      key={conversation.id}
-                      className={selectedChatConversationId === conversation.id ? styles.chatConversationActive : ''}
-                      onClick={() => {
-                        setIsStartingNewChat(false)
-                        setSelectedChatConversationId(conversation.id)
-                      }}
-                    >
-                      <span>
-                        {conversation.title}
-                        <b className={`${styles.chatStatusBadge} ${styles[`chatStatus_${conversation.status}`] ?? ''}`}>
-                          {runningChatConversationIds.has(conversation.id) ? (
-                            <em className={styles.chatSidebarLoader} aria-label="Codex chat is running">
-                              <i /><i /><i />
-                            </em>
-                          ) : conversation.status}
-                        </b>
-                      </span>
-                      <small>{conversation.count} messages · {formatChatTime(conversation.at)}</small>
-                      {conversation.model ? <small>{conversation.model}</small> : null}
-                    </button>
-                  ))}
-                  {chatConversations.length > sidebarChatConversations.length ? (
-                    <p>{chatConversations.length - sidebarChatConversations.length} older conversations hidden for performance.</p>
-                  ) : null}
-                  {chatConversations.length === 0 ? <p>No Codex conversations yet.</p> : null}
-                  {chatHistoryCount > 0 ? (
-                    <div className={styles.chatHistoryNote}>
-                      <span>Task history</span>
-                      <b>{chatHistoryCount}</b>
-                    </div>
-                  ) : null}
-                </aside>
-                <main className={styles.chatMain}>
-                  <header className={styles.chatTopbar}>
-                    <div className={styles.chatTopbarTitle}>
-                      <h2>Chat</h2>
-                      <p title={selectedTask?.title ?? 'Task'}>{selectedTask?.title ?? 'Task'}</p>
-                    </div>
-                    <div className={styles.chatTopbarActions}>
-                      <button type="button" onClick={() => setChatSettingsOpen((value) => !value)} className={`${styles.chatIconAction} ${chatSettingsOpen ? styles.chatActionActive : ''}`} aria-label="Chat settings" title="Chat settings"><LuSettings2 size={16} /></button>
-                      {selectedChatCanStop ? (
-                        <button type="button" onClick={() => void stopCodexChat()} disabled={chatStopping} className={`${styles.chatIconAction} ${styles.chatStopAction}`} aria-label="Stop Codex chat" title="Stop Codex chat"><LuCircleStop size={16} /></button>
-                      ) : null}
-                      <button type="button" onClick={() => void planSelectedTaskWithCodex()} disabled={codexPlanLaunching} className={styles.chatIconAction} aria-label={codexPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'} title={codexPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'}><LuSparkles size={16} /></button>
-                      <button type="button" onClick={() => void runSelectedTaskWithCodex()} disabled={codexRunLaunching} className={styles.chatIconAction} aria-label={codexRunLaunching ? 'Running with Codex' : 'Run with Codex'} title={codexRunLaunching ? 'Running with Codex' : 'Run with Codex'}><LuPlay size={16} /></button>
-                      <button type="button" onClick={() => setIsActivityModalOpen(false)} aria-label="Close chat" title="Close chat" className={styles.chatIconAction}>
-                        <LuX size={16} />
-                      </button>
-                    </div>
-                  </header>
-                  <div className={styles.chatWorkspace}>
-                    <div className={styles.chatTranscript} ref={activityFeedRef} onScroll={onActivityScroll}>
-                      {visibleChatMessages.length > 0 ? (
-                        <div className={styles.chatMessageList}>
-                          {hiddenChatMessageCount > 0 ? (
-                            <button
-                              type="button"
-                              className={styles.chatLoadEarlierButton}
-                              onClick={() => setChatVisibleLimit((value) => value + CHAT_MESSAGE_LOAD_STEP)}
-                            >
-                              Load {Math.min(CHAT_MESSAGE_LOAD_STEP, hiddenChatMessageCount)} earlier messages
-                            </button>
-                          ) : null}
-                          {renderedChatMessages
-                            .filter((message) => !(message.role === 'system' && /^Started Codex/i.test(message.body)))
-                            .map((message) => <CodexChatMessageItem key={message.id} message={message} />)}
-                          {localChatStatusMessage ? <CodexChatMessageItem message={localChatStatusMessage} /> : null}
-                        </div>
-                      ) : (
-                        <div className={styles.chatEmptyState}>
-                          {localChatStatusMessage ? (
-                            <div className={styles.chatMessageList}>
-                              <CodexChatMessageItem message={localChatStatusMessage} />
-                            </div>
-                          ) : (
-                            <>
-                              <LuMessageSquare size={28} />
-                              <h3>Start a Codex chat for this task</h3>
-                              <p>Use Plan, Run, or send a follow-up message. Codex messages will appear here as a transcript.</p>
-                              <div>
-                                <button type="button" onClick={() => void planSelectedTaskWithCodex()} disabled={codexPlanLaunching}><LuSparkles size={15} /> Plan</button>
-                                <button type="button" onClick={() => void runSelectedTaskWithCodex()} disabled={codexRunLaunching}><LuPlay size={15} /> Run</button>
-                                {(!chatGateway || !chatModel) ? <button type="button" onClick={() => setChatSettingsOpen(true)}><LuSettings2 size={15} /> Configure</button> : null}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    {chatSettingsOpen ? (
-                      <aside className={styles.chatSettingsPanel}>
-                        <div className={styles.chatSettingsHeader}>
-                          <div>
-                            <span>Codex</span>
-                            <h3>Run settings</h3>
-                          </div>
-                          <button type="button" onClick={() => setChatSettingsOpen(false)} aria-label="Close run settings" title="Close">
-                            <LuX size={15} />
-                          </button>
-                        </div>
-                        <div className={styles.chatSettingsCard}>
-                          <div className={styles.chatSettingTitle}>
-                            <span><LuSignal size={14} /></span>
-                            <div>
-                              <b>Gateway</b>
-                              <small>{chatGateway?.name ?? 'Select a gateway'}</small>
-                            </div>
-                          </div>
-                          <AppSelect
-                            mode="single"
-                            value={chatGatewayOption}
-                            options={codexGatewayOptions}
-                            onChange={(option) => {
-                              if (Array.isArray(option)) return
-                              setChatGatewayId(option?.value ?? '')
-                              setChatModel('')
-                            }}
-                            placeholder="Select gateway"
-                          />
-                        </div>
-                        <div className={styles.chatSettingsCard}>
-                          <div className={styles.chatSettingTitle}>
-                            <span><LuBot size={14} /></span>
-                            <div>
-                              <b>Model</b>
-                              <small>{chatModel || 'Select a model'}</small>
-                            </div>
-                          </div>
-                          <AppSelect
-                            mode="single"
-                            value={chatModelOption}
-                            options={chatModelOptions}
-                            onChange={(option) => {
-                              if (Array.isArray(option)) return
-                              setChatModel(option?.value ?? '')
-                            }}
-                            placeholder="Select model"
-                            isDisabled={!chatGatewayId}
-                          />
-                        </div>
-                        <div className={styles.chatSettingsMetaGrid}>
-                          <div className={styles.chatSettingReadout}>
-                            <span>Mode</span>
-                            <b>{chatGatewayConfig.executionMode === 'exec' ? 'Exec' : 'Terminal'}</b>
-                          </div>
-                          <div className={styles.chatSettingReadout}>
-                            <span>Workspace</span>
-                            <b>{chatRuntimeWorkspace?.name ?? savedCodexSettings.runtimeWorkspaceId ?? 'Not configured'}</b>
-                          </div>
-                        </div>
-                        <label className={styles.chatSettingsToggle}>
-                          <input type="checkbox" checked={chatIncludeContext} onChange={(event) => setChatIncludeContext(event.target.checked)} />
-                          <span>
-                            <b>Task context</b>
-                            <small>Include current task details in the next run.</small>
-                          </span>
-                        </label>
-                      </aside>
-                    ) : null}
-                  </div>
-                  <footer className={styles.chatComposer}>
-                    {chatAttachments.length > 0 ? (
-                      <div className={styles.chatAttachmentChips}>
-                        {chatAttachments.map((attachment) => (
-                          <span key={attachment.id}>
-                            <LuPaperclip size={13} />
-                            <span className={styles.chatAttachmentName}>{attachment.name}</span>
-                            <button type="button" onClick={() => setChatAttachments((current) => current.filter((item) => item.id !== attachment.id))} aria-label={`Remove ${attachment.name}`}>
-                              <LuX size={12} />
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                    <div className={styles.chatComposerFrame}>
-                      {slashMenuOpen && filteredSlashCommands.length > 0 ? (
-                        <div className={styles.slashCommandMenu} role="listbox" aria-label="Slash commands">
-                          {filteredSlashCommands.map((command, index) => (
-                            <button
-                              key={command.id}
-                              type="button"
-                              className={index === slashCommandIndex ? styles.slashCommandActive : ''}
-                              onMouseDown={(event) => {
-                                event.preventDefault()
-                                applySlashCommand(command)
-                              }}
-                              role="option"
-                              aria-selected={index === slashCommandIndex}
-                            >
-                              <span>{command.label}</span>
-                              <small>{command.hint}</small>
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                      <div className={styles.chatComposerBox}>
-                        <textarea
-                          ref={chatDraftTextareaRef}
-                          value={chatDraft}
-                          onChange={(event) => {
-                            setChatDraft(event.target.value)
-                            resizeChatComposerTextarea(event.currentTarget)
-                          }}
-                          onFocus={() => setChatComposerFocused(true)}
-                          onBlur={() => setChatComposerFocused(false)}
-                          placeholder="Message Codex or type / for commands..."
-                          onKeyDown={(event) => {
-                            if (slashMenuOpen && filteredSlashCommands.length > 0) {
-                              if (event.key === 'ArrowDown') {
-                                event.preventDefault()
-                                setSlashCommandIndex((value) => (value + 1) % filteredSlashCommands.length)
-                                return
-                              }
-                              if (event.key === 'ArrowUp') {
-                                event.preventDefault()
-                                setSlashCommandIndex((value) => (value - 1 + filteredSlashCommands.length) % filteredSlashCommands.length)
-                                return
-                              }
-                              if (event.key === 'Escape') {
-                                event.preventDefault()
-                                setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))
-                                return
-                              }
-                              if (event.key === 'Enter') {
-                                event.preventDefault()
-                                applySlashCommand(filteredSlashCommands[slashCommandIndex] ?? filteredSlashCommands[0])
-                                return
-                              }
-                            }
-                            if (event.key === 'Enter' && !event.shiftKey) {
-                              event.preventDefault()
-                              void sendCodexChatMessage()
-                            }
-                          }}
-                        />
-                        <button type="button" className={styles.chatAttachButton} onClick={() => chatFileInputRef.current?.click()} aria-label="Attach files">
-                          <LuPaperclip size={16} />
-                        </button>
-                        <input
-                          ref={chatFileInputRef}
-                          type="file"
-                          multiple
-                          hidden
-                          onChange={(event) => {
-                            if (event.currentTarget.files) void addChatAttachments(event.currentTarget.files)
-                          }}
-                        />
-                        <button
-                          type="button"
-                          className={selectedChatCanStop ? styles.chatStopButton : ''}
-                          onClick={() => void (selectedChatCanStop ? stopCodexChat() : sendCodexChatMessage())}
-                          disabled={chatSending || chatStopping || (!selectedChatCanStop && (!canSendChat || selectedChatIsRunning))}
-                          aria-label={selectedChatCanStop ? 'Stop Codex chat' : 'Send message'}
-                          title={selectedChatCanStop ? 'Stop' : 'Send'}
-                        >
-                          {selectedChatCanStop ? <LuCircleStop size={17} /> : chatSending ? <span className={styles.thinkingDots}><i /><i /><i /></span> : <LuSend size={16} />}
-                        </button>
-                      </div>
-                    </div>
-                    <div className={styles.chatComposerRail}>
-                      <div className={styles.chatPillRow}>
-                        <span className={!chatGateway ? styles.chatPillWarning : ''}>
-                          <small>Gateway</small>
-                          <b title={chatGateway?.name ?? 'Gateway required'}>{chatGateway?.name ?? 'Gateway required'}</b>
-                        </span>
-                        <span className={!chatModel ? styles.chatPillWarning : ''}>
-                          <small>Model</small>
-                          <b title={chatModel || 'Model required'}>{chatModel || 'Model required'}</b>
-                        </span>
-                        <span>
-                          <small>Mode</small>
-                          <b>{chatGatewayConfig.executionMode === 'exec' ? 'Exec' : 'Terminal'}</b>
-                        </span>
-                        <span>
-                          <small>Workspace</small>
-                          <b title={chatRuntimeWorkspace?.name ?? savedCodexSettings.runtimeWorkspaceId ?? 'Workspace required'}>{chatRuntimeWorkspace?.name ?? savedCodexSettings.runtimeWorkspaceId ?? 'Workspace required'}</b>
-                        </span>
-                        <span>
-                          <small>Session</small>
-                          <b>{selectedChatSummary?.status ?? (visibleChatMessages.length ? 'mixed' : 'ready')}</b>
-                        </span>
-                        <span>
-                          <small>Agent</small>
-                          <b>{selectedTaskAgent?.name ?? 'Unassigned'}</b>
-                        </span>
-                        <span>
-                          <small>Skills</small>
-                          <b>{taskContextSkills.length ? taskContextSkills.slice(0, 3).map((skill) => skill.name).join(', ') : 'None'}</b>
-                        </span>
-                        {selectedChatUsage ? (
-                          <span>
-                            <small>Usage</small>
-                            <b>{formatUsageSummary(selectedChatUsage)}</b>
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                  </footer>
-                </main>
-              </section>
-            </>
+            <ActivityPopup
+              task={selectedTask}
+              chatDragDepth={chatDragDepth}
+              conversations={chatConversations}
+              sidebarConversations={sidebarChatConversations}
+              selectedConversationId={selectedChatConversationId}
+              isStartingNewChat={isStartingNewChat}
+              runningConversationIds={runningChatConversationIds}
+              chatHistoryCount={chatHistoryCount}
+              chatSettingsOpen={chatSettingsOpen}
+              selectedChatCanStop={selectedChatCanStop}
+              chatStopping={chatStopping}
+              codexPlanLaunching={codexPlanLaunching}
+              codexRunLaunching={codexRunLaunching}
+              visibleMessages={visibleChatMessages}
+              renderedMessages={renderedChatMessages}
+              hiddenMessageCount={hiddenChatMessageCount}
+              localStatusMessage={localChatStatusMessage}
+              activityFeedRef={activityFeedRef}
+              chatGateway={chatGateway}
+              chatGatewayOption={chatGatewayOption}
+              chatGatewayOptions={codexGatewayOptions}
+              chatModel={chatModel}
+              chatModelOption={chatModelOption}
+              chatModelOptions={chatModelOptions}
+              chatGatewayConfig={chatGatewayConfig}
+              chatRuntimeWorkspace={chatRuntimeWorkspace}
+              runtimeWorkspaceId={savedCodexSettings.runtimeWorkspaceId}
+              chatIncludeContext={chatIncludeContext}
+              attachments={chatAttachments}
+              slashMenuOpen={slashMenuOpen}
+              slashCommands={filteredSlashCommands}
+              slashCommandIndex={slashCommandIndex}
+              draftTextareaRef={chatDraftTextareaRef}
+              fileInputRef={chatFileInputRef}
+              draft={chatDraft}
+              chatSending={chatSending}
+              canSendChat={canSendChat}
+              selectedChatIsRunning={selectedChatIsRunning}
+              selectedChatSummary={selectedChatSummary}
+              selectedChatUsage={selectedChatUsage}
+              selectedTaskAgent={selectedTaskAgent}
+              taskContextSkills={taskContextSkills}
+              onClose={() => setIsActivityModalOpen(false)}
+              onDragEnter={handleChatDragEnter}
+              onDragOver={handleChatDragOver}
+              onDragLeave={handleChatDragLeave}
+              onDrop={handleChatDrop}
+              onNewConversation={() => {
+                setIsStartingNewChat(true)
+                setSelectedChatConversationId('')
+                setChatComposerMode('chat')
+                setCodexRunFeedback(null)
+                setTimeout(() => chatDraftTextareaRef.current?.focus(), 0)
+              }}
+              onConversationSelect={(conversationId) => {
+                setIsStartingNewChat(false)
+                setSelectedChatConversationId(conversationId)
+              }}
+              onSettingsToggle={() => setChatSettingsOpen((value) => !value)}
+              onSettingsClose={() => setChatSettingsOpen(false)}
+              onStopChat={() => void stopCodexChat()}
+              onPlan={() => void planSelectedTaskWithCodex()}
+              onRun={() => void runSelectedTaskWithCodex()}
+              onLoadEarlier={() => setChatVisibleLimit((value) => value + CHAT_MESSAGE_LOAD_STEP)}
+              onActivityScroll={onActivityScroll}
+              onGatewayChange={(option) => {
+                setChatGatewayId(option?.value ?? '')
+                setChatModel('')
+              }}
+              onModelChange={(option) => setChatModel(option?.value ?? '')}
+              onIncludeContextChange={setChatIncludeContext}
+              onAttachmentRemove={(attachmentId) => setChatAttachments((current) => current.filter((item) => item.id !== attachmentId))}
+              onAttachFilesClick={() => chatFileInputRef.current?.click()}
+              onFilesSelected={(files) => { if (files) void addChatAttachments(files) }}
+              onDraftChange={(value, textarea) => {
+                setChatDraft(value)
+                resizeChatComposerTextarea(textarea)
+              }}
+              onComposerFocusChange={setChatComposerFocused}
+              onSlashCommandApply={applySlashCommand}
+              onSlashCommandIndexChange={setSlashCommandIndex}
+              onClearSlashDraft={() => setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))}
+              onSend={() => void sendCodexChatMessage()}
+            />
           ) : null}
         </>
       ) : null}

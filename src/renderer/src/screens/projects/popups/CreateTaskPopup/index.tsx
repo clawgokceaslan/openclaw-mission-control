@@ -3,13 +3,13 @@ import { LuCalendarPlus, LuFlag, LuFolder, LuListChecks, LuTag, LuUpload, LuUser
 import type { Agent, Project, Tag, TaskEntity, TaskTemplate } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { MarkdownDescriptionEditor } from '@renderer/components/markdown/MarkdownDescriptionEditor'
-import type { ProjectStatusColumn } from './status'
-import { statusOptionsFromColumns } from './status'
-import { TaskJsonImportModal } from './TaskJsonImportModal'
-import { parseTaskJsonImportPreview } from './taskJsonImport'
-import styles from '../ProjectDetailPage.module.scss'
+import type { ProjectStatusColumn } from '../../detail/status'
+import { statusOptionsFromColumns } from '../../detail/status'
+import { TaskJsonImportPopup } from '../TaskJsonImportPopup'
+import { parseTaskJsonImportPreview } from '../../detail/taskJsonImport'
+import styles from '../../ProjectDetailPage.module.scss'
 
-interface CreateTaskModalProps {
+interface CreateTaskPopupProps {
   open: boolean
   project: Project | null
   projects?: Project[]
@@ -28,7 +28,7 @@ interface CreateTaskModalProps {
   onCreate: (input: { projectId: string; title: string; description: string; status: TaskEntity['status']; tagIds: string[]; agentId?: string | null; templateId?: string | null; importJson?: string | null }) => void
 }
 
-export function CreateTaskModal({ open, project, projects = [], selectedProjectId, tags, agents, templates, statusColumns, defaultStatus, initialTitle = '', initialTemplateId = null, busy, error, onClose, onProjectChange, onCreate }: CreateTaskModalProps) {
+export function CreateTaskPopup({ open, project, projects = [], selectedProjectId, tags, agents, templates, statusColumns, defaultStatus, initialTitle = '', initialTemplateId = null, busy, error, onClose, onProjectChange, onCreate }: CreateTaskPopupProps) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [status, setStatus] = useState<TaskEntity['status']>(defaultStatus)
@@ -199,7 +199,7 @@ export function CreateTaskModal({ open, project, projects = [], selectedProjectI
         </form>
       </section>
       {isImportOpen ? (
-        <TaskJsonImportModal
+        <TaskJsonImportPopup
           open
           title="Import task JSON"
           busy={busy}

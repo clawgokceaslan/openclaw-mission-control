@@ -1,9 +1,9 @@
 import { DragEvent, useState } from 'react'
 import { LuDownload, LuUpload, LuX } from 'react-icons/lu'
-import { parseTaskJsonImportPreview, TASK_JSON_IMPORT_EXAMPLE, TASK_JSON_IMPORT_INSTRUCT } from './taskJsonImport'
-import styles from '../ProjectDetailPage.module.scss'
+import { parseTaskJsonImportPreview, TASK_JSON_IMPORT_EXAMPLE, TASK_JSON_IMPORT_INSTRUCT } from '../../detail/taskJsonImport'
+import styles from '../../ProjectDetailPage.module.scss'
 
-interface TaskJsonImportModalProps {
+interface TaskJsonImportPopupProps {
   open: boolean
   title: string
   busy?: boolean
@@ -11,7 +11,7 @@ interface TaskJsonImportModalProps {
   onImport: (jsonText: string) => void
 }
 
-export function TaskJsonImportModal({ open, title, busy = false, onClose, onImport }: TaskJsonImportModalProps) {
+export function TaskJsonImportPopup({ open, title, busy = false, onClose, onImport }: TaskJsonImportPopupProps) {
   const [jsonText, setJsonText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
