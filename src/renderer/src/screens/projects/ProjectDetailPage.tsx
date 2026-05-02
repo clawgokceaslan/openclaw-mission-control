@@ -16,8 +16,7 @@ import {
   LuSettings2,
   LuSlidersHorizontal,
   LuSparkles,
-  LuTrash2,
-  LuX
+  LuTrash2
 } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge } from '@renderer/utils/api'
@@ -29,30 +28,24 @@ import { AttachmentTable, storedAttachmentRows } from '@renderer/components/atta
 import { AttachmentRow, attachmentRowsFromDescription, removeAttachmentFromMarkdown, uploadTaskAttachment } from '@renderer/components/attachments/attachments'
 import { Stack } from 'react-bootstrap'
 import { ProjectDetailHeader } from '@renderer/components/projects/detail/ProjectDetailHeader'
-import { ProjectBoardView } from '@renderer/components/projects/detail/ProjectBoardView'
-import { ProjectListView } from '@renderer/components/projects/detail/ProjectListView'
-import { ProjectTableView } from '@renderer/components/projects/detail/ProjectTableView'
 import { ProjectSettingsModal } from '@renderer/components/projects/detail/ProjectSettingsModal'
-import { ProjectGroupPickerModal } from '@renderer/components/projects/detail/ProjectModals/ProjectGroupPickerModal'
-import { StatusTemplatePickerModal } from '@renderer/components/projects/detail/ProjectModals/StatusTemplatePickerModal'
+import { ActiveProjectView } from '@renderer/components/projects/detail/ActiveProjectView'
 import { TaskModals } from '@renderer/components/projects/detail/TaskModals'
+import { TaskDetailPanel } from '@renderer/components/projects/detail/TaskDetailPanel'
+import { SubtaskDetailPanel } from '@renderer/components/projects/detail/SubtaskDetailPanel'
 import { createTaskWithTemplate, type CreateTaskInput } from './detail/createTaskWithTemplate'
 import { useProjectDetailData } from './detail/hooks/useProjectDetailData'
+import { useProjectActivityPopup } from './detail/hooks/useProjectActivityPopup'
+import { useProjectCodexFlow } from './detail/hooks/useProjectCodexFlow'
+import { useProjectSelection } from './detail/hooks/useProjectSelection'
+import { useProjectDerivedState } from './detail/hooks/useProjectDerivedState'
 import { AgentAssignmentPanel, SkillsAssignmentPanel } from '@renderer/components/projects/detail/AssignmentPanels'
 import { TaskDetailContent } from '@renderer/components/projects/detail/TaskDetailContent'
-import { buildAgentMarkdown, buildProjectWorkspaceExportTaskPayload, buildSkillsMarkdown, buildTaskMarkdown, buildTaskZipArchive, downloadMarkdownFile, downloadTaskZip } from './detail/taskExport'
-import { PROJECT_STATUS_COLUMNS, columnsFromProjectStatuses, resolveProjectStatusColumn } from './detail/status'
-import { useProjectDetailState } from './detail/state/projectDetailState'
+import { buildAgentMarkdown, buildProjectWorkspaceExportTaskPayload, buildSkillsMarkdown, buildTaskMarkdown, downloadMarkdownFile, downloadTaskZip } from './detail/taskExport'
+import { resolveProjectStatusColumn } from './detail/status'
+import { useProjectDetailDispatcher, useProjectDetailReducer } from './detail/state/projectDetailState'
 import {
-  CHAT_COMPOSER_MAX_HEIGHT,
-  CHAT_COMPOSER_MIN_HEIGHT,
-  CHAT_INITIAL_MESSAGE_LIMIT,
-  CHAT_MESSAGE_LOAD_STEP,
-  activityMessagesFromTask,
-  asCodexThread,
-  asCommentThread,
-  parseHistoryPatch,
-  usageFromMetadata
+  CHAT_INITIAL_MESSAGE_LIMIT
 } from './detail/chat/chatUtils'
 import {
   DEFAULT_TABLE_COLUMNS,
@@ -65,7 +58,6 @@ import {
   getStatusOrder,
   getTableViewConfig,
   getTaskNewestTime,
-  normalizeTableColumns,
   projectCodexSettings,
   projectWorkspaceFolder,
   statusOrderPayload,
@@ -88,12 +80,7 @@ import {
   getTaskOutputFormatId
 } from './detail/subtaskUtils'
 import type {
-  ChatAttachmentDraft,
   ChatComposerMode,
-  ChatConversationSummary,
-  ChatOperationFeedbackData,
-  CodexModelsResponse,
-  CodexRunFeedback,
   CustomFieldDraftRow,
   DataFormatRole,
   DetailTab,
@@ -102,7 +89,6 @@ import type {
   ProjectSettingsTab,
   ProjectTableViewConfig,
   ProjectViewMode,
-  SlashCommand,
   TableColumnConfig,
   TaskActivityMessage,
   TaskHistoryItem,
@@ -110,34 +96,18 @@ import type {
   ThreadEntry
 } from './detail/types'
 import { ActivityPopup } from '@renderer/popups/Activity'
-import { AddSubtaskPopup } from '@renderer/popups/AddSubtask'
-import { ChecklistPopup } from '@renderer/popups/Checklist'
-import { CreateTaskPopup } from '@renderer/popups/CreateTask'
-import { CustomFieldPopup } from '@renderer/popups/CustomField'
-import { OutputFormatPopup } from '@renderer/popups/OutputFormat'
-import { ProjectPromptSettingsPopup } from '@renderer/popups/ProjectPromptSettings'
 import { TaskDetailPopup } from '@renderer/popups/TaskDetail'
-import { TaskJsonImportPopup } from '@renderer/popups/TaskJsonImport'
 import styles from './ProjectDetailPage.module.scss'
 
 const DETAIL_RATIO_KEY = 'omc:task-modal:detail-ratio'
 const DEFAULT_DETAIL_RATIO = 0.7
 const MIN_DETAIL_WIDTH = 420
 const MIN_COMMENTS_WIDTH = 320
-const LOCAL_CHAT_STATUS_RUN_ID = 'local-chat-status'
 
 function resizeTitleTextarea(element: HTMLTextAreaElement | null) {
   if (!element) return
   element.style.height = 'auto'
   element.style.height = `${element.scrollHeight}px`
-}
-
-function resizeChatComposerTextarea(element: HTMLTextAreaElement | null) {
-  if (!element) return
-  element.style.height = 'auto'
-  const nextHeight = Math.min(CHAT_COMPOSER_MAX_HEIGHT, Math.max(CHAT_COMPOSER_MIN_HEIGHT, element.scrollHeight))
-  element.style.height = `${nextHeight}px`
-  element.scrollTop = element.scrollHeight
 }
 
 function clampRatio(value: number) {
@@ -158,10 +128,11 @@ export function ProjectDetailPage() {
   const navigate = useNavigate()
   const projectId = params.projectId
   const { token, user } = useAuth()
-  const projectDetailState = useProjectDetailState({
+  const [projectDetailRawState, projectDetailDispatch] = useProjectDetailReducer({
     chatVisibleLimit: CHAT_INITIAL_MESSAGE_LIMIT,
     detailRatio: loadInitialRatio()
   })
+  const projectDetailState = useProjectDetailDispatcher(projectDetailRawState, projectDetailDispatch)
   const {
     project,
     setProject,
@@ -419,7 +390,6 @@ export function ProjectDetailPage() {
   const chatDraftTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const subtaskStatusMenuRef = useRef<HTMLDivElement | null>(null)
   const subtaskClickTimerRef = useRef<number | null>(null)
-  const keepActivityBottomRef = useRef(true)
   const lastCodexModelRefreshRef = useRef<string | null>(null)
 
   const {
@@ -429,6 +399,22 @@ export function ProjectDetailPage() {
     token,
     projectId,
     state: projectDetailState
+  })
+
+  const { openTask, clearSelection } = useProjectSelection({
+    state: {
+      selectedTaskId,
+      selectedSubtaskId,
+      setSelectedTaskId,
+      setSelectedSubtaskId,
+      setDetailTab,
+      setDetailViewMode,
+      setIsTitleEditing,
+      setTitleDraft,
+      setIsDescriptionEditing,
+      setDescriptionDraft
+    },
+    tasks
   })
 
   const chooseProjectWorkspaceFolder = async () => {
@@ -510,11 +496,6 @@ export function ProjectDetailPage() {
     await refresh()
   }
 
-  const createAndAssignWorkspace = async () => {
-    const workspace = await createWorkspaceFromDraft()
-    if (workspace) await updateProjectWorkspace(workspace.id)
-  }
-
   const saveProjectCodexSettings = async () => {
     if (!project) return
     setCodexSaving(true)
@@ -535,32 +516,6 @@ export function ProjectDetailPage() {
     setProject(response.data)
     setError(null)
   }
-
-  const refreshCodexGatewayModels = async (gatewayId: string) => {
-    if (!gatewayId) return
-    setCodexModelLoading(true)
-    setCodexModelError(null)
-    const response = await invokeBridge<CodexModelsResponse>(IPC_CHANNELS.gateways.codexModels, {
-      actorToken: token,
-      gatewayId
-    })
-    setCodexModelLoading(false)
-    if (!response.ok || !response.data) {
-      setCodexModelError(response.error?.message ?? 'Unable to load Codex models')
-      return
-    }
-    setGateways((current) => current.map((gateway) => gateway.id === response.data!.gateway.id ? response.data!.gateway : gateway))
-    if (response.data.error) setCodexModelError(response.data.error)
-    const modelIds = new Set(response.data.models.map((model) => model.id))
-    if (gatewayId === codexGatewayId && codexDefaultModel && !modelIds.has(codexDefaultModel)) setCodexDefaultModel('')
-    lastCodexModelRefreshRef.current = gatewayId
-  }
-
-  useEffect(() => {
-    if (projectSettingsTab !== 'codex' || !codexGatewayId) return
-    const shouldRefresh = lastCodexModelRefreshRef.current !== codexGatewayId || codexModelOptions.length === 0
-    if (shouldRefresh && !codexModelLoading) void refreshCodexGatewayModels(codexGatewayId)
-  }, [projectSettingsTab, codexGatewayId, codexModelOptions.length])
 
   const updateProjectGroupMembership = async (nextGroupId: string | null) => {
     if (!project) return
@@ -634,21 +589,33 @@ export function ProjectDetailPage() {
     window.localStorage.setItem(DETAIL_RATIO_KEY, String(detailRatio))
   }, [detailRatio])
 
-  const hydratedTasks = useMemo(() => {
-    const tagById = new Map(tags.map((tag) => [tag.id, tag]))
-    return tasks.map((task) => ({
-      ...task,
-      tags: (task.tags ?? []).map((taskTag) => {
-        const source = tagById.get(taskTag.id)
-        return source ? { ...taskTag, ...source } : taskTag
-      })
-    }))
-  }, [tasks, tags])
+  const {
+    hydratedTasks,
+    selectedTask,
+    selectedSubtask,
+    statusColumns,
+    defaultStatus,
+    completedStatusIds,
+    tableTasks,
+    tasksByStatus,
+    tableColumns,
+    chatActivityMessages,
+    chatConversations: derivedChatConversations,
+    selectedChatSummary: derivedSelectedChatSummary
+  } = useProjectDerivedState({
+    project,
+    tasks,
+    tags,
+    projectStatuses,
+    selectedTaskId,
+    selectedSubtaskId,
+    customFields: customFields as Array<{ id: string; name?: string }>,
+    detailTab,
+    detailViewMode,
+    selectedChatConversationId,
+    isStartingNewChat
+  })
 
-  const selectedTask = useMemo(
-    () => hydratedTasks.find((task) => task.id === selectedTaskId) ?? null,
-    [hydratedTasks, selectedTaskId]
-  )
   useEffect(() => {
     if (!selectedTask) return
     setChatGatewayId(taskCodexGatewayId(selectedTask) || savedCodexSettings.gatewayId || '')
@@ -664,11 +631,6 @@ export function ProjectDetailPage() {
   const taskModelOptions = useMemo<AppSelectOption[]>(() => (codexConfigOf(effectiveTaskGateway).models ?? []).map((model) => ({ label: model.label || model.id, value: model.id })), [effectiveTaskGateway])
   const selectedTaskGatewayOption = selectedTaskGatewayId ? codexGatewayOptions.find((option) => option.value === selectedTaskGatewayId) ?? null : null
   const selectedTaskModelOption = taskModelOptions.find((option) => option.value === taskCodexModel(selectedTask)) ?? null
-  useEffect(() => {
-    if (detailTab !== 'model' || !effectiveTaskGatewayId) return
-    const shouldRefresh = lastCodexModelRefreshRef.current !== effectiveTaskGatewayId || taskModelOptions.length === 0
-    if (shouldRefresh && !codexModelLoading) void refreshCodexGatewayModels(effectiveTaskGatewayId)
-  }, [detailTab, effectiveTaskGatewayId, taskModelOptions.length, codexModelLoading])
 
   useEffect(() => {
     const nextDescription = prefixDataFormatTokens(
@@ -701,7 +663,6 @@ export function ProjectDetailPage() {
     setSubtaskDescriptionDraft('')
     setIsActivityModalOpen(false)
     setLocalActivityEntries([])
-    keepActivityBottomRef.current = true
     if (selectedTask && nextDescription !== (selectedTask.description ?? '')) {
       void invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
         actorToken: token,
@@ -715,11 +676,6 @@ export function ProjectDetailPage() {
       }).then(() => refresh())
     }
   }, [selectedTask?.id])
-
-  const selectedSubtask = useMemo(
-    () => selectedTask?.subtasks?.find((item) => item.id === selectedSubtaskId) ?? null,
-    [selectedTask, selectedSubtaskId]
-  )
 
   useEffect(() => {
     if (!selectedSubtask) {
@@ -790,7 +746,7 @@ export function ProjectDetailPage() {
           setDetailTab('subtasks')
           return
         }
-        setSelectedTaskId(null)
+        clearSelection()
       }
     }
     window.addEventListener('keydown', onEsc)
@@ -839,33 +795,6 @@ export function ProjectDetailPage() {
     return () => document.removeEventListener('pointerdown', closeOnOutsidePointer)
   }, [subtaskStatusMenu])
 
-  const visibleTasks = useMemo(() => hydratedTasks, [hydratedTasks])
-  const statusColumns = useMemo(() => columnsFromProjectStatuses(projectStatuses), [projectStatuses])
-  const defaultStatus = useMemo(
-    () => statusColumns.find((column) => column.category === 'not_started')?.status ?? statusColumns[0]?.status ?? PROJECT_STATUS_COLUMNS[0].status,
-    [statusColumns]
-  )
-  const completedStatusIds = useMemo(
-    () => new Set(statusColumns.filter((column) => column.category === 'done' || column.category === 'closed').map((column) => column.status)),
-    [statusColumns]
-  )
-
-  const tableTasks = useMemo(() => {
-    return visibleTasks
-      .map((task, index) => ({ task, index, order: getStatusOrder(task, task.status), legacyOrder: getLegacyTableOrder(task), newest: getTaskNewestTime(task) }))
-      .sort((a, b) => {
-        if (a.order !== null && b.order !== null) return a.order - b.order
-        if (a.order !== null) return -1
-        if (b.order !== null) return 1
-        if (a.legacyOrder !== null && b.legacyOrder !== null) return a.legacyOrder - b.legacyOrder
-        if (a.legacyOrder !== null) return -1
-        if (b.legacyOrder !== null) return 1
-        if (a.newest !== b.newest) return b.newest - a.newest
-        return a.index - b.index
-      })
-      .map((item) => item.task)
-  }, [visibleTasks])
-
   const orderedTasksForStatus = (rows: TaskEntity[]) => {
     const newestFirstIndex = new Map(
       [...rows]
@@ -882,23 +811,6 @@ export function ProjectDetailPage() {
       .map((item) => item.task)
   }
 
-  const tasksByStatus = useMemo(() => {
-    const grouped = statusColumns.reduce<Record<TaskEntity['status'], TaskEntity[]>>((acc, column) => {
-      acc[column.status] = []
-      return acc
-    }, {})
-    const fallback = defaultStatus
-    for (const task of visibleTasks) {
-      const target = grouped[task.status] ? task.status : fallback
-      grouped[target] = [...(grouped[target] ?? []), task]
-    }
-    Object.keys(grouped).forEach((status) => {
-      grouped[status] = orderedTasksForStatus(grouped[status] ?? [])
-    })
-    return grouped
-  }, [defaultStatus, statusColumns, visibleTasks])
-
-  const tableColumns = useMemo(() => normalizeTableColumns(project, customFields), [customFields, project])
   const availableTableColumns = useMemo<TableColumnConfig[]>(() => {
     const customColumns = customFields
       .slice()
@@ -931,14 +843,14 @@ export function ProjectDetailPage() {
       const current = rows.get(agent.id)
       rows.set(agent.id, { agent, count: (current?.count ?? 0) + 1 })
     }
-    for (const task of visibleTasks) {
+    for (const task of hydratedTasks) {
       addAgent(task.agentId)
       for (const subtask of task.subtasks ?? []) {
         addAgent(getSubtaskAgentId(subtask))
       }
     }
     return Array.from(rows.values()).sort((a, b) => a.agent.name.localeCompare(b.agent.name, 'tr'))
-  }, [agents, visibleTasks])
+  }, [agents, hydratedTasks])
 
   const selectedTaskTagOptions: AppSelectOption[] = useMemo(() => {
     if (!selectedTask) return []
@@ -1090,127 +1002,8 @@ export function ProjectDetailPage() {
       .map((field) => ({ value: field.id, label: field.name }))
   }, [customFields, selectedSubtask])
 
-  const isChatModalMounted = Boolean(selectedTask && isActivityModalOpen)
-  const chatActivityMessages = useMemo(() => (
-    isChatModalMounted && selectedTask ? activityMessagesFromTask(selectedTask) : []
-  ), [isChatModalMounted, selectedTask])
-  const chatConversations = useMemo(() => {
-    const grouped = new Map<string, ChatConversationSummary>()
-    for (const message of chatActivityMessages) {
-      const id = message.conversationId || message.runId
-      const current = grouped.get(id)
-      const nextStatus = message.status ?? 'event'
-      const nextAt = message.updatedAt ?? message.createdAt
-      const isLatest = !current || nextAt >= current.at
-      grouped.set(id, {
-        id,
-        title: message.source === 'codex-plan' ? 'Plan' : message.source === 'codex-run' ? 'Run' : 'Follow-up',
-        count: (current?.count ?? 0) + 1,
-        status: isLatest ? nextStatus : current?.status ?? nextStatus,
-        at: Math.max(current?.at ?? 0, nextAt),
-        source: message.source,
-        model: typeof message.metadata?.model === 'string' ? message.metadata.model : current?.model
-      })
-    }
-    return Array.from(grouped.values()).sort((a, b) => b.at - a.at)
-  }, [chatActivityMessages])
-  const runningChatConversationIds = useMemo(() => {
-    const ids = new Set<string>()
-    for (const conversation of chatConversations) {
-      if (conversation.status === 'running') ids.add(conversation.id)
-    }
-    return ids
-  }, [chatConversations])
-  useEffect(() => {
-    if (!isChatModalMounted) return
-    if (chatConversations.length === 0) {
-      if (selectedChatConversationId) setSelectedChatConversationId('')
-      return
-    }
-    if (isStartingNewChat) return
-    if (!chatConversations.some((conversation) => conversation.id === selectedChatConversationId)) {
-      setSelectedChatConversationId(chatConversations[0].id)
-    }
-  }, [chatConversations, isChatModalMounted, isStartingNewChat, selectedChatConversationId])
-  const sidebarChatConversations = useMemo(() => {
-    if (chatConversations.length <= 30) return chatConversations
-    const selected = chatConversations.find((conversation) => conversation.id === selectedChatConversationId)
-    const selectedInRecent = chatConversations.slice(0, 30).some((conversation) => conversation.id === selectedChatConversationId)
-    return selected && !selectedInRecent
-      ? [selected, ...chatConversations.slice(0, 29)]
-      : chatConversations.slice(0, 30)
-  }, [chatConversations, selectedChatConversationId])
-  const visibleChatMessages = useMemo(() => {
-    if (isStartingNewChat) return []
-    if (!selectedChatConversationId) return []
-    const messages = chatActivityMessages.filter((message) => (message.conversationId || message.runId) === selectedChatConversationId)
-    const sorted = [...messages].sort((a, b) => a.createdAt - b.createdAt)
-    const settledRuns = new Set<string>()
-    for (const message of sorted) {
-      if (message.role !== 'user' && (message.status === 'completed' || message.status === 'failed')) settledRuns.add(message.runId)
-    }
-    return sorted.filter((message) => !(message.role === 'thinking' && message.status === 'running' && settledRuns.has(message.runId)))
-  }, [chatActivityMessages, isStartingNewChat, selectedChatConversationId])
-  const renderedChatMessages = useMemo(() => (
-    visibleChatMessages.length > chatVisibleLimit
-      ? visibleChatMessages.slice(visibleChatMessages.length - chatVisibleLimit)
-      : visibleChatMessages
-  ), [chatVisibleLimit, visibleChatMessages])
-  const hiddenChatMessageCount = Math.max(0, visibleChatMessages.length - renderedChatMessages.length)
-  const chatHistoryCount = isChatModalMounted ? (selectedTask?.comments?.length ?? 0) + history.length + localActivityEntries.length : 0
-  const isPlanDraft = chatDraft.trim().toLowerCase().startsWith('/plan')
-  const effectiveChatMode: 'chat' | 'plan' | 'steer' = isPlanDraft ? 'plan' : chatComposerMode
-  const canSendChat = Boolean(chatDraft.trim() || chatAttachments.length > 0)
-  const selectedChatSummary = useMemo(() => {
-    if (isStartingNewChat) return null
-    return chatConversations.find((conversation) => conversation.id === selectedChatConversationId) ?? null
-  }, [chatConversations, isStartingNewChat, selectedChatConversationId])
-  const selectedChatIsRunning = Boolean(selectedChatSummary && runningChatConversationIds.has(selectedChatSummary.id))
-  const selectedChatCanStop = visibleChatMessages.some((message) => (
-    (message.source === 'codex-chat' || (message.source === 'codex-plan' && Boolean(message.conversationId))) &&
-    message.status === 'running'
-  ))
-  const selectedChatUsage = useMemo(() => {
-    for (const message of [...visibleChatMessages].reverse()) {
-      const usage = usageFromMetadata(message.metadata)
-      if (usage) return usage
-    }
-    return undefined
-  }, [visibleChatMessages])
-  const taskContextSkills = isChatModalMounted ? selectedTask?.skills ?? [] : []
-  const slashCommands = useMemo<SlashCommand[]>(() => [
-    { id: 'plan', label: '/plan', hint: 'Draft a plan in this chat' },
-    { id: 'run', label: '/run', hint: 'Start a Codex run for the task' },
-    { id: 'steer', label: '/steer', hint: 'Steer the selected conversation' },
-    { id: 'settings', label: '/settings', hint: 'Open Codex chat settings' },
-    { id: 'attach', label: '/attach', hint: 'Choose files to attach' },
-    { id: 'context', label: '/context', hint: 'Toggle task context in the prompt' }
-  ], [])
-  const slashMatch = chatDraft.match(/(?:^|\s)\/([a-z]*)$/i)
-  const slashQuery = slashMatch?.[1]?.toLowerCase() ?? ''
-  const slashMenuOpen = chatComposerFocused && Boolean(slashMatch)
-  const filteredSlashCommands = useMemo(() => slashCommands
-    .filter((command) => command.label.slice(1).startsWith(slashQuery))
-    .slice(0, 6), [slashCommands, slashQuery])
-
-  useEffect(() => {
-    if (!isChatModalMounted) return
-    setSlashCommandIndex(0)
-  }, [isChatModalMounted, slashQuery, slashMenuOpen])
-
-  useEffect(() => {
-    if (!isChatModalMounted) return
-    resizeChatComposerTextarea(chatDraftTextareaRef.current)
-  }, [chatDraft, chatAttachments.length, isChatModalMounted])
-
-  useEffect(() => {
-    if (!isChatModalMounted) return
-    setChatVisibleLimit(CHAT_INITIAL_MESSAGE_LIMIT)
-  }, [isChatModalMounted, selectedChatConversationId, selectedTask?.id])
-
-  useEffect(() => {
-    setIsStartingNewChat(false)
-  }, [selectedTask?.id])
+  const chatConversations = derivedChatConversations
+  const taskContextSkills = selectedTask?.skills ?? []
 
   const selectedTaskExportContext = useMemo(() => {
     if (!selectedTask) return null
@@ -1218,305 +1011,130 @@ export function ProjectDetailPage() {
   }, [agents, customFields, project, projectGroupForExport, projectStatuses, selectedTask, skills, tags])
   const selectedTaskAgentMarkdown = selectedTaskExportContext ? buildAgentMarkdown(selectedTaskExportContext) : ''
   const selectedTaskSkillsMarkdown = selectedTaskExportContext ? buildSkillsMarkdown(selectedTaskExportContext) : ''
-  const selectedTaskRunGatewayId = selectedTask ? taskCodexGatewayId(selectedTask) || savedCodexSettings.gatewayId || '' : ''
-  const selectedTaskRunModel = selectedTask ? taskCodexModel(selectedTask) || savedCodexSettings.defaultModel || '' : ''
-  const chatOperationFeedback: ChatOperationFeedbackData | null = codexPlanLaunching
-    ? { state: 'running', title: 'Planning with Codex', message: `Launching ${chatModel || selectedTaskRunModel || 'the selected model'} with the current task context.` }
-    : codexRunLaunching
-      ? { state: 'running', title: 'Running task with Codex', message: `Preparing the task workspace for ${chatModel || selectedTaskRunModel || 'the selected model'}.` }
-      : chatSending
-        ? { state: 'running', title: 'Sending message', message: `Starting ${chatModel || 'the selected model'} for this chat thread.` }
-        : chatStopping
-          ? { state: 'running', title: 'Stopping chat', message: 'Asking Codex to stop the active run.' }
-          : codexRunFeedback
-            ? {
-                state: codexRunFeedback.kind,
-                title: codexRunFeedback.kind === 'error' ? 'Action needs attention' : 'Operation started',
-                message: codexRunFeedback.message
-              }
-            : null
-  const localChatStatusMessage = useMemo(() => {
-    if (!chatOperationFeedback || !isChatModalMounted) return null
-    if (chatOperationFeedback.state === 'success') return null
-    const source = codexPlanLaunching
-      ? 'codex-plan'
-      : codexRunLaunching
-        ? 'codex-run'
-        : 'codex-chat'
-    const role = chatOperationFeedback.state === 'error' ? 'error' : 'thinking'
-    const status = chatOperationFeedback.state === 'running'
-      ? 'running'
-      : chatOperationFeedback.state === 'error'
-        ? 'failed'
-        : 'completed'
-    return {
-      id: `${LOCAL_CHAT_STATUS_RUN_ID}-${chatOperationFeedback.state}-${chatOperationFeedback.title}`,
-      runId: LOCAL_CHAT_STATUS_RUN_ID,
-      conversationId: selectedChatConversationId || undefined,
-      source,
-      role,
-      status,
-      body: `${chatOperationFeedback.title}: ${chatOperationFeedback.message}`,
-      createdAt: Date.now()
-    } satisfies TaskActivityMessage
-  }, [chatOperationFeedback, codexPlanLaunching, codexRunLaunching, isChatModalMounted, selectedChatConversationId])
-  const canRunSelectedTaskWithCodex = Boolean(selectedTaskExportContext && selectedTaskRunGatewayId && selectedTaskRunModel)
-  const canPlanSelectedTaskWithCodex = Boolean(selectedTask && selectedTaskRunGatewayId && selectedTaskRunModel)
+  const { canRunSelectedTaskWithCodex, canPlanSelectedTaskWithCodex, canSendChat, chatOperationFeedback, refreshCodexGatewayModels, runSelectedTaskWithCodex, planSelectedTaskWithCodex, sendCodexChatMessage, stopCodexChat, addChatAttachments, applySlashCommand } = useProjectCodexFlow({
+    token,
+    project,
+    selectedTask,
+    selectedTaskExportContext,
+    taskRunGatewayId: selectedTask ? taskCodexGatewayId(selectedTask) : '',
+    taskRunModel: selectedTask ? taskCodexModel(selectedTask) : '',
+    savedCodexDefaultGatewayId: savedCodexSettings.gatewayId,
+    savedCodexDefaultModel: savedCodexSettings.defaultModel,
+    chatDraft,
+    chatAttachments,
+    chatGatewayId,
+    chatModel,
+    chatIncludeContext,
+    chatComposerMode,
+    selectedChatConversationId,
+    isStartingNewChat,
+    selectedChatSummary: derivedSelectedChatSummary,
+    codexRunFeedback,
+    codexRunLaunching,
+    codexPlanLaunching,
+    chatSending,
+    chatStopping,
+    state: {
+      setCodexRunLaunching,
+      setCodexPlanLaunching,
+      setCodexRunFeedback,
+      setChatSending,
+      setChatStopping,
+      setChatSettingsOpen,
+      setIsActivityModalOpen,
+      setIsStartingNewChat,
+      setSelectedChatConversationId,
+      setCodexModelLoading,
+      setCodexModelError,
+      setCodexDefaultModel,
+      setChatDraft,
+      setChatAttachments,
+      setChatComposerMode,
+      setChatIncludeContext,
+      setError,
+      setDetailTab,
+      setGateways
+    },
+    openChatAttachmentPicker: () => {
+      if (chatFileInputRef.current) chatFileInputRef.current.click()
+    }
+  })
 
-  const runSelectedTaskWithCodex = async () => {
-    if (!selectedTask || !selectedTaskExportContext || !project) {
-      setCodexRunFeedback({ kind: 'error', message: 'Task is not ready for a Codex run.' })
-      return
-    }
-    const gatewayId = taskCodexGatewayId(selectedTask) || savedCodexSettings.gatewayId || ''
-    const model = taskCodexModel(selectedTask) || savedCodexSettings.defaultModel || ''
-    if (!gatewayId) {
-      setCodexRunFeedback({ kind: 'error', message: 'Configure a Codex gateway before running this task.' })
-      setChatSettingsOpen(true)
-      setDetailTab('model')
-      return
-    }
-    if (!model) {
-      setCodexRunFeedback({ kind: 'error', message: 'Choose a Codex model before running this task.' })
-      setChatSettingsOpen(true)
-      setDetailTab('model')
-      return
-    }
-    setCodexRunFeedback(null)
-    setCodexRunLaunching(true)
-    setIsActivityModalOpen(true)
-    setIsStartingNewChat(false)
-    try {
-      const { fileName, archive } = await buildTaskZipArchive(selectedTaskExportContext)
-      const response = await invokeBridge<{ runFolderPath: string; workspacePath: string; model: string; gatewayId: string; command?: string; executionMode?: 'terminal' | 'exec'; runId?: string; pid?: number }>(IPC_CHANNELS.tasks.runCodex, {
-        actorToken: token,
-        taskId: selectedTask.id,
-        projectId: project.id,
-        zipName: fileName,
-        zipBytes: archive,
-        gatewayId,
-        model,
-        generalContext: project.generalContext ?? '',
-        generalPrompt: project.generalPrompt ?? '',
-        defaultOutput: project.defaultOutput ?? ''
-      })
-      if (!response.ok) {
-        setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex' })
-        return
-      }
-      if (response.data.runId) setSelectedChatConversationId(response.data.runId)
-      setCodexRunFeedback({
-        kind: 'success',
-        message: response.data.executionMode === 'exec'
-          ? `Codex exec started. Chat will update as it runs.`
-          : `Codex terminal launched. Workspace: ${response.data.workspacePath}`
-      })
-      setError(null)
-    } catch (error) {
-      setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to launch Codex' })
-    } finally {
-      setCodexRunLaunching(false)
-    }
-  }
+  const { chatState, chatHandlers } = useProjectActivityPopup({
+    selectedTask,
+    isActivityModalOpen,
+    selectedChatSummary: derivedSelectedChatSummary,
+    activityFeedRef,
+    chatDraftTextareaRef,
+    chatFileInputRef,
+    chatDragDepth,
+    chatDraft,
+    chatSending,
+    canSendChat,
+    chatAttachments,
+    chatGateway,
+    chatGatewayOption,
+    chatGatewayOptions: codexGatewayOptions,
+    chatModel,
+    chatModelOption,
+    chatModelOptions,
+    chatGatewayConfig,
+    chatRuntimeWorkspace,
+    runtimeWorkspaceId: savedCodexSettings.runtimeWorkspaceId,
+    chatIncludeContext,
+    chatOperationFeedback,
+    codexPlanLaunching,
+    codexRunLaunching,
+    selectedChatConversationId,
+    setSelectedChatConversationId,
+    isStartingNewChat,
+    setIsStartingNewChat,
+    setChatComposerMode,
+    setCodexRunFeedback,
+    setChatDraft,
+    setChatAttachments,
+    setChatVisibleLimit,
+    chatConversations,
+    chatActivityMessages,
+    history,
+    localActivityEntries,
+    chatStopping,
+    selectedTaskAgent,
+    taskContextSkills,
+    setSlashCommandIndex,
+    setChatSettingsOpen,
+    setChatModel,
+    setChatIncludeContext,
+    setChatGatewayId,
+    setChatComposerFocused,
+    chatSettingsOpen,
+    slashCommandIndex,
+    chatComposerFocused,
+    runSelectedTaskWithCodex,
+    planSelectedTaskWithCodex,
+    sendCodexChatMessage,
+    stopCodexChat,
+    applySlashCommand,
+    addChatAttachments,
+    onClose: () => setIsActivityModalOpen(false),
+    setChatDragDepth
+  })
 
-  const planSelectedTaskWithCodex = async () => {
-    if (!selectedTask || !project) {
-      setCodexRunFeedback({ kind: 'error', message: 'Task is not ready for Codex planning.' })
-      return
-    }
-    const gatewayId = taskCodexGatewayId(selectedTask) || savedCodexSettings.gatewayId || ''
-    const model = taskCodexModel(selectedTask) || savedCodexSettings.defaultModel || ''
-    if (!gatewayId) {
-      setCodexRunFeedback({ kind: 'error', message: 'Configure a Codex gateway before planning this task.' })
-      setChatSettingsOpen(true)
-      setDetailTab('model')
-      return
-    }
-    if (!model) {
-      setCodexRunFeedback({ kind: 'error', message: 'Choose a Codex model before planning this task.' })
-      setChatSettingsOpen(true)
-      setDetailTab('model')
-      return
-    }
-    setCodexRunFeedback(null)
-    setCodexPlanLaunching(true)
-    setIsActivityModalOpen(true)
-    setIsStartingNewChat(false)
-    try {
-      const response = await invokeBridge<{ runFolderPath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; bridgeUrl?: string; command?: string; executionMode?: 'terminal' | 'exec'; runId?: string; pid?: number }>(IPC_CHANNELS.tasks.planWithCodex, {
-        actorToken: token,
-        taskId: selectedTask.id,
-        projectId: project.id,
-        gatewayId,
-        model,
-        generalContext: project.generalContext ?? '',
-        generalPrompt: project.generalPrompt ?? '',
-        defaultOutput: project.defaultOutput ?? ''
-      })
-      if (!response.ok) {
-        setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex planner' })
-        return
-      }
-      if (response.data.runId) setSelectedChatConversationId(response.data.runId)
-      setCodexRunFeedback({
-        kind: 'success',
-        message: response.data.executionMode === 'exec'
-          ? 'Codex planner exec started. Chat will update as it runs.'
-          : `Codex planner launched. Runtime workspace: ${response.data.runtimeWorkspacePath}`
-      })
-      setError(null)
-    } catch (error) {
-      setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to launch Codex planner' })
-    } finally {
-      setCodexPlanLaunching(false)
-    }
-  }
+  useEffect(() => {
+    if (projectSettingsTab !== 'codex' || !codexGatewayId) return
+    const shouldRefresh = lastCodexModelRefreshRef.current !== codexGatewayId || codexModelOptions.length === 0
+    if (shouldRefresh && !codexModelLoading) void refreshCodexGatewayModels(codexGatewayId)
+  }, [projectSettingsTab, codexGatewayId, codexModelLoading, codexModelOptions.length, refreshCodexGatewayModels])
 
-  const sendCodexChatMessage = async () => {
-    if (!selectedTask || !project) return
-    if (selectedChatCanStop) {
-      await stopCodexChat()
-      return
-    }
-    const message = chatDraft.trim()
-    if (!message && chatAttachments.length === 0) return
-    if (!chatGatewayId || !chatModel) {
-      setChatSettingsOpen(true)
-      setCodexRunFeedback({ kind: 'error', message: 'Choose a Codex gateway and model before sending chat.' })
-      return
-    }
-    if (effectiveChatMode === 'steer' && !selectedChatConversationId) {
-      setCodexRunFeedback({ kind: 'error', message: 'Select a conversation before sending a steer message.' })
-      return
-    }
-    const sendAsPlanRevision = !isStartingNewChat && selectedChatSummary?.source === 'codex-plan'
-    setChatSending(true)
-    setCodexRunFeedback(null)
-    try {
-      const conversationId = isStartingNewChat ? undefined : selectedChatConversationId || undefined
-      const response = await invokeBridge<{ runId: string; conversationId: string; executionMode: 'terminal' | 'exec' }>(IPC_CHANNELS.tasks.codexChatSend, {
-        actorToken: token,
-        taskId: selectedTask.id,
-        projectId: project.id,
-        message: message || 'Review the attached file(s) in the task context.',
-        gatewayId: chatGatewayId,
-        model: chatModel,
-        conversationId,
-        includeTaskContext: chatIncludeContext,
-        mode: sendAsPlanRevision ? 'plan' : effectiveChatMode,
-        attachments: chatAttachments.map((attachment) => ({ name: attachment.name, bytes: attachment.bytes }))
-      })
-      if (!response.ok || !response.data) {
-        setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to send Codex chat message.' })
-        return
-      }
-      setSelectedChatConversationId(response.data.conversationId)
-      setIsStartingNewChat(false)
-      setChatDraft('')
-      setChatAttachments([])
-      setCodexRunFeedback(
-        response.data.executionMode === 'terminal'
-          ? { kind: 'success', message: 'Codex terminal chat launched.' }
-          : null
-      )
-    } catch (error) {
-      setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to send Codex chat message.' })
-    } finally {
-      setChatSending(false)
-    }
-  }
+  useEffect(() => {
+    if (detailTab !== 'model' || !effectiveTaskGatewayId) return
+    const shouldRefresh = lastCodexModelRefreshRef.current !== effectiveTaskGatewayId || taskModelOptions.length === 0
+    if (shouldRefresh && !codexModelLoading) void refreshCodexGatewayModels(effectiveTaskGatewayId)
+  }, [detailTab, effectiveTaskGatewayId, taskModelOptions.length, codexModelLoading, refreshCodexGatewayModels])
 
-  const stopCodexChat = async () => {
-    if (!selectedTask || chatStopping) return
-    setChatStopping(true)
-    setCodexRunFeedback(null)
-    try {
-      const response = await invokeBridge<{ stopped: number }>(IPC_CHANNELS.tasks.codexChatStop, {
-        actorToken: token,
-        taskId: selectedTask.id,
-        conversationId: selectedChatConversationId || undefined
-      })
-      if (!response.ok) {
-        setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to stop Codex chat.' })
-        return
-      }
-      if (!response.data?.stopped) {
-        setCodexRunFeedback({ kind: 'error', message: 'No running Codex chat was found to stop.' })
-      }
-    } catch (error) {
-      setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to stop Codex chat.' })
-    } finally {
-      setChatStopping(false)
-    }
-  }
-
-  const addChatAttachments = async (files: FileList | File[]) => {
-    const next: ChatAttachmentDraft[] = []
-    for (const file of Array.from(files).slice(0, 6)) {
-      const bytes = Array.from(new Uint8Array(await file.arrayBuffer()))
-      next.push({ id: createLocalId(), name: file.name, size: file.size, bytes })
-    }
-    setChatAttachments((current) => [...current, ...next].slice(0, 10))
-    if (chatFileInputRef.current) chatFileInputRef.current.value = ''
-  }
-
-  const applySlashCommand = (command: SlashCommand) => {
-    if (command.id === 'plan') {
-      setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, (match) => `${match.startsWith(' ') ? ' ' : ''}/plan `))
-      setChatComposerMode('chat')
-      return
-    }
-    if (command.id === 'run') {
-      setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))
-      void runSelectedTaskWithCodex()
-      return
-    }
-    if (command.id === 'steer') {
-      setChatComposerMode('steer')
-      setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))
-      return
-    }
-    if (command.id === 'settings') {
-      setChatSettingsOpen(true)
-      setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))
-      return
-    }
-    if (command.id === 'attach') {
-      setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))
-      chatFileInputRef.current?.click()
-      return
-    }
-    setChatIncludeContext((value) => !value)
-    setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))
-  }
-
-  const handleChatDragEnter = (event: DragEvent<HTMLElement>) => {
-    if (!event.dataTransfer.types.includes('Files')) return
-    event.preventDefault()
-    setChatDragDepth((value) => value + 1)
-  }
-
-  const handleChatDragOver = (event: DragEvent<HTMLElement>) => {
-    if (!event.dataTransfer.types.includes('Files')) return
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'copy'
-  }
-
-  const handleChatDragLeave = (event: DragEvent<HTMLElement>) => {
-    if (!event.dataTransfer.types.includes('Files')) return
-    event.preventDefault()
-    setChatDragDepth((value) => Math.max(0, value - 1))
-  }
-
-  const handleChatDrop = (event: DragEvent<HTMLElement>) => {
-    if (!event.dataTransfer.files.length) return
-    event.preventDefault()
-    setChatDragDepth(0)
-    void addChatAttachments(event.dataTransfer.files)
-  }
 
   const closeSelectedTaskDetail = () => {
-    setSelectedTaskId(null)
+    clearSelection()
   }
 
   const syncProjectWorkspace = async () => {
@@ -1550,21 +1168,6 @@ export function ProjectDetailPage() {
     const skipped = response.data.skippedFiles.length ? ` ${response.data.skippedFiles.length} skipped.` : ''
     const errors = response.data.errors.length ? ` ${response.data.errors.length} errors.` : ''
     setProjectSyncMessage(`Synced ${response.data.processedTasks} task(s), wrote ${response.data.writtenFiles.length} file(s).${skipped}${errors}`)
-  }
-
-  useEffect(() => {
-    const feed = activityFeedRef.current
-    if (!feed || !isActivityModalOpen) return
-    if (keepActivityBottomRef.current) {
-      feed.scrollTop = feed.scrollHeight
-    }
-  }, [visibleChatMessages.length, isActivityModalOpen])
-
-  const onActivityScroll = () => {
-    const feed = activityFeedRef.current
-    if (!feed) return
-    const distanceToBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight
-    keepActivityBottomRef.current = distanceToBottom < 36
   }
 
   const updateTaskStatus = async (taskId: string, status: TaskEntity['status']) => {
@@ -1667,7 +1270,7 @@ export function ProjectDetailPage() {
   useEffect(() => {
     const state = location.state as { openCreateTask?: boolean; openTaskId?: string; title?: string; templateId?: string | null } | null
     if (state?.openTaskId) {
-      setSelectedTaskId(state.openTaskId)
+      openTask(state.openTaskId)
       navigate(location.pathname, { replace: true, state: null })
       return
     }
@@ -1700,7 +1303,7 @@ export function ProjectDetailPage() {
       setCreateTaskInitialTitle('')
       setCreateTaskInitialTemplateId(null)
       await refresh()
-      setSelectedTaskId(result.task.id)
+    openTask(result.task.id)
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Task create failed')
     } finally {
@@ -2997,7 +2600,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to delete task')
       return
     }
-    setSelectedTaskId(null)
+    clearSelection()
     setSelectedSubtaskId(null)
     setDetailViewMode('task')
     await refresh()
@@ -3052,6 +2655,89 @@ export function ProjectDetailPage() {
     )
   }
 
+  const projectSettingsModalScope = {
+    project,
+    projectSettingsTab,
+    setProjectSettingsTab,
+    selectedWorkspace,
+    selectedWorkspaceId: project?.workspaceId,
+    workspaceOptions,
+    workspaceMoveMessage,
+    movingWorkspace,
+    workspaceDraftName,
+    workspaceDraftPath,
+    onWorkspaceDraftChange: ({ name, path }: { name: string; path: string }) => {
+      setWorkspaceDraftName(name)
+      setWorkspaceDraftPath(path)
+    },
+    onChooseWorkspaceFolder: () => void chooseProjectWorkspaceFolder(),
+    onCreateWorkspace: createWorkspaceFromDraft,
+    onCloseWorkspacePicker: () => setIsWorkspacePickerOpen(false),
+
+    selectedCodexGatewayOption,
+    codexGatewayOptions,
+    selectedRuntimeWorkspaceOption,
+    selectedDefaultModelOption,
+    codexModelOptions,
+    codexModelLoading,
+    codexModelError,
+    codexDefaultModel,
+    codexGatewayId,
+    codexRuntimeWorkspaceId,
+    onSetCodexGatewayId: (value: string) => {
+      const nextGateway = gateways.find((item) => item.id === value)
+      const models = codexConfigOf(nextGateway).models ?? []
+      setCodexGatewayId(value)
+      setCodexModelError(null)
+      if (!models.some((model) => model.id === codexDefaultModel)) setCodexDefaultModel('')
+    },
+    onSetCodexDefaultModel: setCodexDefaultModel,
+    onSetCodexRuntimeWorkspaceId: setCodexRuntimeWorkspaceId,
+    onSetCodexModelError: setCodexModelError,
+    codexSaving,
+    onSaveProjectCodexSettings: saveProjectCodexSettings,
+    projectCodexModelOptions,
+
+    isStatusTemplatePickerOpen,
+    statusTemplates,
+    onStatusTemplatePickerOpen: () => setIsStatusTemplatePickerOpen(true),
+    onStatusTemplateClose: () => setIsStatusTemplatePickerOpen(false),
+    onStatusTemplatePick: applyStatusTemplate,
+
+    isProjectGroupPickerOpen,
+    projectGroupForExport,
+    projectGroups,
+    projectGroupNameDraft,
+    projectGroupDescriptionDraft,
+    projectGroupSaving,
+    onProjectGroupNameChange: setProjectGroupNameDraft,
+    onProjectGroupDescriptionChange: setProjectGroupDescriptionDraft,
+    onProjectGroupPickerOpen: () => setIsProjectGroupPickerOpen(true),
+    onProjectGroupPickerClose: () => setIsProjectGroupPickerOpen(false),
+    onProjectGroupClear: () => void updateProjectGroupMembership(null),
+    onProjectGroupPick: (group: ProjectGroup) => void updateProjectGroupMembership(group.id),
+    onSaveProjectGroup: () => void saveSelectedProjectGroup(),
+
+    projectStatuses,
+    statusDrafts,
+    statusMapping,
+    setStatusDrafts,
+    setStatusMapping,
+    onStatusDraftChange: updateStatusDraft,
+    onAddActiveStatus: addActiveStatus,
+    onRemoveStatusDraft: removeStatusDraft,
+    onSaveProjectStatuses: saveProjectStatuses,
+
+    projectAgentRows,
+    isWorkspacePickerOpen,
+    setIsWorkspacePickerOpen,
+    onMoveProjectWorkspace: updateProjectWorkspace,
+    pendingStatusTemplate,
+    projectFolderPreview,
+    workspaces,
+  }
+
+
   const splitTemplate = `${Math.round(detailRatio * 100)}% 6px minmax(${MIN_COMMENTS_WIDTH}px, 1fr)`
 
   if (projectLoadError) {
@@ -3069,52 +2755,6 @@ export function ProjectDetailPage() {
         <h1 className={styles.title}>Project</h1>
         <p>{error ?? 'Loading...'}</p>
       </section>
-    )
-  }
-
-  const renderActiveView = () => {
-    if (viewMode === 'board') {
-      return (
-        <ProjectBoardView
-          columns={statusColumns}
-          tasksByStatus={tasksByStatus}
-          agents={agents}
-          onDropStatus={(event, status) => void onDropColumn(event, status)}
-          onReorder={(sourceTaskId, targetTaskId) => void reorderTableTasks(sourceTaskId, targetTaskId)}
-          onOpenTask={setSelectedTaskId}
-          onOpenCreateTask={openCreateTask}
-        />
-      )
-    }
-    if (viewMode === 'table') {
-      return (
-        <ProjectTableView
-          columns={statusColumns}
-          tasks={tableTasks}
-          tableColumns={tableColumns}
-          customFields={customFields}
-          agents={agents}
-          onOpenTask={setSelectedTaskId}
-          onOpenCreateTask={() => openCreateTask(defaultStatus)}
-          onStatusChange={(taskId, status) => void updateTaskStatus(taskId, status)}
-          onReorder={(sourceTaskId, targetTaskId) => void reorderTableTasks(sourceTaskId, targetTaskId)}
-          onOpenColumnPicker={() => setIsTableColumnPickerOpen(true)}
-          onColumnWidthChange={(columnId, width) => void setTableColumnWidth(columnId, width)}
-        />
-      )
-    }
-    return (
-      <ProjectListView
-        columns={statusColumns}
-        tasksByStatus={tasksByStatus}
-        agents={agents}
-        collapsedStatuses={collapsedStatuses}
-        onToggleStatus={toggleStatusGroup}
-        onOpenTask={setSelectedTaskId}
-        onOpenCreateTask={openCreateTask}
-        onDropStatus={(event, status) => void onDropColumn(event, status)}
-        onReorder={(sourceTaskId, targetTaskId) => void reorderTableTasks(sourceTaskId, targetTaskId)}
-      />
     )
   }
 
@@ -3138,512 +2778,127 @@ export function ProjectDetailPage() {
       {error ? <p className={styles.error}>{error}</p> : null}
       {projectSyncMessage ? <p className={styles.notice}>{projectSyncMessage}</p> : null}
 
-      {renderActiveView()}
+      <ActiveProjectView
+        viewMode={viewMode}
+        statusColumns={statusColumns}
+        tasksByStatus={tasksByStatus}
+        agents={agents}
+        onDropStatus={(event, status) => {
+          void onDropColumn(event, status)
+        }}
+        onReorder={(sourceTaskId, targetTaskId) => void reorderTableTasks(sourceTaskId, targetTaskId)}
+        onOpenTask={setSelectedTaskId}
+        onOpenCreateTask={openCreateTask}
+        onStatusChange={(taskId, status) => void updateTaskStatus(taskId, status)}
+        onToggleStatus={toggleStatusGroup}
+        onOpenColumnPicker={() => setIsTableColumnPickerOpen(true)}
+        onColumnWidthChange={(columnId, width) => void setTableColumnWidth(columnId, width)}
+        collapsedStatuses={collapsedStatuses}
+        tableTasks={tableTasks}
+        tableColumns={tableColumns}
+        customFields={customFields}
+      />
 
-      {isCreateTaskOpen ? (
-        <CreateTaskPopup
-          open
-          project={project}
-          tags={tags}
-          agents={agents}
-          templates={taskTemplates}
-          statusColumns={statusColumns}
-          defaultStatus={createTaskStatus}
-          initialTitle={createTaskInitialTitle}
-          initialTemplateId={createTaskInitialTemplateId}
-          busy={busy}
-          onClose={() => {
-            setIsCreateTaskOpen(false)
-            setCreateTaskInitialTitle('')
-            setCreateTaskInitialTemplateId(null)
-          }}
-          onCreate={(input) => void handleCreateTask({ ...input, projectId: projectId ?? input.projectId })}
-        />
-      ) : null}
-
-      {selectedTask && isAddSubtaskOpen ? (
-        <AddSubtaskPopup
-          open
-          projectName={project.name}
-          taskTitle={selectedTask.title}
-          agents={agents}
-          statusColumns={statusColumns}
-          defaultStatus={defaultStatus}
-          busy={busy}
-          onClose={() => setIsAddSubtaskOpen(false)}
-          onCreate={(input) => void createSubtask(input)}
-          onCreateMany={(inputs) => void createSubtasks(inputs)}
-        />
-      ) : null}
-
-      {isTableColumnPickerOpen ? (
-        <>
-          <div className={styles.nestedCreateBackdrop} onClick={() => setIsTableColumnPickerOpen(false)} />
-          <section className={styles.nestedCreateDialog} role="dialog" aria-modal="true" aria-label="Choose table columns">
-            <header>
-              <h4>Table columns</h4>
-              <button type="button" onClick={() => setIsTableColumnPickerOpen(false)} aria-label="Close column picker"><LuX size={15} /></button>
-            </header>
-            <div className={styles.columnPickerBody}>
-              <p className={styles.columnPickerHint}>Choose up to 12 columns. Name and Status stay visible.</p>
-              {availableTableColumns.map((column) => {
-                const selected = tableColumns.some((item) => item.id === column.id)
-                const disabled = column.required || (!selected && tableColumns.length >= 12)
-                return (
-                  <label key={column.id} className={`${styles.columnPickerRow} ${selected ? styles.columnPickerRowActive : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={selected}
-                      disabled={disabled}
-                      onChange={(event) => {
-                        if (column.required) return
-                        if (event.target.checked) {
-                          void setTableColumns([...tableColumns, column].slice(0, 12))
-                          return
-                        }
-                        void setTableColumns(tableColumns.filter((item) => item.id !== column.id || item.required))
-                      }}
-                    />
-                    <span>{column.label}</span>
-                    {column.kind === 'custom' ? <small>Custom field</small> : <small>Built-in</small>}
-                  </label>
-                )
-              })}
-            </div>
-          </section>
-        </>
-      ) : null}
-
-      {isProjectPromptSettingsOpen ? (
-        <ProjectPromptSettingsPopup
-          tab={projectPromptTab}
-          context={projectPromptContext}
-          prompt={projectPromptPrompt}
-          output={projectPromptOutput}
-          error={projectPromptError}
-          saving={isProjectPromptSaving}
-          onTabChange={setProjectPromptTab}
-          onContextChange={setProjectPromptContext}
-          onPromptChange={setProjectPromptPrompt}
-          onOutputChange={setProjectPromptOutput}
-          onClose={() => setIsProjectPromptSettingsOpen(false)}
-          onSave={() => void saveProjectPromptSettings()}
-        />
-      ) : null}
+      <TaskModals
+        open
+        selectedTask={selectedTask}
+        project={project}
+        isCreateTaskOpen={isCreateTaskOpen}
+        onCreateTaskClose={() => {
+          setIsCreateTaskOpen(false)
+          setCreateTaskInitialTitle('')
+          setCreateTaskInitialTemplateId(null)
+        }}
+        createTaskProject={{
+          tags,
+          agents,
+          templates: taskTemplates,
+          statusColumns,
+          defaultStatus: createTaskStatus,
+          initialTitle: createTaskInitialTitle,
+          initialTemplateId: createTaskInitialTemplateId,
+          busy,
+          onCreate: (input) => void handleCreateTask({ ...input, projectId: projectId ?? input.projectId })
+        }}
+        isAddSubtaskOpen={isAddSubtaskOpen}
+        onAddSubtaskClose={() => setIsAddSubtaskOpen(false)}
+        onAddSubtaskCreate={(input) => void createSubtask(input)}
+        onAddSubtasksCreate={(inputs) => void createSubtasks(inputs)}
+        isTableColumnPickerOpen={isTableColumnPickerOpen}
+        availableTableColumns={availableTableColumns}
+        selectedTableColumns={tableColumns}
+        onCloseTableColumnPicker={() => setIsTableColumnPickerOpen(false)}
+        onTableColumnsSave={(columns) => void setTableColumns(columns)}
+        isProjectPromptSettingsOpen={isProjectPromptSettingsOpen}
+        projectPromptTab={projectPromptTab}
+        projectPromptContext={projectPromptContext}
+        projectPromptPrompt={projectPromptPrompt}
+        projectPromptOutput={projectPromptOutput}
+        projectPromptError={projectPromptError}
+        projectPromptSaving={isProjectPromptSaving}
+        onProjectPromptTabChange={setProjectPromptTab}
+        onProjectPromptContextChange={setProjectPromptContext}
+        onProjectPromptPromptChange={setProjectPromptPrompt}
+        onProjectPromptOutputChange={setProjectPromptOutput}
+        onProjectPromptClose={() => setIsProjectPromptSettingsOpen(false)}
+        onProjectPromptSave={() => void saveProjectPromptSettings()}
+        isCustomFieldModalOpen={isCustomFieldModalOpen}
+        customFieldRows={customFieldRows}
+        customFields={customFields}
+        assignedFieldIds={
+          detailViewMode === 'subtask' && selectedSubtask
+            ? new Set(Object.keys(getSubtaskCustomFieldValues(selectedSubtask)))
+            : new Set(Object.keys(selectedTask?.customFieldValues ?? {}))
+        }
+        customFieldError={customFieldError}
+        isCreateCustomFieldOpen={isCreateCustomFieldOpen}
+        quickFieldName={quickFieldName}
+        quickFieldType={quickFieldType}
+        onCustomFieldRowsChange={setCustomFieldRows}
+        onCustomFieldCreateRow={() => ({ id: createLocalId(), field: null, value: '' })}
+        onCreateCustomFieldOpenChange={setIsCreateCustomFieldOpen}
+        onQuickFieldNameChange={setQuickFieldName}
+        onQuickFieldTypeChange={setQuickFieldType}
+        onCustomFieldModalClose={() => setIsCustomFieldModalOpen(false)}
+        onCustomFieldSave={() => void saveCustomFieldRows()}
+        onCustomFieldCreate={() => void createCustomFieldFromModal()}
+        onCustomFieldErrorClear={() => setCustomFieldError(null)}
+        isChecklistModalOpen={isChecklistModalOpen}
+        checklistRows={checklistRows}
+        onChecklistRowsChange={setChecklistRows}
+        onChecklistCreateRow={() => ({ id: createLocalId(), title: '' })}
+        onChecklistModalClose={() => setIsChecklistModalOpen(false)}
+        onChecklistSave={() => void addChecklistItems()}
+        isOutputFormatModalOpen={isOutputFormatModalOpen}
+        dataFormatRoleDraft={dataFormatRoleDraft}
+        outputFormatDraftOption={outputFormatDraftOption}
+        outputFormatOptions={dataFormatRoleDraft === 'input' ? inputFormatOptions : outputFormatOptions}
+        isCreateOutputFormatOpen={isCreateOutputFormatOpen}
+        quickOutputFormatName={quickOutputFormatName}
+        quickOutputFormatDescription={quickOutputFormatDescription}
+        onOutputFormatDraftOptionChange={setOutputFormatDraftOption}
+        onCreateOutputFormatOpenChange={setIsCreateOutputFormatOpen}
+        onQuickOutputFormatNameChange={setQuickOutputFormatName}
+        onQuickOutputFormatDescriptionChange={setQuickOutputFormatDescription}
+        onOutputFormatClose={() => setIsOutputFormatModalOpen(false)}
+        onOutputFormatSave={() => void saveTaskOutputFormatFromModal()}
+        onOutputFormatCreate={() => void createOutputFormatFromModal()}
+        isTaskImportOpen={isTaskImportOpen}
+        isTaskImporting={isTaskImporting}
+        onTaskImportClose={() => setIsTaskImportOpen(false)}
+        onTaskImport={(jsonText) => void importSelectedTaskJson(jsonText)}
+      >
+        {null}
+      </TaskModals>
 
       <ProjectSettingsModal
         open={isStatusEditorOpen}
         onClose={() => setIsStatusEditorOpen(false)}
-      >
-        <>
-          <div className={styles.createTaskBackdrop} onClick={() => setIsStatusEditorOpen(false)} />
-          <section className={`${styles.createTaskModal} ${styles.projectSettingsModal}`} role="dialog" aria-modal="true" aria-label="Project settings">
-            <header className={styles.projectSettingsHeader}>
-              <div>
-                <h3>Project settings</h3>
-                <p>Manage workflow statuses and project workspace.</p>
-              </div>
-              <button type="button" onClick={() => setIsStatusEditorOpen(false)} aria-label="Close project settings"><LuX size={17} /></button>
-            </header>
-            <div className={styles.projectSettingsTabs}>
-              <div className={styles.projectPromptTabs}>
-                <button
-                  type="button"
-                  className={`${styles.projectPromptTab} ${projectSettingsTab === 'statuses' ? styles.projectPromptTabActive : ''}`}
-                  onClick={() => setProjectSettingsTab('statuses')}
-                >
-                  Statuses
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.projectPromptTab} ${projectSettingsTab === 'workspace' ? styles.projectPromptTabActive : ''}`}
-                  onClick={() => setProjectSettingsTab('workspace')}
-                >
-                  Workspace
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.projectPromptTab} ${projectSettingsTab === 'projectGroup' ? styles.projectPromptTabActive : ''}`}
-                  onClick={() => setProjectSettingsTab('projectGroup')}
-                >
-                  Project group
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.projectPromptTab} ${projectSettingsTab === 'agents' ? styles.projectPromptTabActive : ''}`}
-                  onClick={() => setProjectSettingsTab('agents')}
-                >
-                  Agents
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.projectPromptTab} ${projectSettingsTab === 'codex' ? styles.projectPromptTabActive : ''}`}
-                  onClick={() => setProjectSettingsTab('codex')}
-                >
-                  Gateway settings
-                </button>
-              </div>
-            </div>
-            <div className={styles.projectSettingsBody}>
-              {projectSettingsTab === 'statuses' ? (
-                <>
-                  <div className={styles.tabCtaCard}>
-                    <div>
-                      <strong>Apply status template</strong>
-                      <span>Use a saved workflow and map existing task statuses when needed.</span>
-                    </div>
-                    <button type="button" className={styles.tabActionButton} onClick={() => setIsStatusTemplatePickerOpen(true)}>
-                      Apply template
-                    </button>
-                  </div>
-                  {(['not_started', 'active', 'done', 'closed'] as ProjectStatusCategory[]).map((category) => {
-                    const rows = statusDrafts.filter((item) => item.category === category)
-                    return (
-                      <div key={category} className={styles.drawerSection}>
-                        <h4>{category === 'not_started' ? 'Not started' : category === 'active' ? 'Active' : category === 'done' ? 'Done' : 'Closed'}</h4>
-                        <Stack gap={2}>
-                          {rows.map((status) => (
-                            <div key={status.id} className={styles.statusEditorRow}>
-                              <input
-                                className={styles.subtaskInlineInput}
-                                value={status.name}
-                                onChange={(event) => updateStatusDraft(status.id, { name: event.target.value })}
-                              />
-                              <div className={styles.statusColorCell}>
-                                <input
-                                  type="color"
-                                  value={status.color}
-                                  onChange={(event) => updateStatusDraft(status.id, { color: event.target.value })}
-                                  aria-label={`${status.name} color`}
-                                />
-                                <input
-                                  className={styles.subtaskInlineInput}
-                                  value={status.color}
-                                  onChange={(event) => updateStatusDraft(status.id, { color: event.target.value })}
-                                />
-                              </div>
-                              <div className={styles.statusActionsCell}>
-                                {category === 'active' ? (
-                                  <button type="button" className={styles.iconBtn} onClick={() => removeStatusDraft(status)} aria-label={`Remove ${status.name}`}>
-                                    <LuTrash2 size={15} />
-                                  </button>
-                                ) : null}
-                              </div>
-                            </div>
-                          ))}
-                        </Stack>
-                        {category === 'active' ? (
-                          <button type="button" className={styles.subtaskAddButton} onClick={addActiveStatus}>
-                            <LuPlus size={15} />
-                            Add active status
-                          </button>
-                        ) : null}
-                      </div>
-                    )
-                  })}
-                </>
-              ) : null}
-              {projectSettingsTab === 'statuses' && Object.keys(statusMapping).length > 0 ? (
-                <div className={styles.drawerSection}>
-                  <h4>{pendingStatusTemplate ? `Map statuses for ${pendingStatusTemplate.name}` : 'Status migration mapping'}</h4>
-                  {Object.entries(statusMapping).map(([sourceId, targetId]) => {
-                    const source = projectStatuses.find((item) => item.id === sourceId)
-                    return (
-                      <div key={sourceId} className={styles.statusMappingRow}>
-                        <span>{source?.name ?? sourceId}</span>
-                        <AppSelect
-                          mode="single"
-                          variant="borderless"
-                          value={{
-                            value: targetId,
-                            label: statusDrafts.find((item) => item.id === targetId)?.name ?? 'Select target'
-                          }}
-                          options={statusDrafts.map((item) => ({ value: item.id, label: item.name, color: item.color }))}
-                          onChange={(option) => {
-                            if (!Array.isArray(option) && option?.value) {
-                              setStatusMapping((current) => ({ ...current, [sourceId]: option.value }))
-                            }
-                          }}
-                        />
-                      </div>
-                    )
-                  })}
-                </div>
-              ) : null}
-              {projectSettingsTab === 'workspace' ? (
-                <div className={styles.settingsPanel}>
-                  <div className={styles.settingsPanelHeader}>
-                    <div>
-                      <h4>Workspace</h4>
-                      <p>{selectedWorkspace ? 'Assigned workspace' : 'No workspace assigned'}</p>
-                    </div>
-                    <button type="button" className={styles.tabActionButton} onClick={() => setIsWorkspacePickerOpen(true)} disabled={movingWorkspace}>
-                      Change workspace
-                    </button>
-                  </div>
-                  <div className={styles.settingsInfoGrid}>
-                    <div>
-                      <span>Name</span>
-                      <strong>{selectedWorkspace?.name ?? 'No workspace'}</strong>
-                    </div>
-                    <div>
-                      <span>Root path</span>
-                      <code>{selectedWorkspace?.rootPath ?? 'Project files are currently stored in staging until a workspace is assigned.'}</code>
-                    </div>
-                    <div>
-                      <span>Project folder</span>
-                      <code>{selectedWorkspace ? projectFolderPreview : 'Assign a workspace to create a project folder.'}</code>
-                    </div>
-                  </div>
-                  {movingWorkspace ? (
-                    <div className={styles.workspaceProgress} aria-label="Moving project workspace">
-                      <span />
-                    </div>
-                  ) : null}
-                  {workspaceMoveMessage ? <p className={styles.customFieldEmpty}>{workspaceMoveMessage}</p> : null}
-                </div>
-              ) : null}
-              {projectSettingsTab === 'projectGroup' ? (
-                <div className={styles.settingsPanel}>
-                  <div className={styles.settingsPanelHeader}>
-                    <div>
-                      <h4>Project group</h4>
-                      <p>{projectGroupForExport ? 'Assigned project group' : 'No project group assigned'}</p>
-                    </div>
-                    <button type="button" className={styles.tabActionButton} onClick={() => setIsProjectGroupPickerOpen(true)} disabled={projectGroupSaving}>
-                      Change group
-                    </button>
-                  </div>
-                  {projectGroupForExport ? (
-                    <div className={styles.settingsFormGrid}>
-                      <label>
-                        <span>Group name</span>
-                        <input value={projectGroupNameDraft} onChange={(event) => setProjectGroupNameDraft(event.target.value)} />
-                      </label>
-                      <label>
-                        <span>Description</span>
-                        <textarea value={projectGroupDescriptionDraft} onChange={(event) => setProjectGroupDescriptionDraft(event.target.value)} rows={4} />
-                      </label>
-                      <div className={styles.settingsInfoGrid}>
-                        <div>
-                          <span>Projects</span>
-                          <strong>{projectGroupForExport.projectIds?.length ?? 0}</strong>
-                        </div>
-                        <div>
-                          <span>Updated</span>
-                          <strong>{new Date(projectGroupForExport.updatedAt).toLocaleString()}</strong>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className={styles.settingsEmptyState}>No project group assigned.</div>
-                  )}
-                </div>
-              ) : null}
-              {projectSettingsTab === 'agents' ? (
-                <div className={styles.settingsPanel}>
-                  <div className={styles.settingsPanelHeader}>
-                    <div>
-                      <h4>Agents</h4>
-                      <p>Unique agents assigned to this project's tasks and subtasks.</p>
-                    </div>
-                  </div>
-                  {projectAgentRows.length > 0 ? (
-                    <div className={styles.settingsMiniTable}>
-                      <div>
-                        <span>Agent</span>
-                        <span>Source count</span>
-                        <span>Status</span>
-                        <span>Title</span>
-                      </div>
-                      {projectAgentRows.map(({ agent, count }) => (
-                        <div key={agent.id}>
-                          <strong>{agent.name}</strong>
-                          <span>{count}</span>
-                          <span>{agent.status}</span>
-                          <span>{agent.title || '-'}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className={styles.settingsEmptyState}>No agents assigned.</div>
-                  )}
-                </div>
-              ) : null}
-              {projectSettingsTab === 'codex' ? (
-                <div className={styles.settingsPanel}>
-                  <div className={styles.settingsPanelHeader}>
-                    <div>
-                      <h4>Gateway settings</h4>
-                      <p>Choose the CLI gateway, runtime workspace, and default Codex model for this project.</p>
-                    </div>
-                  </div>
-                  <div className={styles.settingsFormGrid}>
-                    <label>
-                      <span>Active gateway</span>
-                      <AppSelect
-                        value={selectedCodexGatewayOption}
-                        options={codexGatewayOptions}
-                        placeholder="Select gateway"
-                        onChange={(option) => {
-                          const nextGatewayId = option?.value ?? ''
-                          const nextGateway = gateways.find((item) => item.id === nextGatewayId)
-                          const models = codexConfigOf(nextGateway).models ?? []
-                          setCodexGatewayId(nextGatewayId)
-                          setCodexModelError(null)
-                          if (!models.some((model) => model.id === codexDefaultModel)) setCodexDefaultModel('')
-                        }}
-                      />
-                    </label>
-                    <label>
-                      <span>Runtime workspace</span>
-                      <AppSelect
-                        value={selectedRuntimeWorkspaceOption}
-                        options={workspaceOptions}
-                        placeholder="Select workspace"
-                        onChange={(option) => setCodexRuntimeWorkspaceId(option?.value ?? '')}
-                      />
-                    </label>
-                    <label>
-                      <span>Default model</span>
-                      <AppSelect
-                        value={selectedDefaultModelOption}
-                        options={projectCodexModelOptions}
-                        placeholder={codexModelLoading ? 'Loading models...' : codexModelOptions.length > 0 ? 'Select default model' : 'Select a gateway to load models'}
-                        isDisabled={!codexGatewayId || codexModelOptions.length === 0}
-                        onChange={(option) => setCodexDefaultModel(option?.value ?? '')}
-                      />
-                    </label>
-                  </div>
-                  {codexModelLoading ? <div className={styles.settingsEmptyState}>Loading models from Codex CLI...</div> : null}
-                  {codexModelError ? <div className={styles.settingsEmptyState}>{codexModelError}</div> : null}
-                  {selectedCodexGateway && codexModelOptions.length === 0 ? (
-                    <div className={styles.settingsEmptyState}>No models are available yet. Model inspect runs automatically when this gateway is selected.</div>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-            <footer className={styles.createTaskFooter}>
-              {projectSettingsTab === 'statuses' ? (
-                <>
-                  <span>Removing or replacing a status requires mapping old tasks and subtasks to a remaining status.</span>
-                  <button type="button" onClick={() => void saveProjectStatuses()}>Save statuses</button>
-                </>
-              ) : projectSettingsTab === 'workspace' ? (
-                <>
-                  <span>Workspace changes move existing attachment files into the selected project folder.</span>
-                  <button type="button" onClick={() => setIsStatusEditorOpen(false)} disabled={movingWorkspace}>Done</button>
-                </>
-              ) : projectSettingsTab === 'projectGroup' ? (
-                <>
-                  <span>Project group assignment controls where this project appears in group views.</span>
-                  <button type="button" onClick={() => projectGroupForExport ? void saveSelectedProjectGroup() : setIsStatusEditorOpen(false)} disabled={projectGroupSaving || Boolean(projectGroupForExport && !projectGroupNameDraft.trim())}>
-                    {projectGroupForExport ? 'Save group' : 'Done'}
-                  </button>
-                </>
-              ) : projectSettingsTab === 'codex' ? (
-                <>
-                  <span>Task and template model tabs inherit this gateway default unless they explicitly override it.</span>
-                  <button type="button" onClick={() => void saveProjectCodexSettings()} disabled={codexSaving || !codexGatewayId || !codexRuntimeWorkspaceId || !codexDefaultModel}>
-                    {codexSaving ? 'Saving...' : 'Save Codex settings'}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <span>Agents are listed from current task and subtask assignments.</span>
-                  <button type="button" onClick={() => setIsStatusEditorOpen(false)}>Done</button>
-                </>
-              )}
-            </footer>
-          </section>
-          {isStatusTemplatePickerOpen ? (
-            <StatusTemplatePickerModal
-              open={isStatusTemplatePickerOpen}
-              templates={statusTemplates}
-              onClose={() => setIsStatusTemplatePickerOpen(false)}
-              onPickTemplate={applyStatusTemplate}
-            />
-          ) : null}
-          {isProjectGroupPickerOpen ? (
-            <ProjectGroupPickerModal
-              open={isProjectGroupPickerOpen}
-              projectGroupId={projectGroupForExport?.id}
-              projectGroups={projectGroups}
-              projectGroupSaving={projectGroupSaving}
-              onClose={() => setIsProjectGroupPickerOpen(false)}
-              onClearGroup={() => void updateProjectGroupMembership(null)}
-              onPickGroup={(group) => void updateProjectGroupMembership(group.id)}
-            />
-          ) : null}
-          {isWorkspacePickerOpen ? (
-            <>
-              <div className={styles.nestedCreateBackdrop} onClick={() => setIsWorkspacePickerOpen(false)} />
-              <section className={styles.nestedCreateDialog} role="dialog" aria-modal="true" aria-label="Choose workspace">
-                <header>
-                  <h4>Choose workspace</h4>
-                  <button type="button" onClick={() => setIsWorkspacePickerOpen(false)} aria-label="Close workspace picker"><LuX size={15} /></button>
-                </header>
-                <div className={styles.workspacePickerList}>
-                  <button
-                    type="button"
-                    className={project.workspaceId ? styles.workspacePickerRow : `${styles.workspacePickerRow} ${styles.workspacePickerRowActive}`}
-                    onClick={() => {
-                      setIsWorkspacePickerOpen(false)
-                      void updateProjectWorkspace(null)
-                    }}
-                  >
-                    <strong>No workspace</strong>
-                    <span>Use staging until a workspace is selected.</span>
-                  </button>
-                  {workspaces.map((workspace) => (
-                    <button
-                      key={workspace.id}
-                      type="button"
-                      className={workspace.id === project.workspaceId ? `${styles.workspacePickerRow} ${styles.workspacePickerRowActive}` : styles.workspacePickerRow}
-                      onClick={() => {
-                        setIsWorkspacePickerOpen(false)
-                        void updateProjectWorkspace(workspace.id)
-                      }}
-                    >
-                      <strong>{workspace.name}</strong>
-                      <span>{workspace.rootPath}</span>
-                    </button>
-                  ))}
-                </div>
-                <div className={styles.nestedCreateBody}>
-                  <label>
-                    <span>Workspace name</span>
-                    <input value={workspaceDraftName} onChange={(event) => setWorkspaceDraftName(event.target.value)} />
-                  </label>
-                  <label>
-                    <span>Folder path</span>
-                    <input value={workspaceDraftPath} onChange={(event) => setWorkspaceDraftPath(event.target.value)} />
-                  </label>
-                </div>
-                <footer>
-                  <button type="button" onClick={() => void chooseProjectWorkspaceFolder()}>Choose folder</button>
-                  <button
-                    type="button"
-                    disabled={!workspaceDraftName.trim() || !workspaceDraftPath.trim()}
-                    onClick={async () => {
-                      const workspace = await createWorkspaceFromDraft()
-                      if (workspace) {
-                        setIsWorkspacePickerOpen(false)
-                        await updateProjectWorkspace(workspace.id)
-                      }
-                    }}
-                  >
-                    Add workspace
-                  </button>
-                </footer>
-              </section>
-            </>
-          ) : null}
-        </>
-      </ProjectSettingsModal>
+        scope={projectSettingsModalScope}
+      ></ProjectSettingsModal>
 
       {selectedTask ? (
-        <TaskModals open>
+        <>
           <TaskDetailPopup
             taskId={selectedTask.id}
             onClose={closeSelectedTaskDetail}
@@ -3672,7 +2927,8 @@ export function ProjectDetailPage() {
             isPlanWithCodexDisabled={!canPlanSelectedTaskWithCodex}
             onImportJson={() => setIsTaskImportOpen(true)}
           >
-            <TaskDetailContent
+            <TaskDetailPanel>
+              <TaskDetailContent
               bodyRef={modalBodyRef}
               splitTemplate={splitTemplate}
               onResizeStart={() => setIsResizingSplit(true)}
@@ -3687,7 +2943,7 @@ export function ProjectDetailPage() {
             >
               <div className={styles.detailPane}>
                 <section className={styles.breadcrumbRow}>
-                  <button type="button" className={styles.breadcrumbBtn} onClick={() => setSelectedTaskId(null)}>
+                  <button type="button" className={styles.breadcrumbBtn} onClick={clearSelection}>
                     {project.name}
                   </button>
                   <span className={styles.breadcrumbSep}>&gt;</span>
@@ -4464,11 +3720,11 @@ export function ProjectDetailPage() {
                 </section>
               </div>
 
-          </TaskDetailContent>
+              </TaskDetailContent>
+            </TaskDetailPanel>
         </TaskDetailPopup>
 
           {selectedSubtask && detailViewMode === 'subtask' ? (
-            <TaskModals open>
               <TaskDetailPopup
                 taskId={selectedSubtask.id}
                 title="Subtask detail"
@@ -4486,9 +3742,10 @@ export function ProjectDetailPage() {
                   setSubtaskDraft(selectedSubtask.title)
                 }}
                 onDeleteTask={() => void removeSubtask(selectedSubtask.id)}
-                onFilesDrop={(files) => void uploadSubtaskAttachments(files)}
-              >
-                <TaskDetailContent
+            onFilesDrop={(files) => void uploadSubtaskAttachments(files)}
+          >
+            <SubtaskDetailPanel>
+            <TaskDetailContent
                   bodyRef={modalBodyRef}
                   splitTemplate={splitTemplate}
                   onResizeStart={() => setIsResizingSplit(true)}
@@ -4735,164 +3992,16 @@ export function ProjectDetailPage() {
                           </>
                         ) : null}
                       </section>
-                    </div>
                   </div>
-                </TaskDetailContent>
+                  </div>
+            </TaskDetailContent>
+            </SubtaskDetailPanel>
               </TaskDetailPopup>
-            </TaskModals>
-          ) : null}
-          </TaskModals>
-        </>
-      ) : null}
-
-          {isTaskImportOpen ? (
-            <TaskJsonImportPopup
-              open
-              title="Import task JSON"
-              busy={isTaskImporting}
-              onClose={() => setIsTaskImportOpen(false)}
-              onImport={(jsonText) => void importSelectedTaskJson(jsonText)}
-            />
-          ) : null}
-
-          {isCustomFieldModalOpen ? (
-            <CustomFieldPopup
-              rows={customFieldRows}
-              customFields={customFields}
-              assignedFieldIds={detailViewMode === 'subtask' && selectedSubtask ? new Set(Object.keys(getSubtaskCustomFieldValues(selectedSubtask))) : new Set(Object.keys(selectedTask?.customFieldValues ?? {}))}
-              error={customFieldError}
-              createOpen={isCreateCustomFieldOpen}
-              quickFieldName={quickFieldName}
-              quickFieldType={quickFieldType}
-              onRowsChange={setCustomFieldRows}
-              onCreateRow={() => ({ id: createLocalId(), field: null, value: '' })}
-              onCreateOpenChange={setIsCreateCustomFieldOpen}
-              onQuickFieldNameChange={setQuickFieldName}
-              onQuickFieldTypeChange={setQuickFieldType}
-              onClose={() => setIsCustomFieldModalOpen(false)}
-              onSave={() => void saveCustomFieldRows()}
-              onCreateField={() => void createCustomFieldFromModal()}
-              onErrorClear={() => setCustomFieldError(null)}
-            />
-          ) : null}
-
-          {isChecklistModalOpen ? (
-            <ChecklistPopup
-              rows={checklistRows}
-              onRowsChange={setChecklistRows}
-              onCreateRow={() => ({ id: createLocalId(), title: '' })}
-              onClose={() => setIsChecklistModalOpen(false)}
-              onSave={() => void addChecklistItems()}
-            />
-          ) : null}
-
-          {isOutputFormatModalOpen ? (
-            <OutputFormatPopup
-              role={dataFormatRoleDraft}
-              draftOption={outputFormatDraftOption}
-              options={dataFormatRoleDraft === 'input' ? inputFormatOptions : outputFormatOptions}
-              createOpen={isCreateOutputFormatOpen}
-              quickName={quickOutputFormatName}
-              quickDescription={quickOutputFormatDescription}
-              onDraftOptionChange={setOutputFormatDraftOption}
-              onCreateOpenChange={setIsCreateOutputFormatOpen}
-              onQuickNameChange={setQuickOutputFormatName}
-              onQuickDescriptionChange={setQuickOutputFormatDescription}
-              onClose={() => setIsOutputFormatModalOpen(false)}
-              onSave={() => void saveTaskOutputFormatFromModal()}
-              onCreate={() => void createOutputFormatFromModal()}
-            />
-          ) : null}
-
-          {isActivityModalOpen ? (
-            <ActivityPopup
-              task={selectedTask}
-              chatDragDepth={chatDragDepth}
-              conversations={chatConversations}
-              sidebarConversations={sidebarChatConversations}
-              selectedConversationId={selectedChatConversationId}
-              isStartingNewChat={isStartingNewChat}
-              runningConversationIds={runningChatConversationIds}
-              chatHistoryCount={chatHistoryCount}
-              chatSettingsOpen={chatSettingsOpen}
-              selectedChatCanStop={selectedChatCanStop}
-              chatStopping={chatStopping}
-              codexPlanLaunching={codexPlanLaunching}
-              codexRunLaunching={codexRunLaunching}
-              visibleMessages={visibleChatMessages}
-              renderedMessages={renderedChatMessages}
-              hiddenMessageCount={hiddenChatMessageCount}
-              localStatusMessage={localChatStatusMessage}
-              activityFeedRef={activityFeedRef}
-              chatGateway={chatGateway}
-              chatGatewayOption={chatGatewayOption}
-              chatGatewayOptions={codexGatewayOptions}
-              chatModel={chatModel}
-              chatModelOption={chatModelOption}
-              chatModelOptions={chatModelOptions}
-              chatGatewayConfig={chatGatewayConfig}
-              chatRuntimeWorkspace={chatRuntimeWorkspace}
-              runtimeWorkspaceId={savedCodexSettings.runtimeWorkspaceId}
-              chatIncludeContext={chatIncludeContext}
-              attachments={chatAttachments}
-              slashMenuOpen={slashMenuOpen}
-              slashCommands={filteredSlashCommands}
-              slashCommandIndex={slashCommandIndex}
-              draftTextareaRef={chatDraftTextareaRef}
-              fileInputRef={chatFileInputRef}
-              draft={chatDraft}
-              chatSending={chatSending}
-              canSendChat={canSendChat}
-              selectedChatIsRunning={selectedChatIsRunning}
-              selectedChatSummary={selectedChatSummary}
-              selectedChatUsage={selectedChatUsage}
-              selectedTaskAgent={selectedTaskAgent}
-              taskContextSkills={taskContextSkills}
-              onClose={() => setIsActivityModalOpen(false)}
-              onDragEnter={handleChatDragEnter}
-              onDragOver={handleChatDragOver}
-              onDragLeave={handleChatDragLeave}
-              onDrop={handleChatDrop}
-              onNewConversation={() => {
-                setIsStartingNewChat(true)
-                setSelectedChatConversationId('')
-                setChatComposerMode('chat')
-                setCodexRunFeedback(null)
-                setTimeout(() => chatDraftTextareaRef.current?.focus(), 0)
-              }}
-              onConversationSelect={(conversationId) => {
-                setIsStartingNewChat(false)
-                setSelectedChatConversationId(conversationId)
-              }}
-              onSettingsToggle={() => setChatSettingsOpen((value) => !value)}
-              onSettingsClose={() => setChatSettingsOpen(false)}
-              onStopChat={() => void stopCodexChat()}
-              onPlan={() => void planSelectedTaskWithCodex()}
-              onRun={() => void runSelectedTaskWithCodex()}
-              onLoadEarlier={() => setChatVisibleLimit((value) => value + CHAT_MESSAGE_LOAD_STEP)}
-              onActivityScroll={onActivityScroll}
-              onGatewayChange={(option) => {
-                setChatGatewayId(option?.value ?? '')
-                setChatModel('')
-              }}
-              onModelChange={(option) => setChatModel(option?.value ?? '')}
-              onIncludeContextChange={setChatIncludeContext}
-              onAttachmentRemove={(attachmentId) => setChatAttachments((current) => current.filter((item) => item.id !== attachmentId))}
-              onAttachFilesClick={() => chatFileInputRef.current?.click()}
-              onFilesSelected={(files) => { if (files) void addChatAttachments(files) }}
-              onDraftChange={(value, textarea) => {
-                setChatDraft(value)
-                resizeChatComposerTextarea(textarea)
-              }}
-              onComposerFocusChange={setChatComposerFocused}
-              onSlashCommandApply={applySlashCommand}
-              onSlashCommandIndexChange={setSlashCommandIndex}
-              onClearSlashDraft={() => setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))}
-              onSend={() => void sendCodexChatMessage()}
-            />
           ) : null}
         </>
       ) : null}
+
+        {isActivityModalOpen ? <ActivityPopup chatState={chatState} chatHandlers={chatHandlers} /> : null}
     </section>
   )
 }

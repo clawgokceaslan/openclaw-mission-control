@@ -24,8 +24,7 @@ export interface ProjectDetailDataContext {
   projectId?: string
   state: Pick<
     ProjectDetailStateBindings,
-    |
-      | 'setError'
+    'setError'
       | 'setProject'
       | 'setTasks'
       | 'setTags'

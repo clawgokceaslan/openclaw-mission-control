@@ -1,5 +1,5 @@
 import type { Workspace } from '@shared/types/entities'
-import styles from '../../../screens/projects/ProjectDetailPage.module.scss'
+import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
 export interface WorkspacePickerModalProps {
   open: boolean
@@ -13,6 +13,9 @@ export interface WorkspacePickerModalProps {
   onDraftChange?: (draft: { name: string; path: string }) => void
   workspaceDraftName?: string
   workspaceDraftPath?: string
+  onChooseFolder?: () => void
+  onCreateWorkspace?: () => Promise<void> | void
+  createWorkspaceDisabled?: boolean
 }
 
 export function WorkspacePickerModal({
@@ -25,7 +28,11 @@ export function WorkspacePickerModal({
   onPickNoWorkspace,
   onPickWorkspace,
   workspaceDraftName,
-  workspaceDraftPath
+  workspaceDraftPath,
+  onDraftChange,
+  onChooseFolder,
+  onCreateWorkspace,
+  createWorkspaceDisabled
 }: WorkspacePickerModalProps) {
   if (!open) return null
 
@@ -62,13 +69,37 @@ export function WorkspacePickerModal({
         <div className={styles.nestedCreateBody}>
           <label>
             <span>Workspace name</span>
-            <input value={workspaceDraftName ?? ''} readOnly={!onPickWorkspace || false} />
+            <input
+              value={workspaceDraftName ?? ''}
+              readOnly={!onDraftChange}
+              onChange={(event) => {
+                onDraftChange?.({ name: event.target.value, path: workspaceDraftPath ?? '' })
+              }}
+            />
           </label>
           <label>
             <span>Folder path</span>
-            <input value={workspaceDraftPath ?? ''} readOnly={!onPickWorkspace || false} />
+            <input
+              value={workspaceDraftPath ?? ''}
+              readOnly={!onDraftChange}
+              onChange={(event) => {
+                onDraftChange?.({ name: workspaceDraftName ?? '', path: event.target.value })
+              }}
+            />
           </label>
         </div>
+        {onChooseFolder ? <button type="button" onClick={() => onChooseFolder()}>Choose folder</button> : null}
+        {onCreateWorkspace ? (
+          <footer>
+            <button
+              type="button"
+              disabled={createWorkspaceDisabled}
+              onClick={() => void onCreateWorkspace()}
+            >
+              Add workspace
+            </button>
+          </footer>
+        ) : null}
       </section>
     </>
   )

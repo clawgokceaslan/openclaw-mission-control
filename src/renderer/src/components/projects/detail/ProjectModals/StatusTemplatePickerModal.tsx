@@ -1,5 +1,5 @@
 import type { StatusTemplate } from '@shared/types/entities'
-import styles from '../../../screens/projects/ProjectDetailPage.module.scss'
+import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
 export interface StatusTemplatePickerModalProps {
   open: boolean

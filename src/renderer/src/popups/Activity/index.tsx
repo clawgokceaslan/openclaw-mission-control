@@ -8,7 +8,7 @@ import { formatChatTime } from '@renderer/screens/projects/detail/chat/chatUtils
 import type { ChatAttachmentDraft, ChatConversationSummary, SlashCommand, TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
-interface ActivityPopupProps {
+interface ActivityPopupLegacyProps {
   task: TaskEntity | null
   chatDragDepth: number
   conversations: ChatConversationSummary[]
@@ -79,77 +79,186 @@ interface ActivityPopupProps {
   onSend: () => void
 }
 
+type ActivityPopupStateProps = Omit<
+  ActivityPopupLegacyProps,
+  | 'onClose'
+  | 'onDragEnter'
+  | 'onDragOver'
+  | 'onDragLeave'
+  | 'onDrop'
+  | 'onNewConversation'
+  | 'onConversationSelect'
+  | 'onSettingsToggle'
+  | 'onSettingsClose'
+  | 'onStopChat'
+  | 'onPlan'
+  | 'onRun'
+  | 'onLoadEarlier'
+  | 'onActivityScroll'
+  | 'onGatewayChange'
+  | 'onModelChange'
+  | 'onIncludeContextChange'
+  | 'onAttachmentRemove'
+  | 'onAttachFilesClick'
+  | 'onFilesSelected'
+  | 'onDraftChange'
+  | 'onComposerFocusChange'
+  | 'onSlashCommandApply'
+  | 'onSlashCommandIndexChange'
+  | 'onClearSlashDraft'
+  | 'onSend'
+>
+
+type ActivityPopupHandlerProps = Pick<
+  ActivityPopupLegacyProps,
+  | 'onClose'
+  | 'onDragEnter'
+  | 'onDragOver'
+  | 'onDragLeave'
+  | 'onDrop'
+  | 'onNewConversation'
+  | 'onConversationSelect'
+  | 'onSettingsToggle'
+  | 'onSettingsClose'
+  | 'onStopChat'
+  | 'onPlan'
+  | 'onRun'
+  | 'onLoadEarlier'
+  | 'onActivityScroll'
+  | 'onGatewayChange'
+  | 'onModelChange'
+  | 'onIncludeContextChange'
+  | 'onAttachmentRemove'
+  | 'onAttachFilesClick'
+  | 'onFilesSelected'
+  | 'onDraftChange'
+  | 'onComposerFocusChange'
+  | 'onSlashCommandApply'
+  | 'onSlashCommandIndexChange'
+  | 'onClearSlashDraft'
+  | 'onSend'
+>
+
+interface ActivityPopupProps extends Partial<ActivityPopupStateProps>, Partial<ActivityPopupHandlerProps> {
+  chatState?: Partial<ActivityPopupStateProps>
+  chatHandlers?: Partial<ActivityPopupHandlerProps>
+}
+
 export function ActivityPopup({
-  task,
-  chatDragDepth,
-  conversations,
-  sidebarConversations,
-  selectedConversationId,
-  isStartingNewChat,
-  runningConversationIds,
-  chatHistoryCount,
-  chatSettingsOpen,
-  selectedChatCanStop,
-  chatStopping,
-  codexPlanLaunching,
-  codexRunLaunching,
-  visibleMessages,
-  renderedMessages,
-  hiddenMessageCount,
-  localStatusMessage,
-  activityFeedRef,
-  chatGateway,
-  chatGatewayOption,
-  chatGatewayOptions,
-  chatModel,
-  chatModelOption,
-  chatModelOptions,
-  chatGatewayConfig,
-  chatRuntimeWorkspace,
-  runtimeWorkspaceId,
-  chatIncludeContext,
-  attachments,
-  slashMenuOpen,
-  slashCommands,
-  slashCommandIndex,
-  draftTextareaRef,
-  fileInputRef,
-  draft,
-  chatSending,
-  chatStopping: isChatStopping,
-  canSendChat,
-  selectedChatIsRunning,
-  selectedChatSummary,
-  selectedChatUsage,
-  selectedTaskAgent,
-  taskContextSkills,
-  onClose,
-  onDragEnter,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-  onNewConversation,
-  onConversationSelect,
-  onSettingsToggle,
-  onSettingsClose,
-  onStopChat,
-  onPlan,
-  onRun,
-  onLoadEarlier,
-  onActivityScroll,
-  onGatewayChange,
-  onModelChange,
-  onIncludeContextChange,
-  onAttachmentRemove,
-  onAttachFilesClick,
-  onFilesSelected,
-  onDraftChange,
-  onComposerFocusChange,
-  onSlashCommandApply,
-  onSlashCommandIndexChange,
-  onClearSlashDraft,
-  onSend
+  chatState,
+  chatHandlers,
+  ...legacyState
 }: ActivityPopupProps) {
+  const noOp = () => {}
+  const state = (chatState ?? legacyState) as ActivityPopupStateProps | null
+  if (!state) {
+    return null
+  }
+  const handlers = {
+    onClose: chatHandlers?.onClose ?? legacyState.onClose ?? noOp,
+    onDragEnter: chatHandlers?.onDragEnter ?? legacyState.onDragEnter ?? (() => {}),
+    onDragOver: chatHandlers?.onDragOver ?? legacyState.onDragOver ?? (() => {}),
+    onDragLeave: chatHandlers?.onDragLeave ?? legacyState.onDragLeave ?? (() => {}),
+    onDrop: chatHandlers?.onDrop ?? legacyState.onDrop ?? (() => {}),
+    onNewConversation: chatHandlers?.onNewConversation ?? legacyState.onNewConversation ?? noOp,
+    onConversationSelect: chatHandlers?.onConversationSelect ?? legacyState.onConversationSelect ?? noOp,
+    onSettingsToggle: chatHandlers?.onSettingsToggle ?? legacyState.onSettingsToggle ?? noOp,
+    onSettingsClose: chatHandlers?.onSettingsClose ?? legacyState.onSettingsClose ?? noOp,
+    onStopChat: chatHandlers?.onStopChat ?? legacyState.onStopChat ?? noOp,
+    onPlan: chatHandlers?.onPlan ?? legacyState.onPlan ?? noOp,
+    onRun: chatHandlers?.onRun ?? legacyState.onRun ?? noOp,
+    onLoadEarlier: chatHandlers?.onLoadEarlier ?? legacyState.onLoadEarlier ?? noOp,
+    onActivityScroll: chatHandlers?.onActivityScroll ?? legacyState.onActivityScroll ?? noOp,
+    onGatewayChange: chatHandlers?.onGatewayChange ?? legacyState.onGatewayChange ?? (() => {}),
+    onModelChange: chatHandlers?.onModelChange ?? legacyState.onModelChange ?? (() => {}),
+    onIncludeContextChange: chatHandlers?.onIncludeContextChange ?? legacyState.onIncludeContextChange ?? noOp,
+    onAttachmentRemove: chatHandlers?.onAttachmentRemove ?? legacyState.onAttachmentRemove ?? noOp,
+    onAttachFilesClick: chatHandlers?.onAttachFilesClick ?? legacyState.onAttachFilesClick ?? noOp,
+    onFilesSelected: chatHandlers?.onFilesSelected ?? legacyState.onFilesSelected ?? ((_) => {}),
+    onDraftChange: chatHandlers?.onDraftChange ?? legacyState.onDraftChange ?? (() => {}),
+    onComposerFocusChange: chatHandlers?.onComposerFocusChange ?? legacyState.onComposerFocusChange ?? noOp,
+    onSlashCommandApply: chatHandlers?.onSlashCommandApply ?? legacyState.onSlashCommandApply ?? noOp,
+    onSlashCommandIndexChange: chatHandlers?.onSlashCommandIndexChange ?? legacyState.onSlashCommandIndexChange ?? (() => {}),
+    onClearSlashDraft: chatHandlers?.onClearSlashDraft ?? legacyState.onClearSlashDraft ?? noOp,
+    onSend: chatHandlers?.onSend ?? legacyState.onSend ?? noOp
+  }
+
+  const {
+    task,
+    chatDragDepth,
+    conversations,
+    sidebarConversations,
+    selectedConversationId,
+    isStartingNewChat,
+    runningConversationIds,
+    chatHistoryCount,
+    chatSettingsOpen,
+    selectedChatCanStop,
+    chatStopping,
+    codexPlanLaunching,
+    codexRunLaunching,
+    visibleMessages,
+    renderedMessages,
+    hiddenMessageCount,
+    localStatusMessage,
+    activityFeedRef,
+    chatGateway,
+    chatGatewayOption,
+    chatGatewayOptions,
+    chatModel,
+    chatModelOption,
+    chatModelOptions,
+    chatGatewayConfig,
+    chatRuntimeWorkspace,
+    runtimeWorkspaceId,
+    chatIncludeContext,
+    attachments,
+    slashMenuOpen,
+    slashCommands,
+    slashCommandIndex,
+    draftTextareaRef,
+    fileInputRef,
+    draft,
+    chatSending,
+    canSendChat,
+    selectedChatIsRunning,
+    selectedChatSummary,
+    selectedChatUsage,
+    selectedTaskAgent,
+    taskContextSkills
+  } = state
+
+  const {
+    onClose,
+    onDragEnter,
+    onDragOver,
+    onDragLeave,
+    onDrop,
+    onNewConversation,
+    onConversationSelect,
+    onSettingsToggle,
+    onSettingsClose,
+    onStopChat,
+    onPlan,
+    onRun,
+    onLoadEarlier,
+    onActivityScroll,
+    onGatewayChange,
+    onModelChange,
+    onIncludeContextChange,
+    onAttachmentRemove,
+    onAttachFilesClick,
+    onFilesSelected,
+    onDraftChange,
+    onComposerFocusChange,
+    onSlashCommandApply,
+    onSlashCommandIndexChange,
+    onClearSlashDraft,
+    onSend
+  } = handlers
+
+  const isChatStopping = chatStopping
+
   return (
     <>
       <div className={styles.activityBackdrop} onClick={onClose} />
