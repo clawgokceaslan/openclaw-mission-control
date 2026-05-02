@@ -231,6 +231,9 @@ export interface PlanTaskCodexRequest {
   taskId?: string
   gatewayId?: string
   model?: string
+  generalContext?: string
+  generalPrompt?: string
+  defaultOutput?: string
 }
 
 export interface TaskPlannerContextRequest {
@@ -381,6 +384,9 @@ export interface RunTaskCodexRequest {
   zipBytes?: ArrayBuffer | Uint8Array | number[]
   gatewayId?: string
   model?: string
+  generalContext?: string
+  generalPrompt?: string
+  defaultOutput?: string
 }
 
 export interface UpsertGatewayRequest {

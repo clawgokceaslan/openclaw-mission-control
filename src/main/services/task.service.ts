@@ -74,6 +74,12 @@ type CodexTerminalRun = {
   terminalTitle: string
 }
 
+type ProjectPromptSnapshot = {
+  generalContext: string
+  generalPrompt: string
+  defaultOutput: string
+}
+
 function asPayload(value: unknown): TaskPayload {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as TaskPayload) : {}
 }
@@ -248,6 +254,32 @@ async function closeTerminalWindowByTitle(title: string): Promise<void> {
     '-e',
     'end tell'
   ], { timeout: 5_000 }).catch(() => undefined)
+}
+
+function closeTerminalWindowByTitleShell(titleVariable = 'TERMINAL_TITLE'): string {
+  return [
+    'if [ -n "${' + titleVariable + ':-}" ]; then',
+    '  (sleep 1; /usr/bin/osascript \\',
+    '    -e \'tell application "Terminal"\' \\',
+    '    -e \'repeat with terminalWindow in windows\' \\',
+    '    -e \'repeat with terminalTab in tabs of terminalWindow\' \\',
+    '    -e "if custom title of terminalTab is \\""${' + titleVariable + '}"\\" then" \\',
+    '    -e \'close terminalWindow\' \\',
+    '    -e \'return\' \\',
+    '    -e \'end if\' \\',
+    '    -e \'end repeat\' \\',
+    '    -e \'end repeat\' \\',
+    '    -e \'end tell\' >/dev/null 2>&1) &',
+    'fi'
+  ].join('\n')
+}
+
+function projectPromptSnapshot(project: { generalContext?: string | null; generalPrompt?: string | null; defaultOutput?: string | null }): ProjectPromptSnapshot {
+  return {
+    generalContext: project.generalContext ?? '',
+    generalPrompt: project.generalPrompt ?? '',
+    defaultOutput: project.defaultOutput ?? ''
+  }
 }
 
 function codexTrustedProjectConfig(path: string): string {
@@ -924,6 +956,7 @@ export class TaskService {
     if (!runtimeWorkspaceId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is required')
     const runtimeWorkspace = await this.workspaces.get(runtimeWorkspaceId)
     if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
+    const projectPrompt = projectPromptSnapshot(project)
 
     const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-codex-run-'))
     let bridge: { url: string; close: () => Promise<void> } | null = null
@@ -996,6 +1029,7 @@ export class TaskService {
         runtimeWorkspacePath,
         exportWorkspacePath,
         workspaceRunPath,
+        projectPrompt,
         bridgeUrl: bridge.url,
         bridgeToken,
         createdAt: new Date().toISOString()
@@ -1040,7 +1074,15 @@ export class TaskService {
         `RUN_DIR=${shellQuote(runFolderPath)}`,
         `FINISH_FILE=${shellQuote(finishFilePath)}`,
         `TERMINAL_TITLE=${shellQuote(runTerminalTitle)}`,
-        'cleanup() { rm -rf "$RUN_DIR"; }',
+        `RUNTIME_WORKSPACE=${shellQuote(runtimeWorkspacePath)}`,
+        `HELPER_PATH=${shellQuote(helperRelativePath)}`,
+        'cleanup() {',
+        '  local status=$?',
+        '  (cd "$RUNTIME_WORKSPACE" && node "$HELPER_PATH" finish >/dev/null 2>&1) || true',
+        '  rm -rf "$RUN_DIR"',
+        closeTerminalWindowByTitleShell(),
+        '  return "$status"',
+        '}',
         'trap cleanup EXIT',
         'printf \'\\033]0;%s\\007\' "$TERMINAL_TITLE"',
         `/bin/zsh -lic ${shellQuote(`${loginShellCommand}\n`)}`
@@ -1068,6 +1110,7 @@ export class TaskService {
         gitignoreUpdated,
         bridgeUrl: bridge.url,
         zipName: payload.zipName,
+        projectPrompt,
         finishFilePath,
         terminalTitle: runTerminalTitle,
         command: codexCommand,
@@ -1264,6 +1307,7 @@ export class TaskService {
     if (!runtimeWorkspaceId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is required')
     const runtimeWorkspace = await this.workspaces.get(runtimeWorkspaceId)
     if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
+    const projectPrompt = projectPromptSnapshot(project)
 
     const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-codex-planner-'))
     let bridge: { url: string; close: () => Promise<void> } | null = null
@@ -1311,6 +1355,7 @@ export class TaskService {
         model: payload.model,
         runtimeWorkspacePath,
         workspaceRunPath,
+        projectPrompt,
         bridgeUrl: bridge.url,
         bridgeToken,
         createdAt: new Date().toISOString()
@@ -1345,8 +1390,19 @@ export class TaskService {
       const wrapper = [
         '#!/bin/zsh',
         'set -e',
+        `RUN_DIR=${shellQuote(runFolderPath)}`,
         `FINISH_FILE=${shellQuote(finishFilePath)}`,
         `TERMINAL_TITLE=${shellQuote(runTerminalTitle)}`,
+        `RUNTIME_WORKSPACE=${shellQuote(runtimeWorkspacePath)}`,
+        `HELPER_PATH=${shellQuote(helperRelativePath)}`,
+        'cleanup() {',
+        '  local status=$?',
+        '  (cd "$RUNTIME_WORKSPACE" && node "$HELPER_PATH" finish >/dev/null 2>&1) || true',
+        '  rm -rf "$RUN_DIR"',
+        closeTerminalWindowByTitleShell(),
+        '  return "$status"',
+        '}',
+        'trap cleanup EXIT',
         `cd ${shellQuote(runtimeWorkspacePath)}`,
         'printf \'\\033]0;%s\\007\' "$TERMINAL_TITLE"',
         'echo "Open Mission Control Codex task planner"',
@@ -1382,6 +1438,7 @@ export class TaskService {
         instructionsRelativePath,
         gitignoreUpdated,
         bridgeUrl: bridge.url,
+        projectPrompt,
         finishFilePath,
         terminalTitle: runTerminalTitle,
         command: codexCommand,

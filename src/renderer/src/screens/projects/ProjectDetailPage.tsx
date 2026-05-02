@@ -1288,7 +1288,10 @@ export function ProjectDetailPage() {
         zipName: fileName,
         zipBytes: archive,
         gatewayId,
-        model
+        model,
+        generalContext: project.generalContext ?? '',
+        generalPrompt: project.generalPrompt ?? '',
+        defaultOutput: project.defaultOutput ?? ''
       })
       if (!response.ok) {
         setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex terminal' })
@@ -1328,7 +1331,10 @@ export function ProjectDetailPage() {
         taskId: selectedTask.id,
         projectId: project.id,
         gatewayId,
-        model
+        model,
+        generalContext: project.generalContext ?? '',
+        generalPrompt: project.generalPrompt ?? '',
+        defaultOutput: project.defaultOutput ?? ''
       })
       if (!response.ok) {
         setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex planner' })
