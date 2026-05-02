@@ -1575,26 +1575,28 @@
 }
 
 .chatTopbar {
-  min-height: 68px;
-  border-bottom: 0;
-  padding: 10px clamp(8px, 1.2vw, 16px) 6px clamp(12px, 3vw, 36px);
+  min-height: 78px;
+  border-bottom: 1px solid color-mix(in srgb, var(--omc-border-subtle) 66%, transparent);
+  padding: 12px clamp(10px, 1.2vw, 16px) 10px clamp(12px, 3vw, 36px);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  background: var(--omc-bg);
+  gap: 16px;
+  background: color-mix(in srgb, var(--omc-bg) 86%, var(--omc-surface) 14%);
 }
 
 .chatTopbarTitle {
   min-width: 0;
+  flex: 1 1 auto;
   display: grid;
-  gap: 6px;
+  gap: 5px;
 
   h2 {
     margin: 0;
     color: var(--omc-text-strong);
-    font-size: 1.08rem;
+    font-size: 1.04rem;
     font-weight: 900;
+    line-height: 1.15;
   }
 
   p {
@@ -1607,22 +1609,55 @@
   }
 }
 
+.chatTopbarEyebrow {
+  width: fit-content;
+  color: var(--omc-text-soft);
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
 .chatPillRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(92px, max-content));
+  gap: 6px;
 
   span {
-    min-height: 22px;
+    min-width: 0;
+    max-width: 220px;
+    min-height: 34px;
     border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 70%, transparent);
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--omc-surface-muted) 70%, transparent);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--omc-surface-muted) 50%, transparent);
     color: var(--omc-text-muted);
-    display: inline-flex;
-    align-items: center;
-    padding: 0 9px;
-    font-size: 0.74rem;
+    display: grid;
+    gap: 1px;
+    padding: 5px 8px;
+  }
+
+  small,
+  b {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  small {
+    color: var(--omc-text-soft);
+    font-size: 0.64rem;
+    font-weight: 900;
+    line-height: 1.05;
+    text-transform: uppercase;
+  }
+
+  b {
+    color: var(--omc-text-strong);
+    font-size: 0.76rem;
     font-weight: 850;
+    line-height: 1.2;
   }
 }
 
@@ -1633,6 +1668,7 @@
 }
 
 .chatTopbarActions {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
@@ -1684,7 +1720,7 @@
 
 .chatContextBar {
   border-bottom: 0;
-  width: var(--chat-content-width);
+  width: var(--chat-content-width, 100%);
   margin: 0 auto;
   padding: 0 0 8px;
   display: flex;
@@ -2391,23 +2427,81 @@
   }
 }
 
-.chatNotice,
-.chatError {
+.chatOperationFeedback {
+  width: var(--chat-content-width, 100%);
+  max-width: 100%;
   margin: 0;
+  justify-self: center;
+  border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 82%, transparent);
   border-radius: 10px;
-  padding: 8px 10px;
+  background: color-mix(in srgb, var(--omc-surface) 86%, var(--omc-bg) 14%);
+  color: var(--omc-text-strong);
+  padding: 9px 10px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
   font-size: 0.82rem;
-  font-weight: 800;
+  line-height: 1.35;
+  overflow: hidden;
 }
 
-.chatNotice {
-  background: var(--omc-success-bg);
-  color: var(--omc-success-strong);
+.chatOperationFeedback_running {
+  border-color: color-mix(in srgb, var(--omc-primary) 36%, var(--omc-border-subtle));
+  background: color-mix(in srgb, var(--omc-active-bg) 48%, var(--omc-surface));
 }
 
-.chatError {
-  background: var(--omc-danger-bg);
-  color: var(--omc-danger);
+.chatOperationFeedback_success {
+  border-color: color-mix(in srgb, var(--omc-success-strong) 34%, var(--omc-border-subtle));
+  background: color-mix(in srgb, var(--omc-success-bg) 72%, var(--omc-surface));
+}
+
+.chatOperationFeedback_error {
+  border-color: color-mix(in srgb, var(--omc-danger) 36%, var(--omc-border-subtle));
+  background: color-mix(in srgb, var(--omc-danger-bg) 78%, var(--omc-surface));
+}
+
+.chatOperationIcon {
+  width: 24px;
+  height: 24px;
+  border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 74%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--omc-surface-muted) 72%, transparent);
+  color: var(--omc-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  .chatOperationFeedback_success & {
+    color: var(--omc-success-strong);
+  }
+
+  .chatOperationFeedback_error & {
+    color: var(--omc-danger);
+  }
+}
+
+.chatOperationCopy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+
+  b,
+  span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  b {
+    color: var(--omc-text-strong);
+    font-size: 0.78rem;
+    font-weight: 900;
+  }
+
+  span {
+    color: var(--omc-text-muted);
+    font-weight: 750;
+  }
 }
 
 .modalHeader {
@@ -5898,6 +5992,14 @@
   .chatTopbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .chatPillRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+
+    span {
+      max-width: none;
+    }
   }
 
   .chatTopbarActions {

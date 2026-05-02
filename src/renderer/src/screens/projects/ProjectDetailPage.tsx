@@ -405,6 +405,13 @@ type ChatAttachmentDraft = {
   size: number
   bytes: number[]
 }
+type CodexRunFeedback = { kind: 'error' | 'success'; message: string }
+type ChatOperationState = 'running' | 'success' | 'error'
+type ChatOperationFeedbackData = {
+  state: ChatOperationState
+  title: string
+  message: string
+}
 type SlashCommand = {
   id: 'plan' | 'run' | 'steer' | 'settings' | 'attach' | 'context'
   label: string
@@ -627,6 +634,26 @@ const CodexChatMessageItem = memo(function CodexChatMessageItem({ message }: Cod
   )
 })
 
+function ChatOperationFeedback({ feedback }: { feedback: ChatOperationFeedbackData }) {
+  return (
+    <section
+      className={`${styles.chatOperationFeedback} ${styles[`chatOperationFeedback_${feedback.state}`] ?? ''}`}
+      role={feedback.state === 'error' ? 'alert' : 'status'}
+      aria-live="polite"
+    >
+      <span className={styles.chatOperationIcon} aria-hidden="true">
+        {feedback.state === 'running' ? <span className={styles.thinkingDots}><i /><i /><i /></span> : null}
+        {feedback.state === 'success' ? <LuCircleCheck size={15} /> : null}
+        {feedback.state === 'error' ? <LuX size={15} /> : null}
+      </span>
+      <span className={styles.chatOperationCopy}>
+        <b>{feedback.title}</b>
+        <span>{feedback.message}</span>
+      </span>
+    </section>
+  )
+}
+
 function parseHistoryPatch(item: TaskHistoryItem, index: number): ThreadEntry {
   const baseId = `history-${item.at}-${index}`
 
@@ -754,7 +781,7 @@ export function ProjectDetailPage() {
   const [codexSaving, setCodexSaving] = useState(false)
   const [codexRunLaunching, setCodexRunLaunching] = useState(false)
   const [codexPlanLaunching, setCodexPlanLaunching] = useState(false)
-  const [codexRunFeedback, setCodexRunFeedback] = useState<{ kind: 'error' | 'success'; message: string } | null>(null)
+  const [codexRunFeedback, setCodexRunFeedback] = useState<CodexRunFeedback | null>(null)
   const [chatDraft, setChatDraft] = useState('')
   const [chatSending, setChatSending] = useState(false)
   const [chatStopping, setChatStopping] = useState(false)
@@ -1690,6 +1717,21 @@ export function ProjectDetailPage() {
   const selectedTaskSkillsMarkdown = selectedTaskExportContext ? buildSkillsMarkdown(selectedTaskExportContext) : ''
   const selectedTaskRunGatewayId = selectedTask ? taskCodexGatewayId(selectedTask) || savedCodexSettings.gatewayId || '' : ''
   const selectedTaskRunModel = selectedTask ? taskCodexModel(selectedTask) || savedCodexSettings.defaultModel || '' : ''
+  const chatOperationFeedback: ChatOperationFeedbackData | null = codexPlanLaunching
+    ? { state: 'running', title: 'Planning with Codex', message: `Launching ${chatModel || selectedTaskRunModel || 'the selected model'} with the current task context.` }
+    : codexRunLaunching
+      ? { state: 'running', title: 'Running task with Codex', message: `Preparing the task workspace for ${chatModel || selectedTaskRunModel || 'the selected model'}.` }
+      : chatSending
+        ? { state: 'running', title: 'Sending message', message: `Starting ${chatModel || 'the selected model'} for this chat thread.` }
+        : chatStopping
+          ? { state: 'running', title: 'Stopping chat', message: 'Asking Codex to stop the active run.' }
+          : codexRunFeedback
+            ? {
+                state: codexRunFeedback.kind,
+                title: codexRunFeedback.kind === 'error' ? 'Action needs attention' : 'Operation started',
+                message: codexRunFeedback.message
+              }
+            : null
   const canRunSelectedTaskWithCodex = Boolean(selectedTaskExportContext && selectedTaskRunGatewayId && selectedTaskRunModel)
   const canPlanSelectedTaskWithCodex = Boolean(selectedTask && selectedTaskRunGatewayId && selectedTaskRunModel)
 
@@ -4236,11 +4278,7 @@ export function ProjectDetailPage() {
                     {selectedTask.title}
                   </button>
                 </section>
-                {codexRunFeedback ? (
-                  <section className={`${styles.codexRunFeedback} ${codexRunFeedback.kind === 'error' ? styles.codexRunFeedbackError : styles.codexRunFeedbackSuccess}`}>
-                    {codexRunFeedback.message}
-                  </section>
-                ) : null}
+                {chatOperationFeedback ? <ChatOperationFeedback feedback={chatOperationFeedback} /> : null}
 
                 <section className={styles.detailTop}>
                   <div className={styles.taskTypeRow}>
@@ -5642,13 +5680,26 @@ export function ProjectDetailPage() {
                 <main className={styles.chatMain}>
                   <header className={styles.chatTopbar}>
                     <div className={styles.chatTopbarTitle}>
+                      <span className={styles.chatTopbarEyebrow}>Task detail</span>
                       <h2>Chat</h2>
-                      <p>{selectedTask?.title ?? 'Task'}</p>
+                      <p title={selectedTask?.title ?? 'Task'}>{selectedTask?.title ?? 'Task'}</p>
                       <div className={styles.chatPillRow}>
-                        <span className={!chatGateway ? styles.chatPillWarning : ''}>{chatGateway?.name ?? 'Gateway required'}</span>
-                        <span className={!chatModel ? styles.chatPillWarning : ''}>{chatModel || 'Model required'}</span>
-                        <span>{chatGatewayConfig.executionMode === 'exec' ? 'Exec / Headless' : 'Terminal'}</span>
-                        <span>{chatRuntimeWorkspace?.name ?? savedCodexSettings.runtimeWorkspaceId ?? 'Workspace required'}</span>
+                        <span className={!chatGateway ? styles.chatPillWarning : ''}>
+                          <small>Gateway</small>
+                          <b title={chatGateway?.name ?? 'Gateway required'}>{chatGateway?.name ?? 'Gateway required'}</b>
+                        </span>
+                        <span className={!chatModel ? styles.chatPillWarning : ''}>
+                          <small>Model</small>
+                          <b title={chatModel || 'Model required'}>{chatModel || 'Model required'}</b>
+                        </span>
+                        <span>
+                          <small>Mode</small>
+                          <b>{chatGatewayConfig.executionMode === 'exec' ? 'Exec / Headless' : 'Terminal'}</b>
+                        </span>
+                        <span>
+                          <small>Workspace</small>
+                          <b title={chatRuntimeWorkspace?.name ?? savedCodexSettings.runtimeWorkspaceId ?? 'Workspace required'}>{chatRuntimeWorkspace?.name ?? savedCodexSettings.runtimeWorkspaceId ?? 'Workspace required'}</b>
+                        </span>
                       </div>
                     </div>
                     <div className={styles.chatTopbarActions}>
@@ -5785,7 +5836,7 @@ export function ProjectDetailPage() {
                     ) : null}
                   </div>
                   <footer className={styles.chatComposer}>
-                    {codexRunFeedback ? <p className={codexRunFeedback.kind === 'error' ? styles.chatError : styles.chatNotice}>{codexRunFeedback.message}</p> : null}
+                    {chatOperationFeedback ? <ChatOperationFeedback feedback={chatOperationFeedback} /> : null}
                     {chatAttachments.length > 0 ? (
                       <div className={styles.chatAttachmentChips}>
                         {chatAttachments.map((attachment) => (
