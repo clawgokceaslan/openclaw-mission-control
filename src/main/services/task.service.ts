@@ -550,7 +550,7 @@ async function cleanupOldPlannerRuns(runtimeWorkspacePath: string, maxAgeMs = 24
       try {
         const info = await stat(path)
         if (info.mtimeMs < cutoff) await rm(path, { recursive: true, force: true })
-      } catch {}
+      } catch { }
     }))
 }
 
@@ -572,7 +572,7 @@ export class TaskService {
     private readonly workspaces: WorkspaceRepository,
     private readonly gateways: GatewayRepository,
     private readonly eventBus?: EventEmitter
-  ) {}
+  ) { }
 
   private async findProjectOrg(projectId: string): Promise<string | undefined> {
     const project = await this.projects.get(projectId)
@@ -1073,7 +1073,7 @@ export class TaskService {
         '--add-dir', shellQuote(exportWorkspacePath),
         '--model', shellQuote(model),
         '--sandbox', 'workspace-write',
-        '--ask-for-approval', 'never',
+        '--dangerously-bypass-approvals-and-sandbox',
         '-c', shellQuote(codexTrustedProjectConfig(runtimeWorkspacePath)),
         '-c', shellQuote(codexTrustedProjectConfig(exportWorkspacePath)),
         shellQuote(prompt)
@@ -1216,15 +1216,15 @@ export class TaskService {
           const contextResponse = await this.plannerContext({ actorToken: context.actorToken, projectId: context.projectId, taskId: context.taskId })
           result = contextResponse.ok
             ? okResponse({
-                ...(contextResponse.data ?? {}),
-                omc: {
-                  mode: context.mode ?? 'plan',
-                  runId: context.runId ?? null,
-                  runtimeWorkspacePath: context.runtimeWorkspacePath ?? null,
-                  exportWorkspacePath: context.exportWorkspacePath ?? null,
-                  workspaceRunPath: context.workspaceRunPath ?? null
-                }
-              })
+              ...(contextResponse.data ?? {}),
+              omc: {
+                mode: context.mode ?? 'plan',
+                runId: context.runId ?? null,
+                runtimeWorkspacePath: context.runtimeWorkspacePath ?? null,
+                exportWorkspacePath: context.exportWorkspacePath ?? null,
+                workspaceRunPath: context.workspaceRunPath ?? null
+              }
+            })
             : contextResponse
         } else if (request.method === 'POST' && path === '/validate-task-json') {
           const body = await readRequestBody(request) as Record<string, unknown>
@@ -1404,7 +1404,7 @@ export class TaskService {
         '--cd', shellQuote(runtimeWorkspacePath),
         '--model', shellQuote(model),
         '--sandbox', 'workspace-write',
-        '--ask-for-approval', 'never',
+        '--dangerously-bypass-approvals-and-sandbox',
         '-c', shellQuote(codexTrustedProjectConfig(runtimeWorkspacePath)),
         shellQuote(prompt)
       ].join(' ')
