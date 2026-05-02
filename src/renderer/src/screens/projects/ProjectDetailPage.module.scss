@@ -1872,7 +1872,6 @@
 }
 
 .chatComposer {
-  border-top: 1px solid var(--omc-border-subtle);
   padding: 13px clamp(16px, 4vw, 54px);
   display: grid;
   gap: 8px;
@@ -1970,28 +1969,44 @@
 .chatComposerBox {
   width: min(1180px, 100%);
   margin: 0 auto;
-  border: 1px solid var(--omc-border);
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--omc-bg) 84%, var(--omc-surface) 16%);
+  border: 1px solid color-mix(in srgb, var(--omc-border) 62%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--omc-bg) 92%, var(--omc-surface) 8%);
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr) 42px;
   gap: 8px;
   align-items: end;
   padding: 10px;
-  box-shadow: var(--omc-shadow-soft);
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease;
+
+  &:focus-within {
+    border-color: color-mix(in srgb, var(--omc-primary) 42%, var(--omc-border));
+    background: color-mix(in srgb, var(--omc-bg) 88%, var(--omc-surface) 12%);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--omc-primary) 22%, transparent);
+  }
 
   textarea {
     width: 100%;
     min-height: 44px;
     max-height: 180px;
     resize: vertical;
-    border: 0;
-    border-radius: 12px;
-    background: transparent;
-    color: var(--omc-text-strong);
+    border: 0 !important;
+    border-radius: 10px;
+    background: transparent !important;
+    color: var(--omc-text-strong) !important;
     padding: 10px 8px;
     font: inherit;
-    outline: none;
+    outline: none !important;
+    box-shadow: none !important;
+
+    &:focus {
+      border: 0 !important;
+      background: transparent !important;
+      box-shadow: none !important;
+    }
   }
 
   button {
