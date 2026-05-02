@@ -5686,9 +5686,23 @@ export function ProjectDetailPage() {
                     </div>
                     {chatSettingsOpen ? (
                       <aside className={styles.chatSettingsPanel}>
-                        <h3>Run settings</h3>
-                        <label>
-                          Gateway
+                        <div className={styles.chatSettingsHeader}>
+                          <div>
+                            <span>Codex</span>
+                            <h3>Run settings</h3>
+                          </div>
+                          <button type="button" onClick={() => setChatSettingsOpen(false)} aria-label="Close run settings" title="Close">
+                            <LuX size={15} />
+                          </button>
+                        </div>
+                        <div className={styles.chatSettingsCard}>
+                          <div className={styles.chatSettingTitle}>
+                            <span><LuSignal size={14} /></span>
+                            <div>
+                              <b>Gateway</b>
+                              <small>{chatGateway?.name ?? 'Select a gateway'}</small>
+                            </div>
+                          </div>
                           <AppSelect
                             mode="single"
                             value={chatGatewayOption}
@@ -5700,9 +5714,15 @@ export function ProjectDetailPage() {
                             }}
                             placeholder="Select gateway"
                           />
-                        </label>
-                        <label>
-                          Model
+                        </div>
+                        <div className={styles.chatSettingsCard}>
+                          <div className={styles.chatSettingTitle}>
+                            <span><LuBot size={14} /></span>
+                            <div>
+                              <b>Model</b>
+                              <small>{chatModel || 'Select a model'}</small>
+                            </div>
+                          </div>
                           <AppSelect
                             mode="single"
                             value={chatModelOption}
@@ -5714,18 +5734,23 @@ export function ProjectDetailPage() {
                             placeholder="Select model"
                             isDisabled={!chatGatewayId}
                           />
-                        </label>
-                        <div className={styles.chatSettingReadout}>
-                          <span>Mode</span>
-                          <b>{chatGatewayConfig.executionMode === 'exec' ? 'Exec / Headless' : 'Terminal'}</b>
                         </div>
-                        <div className={styles.chatSettingReadout}>
-                          <span>Runtime workspace</span>
-                          <b>{chatRuntimeWorkspace?.name ?? savedCodexSettings.runtimeWorkspaceId ?? 'Not configured'}</b>
+                        <div className={styles.chatSettingsMetaGrid}>
+                          <div className={styles.chatSettingReadout}>
+                            <span>Mode</span>
+                            <b>{chatGatewayConfig.executionMode === 'exec' ? 'Exec' : 'Terminal'}</b>
+                          </div>
+                          <div className={styles.chatSettingReadout}>
+                            <span>Workspace</span>
+                            <b>{chatRuntimeWorkspace?.name ?? savedCodexSettings.runtimeWorkspaceId ?? 'Not configured'}</b>
+                          </div>
                         </div>
-                        <label className={styles.chatToggleRow}>
+                        <label className={styles.chatSettingsToggle}>
                           <input type="checkbox" checked={chatIncludeContext} onChange={(event) => setChatIncludeContext(event.target.checked)} />
-                          Include current task context
+                          <span>
+                            <b>Task context</b>
+                            <small>Include current task details in the next run.</small>
+                          </span>
                         </label>
                       </aside>
                     ) : null}

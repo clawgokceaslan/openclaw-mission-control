@@ -56,7 +56,36 @@ export function AppSelect(props: AppSelectProps) {
     }),
     menu: (base) => ({
       ...base,
-      minWidth: 'max(100%, 180px)'
+      minWidth: 'max(100%, 180px)',
+      marginTop: 6,
+      border: '1px solid var(--omc-border)',
+      borderRadius: 12,
+      overflow: 'hidden',
+      background: 'var(--omc-surface)',
+      boxShadow: 'var(--omc-shadow-raised)',
+      color: 'var(--omc-text)'
+    }),
+    menuList: (base) => ({
+      ...base,
+      padding: 6,
+      background: 'var(--omc-surface)'
+    }),
+    option: (base, state) => ({
+      ...base,
+      borderRadius: 8,
+      padding: '8px 10px',
+      backgroundColor: state.isSelected
+        ? 'var(--omc-primary)'
+        : state.isFocused
+          ? 'var(--omc-hover-bg)'
+          : 'var(--omc-surface)',
+      color: state.isSelected ? 'var(--omc-inverse-text)' : 'var(--omc-text)',
+      fontSize: '0.9rem',
+      fontWeight: 600,
+      cursor: 'pointer',
+      ':active': {
+        backgroundColor: state.isSelected ? 'var(--omc-primary)' : 'var(--omc-active-bg)'
+      }
     }),
     multiValue: (base, state) => {
       const color = state.data.color
