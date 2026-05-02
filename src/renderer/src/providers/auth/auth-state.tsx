@@ -1,13 +1,14 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { ErrorCodes } from '@shared/contracts/error-codes'
-import { invokeBridge, setSessionToken, getSessionToken, clearSessionToken } from '@renderer/utils/api'
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'react'
+import { useAppDispatch, useAppSelector } from '@renderer/store/hooks'
+import { clearSessionToken, getSessionToken } from '@renderer/utils/api'
 import type { Session, User } from '@shared/types/entities'
-import { IPC_CHANNELS } from '@shared/contracts/ipc'
-
-const DEFAULT_BOOTSTRAP_USER = {
-  email: 'owner@mission.local',
-  password: 'changeme'
-}
+import {
+  loginAuth,
+  logoutAuth,
+  refreshAuth,
+  setToken as setAuthToken,
+  updateProfile as updateProfileThunk
+} from '@renderer/store/slices/authSlice'
 
 interface AuthContextValue {
   user: User | null
@@ -21,121 +22,59 @@ interface AuthContextValue {
   refresh: () => Promise<void>
 }
 
-const AuthContext = createContext<AuthContextValue | null>(null)
+const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [session, setSession] = useState<Session | null>(null)
-  const [initialized, setInitialized] = useState(false)
-  const [token, setTokenState] = useState<string | null>(getSessionToken())
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-
-  const refresh = async () => {
-    const runBootstrapLogin = async () => {
-      const bootstrapResult = await invokeBridge<{ user: User; session: Session }>(IPC_CHANNELS.auth.login, {
-        email: DEFAULT_BOOTSTRAP_USER.email,
-        password: DEFAULT_BOOTSTRAP_USER.password
-      })
-
-      if (!bootstrapResult.ok || !bootstrapResult.data) {
-        if (bootstrapResult.error?.code === ErrorCodes.GatewayUnavailable) {
-          setErrorMessage(bootstrapResult.error.message)
-        } else {
-          setErrorMessage(bootstrapResult.error?.message ?? 'Bootstrap login failed')
-        }
-        setUser(null)
-        setSession(null)
-        setInitialized(true)
-        return false
-      }
-
-      const bootstrapData = bootstrapResult.data as { user: User; session: Session }
-      setSession(bootstrapData.session)
-      setUser(bootstrapData.user)
-      setTokenState(bootstrapData.session.token)
-      setSessionToken(bootstrapData.session.token)
-      setErrorMessage(null)
-      setInitialized(true)
-      return true
-    }
-
-    try {
-      if (!token) {
-        const bootstrapped = await runBootstrapLogin()
-        if (bootstrapped) {
-          return
-        }
-        return
-      }
-
-      const response = await invokeBridge('auth:me', { actorToken: token })
-      if (response.ok && response.data) {
-        const data = response.data as { user: User; session: Session }
-        setUser(data.user)
-        setSession(data.session)
-        setErrorMessage(null)
-        return
-      }
-
-      setErrorMessage(response.error?.message ?? 'Session not valid')
-      setUser(null)
-      setSession(null)
-      setTokenState(null)
-      clearSessionToken()
-      await runBootstrapLogin()
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Auth bootstrap failed')
-      setUser(null)
-      setSession(null)
-      setTokenState(null)
-      clearSessionToken()
-    } finally {
-      setInitialized(true)
-    }
-  }
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const dispatch = useAppDispatch()
+  const { user, session, initialized, token, errorMessage } = useAppSelector((state) => state.auth)
 
   useEffect(() => {
-    void refresh()
-  }, [token])
+    void dispatch(refreshAuth())
+      .unwrap()
+      .catch(() => {
+        // Auth bootstrap errors are surfaced through context.
+      })
+  }, [dispatch])
+
+  useEffect(() => {
+    const persistedToken = getSessionToken()
+    if (persistedToken && persistedToken !== token) {
+      dispatch(setAuthToken(persistedToken))
+      void dispatch(refreshAuth())
+    }
+  }, [dispatch, token])
 
   const login = async (email: string, password: string) => {
-    const response = await invokeBridge('auth:login', { email, password })
-    if (!response.ok || !response.data) {
-      return { ok: false, message: response.error?.message || 'Login failed' }
+    try {
+      await dispatch(loginAuth({ email, password })).unwrap()
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Login failed' }
     }
-    const data = response.data as { user: User; session: Session }
-    setSession(data.session)
-    setUser(data.user)
-    setTokenState(data.session.token)
-    setSessionToken(data.session.token)
-    return { ok: true }
   }
 
-  const updateProfile = async (firstName: string, lastName: string, options?: { email?: string; role?: User['role'] }) => {
-    const response = await invokeBridge(IPC_CHANNELS.auth.updateProfile, {
-      actorToken: token,
-      firstName,
-      lastName,
-      email: options?.email,
-      role: options?.role
-    })
-    if (!response.ok || !response.data) {
-      return { ok: false, message: response.error?.message || 'Profile update failed' }
+  const updateProfile = async (
+    firstName: string,
+    lastName: string,
+    options?: { email?: string; role?: User['role'] }
+  ) => {
+    try {
+      await dispatch(updateProfileThunk({ firstName, lastName, options })).unwrap()
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Profile update failed' }
     }
-    const data = response.data as { user: User; session: Session }
-    setUser(data.user)
-    setSession(data.session)
-    return { ok: true }
   }
 
   const logout = async () => {
-    if (token) {
-      await invokeBridge('auth:logout', { actorToken: token })
-    }
-    setUser(null)
-    setSession(null)
-    setTokenState(null)
+    await dispatch(logoutAuth())
+      .unwrap()
+      .catch(() => undefined)
     clearSessionToken()
+  }
+
+  const refresh = async () => {
+    await dispatch(refreshAuth()).unwrap().catch(() => undefined)
   }
 
   const value = useMemo(
@@ -156,8 +95,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
-export function useAuth() {
+export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext)
-  if (!context) throw new Error('useAuth must be used inside AuthProvider')
+  if (!context) {
+    throw new Error('useAuth must be used inside AuthProvider')
+  }
   return context
 }

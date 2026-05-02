@@ -3,8 +3,10 @@ import { useEffect, type ReactNode, useState } from 'react'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { AppNavigateEvent } from '@shared/contracts/ipc'
+import { Provider } from 'react-redux'
 import { AuthProvider, useAuth } from '@renderer/providers/auth/auth-state'
 import { ThemeProvider } from '@renderer/providers/theme/theme-state'
+import { store } from '@renderer/store'
 import { subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { ProtectedRoute } from '@renderer/components/routes/ProtectedRoute'
 import { AppShell } from '@renderer/layout/AppShell'
@@ -200,12 +202,14 @@ function AppRouter() {
 
 export function App() {
   return (
-    <BrowserRouter>
-      <ThemeProvider>
-        <AuthProvider>
-          <AppRouter />
-        </AuthProvider>
-      </ThemeProvider>
-    </BrowserRouter>
+    <Provider store={store}>
+      <BrowserRouter>
+        <ThemeProvider>
+          <AuthProvider>
+            <AppRouter />
+          </AuthProvider>
+        </ThemeProvider>
+      </BrowserRouter>
+    </Provider>
   )
 }

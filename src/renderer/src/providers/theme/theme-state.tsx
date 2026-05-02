@@ -1,9 +1,16 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, type ReactNode } from 'react'
+import { useAppDispatch, useAppSelector } from '@renderer/store/hooks'
+import {
+  type ThemeBackgroundId,
+  type ThemeMode,
+  type ThemePaletteId,
+  setBackgroundId,
+  setMode,
+  setPaletteId,
+  setSystemMode
+} from '@renderer/store/slices/themeSlice'
 
-export type ThemeMode = 'system' | 'light' | 'dark'
 export type ResolvedThemeMode = 'light' | 'dark'
-export type ThemePaletteId = 'blue' | 'emerald' | 'violet' | 'amber' | 'rose'
-export type ThemeBackgroundId = 'default' | 'soft-grid' | 'radial' | 'paper' | 'midnight'
 
 type ThemeTokens = Record<string, string>
 
@@ -167,7 +174,13 @@ const baseDark: ThemeTokens = {
   shadowRaised: '0 18px 42px rgba(0, 0, 0, 0.38)'
 }
 
-function palette(primary: string, primaryStrong: string, accent: string, id: ThemePaletteId, name: string): ThemePalette {
+function palette(
+  primary: string,
+  primaryStrong: string,
+  accent: string,
+  id: ThemePaletteId,
+  name: string
+): ThemePalette {
   return {
     id,
     name,
@@ -243,18 +256,6 @@ export const THEME_BACKGROUNDS: ThemeBackground[] = [
 
 const ThemeContext = createContext<ThemeContextValue | null>(null)
 
-function isThemeMode(value: string | null): value is ThemeMode {
-  return value === 'system' || value === 'light' || value === 'dark'
-}
-
-function isPaletteId(value: string | null): value is ThemePaletteId {
-  return THEME_PALETTES.some((paletteItem) => paletteItem.id === value)
-}
-
-function isBackgroundId(value: string | null): value is ThemeBackgroundId {
-  return THEME_BACKGROUNDS.some((background) => background.id === value)
-}
-
 function getSystemMode(): ResolvedThemeMode {
   if (typeof window === 'undefined') return 'light'
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
@@ -276,40 +277,37 @@ function applyTheme(mode: ThemeMode, resolvedMode: ResolvedThemeMode, paletteIte
   root.style.setProperty('--omc-background-size', background.id === 'soft-grid' ? '24px 24px' : 'auto')
 }
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [systemMode, setSystemMode] = useState<ResolvedThemeMode>(() => getSystemMode())
-  const [mode, setModeState] = useState<ThemeMode>(() => {
-    if (typeof window === 'undefined') return 'system'
-    const saved = window.localStorage.getItem(THEME_MODE_KEY)
-    return isThemeMode(saved) ? saved : 'system'
-  })
-  const [paletteId, setPaletteIdState] = useState<ThemePaletteId>(() => {
-    if (typeof window === 'undefined') return 'blue'
-    const saved = window.localStorage.getItem(THEME_PALETTE_KEY)
-    return isPaletteId(saved) ? saved : 'blue'
-  })
-  const [backgroundId, setBackgroundIdState] = useState<ThemeBackgroundId>(() => {
-    if (typeof window === 'undefined') return 'default'
-    const saved = window.localStorage.getItem(THEME_BACKGROUND_KEY)
-    return isBackgroundId(saved) ? saved : 'default'
-  })
+function isThemeMode(value: string | null): value is ThemeMode {
+  return value === 'system' || value === 'light' || value === 'dark'
+}
 
+function isPaletteId(value: string | null): value is ThemePaletteId {
+  return THEME_PALETTES.some((paletteItem) => paletteItem.id === value)
+}
+
+function isBackgroundId(value: string | null): value is ThemeBackgroundId {
+  return THEME_BACKGROUNDS.some((background) => background.id === value)
+}
+
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const dispatch = useAppDispatch()
+  const { mode, paletteId, backgroundId, systemMode } = useAppSelector((state) => state.theme)
   const resolvedMode = mode === 'system' ? systemMode : mode
   const activePalette = THEME_PALETTES.find((paletteItem) => paletteItem.id === paletteId) ?? THEME_PALETTES[0]
   const activeBackground = THEME_BACKGROUNDS.find((background) => background.id === backgroundId) ?? THEME_BACKGROUNDS[0]
 
-  useEffect(() => {
-    const media = window.matchMedia?.('(prefers-color-scheme: dark)')
-    if (!media) return
-    const updateSystemMode = () => setSystemMode(media.matches ? 'dark' : 'light')
-    updateSystemMode()
-    media.addEventListener?.('change', updateSystemMode)
-    return () => media.removeEventListener?.('change', updateSystemMode)
-  }, [])
-
   useLayoutEffect(() => {
     applyTheme(mode, resolvedMode, activePalette, activeBackground)
   }, [activeBackground, activePalette, mode, resolvedMode])
+
+  useEffect(() => {
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)')
+    if (!media) return
+    const updateSystemMode = () => dispatch(setSystemMode(media.matches ? 'dark' : 'light'))
+    updateSystemMode()
+    media.addEventListener?.('change', updateSystemMode)
+    return () => media.removeEventListener?.('change', updateSystemMode)
+  }, [dispatch])
 
   const value = useMemo<ThemeContextValue>(() => ({
     mode,
@@ -319,18 +317,24 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     palettes: THEME_PALETTES,
     backgrounds: THEME_BACKGROUNDS,
     setMode: (nextMode) => {
-      setModeState(nextMode)
-      window.localStorage.setItem(THEME_MODE_KEY, nextMode)
+      dispatch(setMode(nextMode))
+      if (typeof window !== 'undefined' && isThemeMode(nextMode)) {
+        window.localStorage.setItem(THEME_MODE_KEY, nextMode)
+      }
     },
     setPaletteId: (nextPaletteId) => {
-      setPaletteIdState(nextPaletteId)
-      window.localStorage.setItem(THEME_PALETTE_KEY, nextPaletteId)
+      dispatch(setPaletteId(nextPaletteId))
+      if (typeof window !== 'undefined' && isPaletteId(nextPaletteId)) {
+        window.localStorage.setItem(THEME_PALETTE_KEY, nextPaletteId)
+      }
     },
     setBackgroundId: (nextBackgroundId) => {
-      setBackgroundIdState(nextBackgroundId)
-      window.localStorage.setItem(THEME_BACKGROUND_KEY, nextBackgroundId)
+      dispatch(setBackgroundId(nextBackgroundId))
+      if (typeof window !== 'undefined' && isBackgroundId(nextBackgroundId)) {
+        window.localStorage.setItem(THEME_BACKGROUND_KEY, nextBackgroundId)
+      }
     }
-  }), [backgroundId, mode, paletteId, resolvedMode])
+  }), [mode, resolvedMode, paletteId, backgroundId, activeBackground.id, activePalette.id, dispatch])
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
 }
@@ -340,3 +344,5 @@ export function useTheme() {
   if (!context) throw new Error('useTheme must be used inside ThemeProvider')
   return context
 }
+
+export type { ThemeBackgroundId, ThemeMode, ThemePaletteId }
