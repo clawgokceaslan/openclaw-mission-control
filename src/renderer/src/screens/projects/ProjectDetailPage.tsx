@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   LuCheck,
@@ -119,6 +119,14 @@ function resizeTitleTextarea(element: HTMLTextAreaElement | null) {
   if (!element) return
   element.style.height = 'auto'
   element.style.height = `${element.scrollHeight}px`
+}
+
+function resizeChatComposerTextarea(element: HTMLTextAreaElement | null) {
+  if (!element) return
+  element.style.height = 'auto'
+  const nextHeight = Math.min(CHAT_COMPOSER_MAX_HEIGHT, Math.max(CHAT_COMPOSER_MIN_HEIGHT, element.scrollHeight))
+  element.style.height = `${nextHeight}px`
+  element.scrollTop = element.scrollHeight
 }
 
 function slugPart(value: string | undefined, fallback: string): string {
@@ -408,6 +416,8 @@ const chatMessageRoles = new Set<ChatMessageRole>(['user', 'assistant', 'tool', 
 const chatMessageStatuses = new Set<ChatMessageStatus>(['queued', 'running', 'completed', 'failed'])
 const CHAT_INITIAL_MESSAGE_LIMIT = 80
 const CHAT_MESSAGE_LOAD_STEP = 80
+const CHAT_COMPOSER_MIN_HEIGHT = 72
+const CHAT_COMPOSER_MAX_HEIGHT = 270
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
@@ -546,6 +556,76 @@ function roleLabel(role: ChatMessageRole): string {
   if (role === 'thinking') return 'Thinking'
   return role
 }
+
+type CodexChatMessageItemProps = {
+  message: TaskActivityMessage
+}
+
+const CodexChatMessageItem = memo(function CodexChatMessageItem({ message }: CodexChatMessageItemProps) {
+  const usage = usageFromMetadata(message.metadata)
+  const toolBody = useMemo(() => (
+    message.role === 'tool' ? formatCodexToolBody(message.body) : ''
+  ), [message.body, message.role])
+  const metadataBody = useMemo(() => (
+    message.metadata && Object.keys(message.metadata).length > 0 ? formatJsonMetadata(message.metadata) : ''
+  ), [message.metadata])
+
+  return (
+    <article className={`${styles.chatMessage} ${styles[`chatRole_${message.role}`] ?? ''}`}>
+      <div className={styles.chatMessageHeader}>
+        <span className={styles.chatRoleGlyph} aria-hidden="true">
+          {message.role === 'assistant' ? <LuBot size={14} /> : null}
+          {message.role === 'user' ? <LuMessageSquare size={14} /> : null}
+          {message.role === 'tool' || message.role === 'system' ? <LuTerminal size={14} /> : null}
+          {message.role === 'thinking' ? (message.status === 'running' ? <LuSparkles size={14} /> : <LuCircleCheck size={14} />) : null}
+          {message.role === 'error' ? <LuX size={14} /> : null}
+        </span>
+        <span className={styles.chatMessageKicker}>{roleLabel(message.role)}</span>
+        <span className={styles.chatMessageMeta}>{message.status ?? message.source} · {formatChatTime(message.createdAt)}</span>
+        {usage ? <span className={styles.chatMessageMeta}>{formatUsageSummary(usage)}</span> : null}
+      </div>
+      <div className={styles.chatMessageBody}>
+        {message.role === 'thinking' ? (
+          <div className={styles.chatThinkingBlock}>
+            <span className={styles.chatThinkingLine}>
+              {message.status === 'running' ? (
+                <>Thinking <span className={styles.thinkingDots}><i /><i /><i /></span></>
+              ) : (
+                <><LuCircleCheck size={15} /> Thinking complete</>
+              )}
+            </span>
+            {message.body.trim() ? <div className={styles.chatThinkingText}>{renderMarkdownLite(message.body)}</div> : null}
+          </div>
+        ) : null}
+        {message.role === 'tool' ? (
+          <details className={styles.codexDetails} open>
+            <summary><LuTerminal size={14} /> Tool / command output</summary>
+            <div>{renderMarkdownLite(toolBody)}</div>
+          </details>
+        ) : message.role !== 'thinking' ? (
+          renderMarkdownLite(message.body)
+        ) : null}
+      </div>
+      {metadataBody && message.role !== 'tool' ? (
+        <details className={styles.codexDetails}>
+          <summary>Details</summary>
+          <pre>{metadataBody}</pre>
+        </details>
+      ) : null}
+      {message.body.trim() ? (
+        <button
+          type="button"
+          className={styles.copyMessageButton}
+          onClick={() => void navigator.clipboard?.writeText(message.body)}
+          aria-label="Copy message"
+          title="Copy message"
+        >
+          <LuCopy size={13} />
+        </button>
+      ) : null}
+    </article>
+  )
+})
 
 function parseHistoryPatch(item: TaskHistoryItem, index: number): ThreadEntry {
   const baseId = `history-${item.at}-${index}`
@@ -751,6 +831,7 @@ export function ProjectDetailPage() {
   const modalBodyRef = useRef<HTMLDivElement | null>(null)
   const activityFeedRef = useRef<HTMLDivElement | null>(null)
   const chatFileInputRef = useRef<HTMLInputElement | null>(null)
+  const chatDraftTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const subtaskStatusMenuRef = useRef<HTMLDivElement | null>(null)
   const subtaskClickTimerRef = useRef<number | null>(null)
   const keepActivityBottomRef = useRef(true)
@@ -1573,6 +1654,10 @@ export function ProjectDetailPage() {
   useEffect(() => {
     setSlashCommandIndex(0)
   }, [slashQuery, slashMenuOpen])
+
+  useEffect(() => {
+    resizeChatComposerTextarea(chatDraftTextareaRef.current)
+  }, [chatDraft, chatAttachments.length, isActivityModalOpen])
 
   useEffect(() => {
     setChatVisibleLimit(CHAT_INITIAL_MESSAGE_LIMIT)
@@ -5585,67 +5670,7 @@ export function ProjectDetailPage() {
                           ) : null}
                           {renderedChatMessages
                             .filter((message) => !(message.role === 'system' && /^Started Codex/i.test(message.body)))
-                            .map((message) => {
-                              const usage = usageFromMetadata(message.metadata)
-                              return (
-                                <article
-                                  key={message.id}
-                                  className={`${styles.chatMessage} ${styles[`chatRole_${message.role}`] ?? ''}`}
-                                >
-                                  <div className={styles.chatMessageHeader}>
-                                    <span className={styles.chatRoleGlyph} aria-hidden="true">
-                                      {message.role === 'assistant' ? <LuBot size={14} /> : null}
-                                      {message.role === 'user' ? <LuMessageSquare size={14} /> : null}
-                                      {message.role === 'tool' || message.role === 'system' ? <LuTerminal size={14} /> : null}
-                                      {message.role === 'thinking' ? (message.status === 'running' ? <LuSparkles size={14} /> : <LuCircleCheck size={14} />) : null}
-                                      {message.role === 'error' ? <LuX size={14} /> : null}
-                                    </span>
-                                    <span className={styles.chatMessageKicker}>{roleLabel(message.role)}</span>
-                                    <span className={styles.chatMessageMeta}>{message.status ?? message.source} · {formatChatTime(message.createdAt)}</span>
-                                    {usage ? <span className={styles.chatMessageMeta}>{formatUsageSummary(usage)}</span> : null}
-                                  </div>
-                                  <div className={styles.chatMessageBody}>
-                                    {message.role === 'thinking' ? (
-                                      <div className={styles.chatThinkingBlock}>
-                                        <span className={styles.chatThinkingLine}>
-                                          {message.status === 'running' ? (
-                                            <>Thinking <span className={styles.thinkingDots}><i /><i /><i /></span></>
-                                          ) : (
-                                            <><LuCircleCheck size={15} /> Thinking complete</>
-                                          )}
-                                        </span>
-                                        {message.body.trim() ? <div className={styles.chatThinkingText}>{renderMarkdownLite(message.body)}</div> : null}
-                                      </div>
-                                    ) : null}
-                                    {message.role === 'tool' ? (
-                                      <details className={styles.codexDetails} open>
-                                        <summary><LuTerminal size={14} /> Tool / command output</summary>
-                                        <div>{renderMarkdownLite(formatCodexToolBody(message.body))}</div>
-                                      </details>
-                                    ) : message.role !== 'thinking' ? (
-                                      renderMarkdownLite(message.body)
-                                    ) : null}
-                                  </div>
-                                  {message.metadata && Object.keys(message.metadata).length > 0 && message.role !== 'tool' ? (
-                                    <details className={styles.codexDetails}>
-                                      <summary>Details</summary>
-                                      <pre>{formatJsonMetadata(message.metadata)}</pre>
-                                    </details>
-                                  ) : null}
-                                  {message.body.trim() ? (
-                                    <button
-                                      type="button"
-                                      className={styles.copyMessageButton}
-                                      onClick={() => void navigator.clipboard?.writeText(message.body)}
-                                      aria-label="Copy message"
-                                      title="Copy message"
-                                    >
-                                      <LuCopy size={13} />
-                                    </button>
-                                  ) : null}
-                                </article>
-                              )
-                            })}
+                            .map((message) => <CodexChatMessageItem key={message.id} message={message} />)}
                         </div>
                       ) : (
                         <div className={styles.chatEmptyState}>
@@ -5708,13 +5733,6 @@ export function ProjectDetailPage() {
                   </div>
                   <footer className={styles.chatComposer}>
                     {codexRunFeedback ? <p className={codexRunFeedback.kind === 'error' ? styles.chatError : styles.chatNotice}>{codexRunFeedback.message}</p> : null}
-                    <div className={styles.chatComposerTools}>
-                      <div className={styles.chatModeToggle} role="group" aria-label="Chat mode">
-                        <button type="button" className={chatComposerMode === 'chat' && !isPlanDraft ? styles.chatModeActive : ''} onClick={() => setChatComposerMode('chat')}>Chat</button>
-                        <button type="button" className={chatComposerMode === 'steer' && !isPlanDraft ? styles.chatModeActive : ''} onClick={() => setChatComposerMode('steer')}>Steer</button>
-                      </div>
-                      <span>{effectiveChatMode === 'plan' ? 'Plan mode' : effectiveChatMode === 'steer' ? 'Steering selected conversation' : 'Continue chat'}</span>
-                    </div>
                     {chatAttachments.length > 0 ? (
                       <div className={styles.chatAttachmentChips}>
                         {chatAttachments.map((attachment) => (
@@ -5742,8 +5760,12 @@ export function ProjectDetailPage() {
                         }}
                       />
                       <textarea
+                        ref={chatDraftTextareaRef}
                         value={chatDraft}
-                        onChange={(event) => setChatDraft(event.target.value)}
+                        onChange={(event) => {
+                          setChatDraft(event.target.value)
+                          resizeChatComposerTextarea(event.currentTarget)
+                        }}
                         onFocus={() => setChatComposerFocused(true)}
                         onBlur={() => setChatComposerFocused(false)}
                         placeholder="Message Codex or type / for commands..."
@@ -5807,9 +5829,6 @@ export function ProjectDetailPage() {
                         ))}
                       </div>
                     ) : null}
-                    <div className={styles.chatComposerMeta}>
-                      <span>{chatGatewayConfig.executionMode === 'exec' ? 'Headless exec' : 'External terminal'} · Shift+Enter for newline</span>
-                    </div>
                   </footer>
                 </main>
               </section>

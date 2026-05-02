@@ -1988,29 +1988,15 @@
 }
 
 .chatComposer {
-  padding: 10px clamp(12px, 3vw, 36px) 14px;
+  padding: 8px clamp(12px, 3vw, 36px) 12px;
   display: grid;
-  gap: 7px;
+  gap: 6px;
   background: var(--omc-bg);
 }
 
-.chatComposerTools,
 .chatAttachmentChips {
   width: var(--chat-content-width);
   margin: 0 auto;
-}
-
-.chatComposerTools {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-
-  > span {
-    color: var(--omc-text-muted);
-    font-size: 0.78rem;
-    font-weight: 750;
-  }
 }
 
 .chatModeToggle {
@@ -2099,8 +2085,8 @@
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr) 40px;
   gap: 6px;
-  align-items: center;
-  padding: 9px;
+  align-items: end;
+  padding: 8px;
   transition:
     border-color 140ms ease,
     background 140ms ease,
@@ -2114,8 +2100,8 @@
 
   textarea {
     width: 100%;
-    min-height: 48px;
-    max-height: 180px;
+    min-height: 72px;
+    max-height: 270px;
     resize: none;
     overflow-y: auto;
     scrollbar-width: none;
@@ -2123,7 +2109,7 @@
     border-radius: 10px;
     background: transparent !important;
     color: var(--omc-text-strong) !important;
-    padding: 12px 6px;
+    padding: 8px 6px;
     font: inherit;
     outline: none !important;
     box-shadow: none !important;
@@ -2215,19 +2201,6 @@
   &:hover {
     color: var(--omc-text-strong) !important;
     background: var(--omc-hover-bg) !important;
-  }
-}
-
-.chatComposerMeta {
-  width: var(--chat-content-width);
-  margin: 0 auto;
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-
-  span {
-    color: var(--omc-text-muted);
-    font-size: 0.8rem;
   }
 }
 
