@@ -5566,9 +5566,16 @@ export function ProjectDetailPage() {
                                   className={`${styles.chatMessage} ${styles[`chatRole_${message.role}`] ?? ''}`}
                                 >
                                   <div className={styles.chatMessageHeader}>
-                                    <span>{roleLabel(message.role)}</span>
-                                    <span>{message.status ?? message.source} · {formatChatTime(message.createdAt)}</span>
-                                    {usage ? <span>{formatUsageSummary(usage)}</span> : null}
+                                    <span className={styles.chatRoleGlyph} aria-hidden="true">
+                                      {message.role === 'assistant' ? <LuBot size={14} /> : null}
+                                      {message.role === 'user' ? <LuMessageSquare size={14} /> : null}
+                                      {message.role === 'tool' || message.role === 'system' ? <LuTerminal size={14} /> : null}
+                                      {message.role === 'thinking' ? (message.status === 'running' ? <LuSparkles size={14} /> : <LuCircleCheck size={14} />) : null}
+                                      {message.role === 'error' ? <LuX size={14} /> : null}
+                                    </span>
+                                    <span className={styles.chatMessageKicker}>{roleLabel(message.role)}</span>
+                                    <span className={styles.chatMessageMeta}>{message.status ?? message.source} · {formatChatTime(message.createdAt)}</span>
+                                    {usage ? <span className={styles.chatMessageMeta}>{formatUsageSummary(usage)}</span> : null}
                                   </div>
                                   <div className={styles.chatMessageBody}>
                                     {message.role === 'thinking' ? (
