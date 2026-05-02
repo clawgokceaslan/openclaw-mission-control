@@ -197,6 +197,10 @@
   overflow: hidden;
 }
 
+.createTaskModal.projectSettingsModal {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
 .projectSettingsHeader {
   min-height: 68px;
   border-bottom: 1px solid var(--omc-border-subtle);
