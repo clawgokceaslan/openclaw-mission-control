@@ -198,22 +198,24 @@ export function CreateTaskModal({ open, project, projects = [], selectedProjectI
           </div>
         </form>
       </section>
-      <TaskJsonImportModal
-        open={isImportOpen}
-        title="Import task JSON"
-        busy={busy}
-        onClose={() => setIsImportOpen(false)}
-        onImport={(jsonText) => {
-          const preview = parseTaskJsonImportPreview(jsonText)
-          setTitle(preview.title)
-          setDescription(preview.description)
-          setSelectedTemplate(null)
-          setSelectedTags([])
-          setSelectedAgent(null)
-          setImportJson(jsonText)
-          setIsImportOpen(false)
-        }}
-      />
+      {isImportOpen ? (
+        <TaskJsonImportModal
+          open
+          title="Import task JSON"
+          busy={busy}
+          onClose={() => setIsImportOpen(false)}
+          onImport={(jsonText) => {
+            const preview = parseTaskJsonImportPreview(jsonText)
+            setTitle(preview.title)
+            setDescription(preview.description)
+            setSelectedTemplate(null)
+            setSelectedTags([])
+            setSelectedAgent(null)
+            setImportJson(jsonText)
+            setIsImportOpen(false)
+          }}
+        />
+      ) : null}
     </>
   )
 }

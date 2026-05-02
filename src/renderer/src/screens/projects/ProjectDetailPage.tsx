@@ -1017,7 +1017,10 @@ export function ProjectDetailPage() {
       .map((field) => ({ value: field.id, label: field.name }))
   }, [customFields, selectedSubtask])
 
-  const chatActivityMessages = useMemo(() => selectedTask ? activityMessagesFromTask(selectedTask) : [], [selectedTask])
+  const isChatModalMounted = Boolean(selectedTask && isActivityModalOpen)
+  const chatActivityMessages = useMemo(() => (
+    isChatModalMounted && selectedTask ? activityMessagesFromTask(selectedTask) : []
+  ), [isChatModalMounted, selectedTask])
   const chatConversations = useMemo(() => {
     const grouped = new Map<string, ChatConversationSummary>()
     for (const message of chatActivityMessages) {
@@ -1046,6 +1049,7 @@ export function ProjectDetailPage() {
     return ids
   }, [chatConversations])
   useEffect(() => {
+    if (!isChatModalMounted) return
     if (chatConversations.length === 0) {
       if (selectedChatConversationId) setSelectedChatConversationId('')
       return
@@ -1054,7 +1058,7 @@ export function ProjectDetailPage() {
     if (!chatConversations.some((conversation) => conversation.id === selectedChatConversationId)) {
       setSelectedChatConversationId(chatConversations[0].id)
     }
-  }, [chatConversations, isStartingNewChat, selectedChatConversationId])
+  }, [chatConversations, isChatModalMounted, isStartingNewChat, selectedChatConversationId])
   const sidebarChatConversations = useMemo(() => {
     if (chatConversations.length <= 30) return chatConversations
     const selected = chatConversations.find((conversation) => conversation.id === selectedChatConversationId)
@@ -1080,7 +1084,7 @@ export function ProjectDetailPage() {
       : visibleChatMessages
   ), [chatVisibleLimit, visibleChatMessages])
   const hiddenChatMessageCount = Math.max(0, visibleChatMessages.length - renderedChatMessages.length)
-  const chatHistoryCount = (selectedTask?.comments?.length ?? 0) + history.length + localActivityEntries.length
+  const chatHistoryCount = isChatModalMounted ? (selectedTask?.comments?.length ?? 0) + history.length + localActivityEntries.length : 0
   const isPlanDraft = chatDraft.trim().toLowerCase().startsWith('/plan')
   const effectiveChatMode: 'chat' | 'plan' | 'steer' = isPlanDraft ? 'plan' : chatComposerMode
   const canSendChat = Boolean(chatDraft.trim() || chatAttachments.length > 0)
@@ -1100,7 +1104,7 @@ export function ProjectDetailPage() {
     }
     return undefined
   }, [visibleChatMessages])
-  const taskContextSkills = selectedTask?.skills ?? []
+  const taskContextSkills = isChatModalMounted ? selectedTask?.skills ?? [] : []
   const slashCommands = useMemo<SlashCommand[]>(() => [
     { id: 'plan', label: '/plan', hint: 'Draft a plan in this chat' },
     { id: 'run', label: '/run', hint: 'Start a Codex run for the task' },
@@ -1117,16 +1121,19 @@ export function ProjectDetailPage() {
     .slice(0, 6), [slashCommands, slashQuery])
 
   useEffect(() => {
+    if (!isChatModalMounted) return
     setSlashCommandIndex(0)
-  }, [slashQuery, slashMenuOpen])
+  }, [isChatModalMounted, slashQuery, slashMenuOpen])
 
   useEffect(() => {
+    if (!isChatModalMounted) return
     resizeChatComposerTextarea(chatDraftTextareaRef.current)
-  }, [chatDraft, chatAttachments.length, isActivityModalOpen])
+  }, [chatDraft, chatAttachments.length, isChatModalMounted])
 
   useEffect(() => {
+    if (!isChatModalMounted) return
     setChatVisibleLimit(CHAT_INITIAL_MESSAGE_LIMIT)
-  }, [selectedChatConversationId, selectedTask?.id])
+  }, [isChatModalMounted, selectedChatConversationId, selectedTask?.id])
 
   useEffect(() => {
     setIsStartingNewChat(false)
@@ -3028,37 +3035,41 @@ export function ProjectDetailPage() {
 
       {renderActiveView()}
 
-      <CreateTaskModal
-        open={isCreateTaskOpen}
-        project={project}
-        tags={tags}
-        agents={agents}
-        templates={taskTemplates}
-        statusColumns={statusColumns}
-        defaultStatus={createTaskStatus}
-        initialTitle={createTaskInitialTitle}
-        initialTemplateId={createTaskInitialTemplateId}
-        busy={busy}
-        onClose={() => {
-          setIsCreateTaskOpen(false)
-          setCreateTaskInitialTitle('')
-          setCreateTaskInitialTemplateId(null)
-        }}
-        onCreate={(input) => void handleCreateTask({ ...input, projectId: projectId ?? input.projectId })}
-      />
+      {isCreateTaskOpen ? (
+        <CreateTaskModal
+          open
+          project={project}
+          tags={tags}
+          agents={agents}
+          templates={taskTemplates}
+          statusColumns={statusColumns}
+          defaultStatus={createTaskStatus}
+          initialTitle={createTaskInitialTitle}
+          initialTemplateId={createTaskInitialTemplateId}
+          busy={busy}
+          onClose={() => {
+            setIsCreateTaskOpen(false)
+            setCreateTaskInitialTitle('')
+            setCreateTaskInitialTemplateId(null)
+          }}
+          onCreate={(input) => void handleCreateTask({ ...input, projectId: projectId ?? input.projectId })}
+        />
+      ) : null}
 
-      <AddSubtaskModal
-        open={Boolean(selectedTask && isAddSubtaskOpen)}
-        projectName={project.name}
-        taskTitle={selectedTask?.title ?? ''}
-        agents={agents}
-        statusColumns={statusColumns}
-        defaultStatus={defaultStatus}
-        busy={busy}
-        onClose={() => setIsAddSubtaskOpen(false)}
-        onCreate={(input) => void createSubtask(input)}
-        onCreateMany={(inputs) => void createSubtasks(inputs)}
-      />
+      {selectedTask && isAddSubtaskOpen ? (
+        <AddSubtaskModal
+          open
+          projectName={project.name}
+          taskTitle={selectedTask.title}
+          agents={agents}
+          statusColumns={statusColumns}
+          defaultStatus={defaultStatus}
+          busy={busy}
+          onClose={() => setIsAddSubtaskOpen(false)}
+          onCreate={(input) => void createSubtask(input)}
+          onCreateMany={(inputs) => void createSubtasks(inputs)}
+        />
+      ) : null}
 
       {isTableColumnPickerOpen ? (
         <>
@@ -4740,13 +4751,15 @@ export function ProjectDetailPage() {
           </TaskDetailModal>
         ) : null}
 
-          <TaskJsonImportModal
-            open={isTaskImportOpen}
-            title="Import task JSON"
-            busy={isTaskImporting}
-            onClose={() => setIsTaskImportOpen(false)}
-            onImport={(jsonText) => void importSelectedTaskJson(jsonText)}
-          />
+          {isTaskImportOpen ? (
+            <TaskJsonImportModal
+              open
+              title="Import task JSON"
+              busy={isTaskImporting}
+              onClose={() => setIsTaskImportOpen(false)}
+              onImport={(jsonText) => void importSelectedTaskJson(jsonText)}
+            />
+          ) : null}
 
           {isCustomFieldModalOpen ? (
             <>
