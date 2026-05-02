@@ -57,6 +57,7 @@ export const IPC_CHANNELS = {
     exportSnapshot: 'tasks:export-snapshot',
     runCodex: 'tasks:run-codex',
     planWithCodex: 'tasks:plan-with-codex',
+    codexChatSend: 'tasks:codex-chat:send',
     plannerContext: 'tasks:planner-context',
     plannerValidateJson: 'tasks:planner-validate-json',
     plannerCreateFromJson: 'tasks:planner-create-from-json',
@@ -390,6 +391,17 @@ export interface RunTaskCodexRequest {
   defaultOutput?: string
 }
 
+export interface CodexChatSendRequest {
+  actorToken?: string
+  taskId?: string
+  projectId?: string
+  message?: string
+  gatewayId?: string
+  model?: string
+  conversationId?: string
+  includeTaskContext?: boolean
+}
+
 export interface UpsertGatewayRequest {
   actorToken?: string
   id?: string
@@ -437,7 +449,7 @@ export const SERVICE_MAP = {
   workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
   appSettings: ['getActiveGateway', 'setActiveGateway'],
   statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
-  tasks: ['list', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runCodex', 'planWithCodex', 'plannerContext', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
+  tasks: ['list', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runCodex', 'planWithCodex', 'codexChatSend', 'plannerContext', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
   taskTemplates: ['list', 'create', 'update', 'remove', 'importJson'],
   attachments: ['upload'],
   agents: ['list', 'get', 'create', 'update', 'remove'],
@@ -773,6 +785,13 @@ export const SERVICE_ROUTING: {
       action: 'planWithCodex',
       method: 'planWithCodex',
       channel: IPC_CHANNELS.tasks.planWithCodex,
+      requiresAuth: true
+    },
+    codexChatSend: {
+      domain: 'tasks',
+      action: 'codexChatSend',
+      method: 'codexChatSend',
+      channel: IPC_CHANNELS.tasks.codexChatSend,
       requiresAuth: true
     },
     plannerContext: {

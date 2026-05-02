@@ -361,7 +361,7 @@ export function GatewaysPage() {
                   Exec / Headless
                 </button>
               </div>
-              <small>{modal.executionMode === 'exec' ? 'Runs codex exec in the background and writes output to Activity.' : 'Opens external Terminal.app with the interactive Codex TUI.'}</small>
+              <small>{modal.executionMode === 'exec' ? 'Runs codex exec in the background and writes output to Chat.' : 'Opens external Terminal.app with the interactive Codex TUI.'}</small>
             </div>
             {modal.cliProvider === 'claude_cli' ? <p className={styles.error}>Claude CLI is not available yet.</p> : null}
             <footer>

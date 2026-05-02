@@ -12,6 +12,7 @@ import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
 import type {
   AddTaskCommentRequest,
+  CodexChatSendRequest,
   ExportTaskSnapshotRequest,
   ImportTaskJsonRequest,
   PlanTaskCodexRequest,
@@ -90,9 +91,13 @@ type CodexExecutionMode = 'terminal' | 'exec'
 type TaskActivityMessage = {
   id: string
   runId: string
+  conversationId?: string
   source: 'codex-plan' | 'codex-run'
-  role: 'user' | 'assistant' | 'tool' | 'system' | 'error'
-  status?: 'running' | 'completed' | 'failed'
+    | 'codex-chat'
+    | 'comment'
+    | 'history'
+  role: 'user' | 'assistant' | 'tool' | 'system' | 'error' | 'thinking'
+  status?: 'queued' | 'running' | 'completed' | 'failed'
   body: string
   metadata?: Record<string, unknown>
   createdAt: number
@@ -367,6 +372,29 @@ function initialPlannerPrompt(projectId: string, taskId: string, helperPath: str
   ].join(' ')
 }
 
+function codexChatPrompt(input: {
+  task: TaskEntity
+  message: string
+  transcript: TaskActivityMessage[]
+  context?: unknown
+}): string {
+  const transcript = input.transcript
+    .slice(-24)
+    .map((item) => `${item.role.toUpperCase()}: ${item.body}`)
+    .join('\n\n')
+  return [
+    'You are continuing an Open Mission Control task chat.',
+    `Task id: ${input.task.id}`,
+    `Task title: ${input.task.title}`,
+    input.task.description ? `Task description:\n${input.task.description}` : '',
+    input.context ? `Current task context JSON:\n${JSON.stringify(input.context, null, 2)}` : '',
+    transcript ? `Recent chat transcript:\n${transcript}` : '',
+    `User follow-up:\n${input.message}`,
+    'Respond with concrete next steps or implementation notes. If you make changes, summarize files and checks.',
+    'Do not use MCP in this flow.'
+  ].filter(Boolean).join('\n\n')
+}
+
 function readRequestBody(request: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
@@ -626,6 +654,7 @@ export class TaskService {
     const nextMessage: TaskActivityMessage = {
       id: message.id ?? `codex-activity-${randomUUID()}`,
       runId: message.runId,
+      conversationId: message.conversationId,
       source: message.source,
       role: message.role,
       status: message.status,
@@ -1805,6 +1834,152 @@ export class TaskService {
       }
       return errorResponse(ErrorCodes.Internal, error instanceof Error ? error.message : 'Unable to launch Codex task planner')
     }
+  }
+
+  async codexChatSend(payload: CodexChatSendRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ runId: string; conversationId: string; executionMode: CodexExecutionMode; command: string; pid?: number; runFolderPath: string; runtimeWorkspacePath: string }>> {
+    if (!payload?.taskId || !payload.projectId) return errorResponse(ErrorCodes.Validation, 'Task and project id are required')
+    const message = payload.message?.trim()
+    if (!message) return errorResponse(ErrorCodes.Validation, 'Message is required')
+    if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex gateway is required')
+    if (!payload.model?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex model is required')
+
+    const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
+    if (!access.ok || !access.data) return errorResponse(access.error?.code ?? ErrorCodes.Forbidden, access.error?.message ?? 'Access denied', access.error?.details)
+    const project = await this.projects.get(payload.projectId)
+    if (!project || project.id !== access.data.task.projectId) return errorResponse(ErrorCodes.NotFound, 'Project not found')
+    if (project.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
+    const gateway = await this.gateways.get(payload.gatewayId)
+    if (!gateway || gateway.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Codex gateway is invalid')
+    const runtimeWorkspaceId = projectCodexRuntimeWorkspaceId(project)
+    if (!runtimeWorkspaceId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is required')
+    const runtimeWorkspace = await this.workspaces.get(runtimeWorkspaceId)
+    if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
+
+    const taskId = access.data.task.id
+    const runId = plannerRunId(taskId)
+    const conversationId = payload.conversationId?.trim() || `chat-${runId}`
+    const transcript = taskActivityMessagesFromPayload(access.data.task.payload)
+      .filter((item) => !item.conversationId || item.conversationId === conversationId)
+    const context = payload.includeTaskContext === false
+      ? undefined
+      : (await this.plannerContext({ actorToken: payload.actorToken, projectId: project.id, taskId })).data
+    const prompt = codexChatPrompt({ task: access.data.task, message, transcript, context })
+    const { codexPath, executionMode } = codexCliConfig(gateway.template)
+    const model = payload.model.trim()
+    const runtimeWorkspacePath = runtimeWorkspace.rootPath
+    const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-codex-chat-'))
+    const eventsPath = join(runFolderPath, 'codex-events.jsonl')
+    const finalMessagePath = join(runFolderPath, 'final-message.md')
+    const execArgs = [
+      'exec',
+      '--json',
+      '--output-last-message', finalMessagePath,
+      '--cd', runtimeWorkspacePath,
+      '--model', model,
+      '--skip-git-repo-check',
+      '--dangerously-bypass-approvals-and-sandbox',
+      '--color', 'never',
+      prompt
+    ]
+    const execCommand = [shellQuote(codexPath), ...execArgs.map(shellQuote)].join(' ')
+
+    await mkdir(runtimeWorkspacePath, { recursive: true })
+    await this.appendTaskActivityMessage(taskId, {
+      runId,
+      conversationId,
+      source: 'codex-chat',
+      role: 'user',
+      status: 'completed',
+      body: message,
+      metadata: { gatewayId: gateway.id, model }
+    })
+    await this.appendTaskActivityMessage(taskId, {
+      runId,
+      conversationId,
+      source: 'codex-chat',
+      role: 'thinking',
+      status: 'running',
+      body: executionMode === 'exec' ? 'Codex is thinking...' : 'Opening Codex terminal...',
+      metadata: { executionMode, runtimeWorkspacePath }
+    })
+
+    if (executionMode === 'terminal') {
+      if (process.platform !== 'darwin') return errorResponse(ErrorCodes.Validation, 'Codex terminal chat currently requires macOS Terminal.app.')
+      const wrapperPath = join(runFolderPath, 'run-codex-chat.sh')
+      const codexCommand = [
+        shellQuote(codexPath),
+        '--cd', shellQuote(runtimeWorkspacePath),
+        '--model', shellQuote(model),
+        '--sandbox', 'workspace-write',
+        '--dangerously-bypass-approvals-and-sandbox',
+        '-c', shellQuote(codexTrustedProjectConfig(runtimeWorkspacePath)),
+        shellQuote(prompt)
+      ].join(' ')
+      await writeFile(wrapperPath, ['#!/bin/zsh', 'set -e', `cd ${shellQuote(runtimeWorkspacePath)}`, codexCommand].join('\n'), 'utf8')
+      await chmod(wrapperPath, 0o700)
+      const terminalCommand = `/bin/zsh ${shellQuote(wrapperPath)}`
+      await execFileAsync('osascript', [
+        '-e', 'tell application "Terminal"',
+        '-e', 'activate',
+        '-e', `do script ${appleScriptString(terminalCommand)}`,
+        '-e', 'end tell'
+      ], { timeout: 10_000 })
+      await this.appendTaskActivityMessage(taskId, {
+        runId,
+        conversationId,
+        source: 'codex-chat',
+        role: 'system',
+        status: 'running',
+        body: 'Codex terminal chat launched.',
+        metadata: { command: codexCommand, runFolderPath }
+      })
+      return okResponse({ runId, conversationId, executionMode, command: codexCommand, runFolderPath, runtimeWorkspacePath })
+    }
+
+    const child = spawn(codexPath, execArgs, { cwd: runtimeWorkspacePath, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => void appendFile(eventsPath, chunk, 'utf8'))
+    child.stderr.on('data', (chunk: string) => void appendFile(eventsPath, chunk, 'utf8'))
+    child.on('error', (error) => {
+      void this.appendTaskActivityMessage(taskId, {
+        runId,
+        conversationId,
+        source: 'codex-chat',
+        role: 'error',
+        status: 'failed',
+        body: error.message,
+        metadata: { command: execCommand }
+      })
+    })
+    child.on('close', (code, signal) => {
+      void (async () => {
+        const eventTail = (await readFile(eventsPath, 'utf8').catch(() => '')).trim().slice(-4000)
+        const finalMessage = await readFile(finalMessagePath, 'utf8').catch(() => '')
+        if (eventTail) {
+          await this.appendTaskActivityMessage(taskId, {
+            runId,
+            conversationId,
+            source: 'codex-chat',
+            role: 'tool',
+            status: code === 0 ? 'completed' : 'failed',
+            body: eventTail,
+            metadata: { code, signal, eventsPath }
+          })
+        }
+        await this.appendTaskActivityMessage(taskId, {
+          runId,
+          conversationId,
+          source: 'codex-chat',
+          role: code === 0 ? 'assistant' : 'error',
+          status: code === 0 ? 'completed' : 'failed',
+          body: code === 0 ? finalMessage.trim() || 'Codex chat completed.' : eventTail || `Codex chat exited with code ${code ?? 'unknown'}.`,
+          metadata: { code, signal, eventsPath, finalMessagePath }
+        })
+      })()
+    })
+
+    return okResponse({ runId, conversationId, executionMode, command: execCommand, pid: child.pid, runFolderPath, runtimeWorkspacePath })
   }
 
   async update(

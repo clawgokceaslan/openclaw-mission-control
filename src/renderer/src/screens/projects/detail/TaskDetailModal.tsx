@@ -1,5 +1,5 @@
 import { DragEvent, PointerEvent, ReactNode, useEffect, useRef, useState } from 'react'
-import { LuCopy, LuDownload, LuExternalLink, LuFileText, LuHistory, LuEllipsis, LuPencil, LuPlay, LuSparkles, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
+import { LuCopy, LuDownload, LuExternalLink, LuFileText, LuMessageSquare, LuEllipsis, LuPencil, LuPlay, LuSparkles, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
 import styles from './TaskDetailModal.module.scss'
 
 interface TaskDetailModalProps {
@@ -164,7 +164,7 @@ export function TaskDetailModal({
                     onOpenActivity()
                   }}
                 >
-                  <LuHistory size={15} /> Open activity chat
+                  <LuMessageSquare size={15} /> Open chat
                 </button>
                 <button
                   type="button"
@@ -212,9 +212,9 @@ export function TaskDetailModal({
               type="button"
               className={styles.iconButton}
               onPointerDown={(event) => runHeaderAction(event, onOpenActivity)}
-              aria-label="Open activity chat"
+              aria-label="Open chat"
             >
-              <LuHistory size={16} />
+              <LuMessageSquare size={16} />
             </button>
           </div>
         </>

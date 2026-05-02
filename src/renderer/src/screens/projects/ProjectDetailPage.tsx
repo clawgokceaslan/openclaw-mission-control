@@ -6,16 +6,17 @@ import {
   LuChevronDown,
   LuColumns3,
   LuFlag,
-  LuHistory,
   LuListChecks,
   LuListTodo,
   LuMessageSquare,
   LuPaperclip,
   LuPencil,
+  LuPlay,
   LuPlus,
   LuSettings2,
   LuSignal,
   LuSlidersHorizontal,
+  LuSend,
   LuSparkles,
   LuTrash2,
   LuX
@@ -350,21 +351,79 @@ type ThreadEntry = {
   evidence: string[]
   next?: string
   source?: 'codex-plan' | 'codex-run' | 'comment' | 'history' | 'local'
-  role?: 'user' | 'assistant' | 'tool' | 'system' | 'error'
-  status?: 'running' | 'completed' | 'failed'
+    | 'codex-chat'
+  role?: 'user' | 'assistant' | 'tool' | 'system' | 'error' | 'thinking'
+  status?: 'queued' | 'running' | 'completed' | 'failed'
   metadata?: Record<string, unknown>
 }
 
 type TaskActivityMessage = {
   id: string
   runId: string
-  source: 'codex-plan' | 'codex-run'
-  role: 'user' | 'assistant' | 'tool' | 'system' | 'error'
-  status?: 'running' | 'completed' | 'failed'
+  conversationId?: string
+  source: 'codex-plan' | 'codex-run' | 'codex-chat'
+  role: 'user' | 'assistant' | 'tool' | 'system' | 'error' | 'thinking'
+  status?: 'queued' | 'running' | 'completed' | 'failed'
   body: string
   metadata?: Record<string, unknown>
   createdAt: number
   updatedAt?: number
+}
+
+type ChatMessageSource = TaskActivityMessage['source']
+type ChatMessageRole = TaskActivityMessage['role']
+type ChatMessageStatus = NonNullable<TaskActivityMessage['status']>
+
+type ChatConversationSummary = {
+  id: string
+  title: string
+  count: number
+  status: ChatMessageStatus | 'event'
+  at: number
+  source: ChatMessageSource
+  model?: string
+}
+
+const chatMessageSources = new Set<ChatMessageSource>(['codex-plan', 'codex-run', 'codex-chat'])
+const chatMessageRoles = new Set<ChatMessageRole>(['user', 'assistant', 'tool', 'system', 'error', 'thinking'])
+const chatMessageStatuses = new Set<ChatMessageStatus>(['queued', 'running', 'completed', 'failed'])
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+
+function normalizeActivityMessage(raw: unknown): TaskActivityMessage | null {
+  const candidate = asRecord(raw)
+  if (!candidate) return null
+  if (typeof candidate.id !== 'string' || typeof candidate.runId !== 'string' || typeof candidate.body !== 'string') return null
+  const createdAt = typeof candidate.createdAt === 'number' && Number.isFinite(candidate.createdAt)
+    ? candidate.createdAt
+    : Date.now()
+  const source = typeof candidate.source === 'string' && chatMessageSources.has(candidate.source as ChatMessageSource)
+    ? candidate.source as ChatMessageSource
+    : 'codex-chat'
+  const role = typeof candidate.role === 'string' && chatMessageRoles.has(candidate.role as ChatMessageRole)
+    ? candidate.role as ChatMessageRole
+    : 'assistant'
+  const status = typeof candidate.status === 'string' && chatMessageStatuses.has(candidate.status as ChatMessageStatus)
+    ? candidate.status as ChatMessageStatus
+    : undefined
+  const metadata = asRecord(candidate.metadata)
+  const updatedAt = typeof candidate.updatedAt === 'number' && Number.isFinite(candidate.updatedAt)
+    ? candidate.updatedAt
+    : undefined
+  return {
+    id: candidate.id,
+    runId: candidate.runId,
+    conversationId: typeof candidate.conversationId === 'string' ? candidate.conversationId : undefined,
+    source,
+    role,
+    status,
+    body: candidate.body,
+    metadata,
+    createdAt,
+    updatedAt
+  }
 }
 
 function activityMessagesFromTask(task: TaskEntity): TaskActivityMessage[] {
@@ -373,18 +432,11 @@ function activityMessagesFromTask(task: TaskEntity): TaskActivityMessage[] {
     : {}
   const raw = payload.activityMessages
   if (!Array.isArray(raw)) return []
-  return raw.filter((item): item is TaskActivityMessage => {
-    if (!item || typeof item !== 'object') return false
-    const candidate = item as Partial<TaskActivityMessage>
-    return typeof candidate.id === 'string'
-      && typeof candidate.runId === 'string'
-      && typeof candidate.body === 'string'
-      && typeof candidate.createdAt === 'number'
-  })
+  return raw.map(normalizeActivityMessage).filter((item): item is TaskActivityMessage => Boolean(item))
 }
 
 function asCodexThread(message: TaskActivityMessage): ThreadEntry {
-  const label = message.source === 'codex-plan' ? 'Codex Plan' : 'Codex Run'
+  const label = message.source === 'codex-plan' ? 'Codex Plan' : message.source === 'codex-run' ? 'Codex Run' : 'Codex Chat'
   return {
     id: `codex-${message.id}`,
     at: message.createdAt,
@@ -399,7 +451,7 @@ function asCodexThread(message: TaskActivityMessage): ThreadEntry {
     source: message.source,
     role: message.role,
     status: message.status,
-    metadata: message.metadata
+    metadata: { ...(message.metadata ?? {}), runId: message.runId, conversationId: message.conversationId ?? message.runId }
   }
 }
 
@@ -409,7 +461,13 @@ function renderMarkdownLite(body: string) {
     if (index % 2 === 1) {
       const lines = segment.split('\n')
       const code = lines.length > 1 ? lines.slice(1).join('\n') : segment
-      return <pre key={index} className={styles.codexCodeBlock}><code>{code.trim()}</code></pre>
+      const trimmed = code.trim()
+      return (
+        <div key={index} className={styles.codexCodeBlockWrap}>
+          <button type="button" onClick={() => void navigator.clipboard?.writeText(trimmed)}>Copy</button>
+          <pre className={styles.codexCodeBlock}><code>{trimmed}</code></pre>
+        </div>
+      )
     }
     return segment.split('\n').map((line, lineIndex) => {
       if (!line.trim()) return <br key={`${index}-${lineIndex}`} />
@@ -417,6 +475,19 @@ function renderMarkdownLite(body: string) {
       return <p key={`${index}-${lineIndex}`} className={styles.codexMarkdownLine}>{line}</p>
     })
   })
+}
+
+function formatChatTime(value: number): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function roleLabel(role: ChatMessageRole): string {
+  if (role === 'assistant') return 'Codex'
+  if (role === 'user') return 'You'
+  if (role === 'thinking') return 'Thinking'
+  return role
 }
 
 function parseHistoryPatch(item: TaskHistoryItem, index: number): ThreadEntry {
@@ -547,6 +618,13 @@ export function ProjectDetailPage() {
   const [codexRunLaunching, setCodexRunLaunching] = useState(false)
   const [codexPlanLaunching, setCodexPlanLaunching] = useState(false)
   const [codexRunFeedback, setCodexRunFeedback] = useState<{ kind: 'error' | 'success'; message: string } | null>(null)
+  const [chatDraft, setChatDraft] = useState('')
+  const [chatSending, setChatSending] = useState(false)
+  const [chatSettingsOpen, setChatSettingsOpen] = useState(false)
+  const [chatGatewayId, setChatGatewayId] = useState('')
+  const [chatModel, setChatModel] = useState('')
+  const [chatIncludeContext, setChatIncludeContext] = useState(true)
+  const [selectedChatConversationId, setSelectedChatConversationId] = useState('all')
   const [statusDrafts, setStatusDrafts] = useState<ProjectStatus[]>([])
   const [statusMapping, setStatusMapping] = useState<Record<string, string>>({})
   const [createTaskStatus, setCreateTaskStatus] = useState<TaskEntity['status']>('pending')
@@ -725,6 +803,12 @@ export function ProjectDetailPage() {
   const selectedCodexGatewayOption = codexGatewayOptions.find((option) => option.value === codexGatewayId) ?? null
   const selectedRuntimeWorkspaceOption = workspaceOptions.find((option) => option.value === codexRuntimeWorkspaceId) ?? null
   const selectedDefaultModelOption = projectCodexModelOptions.find((option) => option.value === codexDefaultModel) ?? null
+  const chatGateway = useMemo(() => gateways.find((gateway) => gateway.id === chatGatewayId) ?? null, [chatGatewayId, gateways])
+  const chatGatewayConfig = useMemo(() => codexConfigOf(chatGateway), [chatGateway])
+  const chatModelOptions = useMemo<AppSelectOption[]>(() => (chatGatewayConfig.models ?? []).map((model) => ({ label: model.label || model.id, value: model.id })), [chatGatewayConfig.models])
+  const chatGatewayOption = codexGatewayOptions.find((option) => option.value === chatGatewayId) ?? null
+  const chatModelOption = chatModelOptions.find((option) => option.value === chatModel) ?? null
+  const chatRuntimeWorkspace = useMemo(() => workspaces.find((workspace) => workspace.id === savedCodexSettings.runtimeWorkspaceId) ?? null, [savedCodexSettings.runtimeWorkspaceId, workspaces])
 
   useEffect(() => {
     let cancelled = false
@@ -895,6 +979,12 @@ export function ProjectDetailPage() {
     () => hydratedTasks.find((task) => task.id === selectedTaskId) ?? null,
     [hydratedTasks, selectedTaskId]
   )
+  useEffect(() => {
+    if (!selectedTask) return
+    setChatGatewayId(taskCodexGatewayId(selectedTask) || savedCodexSettings.gatewayId || '')
+    setChatModel(taskCodexModel(selectedTask) || savedCodexSettings.defaultModel || '')
+    setSelectedChatConversationId('all')
+  }, [selectedTask?.id, savedCodexSettings.gatewayId, savedCodexSettings.defaultModel])
   useEffect(() => {
     setCodexRunFeedback(null)
   }, [selectedTaskId])
@@ -1330,13 +1420,36 @@ export function ProjectDetailPage() {
       .map((field) => ({ value: field.id, label: field.name }))
   }, [customFields, selectedSubtask])
 
-  const activityEntries = useMemo(() => {
-    if (!selectedTask) return []
-    const commentEntries = (selectedTask.comments ?? []).map(asCommentThread)
-    const codexEntries = activityMessagesFromTask(selectedTask).map(asCodexThread)
-    const historyEntries = history.map((item, index) => parseHistoryPatch(item, index))
-    return [...codexEntries, ...commentEntries, ...historyEntries, ...localActivityEntries].sort((a, b) => a.at - b.at)
-  }, [history, localActivityEntries, selectedTask])
+  const chatActivityMessages = useMemo(() => selectedTask ? activityMessagesFromTask(selectedTask) : [], [selectedTask])
+  const chatConversations = useMemo(() => {
+    const grouped = new Map<string, ChatConversationSummary>()
+    for (const message of chatActivityMessages) {
+      const id = message.conversationId || message.runId
+      const current = grouped.get(id)
+      const nextStatus = message.status ?? 'event'
+      grouped.set(id, {
+        id,
+        title: message.source === 'codex-plan' ? 'Plan' : message.source === 'codex-run' ? 'Run' : 'Follow-up',
+        count: (current?.count ?? 0) + 1,
+        status: current?.status === 'failed' || nextStatus === 'failed'
+          ? 'failed'
+          : current?.status === 'running' || nextStatus === 'running'
+            ? 'running'
+            : nextStatus,
+        at: Math.max(current?.at ?? 0, message.updatedAt ?? message.createdAt),
+        source: message.source,
+        model: typeof message.metadata?.model === 'string' ? message.metadata.model : current?.model
+      })
+    }
+    return Array.from(grouped.values()).sort((a, b) => b.at - a.at)
+  }, [chatActivityMessages])
+  const visibleChatMessages = useMemo(() => {
+    const messages = selectedChatConversationId === 'all'
+      ? chatActivityMessages
+      : chatActivityMessages.filter((message) => (message.conversationId || message.runId) === selectedChatConversationId)
+    return [...messages].sort((a, b) => a.createdAt - b.createdAt)
+  }, [chatActivityMessages, selectedChatConversationId])
+  const chatHistoryCount = (selectedTask?.comments?.length ?? 0) + history.length + localActivityEntries.length
 
   const selectedTaskExportContext = useMemo(() => {
     if (!selectedTask) return null
@@ -1358,11 +1471,13 @@ export function ProjectDetailPage() {
     const model = taskCodexModel(selectedTask) || savedCodexSettings.defaultModel || ''
     if (!gatewayId) {
       setCodexRunFeedback({ kind: 'error', message: 'Configure a Codex gateway before running this task.' })
+      setChatSettingsOpen(true)
       setDetailTab('model')
       return
     }
     if (!model) {
       setCodexRunFeedback({ kind: 'error', message: 'Choose a Codex model before running this task.' })
+      setChatSettingsOpen(true)
       setDetailTab('model')
       return
     }
@@ -1389,7 +1504,7 @@ export function ProjectDetailPage() {
       setCodexRunFeedback({
         kind: 'success',
         message: response.data.executionMode === 'exec'
-          ? `Codex exec started. Activity will update as it runs.`
+          ? `Codex exec started. Chat will update as it runs.`
           : `Codex terminal launched. Workspace: ${response.data.workspacePath}`
       })
       setError(null)
@@ -1409,11 +1524,13 @@ export function ProjectDetailPage() {
     const model = taskCodexModel(selectedTask) || savedCodexSettings.defaultModel || ''
     if (!gatewayId) {
       setCodexRunFeedback({ kind: 'error', message: 'Configure a Codex gateway before planning this task.' })
+      setChatSettingsOpen(true)
       setDetailTab('model')
       return
     }
     if (!model) {
       setCodexRunFeedback({ kind: 'error', message: 'Choose a Codex model before planning this task.' })
+      setChatSettingsOpen(true)
       setDetailTab('model')
       return
     }
@@ -1437,7 +1554,7 @@ export function ProjectDetailPage() {
       setCodexRunFeedback({
         kind: 'success',
         message: response.data.executionMode === 'exec'
-          ? 'Codex planner exec started. Activity will update as it runs.'
+          ? 'Codex planner exec started. Chat will update as it runs.'
           : `Codex planner launched. Runtime workspace: ${response.data.runtimeWorkspacePath}`
       })
       setError(null)
@@ -1445,6 +1562,46 @@ export function ProjectDetailPage() {
       setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to launch Codex planner' })
     } finally {
       setCodexPlanLaunching(false)
+    }
+  }
+
+  const sendCodexChatMessage = async () => {
+    if (!selectedTask || !project) return
+    const message = chatDraft.trim()
+    if (!message) return
+    if (!chatGatewayId || !chatModel) {
+      setChatSettingsOpen(true)
+      setCodexRunFeedback({ kind: 'error', message: 'Choose a Codex gateway and model before sending chat.' })
+      return
+    }
+    setChatSending(true)
+    setCodexRunFeedback(null)
+    try {
+      const conversationId = selectedChatConversationId !== 'all' ? selectedChatConversationId : undefined
+      const response = await invokeBridge<{ runId: string; conversationId: string; executionMode: 'terminal' | 'exec' }>(IPC_CHANNELS.tasks.codexChatSend, {
+        actorToken: token,
+        taskId: selectedTask.id,
+        projectId: project.id,
+        message,
+        gatewayId: chatGatewayId,
+        model: chatModel,
+        conversationId,
+        includeTaskContext: chatIncludeContext
+      })
+      if (!response.ok || !response.data) {
+        setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to send Codex chat message.' })
+        return
+      }
+      setSelectedChatConversationId(response.data.conversationId)
+      setChatDraft('')
+      setCodexRunFeedback({
+        kind: 'success',
+        message: response.data.executionMode === 'exec' ? 'Codex chat is running.' : 'Codex terminal chat launched.'
+      })
+    } catch (error) {
+      setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to send Codex chat message.' })
+    } finally {
+      setChatSending(false)
     }
   }
 
@@ -1491,7 +1648,7 @@ export function ProjectDetailPage() {
     if (keepActivityBottomRef.current) {
       feed.scrollTop = feed.scrollHeight
     }
-  }, [activityEntries.length, isActivityModalOpen])
+  }, [visibleChatMessages.length, isActivityModalOpen])
 
   const onActivityScroll = () => {
     const feed = activityFeedRef.current
@@ -5074,77 +5231,191 @@ export function ProjectDetailPage() {
           {isActivityModalOpen ? (
             <>
               <div className={styles.activityBackdrop} onClick={() => setIsActivityModalOpen(false)} />
-              <section className={`${styles.modalShell} ${styles.activityModalShell}`} role="dialog" aria-modal="true" aria-label="Activity chat">
-                <header className={styles.modalHeader}>
-                  <h2>ACTIVITY CHAT</h2>
-                  <div className={styles.modalHeaderActions}>
-                    <button type="button" onClick={() => setIsActivityModalOpen(false)} aria-label="Close activity modal">
-                      <LuX size={16} />
+              <section className={`${styles.modalShell} ${styles.activityModalShell}`} role="dialog" aria-modal="true" aria-label="Codex chat">
+                <aside className={styles.chatSidebar}>
+                  <div className={styles.chatBrand}>
+                    <span className={styles.chatBrandIcon}><LuMessageSquare size={17} /></span>
+                    <strong>Chat</strong>
+                    <span>{selectedTask?.title ?? 'Task'}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className={selectedChatConversationId === 'all' ? styles.chatConversationActive : ''}
+                    onClick={() => setSelectedChatConversationId('all')}
+                  >
+                    <span>All conversations</span>
+                    <small>{chatActivityMessages.length} messages</small>
+                  </button>
+                  {chatConversations.map((conversation) => (
+                    <button
+                      type="button"
+                      key={conversation.id}
+                      className={selectedChatConversationId === conversation.id ? styles.chatConversationActive : ''}
+                      onClick={() => setSelectedChatConversationId(conversation.id)}
+                    >
+                      <span>
+                        {conversation.title}
+                        <i className={`${styles.chatStatusBadge} ${styles[`chatStatus_${conversation.status}`] ?? ''}`}>{conversation.status}</i>
+                      </span>
+                      <small>{conversation.count} messages · {formatChatTime(conversation.at)}</small>
+                      {conversation.model ? <small>{conversation.model}</small> : null}
                     </button>
-                  </div>
-                </header>
-                <div className={styles.activityModalBody}>
-                  <div className={styles.activityFeed} ref={activityFeedRef} onScroll={onActivityScroll}>
-                    <div className={styles.threadList}>
-                      {activityEntries.map((entry) => (
-                        <article
-                          key={entry.id}
-                          className={`${styles.threadItem} ${entry.source === 'codex-plan' || entry.source === 'codex-run' ? styles.codexThreadItem : ''} ${entry.role ? styles[`codexRole_${entry.role}`] ?? '' : ''}`}
-                        >
-                          <div className={styles.threadMeta}>
-                            <span>{entry.author}{entry.status ? ` · ${entry.status}` : ''}</span>
-                            <span>{new Date(entry.at).toLocaleString()}</span>
-                          </div>
-                          <h5>{entry.eventType}</h5>
-                          {entry.source === 'codex-plan' || entry.source === 'codex-run' ? (
-                            <div className={styles.codexMessageBody}>
-                              {renderMarkdownLite(entry.summary)}
-                              <button
-                                type="button"
-                                className={styles.copyMessageButton}
-                                onClick={() => void navigator.clipboard?.writeText(entry.summary)}
-                              >
-                                Copy
-                              </button>
-                            </div>
-                          ) : (
-                            <p className={styles.threadText}>{entry.summary}</p>
-                          )}
-                          {entry.fields.length > 0 ? (
-                            <div className={styles.threadFieldList}>
-                              {entry.fields.map((field) => (
-                                <div key={`${entry.id}-${field.key}`} className={styles.threadFieldRow}>
-                                  <span>{field.key}</span>
-                                  <span>{field.value}</span>
-                                </div>
-                              ))}
-                            </div>
-                          ) : null}
-                          {entry.metadata && Object.keys(entry.metadata).length > 0 ? (
-                            <details className={styles.codexDetails}>
-                              <summary>Details</summary>
-                              <pre>{JSON.stringify(entry.metadata, null, 2)}</pre>
-                            </details>
-                          ) : null}
-                          {entry.evidence.length > 0 ? (
-                            <>
-                              <p className={styles.threadLabel}>Evidence</p>
-                              <ul>
-                                {entry.evidence.map((row, index) => <li key={`${entry.id}-${index}`}>{row}</li>)}
-                              </ul>
-                            </>
-                          ) : null}
-                          {entry.next ? (
-                            <>
-                              <p className={styles.threadLabel}>Next</p>
-                              <p className={styles.threadText}>{entry.next}</p>
-                            </>
-                          ) : null}
-                        </article>
-                      ))}
+                  ))}
+                  {chatConversations.length === 0 ? <p>No Codex conversations yet.</p> : null}
+                  {chatHistoryCount > 0 ? (
+                    <div className={styles.chatHistoryNote}>
+                      <span>Task history</span>
+                      <b>{chatHistoryCount}</b>
                     </div>
+                  ) : null}
+                </aside>
+                <main className={styles.chatMain}>
+                  <header className={styles.chatTopbar}>
+                    <div className={styles.chatTopbarTitle}>
+                      <h2>Chat</h2>
+                      <p>{selectedTask?.title ?? 'Task'}</p>
+                      <div className={styles.chatPillRow}>
+                        <span className={!chatGateway ? styles.chatPillWarning : ''}>{chatGateway?.name ?? 'Gateway required'}</span>
+                        <span className={!chatModel ? styles.chatPillWarning : ''}>{chatModel || 'Model required'}</span>
+                        <span>{chatGatewayConfig.executionMode === 'exec' ? 'Exec / Headless' : 'Terminal'}</span>
+                        <span>{chatRuntimeWorkspace?.name ?? savedCodexSettings.runtimeWorkspaceId ?? 'Workspace required'}</span>
+                      </div>
+                    </div>
+                    <div className={styles.chatTopbarActions}>
+                      <button type="button" onClick={() => setChatSettingsOpen((value) => !value)} className={chatSettingsOpen ? styles.chatActionActive : ''}><LuSettings2 size={15} /> Settings</button>
+                      <button type="button" onClick={() => void planSelectedTaskWithCodex()} disabled={codexPlanLaunching}><LuSparkles size={15} /> {codexPlanLaunching ? 'Planning' : 'Plan'}</button>
+                      <button type="button" onClick={() => void runSelectedTaskWithCodex()} disabled={codexRunLaunching}><LuPlay size={15} /> {codexRunLaunching ? 'Running' : 'Run'}</button>
+                      <button type="button" onClick={() => setIsActivityModalOpen(false)} aria-label="Close chat" className={styles.chatIconAction}>
+                        <LuX size={16} />
+                      </button>
+                    </div>
+                  </header>
+                  <div className={styles.chatWorkspace}>
+                    <div className={styles.chatTranscript} ref={activityFeedRef} onScroll={onActivityScroll}>
+                      {visibleChatMessages.length > 0 ? (
+                        <div className={styles.chatMessageList}>
+                          {visibleChatMessages.map((message) => (
+                            <article
+                              key={message.id}
+                              className={`${styles.chatMessage} ${styles[`chatRole_${message.role}`] ?? ''}`}
+                            >
+                              <div className={styles.chatMessageHeader}>
+                                <span>{roleLabel(message.role)}</span>
+                                <span>{message.status ?? message.source} · {formatChatTime(message.createdAt)}</span>
+                              </div>
+                              <div className={styles.chatMessageBody}>
+                                {message.role === 'thinking' ? (
+                                  <span className={styles.chatThinkingLine}>Thinking <span className={styles.thinkingDots}><i /><i /><i /></span></span>
+                                ) : null}
+                                {message.role === 'tool' ? (
+                                  <details className={styles.codexDetails} open>
+                                    <summary>Tool / step details</summary>
+                                    <div>{renderMarkdownLite(message.body)}</div>
+                                  </details>
+                                ) : (
+                                  renderMarkdownLite(message.body)
+                                )}
+                              </div>
+                              {message.metadata && Object.keys(message.metadata).length > 0 && message.role !== 'tool' ? (
+                                <details className={styles.codexDetails}>
+                                  <summary>Details</summary>
+                                  <pre>{JSON.stringify(message.metadata, null, 2)}</pre>
+                                </details>
+                              ) : null}
+                              {message.body.trim() ? (
+                                <button
+                                  type="button"
+                                  className={styles.copyMessageButton}
+                                  onClick={() => void navigator.clipboard?.writeText(message.body)}
+                                >
+                                  Copy
+                                </button>
+                              ) : null}
+                            </article>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className={styles.chatEmptyState}>
+                          <LuMessageSquare size={28} />
+                          <h3>Start a Codex chat for this task</h3>
+                          <p>Use Plan, Run, or send a follow-up message. Codex messages will appear here as a transcript.</p>
+                          <div>
+                            <button type="button" onClick={() => void planSelectedTaskWithCodex()} disabled={codexPlanLaunching}><LuSparkles size={15} /> Plan</button>
+                            <button type="button" onClick={() => void runSelectedTaskWithCodex()} disabled={codexRunLaunching}><LuPlay size={15} /> Run</button>
+                            {(!chatGateway || !chatModel) ? <button type="button" onClick={() => setChatSettingsOpen(true)}><LuSettings2 size={15} /> Configure</button> : null}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {chatSettingsOpen ? (
+                      <aside className={styles.chatSettingsPanel}>
+                        <h3>Run settings</h3>
+                        <label>
+                          Gateway
+                          <AppSelect
+                            mode="single"
+                            value={chatGatewayOption}
+                            options={codexGatewayOptions}
+                            onChange={(option) => {
+                              if (Array.isArray(option)) return
+                              setChatGatewayId(option?.value ?? '')
+                              setChatModel('')
+                            }}
+                            placeholder="Select gateway"
+                          />
+                        </label>
+                        <label>
+                          Model
+                          <AppSelect
+                            mode="single"
+                            value={chatModelOption}
+                            options={chatModelOptions}
+                            onChange={(option) => {
+                              if (Array.isArray(option)) return
+                              setChatModel(option?.value ?? '')
+                            }}
+                            placeholder="Select model"
+                            isDisabled={!chatGatewayId}
+                          />
+                        </label>
+                        <div className={styles.chatSettingReadout}>
+                          <span>Mode</span>
+                          <b>{chatGatewayConfig.executionMode === 'exec' ? 'Exec / Headless' : 'Terminal'}</b>
+                        </div>
+                        <div className={styles.chatSettingReadout}>
+                          <span>Runtime workspace</span>
+                          <b>{chatRuntimeWorkspace?.name ?? savedCodexSettings.runtimeWorkspaceId ?? 'Not configured'}</b>
+                        </div>
+                        <label className={styles.chatToggleRow}>
+                          <input type="checkbox" checked={chatIncludeContext} onChange={(event) => setChatIncludeContext(event.target.checked)} />
+                          Include current task context
+                        </label>
+                      </aside>
+                    ) : null}
                   </div>
-                </div>
+                  <footer className={styles.chatComposer}>
+                    {codexRunFeedback ? <p className={codexRunFeedback.kind === 'error' ? styles.chatError : styles.chatNotice}>{codexRunFeedback.message}</p> : null}
+                    <div className={styles.chatComposerBox}>
+                      <textarea
+                        value={chatDraft}
+                        onChange={(event) => setChatDraft(event.target.value)}
+                        placeholder="Message Codex about this task..."
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' && !event.shiftKey) {
+                            event.preventDefault()
+                            void sendCodexChatMessage()
+                          }
+                        }}
+                      />
+                      <button type="button" onClick={() => void sendCodexChatMessage()} disabled={chatSending || !chatDraft.trim()} aria-label="Send message">
+                        {chatSending ? <span className={styles.thinkingDots}><i /><i /><i /></span> : <LuSend size={16} />}
+                      </button>
+                    </div>
+                    <div className={styles.chatComposerMeta}>
+                      <span>{chatGatewayConfig.executionMode === 'exec' ? 'Headless exec' : 'External terminal'} · Shift+Enter for newline</span>
+                    </div>
+                  </footer>
+                </main>
               </section>
             </>
           ) : null}

@@ -212,7 +212,7 @@ export function GatewayDetailPage() {
                 Exec / Headless
               </button>
             </div>
-            <small>{settings.executionMode === 'exec' ? 'Runs codex exec in the background and writes output to Activity.' : 'Opens external Terminal.app with the interactive Codex TUI.'}</small>
+            <small>{settings.executionMode === 'exec' ? 'Runs codex exec in the background and writes output to Chat.' : 'Opens external Terminal.app with the interactive Codex TUI.'}</small>
           </div>
           <button type="submit">Save settings</button>
         </form>
