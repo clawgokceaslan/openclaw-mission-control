@@ -2,19 +2,21 @@
   :global(.app-select__control) {
     min-height: 38px;
     border-radius: 10px;
-    border: 1px solid var(--omc-pill-border);
-    background: var(--omc-surface);
+    border: 1px solid var(--omc-input-border);
+    background: var(--omc-input-bg);
     box-shadow: none;
   }
 
   :global(.app-select__control--is-focused) {
     border-color: var(--omc-primary);
+    background: var(--omc-input-bg);
     box-shadow: 0 0 0 2px var(--omc-input-focus-ring);
   }
 
   :global(.app-select__value-container) {
     padding: 2px 8px;
     gap: 4px;
+    min-width: 0;
   }
 
   :global(.app-select__placeholder) {
@@ -23,14 +25,23 @@
   }
 
   :global(.app-select__single-value) {
+    min-width: 0;
     color: var(--omc-text);
     font-size: 0.92rem;
     font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   :global(.app-select__input-container) {
     color: var(--omc-text);
     font-size: 0.92rem;
+  }
+
+  :global(.app-select__indicator),
+  :global(.app-select__dropdown-indicator),
+  :global(.app-select__clear-indicator) {
+    color: var(--omc-text-muted);
   }
 
   :global(.app-select__menu) {
@@ -40,6 +51,7 @@
     overflow: hidden;
     background: var(--omc-surface);
     box-shadow: var(--omc-shadow-raised);
+    color: var(--omc-text);
   }
 
   :global(.app-select__menu-list) {
@@ -94,6 +106,13 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
+  max-width: 100%;
+
+  span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 .optionColor {

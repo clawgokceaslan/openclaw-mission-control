@@ -1,93 +1,50 @@
-import { useEffect, useState } from 'react'
-import { LuCheck, LuClipboard, LuPlugZap, LuRefreshCw, LuTerminal } from 'react-icons/lu'
-import { IPC_CHANNELS, type McpStatusResponse } from '@shared/contracts/ipc'
-import { invokeBridge } from '@renderer/utils/api'
-import { useAuth } from '@renderer/providers/auth/auth-state'
+import { useState } from 'react'
+import type { ReactNode } from 'react'
+import { LuCheck, LuClipboard, LuFileText, LuPlay, LuTerminal } from 'react-icons/lu'
 import styles from './SettingsPage.module.scss'
 
-type McpSetupInfo = {
-  bridgeUrl: string
-  lanUrls: string[]
-  scriptPath: string
-  codexConfigPath: string
-  claudeDesktopConfigPath: string
-  commands: {
-    codex: string
-    claudeDesktopRestart: string
-  }
-  snippets: {
-    codexToml: string
-    claudeDesktopJson: string
-  }
-}
+const executionFlow = [
+  'Open Mission Control exports Task.md, optional Agents.md, optional Skills.md, and attachments into a temporary export workspace.',
+  'The selected project runtime workspace is opened as Codex working directory.',
+  'Open Mission Control creates .omc/runs/<run-id>/ inside the runtime workspace.',
+  'The run folder contains session.json, omc-task-client.mjs, and OMC_CLI.md.',
+  'Codex receives a prompt that points to Task.md and OMC_CLI.md.',
+  'Codex completes the implementation in the runtime workspace.',
+  'Codex runs the local .omc CLI ready-for-review command when the task should move to review.'
+]
 
-type InstallClient = 'codex' | 'claude_desktop'
+const planningFlow = [
+  'Open Mission Control creates .omc/runs/<run-id>/ in the project runtime workspace.',
+  'Codex reads OMC_CLI.md before planning.',
+  'Codex runs context to fetch the source task, project rules, allowed statuses, tags, skills, and custom fields.',
+  'Codex writes planned-task.json into the run folder.',
+  'Codex validates planned-task.json through the local CLI.',
+  'Codex updates the scoped source task from the validated JSON.',
+  'Codex runs finish so the temporary bridge and run folder can close.'
+]
 
-const clientLabels: Record<InstallClient, string> = {
-  codex: 'Codex',
-  claude_desktop: 'Claude Desktop'
-}
+const operations = [
+  { name: 'context', command: 'node .omc/runs/<run-id>/omc-task-client.mjs context', description: 'Prints scoped project, task, allowed values, export paths, and JSON format guidance.' },
+  { name: 'validate', command: 'node .omc/runs/<run-id>/omc-task-client.mjs validate .omc/runs/<run-id>/planned-task.json', description: 'Validates and normalizes task JSON without writing changes.' },
+  { name: 'create', command: 'node .omc/runs/<run-id>/omc-task-client.mjs create .omc/runs/<run-id>/planned-task.json', description: 'Creates a new task in the scoped project from task JSON.' },
+  { name: 'update', command: 'node .omc/runs/<run-id>/omc-task-client.mjs update .omc/runs/<run-id>/planned-task.json', description: 'Updates the scoped source task from task JSON.' },
+  { name: 'ready-for-review', command: 'node .omc/runs/<run-id>/omc-task-client.mjs ready-for-review', description: 'Moves the task and subtasks to Review, or the nearest pre-Done status.' },
+  { name: 'finish', command: 'node .omc/runs/<run-id>/omc-task-client.mjs finish', description: 'Signals completion and lets Open Mission Control clean up the run folder.' }
+]
+
+const mdExample = `# Open Mission Control CLI
+
+Use this local helper. Do not use MCP.
+
+1. Read this file before changing project files.
+2. Run context to load the scoped Open Mission Control task data.
+3. Use validate before create or update.
+4. For implementation runs, call ready-for-review only after the code work and checks are complete.
+5. For planning runs, call finish after update succeeds.
+`
 
 export function SettingsPage() {
-  const { token } = useAuth()
-  const [setup, setSetup] = useState<McpSetupInfo | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [mcpStatus, setMcpStatus] = useState<McpStatusResponse | null>(null)
-  const [busy, setBusy] = useState<InstallClient | 'refresh' | 'status' | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
-
-  const refresh = async () => {
-    setBusy('refresh')
-    const response = await invokeBridge<McpSetupInfo>(IPC_CHANNELS.appSettings.getMcpSetup, { actorToken: token })
-    setBusy(null)
-    if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'MCP setup could not be loaded.')
-      setSetup(null)
-      return
-    }
-    setError(null)
-    setSetup(response.data)
-  }
-
-  const testMcpStatus = async () => {
-    setBusy('status')
-    const response = await invokeBridge<McpStatusResponse>(IPC_CHANNELS.appSettings.getMcpStatus, { actorToken: token })
-    setBusy(null)
-    if (!response.ok || !response.data) {
-      setMcpStatus({
-        available: false,
-        name: 'openmissioncontrol',
-        bridgeUrl: null,
-        checkedAt: new Date().toISOString(),
-        startedAt: null,
-        message: response.error?.message ?? 'MCP status could not be checked.'
-      })
-      return
-    }
-    setMcpStatus(response.data)
-  }
-
-  useEffect(() => {
-    void refresh().then(() => testMcpStatus())
-  }, [token])
-
-  const install = async (client: InstallClient) => {
-    setBusy(client)
-    const response = await invokeBridge<{ path: string; bridgeUrl: string }>(IPC_CHANNELS.appSettings.installMcpClient, {
-      actorToken: token,
-      client
-    })
-    setBusy(null)
-    if (!response.ok || !response.data) {
-      setError(response.error?.message ?? `${clientLabels[client]} MCP setup failed.`)
-      return
-    }
-    setError(null)
-    setNotice(`${clientLabels[client]} configured at ${response.data.path}. Restart the client to load the Open Mission Control tools.`)
-    await refresh()
-    await testMcpStatus()
-  }
 
   const copy = async (key: string, value: string) => {
     await navigator.clipboard.writeText(value)
@@ -100,142 +57,97 @@ export function SettingsPage() {
       <header className={styles.header}>
         <div>
           <h1>Settings</h1>
-          <p>Install the Open Mission Control MCP tools for Codex and Claude.</p>
+          <p>CLI settings for Codex runs launched by Open Mission Control.</p>
         </div>
-        <button className={styles.secondaryButton} type="button" onClick={() => void refresh()} disabled={busy === 'refresh'}>
-          <LuRefreshCw size={15} />
-          Refresh
-        </button>
       </header>
-
-      {error ? <p className={styles.error}>{error}</p> : null}
-      {notice ? <p className={styles.notice}>{notice}</p> : null}
-
-      <section className={styles.panel}>
-        <div className={styles.panelHeader}>
-          <span className={styles.panelIcon}><LuPlugZap size={19} /></span>
-          <div>
-            <h2>MCP connection</h2>
-            <p>External agents use this local bridge while Open Mission Control is running.</p>
-          </div>
-        </div>
-        <div className={styles.statusCtaRow}>
-          <div className={`${styles.mcpStatusBadge} ${mcpStatus?.available ? styles.mcpStatusOnline : mcpStatus ? styles.mcpStatusOffline : styles.mcpStatusUnknown}`}>
-            <span aria-hidden="true" />
-            <strong>{busy === 'status' ? 'Checking MCP...' : mcpStatus?.available ? 'MCP online' : mcpStatus ? 'MCP offline' : 'MCP not tested'}</strong>
-            <small>
-              {mcpStatus
-                ? `${mcpStatus.message} Checked ${new Date(mcpStatus.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`
-                : 'Run a live check against the local bridge.'}
-            </small>
-            {mcpStatus?.error ? <small>{mcpStatus.error}</small> : null}
-            {mcpStatus?.stdioProbe ? (
-              <small>
-                Bridge {mcpStatus.bridgeAvailable ? 'ok' : 'failed'} · stdio {mcpStatus.stdioProbe.ok ? 'ok' : 'failed'}
-                {' '}· initialize {mcpStatus.stdioProbe.initializeOk ? 'ok' : 'failed'}
-                {' '}· tools/list {mcpStatus.stdioProbe.toolsListOk ? `ok (${mcpStatus.stdioProbe.toolCount ?? 0})` : 'failed'}
-                {' '}· {mcpStatus.stdioProbe.durationMs}ms
-              </small>
-            ) : null}
-          </div>
-          <button className={styles.primaryButton} type="button" onClick={() => void testMcpStatus()} disabled={busy === 'status'}>
-            <LuRefreshCw size={15} />
-            {busy === 'status' ? 'Testing...' : 'Test MCP connection'}
-          </button>
-        </div>
-        <div className={styles.infoGrid}>
-          <span>
-            <small>Local bridge</small>
-            <strong>{setup?.bridgeUrl ?? 'Loading...'}</strong>
-          </span>
-          <span>
-            <small>MCP server script</small>
-            <strong>{setup?.scriptPath ?? 'Loading...'}</strong>
-          </span>
-          <span>
-            <small>LAN addresses</small>
-            <strong>{setup?.lanUrls.length ? setup.lanUrls.join(', ') : 'Loopback only'}</strong>
-          </span>
-        </div>
-      </section>
-
-      <div className={styles.clientGrid}>
-        <section className={styles.panel}>
-          <div className={styles.panelHeader}>
-            <span className={styles.panelIcon}><LuTerminal size={19} /></span>
-            <div>
-              <h2>Codex</h2>
-              <p>Writes the MCP server block into the Codex config file.</p>
-            </div>
-          </div>
-          <button className={styles.primaryButton} type="button" onClick={() => void install('codex')} disabled={!setup || busy === 'codex'}>
-            {busy === 'codex' ? 'Installing...' : 'Install for Codex'}
-          </button>
-          <CodeBlock
-            title={setup?.codexConfigPath ?? '~/.codex/config.toml'}
-            value={setup?.snippets.codexToml ?? ''}
-            copied={copied === 'codex'}
-            onCopy={() => setup && copy('codex', setup.snippets.codexToml)}
-          />
-        </section>
-
-        <section className={styles.panel}>
-          <div className={styles.panelHeader}>
-            <span className={styles.panelIcon}><LuTerminal size={19} /></span>
-            <div>
-              <h2>Claude Desktop</h2>
-              <p>Updates Claude Desktop MCP config. Restart Claude after installing.</p>
-            </div>
-          </div>
-          <button className={styles.primaryButton} type="button" onClick={() => void install('claude_desktop')} disabled={!setup || busy === 'claude_desktop'}>
-            {busy === 'claude_desktop' ? 'Installing...' : 'Install for Claude'}
-          </button>
-          <CodeBlock
-            title={setup?.claudeDesktopConfigPath ?? 'claude_desktop_config.json'}
-            value={setup?.snippets.claudeDesktopJson ?? ''}
-            copied={copied === 'claude'}
-            onCopy={() => setup && copy('claude', setup.snippets.claudeDesktopJson)}
-          />
-        </section>
-      </div>
-
-      <section className={styles.panel}>
-        <div className={styles.panelHeader}>
-          <span className={styles.panelIcon}><LuCheck size={19} /></span>
-          <div>
-            <h2>Available MCP tools</h2>
-            <p>Use these from Codex or Claude with a project id and task id.</p>
-          </div>
-        </div>
-        <div className={styles.toolList}>
-          <code>omc_get_task_context</code>
-          <code>omc_validate_task_json</code>
-          <code>omc_create_task_from_json</code>
-          <code>omc_update_task_from_json</code>
-        </div>
-      </section>
 
       <section className={styles.panel}>
         <div className={styles.panelHeader}>
           <span className={styles.panelIcon}><LuTerminal size={19} /></span>
           <div>
-            <h2>Commands</h2>
-            <p>These are the equivalent terminal commands for manual setup and restart.</p>
+            <h2>.omc runtime CLI</h2>
+            <p>Every Codex planning and execution run receives a local helper in the runtime workspace.</p>
+          </div>
+        </div>
+        <div className={styles.infoGrid}>
+          <span>
+            <small>Run root</small>
+            <strong>.omc/runs/&lt;run-id&gt;/</strong>
+          </span>
+          <span>
+            <small>Instruction file</small>
+            <strong>.omc/runs/&lt;run-id&gt;/OMC_CLI.md</strong>
+          </span>
+          <span>
+            <small>Helper script</small>
+            <strong>.omc/runs/&lt;run-id&gt;/omc-task-client.mjs</strong>
+          </span>
+        </div>
+      </section>
+
+      <div className={styles.clientGrid}>
+        <FlowPanel icon={<LuPlay size={19} />} title="Execution flow" items={executionFlow} />
+        <FlowPanel icon={<LuFileText size={19} />} title="Planning flow" items={planningFlow} />
+      </div>
+
+      <section className={styles.panel}>
+        <div className={styles.panelHeader}>
+          <span className={styles.panelIcon}><LuTerminal size={19} /></span>
+          <div>
+            <h2>OMC operations</h2>
+            <p>Commands available inside each runtime workspace run folder.</p>
+          </div>
+        </div>
+        <div className={styles.operationList}>
+          {operations.map((operation) => (
+            <article key={operation.name}>
+              <div>
+                <code>{operation.name}</code>
+                <p>{operation.description}</p>
+              </div>
+              <CodeBlock
+                title="command"
+                value={operation.command}
+                copied={copied === operation.name}
+                onCopy={() => copy(operation.name, operation.command)}
+              />
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className={styles.panel}>
+        <div className={styles.panelHeader}>
+          <span className={styles.panelIcon}><LuFileText size={19} /></span>
+          <div>
+            <h2>Instruction file shape</h2>
+            <p>Open Mission Control writes run-specific paths and exact commands into this Markdown file.</p>
           </div>
         </div>
         <CodeBlock
-          title="Codex install command"
-          value={setup?.commands.codex ?? ''}
-          copied={copied === 'codex-command'}
-          onCopy={() => setup && copy('codex-command', setup.commands.codex)}
-        />
-        <CodeBlock
-          title="Claude restart command"
-          value={setup?.commands.claudeDesktopRestart ?? ''}
-          copied={copied === 'claude-command'}
-          onCopy={() => setup && copy('claude-command', setup.commands.claudeDesktopRestart)}
+          title="OMC_CLI.md"
+          value={mdExample}
+          copied={copied === 'md-example'}
+          onCopy={() => copy('md-example', mdExample)}
         />
       </section>
+    </section>
+  )
+}
+
+function FlowPanel({ icon, title, items }: { icon: ReactNode; title: string; items: string[] }) {
+  return (
+    <section className={styles.panel}>
+      <div className={styles.panelHeader}>
+        <span className={styles.panelIcon}>{icon}</span>
+        <div>
+          <h2>{title}</h2>
+          <p>Run sequence used by Codex through Open Mission Control.</p>
+        </div>
+      </div>
+      <ol className={styles.flowList}>
+        {items.map((item) => <li key={item}>{item}</li>)}
+      </ol>
     </section>
   )
 }
@@ -250,7 +162,7 @@ function CodeBlock({ title, value, copied, onCopy }: { title: string; value: str
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
-      <pre>{value || 'Loading...'}</pre>
+      <pre>{value}</pre>
     </div>
   )
 }

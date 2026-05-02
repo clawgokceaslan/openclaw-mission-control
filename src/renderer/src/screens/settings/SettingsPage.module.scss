@@ -104,66 +104,6 @@
   gap: 12px;
 }
 
-.mcpStatusBadge {
-  min-width: 0;
-  flex: 1;
-  border: 1px solid var(--omc-border-subtle);
-  border-radius: 8px;
-  background: var(--omc-surface-muted);
-  padding: 12px;
-  display: grid;
-  grid-template-columns: 10px minmax(0, 1fr);
-  gap: 4px 10px;
-
-  > span {
-    width: 10px;
-    height: 10px;
-    margin-top: 5px;
-    border-radius: 50%;
-    background: var(--omc-text-muted);
-  }
-
-  strong,
-  small {
-    min-width: 0;
-  }
-
-  strong {
-    color: var(--omc-text-strong);
-    font-size: 0.94rem;
-  }
-
-  small {
-    grid-column: 2;
-    color: var(--omc-text-muted);
-    line-height: 1.45;
-  }
-}
-
-.mcpStatusOnline {
-  border-color: var(--omc-success-border);
-  background: var(--omc-success-bg);
-
-  > span {
-    background: var(--omc-success-strong);
-  }
-}
-
-.mcpStatusOffline {
-  border-color: var(--omc-danger-border);
-  background: var(--omc-danger-bg);
-
-  > span {
-    background: var(--omc-danger);
-  }
-}
-
-.mcpStatusUnknown {
-  > span {
-    background: var(--omc-text-muted);
-  }
-}
-
 .infoGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -199,6 +139,51 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
+}
+
+.flowList {
+  margin: 0;
+  padding-left: 22px;
+  color: var(--omc-text);
+  display: grid;
+  gap: 9px;
+  line-height: 1.45;
+
+  li::marker {
+    color: var(--omc-primary);
+    font-weight: 850;
+  }
+}
+
+.operationList {
+  display: grid;
+  gap: 12px;
+
+  article {
+    display: grid;
+    grid-template-columns: minmax(220px, 0.7fr) minmax(0, 1.3fr);
+    gap: 12px;
+    align-items: start;
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 8px;
+    background: var(--omc-surface-muted);
+    padding: 12px;
+  }
+
+  code {
+    color: var(--omc-primary-strong);
+    font-weight: 900;
+  }
+
+  p {
+    margin: 7px 0 0;
+    color: var(--omc-text-muted);
+    line-height: 1.45;
+  }
+
+  .codeBlock pre {
+    min-height: 0;
+  }
 }
 
 .codeBlock {
@@ -249,6 +234,24 @@
     font-size: 0.8rem;
     line-height: 1.55;
     white-space: pre-wrap;
+  }
+}
+
+@media (width <= 900px) {
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .statusCtaRow,
+  .clientGrid {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .infoGrid,
+  .operationList article {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -4125,8 +4125,8 @@
 .projectPromptField :global(.form-control) {
   border: 1px solid var(--omc-border-strong);
   border-radius: 8px;
-  background: var(--omc-surface);
-  color: var(--omc-text-strong);
+  background: var(--omc-input-bg) !important;
+  color: var(--omc-text-strong) !important;
   resize: vertical;
   font-size: 0.9rem;
   padding: 10px 12px;
@@ -4136,6 +4136,8 @@
 
 .projectPromptField :global(.form-control:focus) {
   border-color: var(--omc-primary);
+  background: var(--omc-input-bg) !important;
+  color: var(--omc-text-strong) !important;
   box-shadow: 0 0 0 0.15rem var(--omc-input-focus-ring);
 }
 
@@ -4206,18 +4208,24 @@
 }
 
 .createTaskTemplatePicker {
+  min-width: 0;
   border: 1px solid var(--omc-border-subtle);
   border-radius: 10px;
   background: var(--omc-surface-soft);
   padding: 10px;
   display: grid;
-  grid-template-columns: minmax(110px, 0.32fr) minmax(0, 1fr);
+  grid-template-columns: minmax(96px, auto) minmax(0, 1fr);
   align-items: center;
   gap: 12px;
+
+  > :last-child {
+    min-width: 0;
+  }
 }
 
 .createTaskFieldLabel {
   min-width: 0;
+  max-width: 100%;
   color: var(--omc-text-muted);
   display: inline-flex;
   align-items: center;
@@ -4226,19 +4234,29 @@
   font-weight: 850;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 
   svg {
     flex: 0 0 auto;
   }
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 .createTaskTitle {
+  min-width: 0;
   border: 1px solid var(--omc-input-border);
   border-radius: 8px;
   min-height: 42px;
   padding: 0 12px;
   color: var(--omc-text-strong);
-  background: var(--omc-surface);
+  background: var(--omc-input-bg);
   font-size: 1rem;
   font-weight: 750;
   outline: none;
@@ -4267,7 +4285,7 @@
 
 .createTaskMetaGrid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -4287,6 +4305,7 @@
   :global(.app-select__control) {
     min-height: 34px;
     border-radius: 8px;
+    min-width: 0;
   }
 
   :global(.app-select__value-container) {
@@ -4301,6 +4320,7 @@
 }
 
 .createTaskStaticField > span {
+  min-width: 0;
   min-height: 34px;
   border: 1px solid var(--omc-input-border);
   border-radius: 8px;
@@ -4311,6 +4331,9 @@
   align-items: center;
   font-size: 0.88rem;
   font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .createTaskDateChip {
@@ -4337,6 +4360,7 @@
 }
 
 .createTaskTags {
+  min-width: 0;
   border: 1px solid var(--omc-border-subtle);
   border-radius: 10px;
   padding: 9px 10px 4px;

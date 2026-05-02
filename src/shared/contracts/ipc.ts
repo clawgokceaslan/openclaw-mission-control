@@ -27,10 +27,7 @@ export const IPC_CHANNELS = {
   },
   appSettings: {
     getActiveGateway: 'app-settings:get-active-gateway',
-    setActiveGateway: 'app-settings:set-active-gateway',
-    getMcpStatus: 'app-settings:get-mcp-status',
-    getMcpSetup: 'app-settings:get-mcp-setup',
-    installMcpClient: 'app-settings:install-mcp-client'
+    setActiveGateway: 'app-settings:set-active-gateway'
   },
   statuses: {
     list: 'statuses:list',
@@ -402,30 +399,6 @@ export interface UpsertGatewayRequest {
   provider?: 'codex_cli'
 }
 
-export interface McpStatusResponse {
-  available: boolean
-  name: string
-  bridgeUrl: string | null
-  checkedAt: string
-  startedAt: string | null
-  message: string
-  bridgeAvailable?: boolean
-  stdioProbe?: {
-    ok: boolean
-    durationMs: number
-    initializeOk: boolean
-    toolsListOk: boolean
-    toolCount?: number
-    error?: string
-  }
-  error?: string
-}
-
-export interface InstallMcpClientRequest {
-  actorToken?: string
-  client?: 'codex' | 'claude_desktop'
-}
-
 export interface WorkspaceRequest {
   actorToken?: string
   id?: string
@@ -454,7 +427,7 @@ export const SERVICE_MAP = {
   auth: ['login', 'logout', 'me', 'inviteValidate', 'updateProfile'],
   projects: ['list', 'get', 'create', 'update', 'moveWorkspace', 'exportWorkspace', 'remove'],
   workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
-  appSettings: ['getActiveGateway', 'setActiveGateway', 'getMcpStatus', 'getMcpSetup', 'installMcpClient'],
+  appSettings: ['getActiveGateway', 'setActiveGateway'],
   statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
   tasks: ['list', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runCodex', 'planWithCodex', 'plannerContext', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
   taskTemplates: ['list', 'create', 'update', 'remove', 'importJson'],
@@ -613,27 +586,6 @@ export const SERVICE_ROUTING: {
       action: 'setActiveGateway',
       method: 'setActiveGateway',
       channel: IPC_CHANNELS.appSettings.setActiveGateway,
-      requiresAuth: true
-    },
-    getMcpStatus: {
-      domain: 'appSettings',
-      action: 'getMcpStatus',
-      method: 'getMcpStatus',
-      channel: IPC_CHANNELS.appSettings.getMcpStatus,
-      requiresAuth: true
-    },
-    getMcpSetup: {
-      domain: 'appSettings',
-      action: 'getMcpSetup',
-      method: 'getMcpSetup',
-      channel: IPC_CHANNELS.appSettings.getMcpSetup,
-      requiresAuth: true
-    },
-    installMcpClient: {
-      domain: 'appSettings',
-      action: 'installMcpClient',
-      method: 'installMcpClient',
-      channel: IPC_CHANNELS.appSettings.installMcpClient,
       requiresAuth: true
     }
   },
