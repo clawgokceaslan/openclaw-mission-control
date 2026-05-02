@@ -1,13 +1,11 @@
-import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   LuCheck,
   LuBot,
   LuChevronDown,
-  LuCircleCheck,
   LuCircleStop,
   LuColumns3,
-  LuCopy,
   LuFlag,
   LuListChecks,
   LuListTodo,
@@ -22,19 +20,18 @@ import {
   LuSlidersHorizontal,
   LuSend,
   LuSparkles,
-  LuTerminal,
   LuTrash2,
   LuX
 } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
-import { formatUsageSummary, parseCodexEvents, type CodexUsageSummary } from '@shared/utils/codex-events'
+import { formatUsageSummary } from '@shared/utils/codex-events'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
-import { Agent, CodexCliGatewayConfig, CodexCliModel, Gateway, OutputFormat, Project, ProjectCodexSettings, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, TaskTemplate, Workspace, CustomField } from '@shared/types/entities'
+import { Agent, Gateway, OutputFormat, Project, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, TaskTemplate, Workspace, CustomField } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { MarkdownDescriptionEditor, prefixDataFormatTokens, type DescriptionDataFormat } from '@renderer/components/markdown/MarkdownDescriptionEditor'
 import { AttachmentTable, storedAttachmentRows } from '@renderer/components/attachments/AttachmentTable'
-import { AttachmentRow, attachmentRowsFromDescription, normalizeAttachments, removeAttachmentFromMarkdown, uploadTaskAttachment } from '@renderer/components/attachments/attachments'
+import { AttachmentRow, attachmentRowsFromDescription, removeAttachmentFromMarkdown, uploadTaskAttachment } from '@renderer/components/attachments/attachments'
 import { Card, Form, Stack } from 'react-bootstrap'
 import { ProjectDetailHeader } from './detail/ProjectDetailHeader'
 import { ProjectBoardView } from './detail/ProjectBoardView'
@@ -49,71 +46,80 @@ import { TaskDetailModal } from './detail/TaskDetailModal'
 import { TaskDetailContent } from './detail/TaskDetailContent'
 import { buildAgentMarkdown, buildProjectWorkspaceExportTaskPayload, buildSkillsMarkdown, buildTaskMarkdown, buildTaskZipArchive, downloadMarkdownFile, downloadTaskZip } from './detail/taskExport'
 import { PROJECT_STATUS_COLUMNS, columnsFromProjectStatuses, resolveProjectStatusColumn } from './detail/status'
+import { ChatOperationFeedback } from './detail/chat/ChatOperationFeedback'
+import { CodexChatMessageItem } from './detail/chat/CodexChatMessageItem'
+import {
+  CHAT_COMPOSER_MAX_HEIGHT,
+  CHAT_COMPOSER_MIN_HEIGHT,
+  CHAT_INITIAL_MESSAGE_LIMIT,
+  CHAT_MESSAGE_LOAD_STEP,
+  activityMessagesFromTask,
+  asCodexThread,
+  asCommentThread,
+  formatChatTime,
+  parseHistoryPatch,
+  usageFromMetadata
+} from './detail/chat/chatUtils'
+import {
+  DEFAULT_TABLE_COLUMNS,
+  codexConfigOf,
+  codexPayloadOverride,
+  createLocalId,
+  customFieldValueLabel,
+  customFieldValueToDraft,
+  getLegacyTableOrder,
+  getStatusOrder,
+  getTableViewConfig,
+  getTaskNewestTime,
+  normalizeTableColumns,
+  projectCodexSettings,
+  projectWorkspaceFolder,
+  statusOrderPayload,
+  taskCodexGatewayId,
+  taskCodexModel,
+  withTaskMeta
+} from './detail/projectDetailUtils'
+import {
+  getSubtaskAgentId,
+  getSubtaskAttachments,
+  getSubtaskComments,
+  getSubtaskCustomFieldValues,
+  getSubtaskDescription,
+  getSubtaskInputFormatId,
+  getSubtaskOutputFormatId,
+  getSubtaskPayload,
+  getSubtaskSkillIds,
+  getSubtaskTagIds,
+  getTaskAttachments,
+  getTaskInputFormatId,
+  getTaskOutputFormatId
+} from './detail/subtaskUtils'
+import type {
+  ChatAttachmentDraft,
+  ChatComposerMode,
+  ChatConversationSummary,
+  ChatOperationFeedbackData,
+  CodexModelsResponse,
+  CodexRunFeedback,
+  CustomFieldDraftRow,
+  DataFormatRole,
+  DetailTab,
+  DetailViewMode,
+  ProjectPromptTab,
+  ProjectSettingsTab,
+  ProjectViewMode,
+  SlashCommand,
+  TableColumnConfig,
+  TaskHistoryItem,
+  TextDraftRow,
+  ThreadEntry
+} from './detail/types'
 import styles from './ProjectDetailPage.module.scss'
 
 const DETAIL_RATIO_KEY = 'omc:task-modal:detail-ratio'
 const DEFAULT_DETAIL_RATIO = 0.7
 const MIN_DETAIL_WIDTH = 420
 const MIN_COMMENTS_WIDTH = 320
-
-type DetailViewMode = 'task' | 'subtask'
-type DetailTab = 'subtasks' | 'customFields' | 'checklist' | 'attachments' | 'details' | 'agent' | 'skills' | 'model'
-type ProjectPromptTab = 'context' | 'prompt' | 'output'
-type ProjectSettingsTab = 'statuses' | 'workspace' | 'projectGroup' | 'agents' | 'codex'
-type ProjectViewMode = 'list' | 'table' | 'board'
-type TextDraftRow = { id: string; title: string }
-type CustomFieldDraftRow = { id: string; field: AppSelectOption | null; value: string }
-type DataFormatRole = OutputFormat['formatRole']
-type TableColumnKind = 'index' | 'name' | 'assignee' | 'status' | 'due' | 'tags' | 'subtasks' | 'priority' | 'custom'
-type TableColumnConfig = { id: string; kind: TableColumnKind; label: string; width: number; required?: boolean; customFieldId?: string }
-type ProjectTableViewConfig = { columns?: TableColumnConfig[]; columnWidths?: Record<string, number> }
-type CodexModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }
-
-function projectCodexSettings(project: Project | null): ProjectCodexSettings {
-  const value = project?.metrics?.codex
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
-  const record = value as Record<string, unknown>
-  return {
-    gatewayId: typeof record.gatewayId === 'string' ? record.gatewayId : null,
-    runtimeWorkspaceId: typeof record.runtimeWorkspaceId === 'string' ? record.runtimeWorkspaceId : null,
-    defaultModel: typeof record.defaultModel === 'string' ? record.defaultModel : null
-  }
-}
-
-function codexConfigOf(gateway?: Gateway | null): CodexCliGatewayConfig {
-  const template = gateway?.template && typeof gateway.template === 'object' && !Array.isArray(gateway.template)
-    ? gateway.template as Partial<CodexCliGatewayConfig>
-    : {}
-  return {
-    provider: 'codex_cli',
-    codexPath: typeof template.codexPath === 'string' ? template.codexPath : gateway?.endpoint ?? 'codex',
-    executionMode: template.executionMode === 'exec' ? 'exec' : 'terminal',
-    models: Array.isArray(template.models) ? template.models : [],
-    lastModelRefreshAt: typeof template.lastModelRefreshAt === 'number' ? template.lastModelRefreshAt : undefined,
-    lastModelRefreshError: typeof template.lastModelRefreshError === 'string' ? template.lastModelRefreshError : undefined
-  }
-}
-
-function taskCodexModel(task: TaskEntity | null | undefined): string {
-  const codex = task?.payload?.codex
-  return codex && typeof codex === 'object' && !Array.isArray(codex) && typeof (codex as Record<string, unknown>).model === 'string'
-    ? String((codex as Record<string, unknown>).model)
-    : ''
-}
-
-function taskCodexGatewayId(task: TaskEntity | null | undefined): string {
-  const codex = task?.payload?.codex
-  return codex && typeof codex === 'object' && !Array.isArray(codex) && typeof (codex as Record<string, unknown>).gatewayId === 'string'
-    ? String((codex as Record<string, unknown>).gatewayId)
-    : ''
-}
-
-function codexPayloadOverride(gatewayId: string, model: string): Record<string, string> | undefined {
-  const next: Record<string, string> = {}
-  if (gatewayId) next.gatewayId = gatewayId
-  if (model) next.model = model
-  return Object.keys(next).length > 0 ? next : undefined
-}
 
 function resizeTitleTextarea(element: HTMLTextAreaElement | null) {
   if (!element) return
@@ -127,589 +133,6 @@ function resizeChatComposerTextarea(element: HTMLTextAreaElement | null) {
   const nextHeight = Math.min(CHAT_COMPOSER_MAX_HEIGHT, Math.max(CHAT_COMPOSER_MIN_HEIGHT, element.scrollHeight))
   element.style.height = `${nextHeight}px`
   element.scrollTop = element.scrollHeight
-}
-
-function slugPart(value: string | undefined, fallback: string): string {
-  const base = (value || fallback)
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 64)
-  return base || fallback
-}
-
-async function shortSha1(value: string): Promise<string> {
-  if (!globalThis.crypto?.subtle) return value.slice(0, 8)
-  const bytes = new TextEncoder().encode(value)
-  const digest = await globalThis.crypto.subtle.digest('SHA-1', bytes)
-  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('').slice(0, 8)
-}
-
-async function projectWorkspaceFolder(workspace: Workspace | null | undefined, project: Project | null): Promise<string> {
-  if (!workspace || !project) return ''
-  return `${workspace.rootPath.replace(/[\\/]$/, '')}/Projects/${slugPart(project.name, 'project')}__${await shortSha1(project.id)}`
-}
-
-function withTaskMeta(task: TaskEntity): TaskEntity {
-  return {
-    ...task,
-    tags: Array.isArray(task.tags) ? task.tags : [],
-    comments: Array.isArray(task.comments) ? task.comments : [],
-    skills: Array.isArray(task.skills) ? task.skills : [],
-    subtasks: Array.isArray(task.subtasks) ? task.subtasks : [],
-    checklistItems: Array.isArray(task.checklistItems) ? task.checklistItems : [],
-    customFieldValues: task.customFieldValues && typeof task.customFieldValues === 'object' ? task.customFieldValues : {}
-  }
-}
-
-const DEFAULT_TABLE_COLUMNS: TableColumnConfig[] = [
-  { id: 'index', kind: 'index', label: '#', width: 42, required: true },
-  { id: 'name', kind: 'name', label: 'Name', width: 300, required: true },
-  { id: 'assignee', kind: 'assignee', label: 'Assignee', width: 170 },
-  { id: 'status', kind: 'status', label: 'Status', width: 180, required: true },
-  { id: 'due', kind: 'due', label: 'Due date', width: 150 },
-  { id: 'tags', kind: 'tags', label: 'Tags', width: 190 },
-  { id: 'subtasks', kind: 'subtasks', label: 'Subtasks', width: 110 },
-  { id: 'priority', kind: 'priority', label: 'Priority', width: 110 }
-]
-
-function getStatusOrder(task: TaskEntity, status: string) {
-  const value = task.payload?.statusOrder
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const order = (value as Record<string, unknown>)[status]
-  return typeof order === 'number' && Number.isFinite(order) ? order : null
-}
-
-function getTaskNewestTime(task: TaskEntity) {
-  return Number.isFinite(task.createdAt) ? task.createdAt : task.updatedAt
-}
-
-function statusOrderPayload(task: TaskEntity, status: string, order: number): Record<string, unknown> {
-  const current = task.payload?.statusOrder
-  return {
-    ...((current && typeof current === 'object' && !Array.isArray(current)) ? current as Record<string, unknown> : {}),
-    [status]: order
-  }
-}
-
-function getTableViewConfig(project: Project | null): ProjectTableViewConfig {
-  const value = project?.metrics?.tableView
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
-  return value as ProjectTableViewConfig
-}
-
-function normalizeTableColumns(project: Project | null, customFields: CustomField[]): TableColumnConfig[] {
-  const config = getTableViewConfig(project)
-  const customFieldIds = new Set(customFields.map((field) => field.id))
-  const incoming = Array.isArray(config.columns) ? config.columns : DEFAULT_TABLE_COLUMNS
-  const byId = new Map(DEFAULT_TABLE_COLUMNS.map((column) => [column.id, column]))
-  const normalized = incoming
-    .filter((column) => column && typeof column.id === 'string')
-    .filter((column) => column.kind !== 'custom' || (column.customFieldId && customFieldIds.has(column.customFieldId)))
-    .slice(0, 12)
-    .map((column) => {
-      const base = byId.get(column.id)
-      if (base) return { ...base, width: config.columnWidths?.[base.id] ?? column.width ?? base.width }
-      const field = customFields.find((item) => item.id === column.customFieldId)
-      return {
-        id: column.id,
-        kind: 'custom' as const,
-        label: field?.name ?? column.label,
-        customFieldId: column.customFieldId,
-        width: config.columnWidths?.[column.id] ?? column.width ?? 180
-      }
-    })
-  for (const required of DEFAULT_TABLE_COLUMNS.filter((column) => column.required)) {
-    if (!normalized.some((column) => column.id === required.id)) normalized.unshift(required)
-  }
-  return normalized.slice(0, 12)
-}
-
-function getLegacyTableOrder(task: TaskEntity) {
-  const value = task.payload?.tableOrder
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-function customFieldValueToDraft(field: CustomField, value: unknown): string {
-  if (field.type === 'boolean') return value === true ? 'true' : value === false ? 'false' : ''
-  if (field.type === 'json') {
-    if (value === undefined) return ''
-    try {
-      return JSON.stringify(value, null, 2)
-    } catch {
-      return ''
-    }
-  }
-  return value == null ? '' : String(value)
-}
-
-function customFieldValueLabel(field: CustomField, value: unknown): string {
-  if (value === undefined) return 'Empty'
-  if (field.type === 'boolean') return value ? 'True' : 'False'
-  if (field.type === 'json') {
-    try {
-      return JSON.stringify(value, null, 2)
-    } catch {
-      return 'Invalid JSON'
-    }
-  }
-  return String(value)
-}
-
-function getSubtaskCustomFieldValues(subtask: TaskSubtask | null): Record<string, unknown> {
-  if (!subtask) return {}
-  const payload = getSubtaskPayload(subtask)
-  const values = payload.customFields
-  return values && typeof values === 'object' && !Array.isArray(values) ? values as Record<string, unknown> : {}
-}
-
-function getSubtaskPayload(subtask: TaskSubtask): Record<string, unknown> {
-  return subtask.payload && typeof subtask.payload === 'object' && !Array.isArray(subtask.payload)
-    ? subtask.payload as Record<string, unknown>
-    : {}
-}
-
-function getSubtaskDescription(subtask: TaskSubtask): string {
-  const payload = getSubtaskPayload(subtask)
-  return typeof payload.description === 'string' ? payload.description : (subtask.description ?? '')
-}
-
-function getSubtaskComments(subtask: TaskSubtask | null): TaskComment[] {
-  if (!subtask) return []
-  const value = getSubtaskPayload(subtask).comments
-  if (!Array.isArray(value)) return []
-  return value.filter((comment): comment is TaskComment => {
-    if (!comment || typeof comment !== 'object') return false
-    const candidate = comment as Partial<TaskComment>
-    return typeof candidate.id === 'string' && typeof candidate.body === 'string' && typeof candidate.createdAt === 'number'
-  }).map((comment) => ({
-    id: comment.id,
-    authorName: typeof comment.authorName === 'string' && comment.authorName.trim() ? comment.authorName : 'Operator',
-    body: comment.body,
-    createdAt: comment.createdAt,
-    updatedAt: typeof comment.updatedAt === 'number' ? comment.updatedAt : undefined
-  }))
-}
-
-function getSubtaskAttachments(subtask: TaskSubtask | null): TaskAttachment[] {
-  if (!subtask) return []
-  return normalizeAttachments(getSubtaskPayload(subtask).attachments)
-}
-
-function getSubtaskAgentId(subtask: TaskSubtask | null): string | undefined {
-  if (!subtask) return undefined
-  const payload = getSubtaskPayload(subtask)
-  if (typeof payload.agentId === 'string' && payload.agentId.trim()) return payload.agentId
-  if (typeof payload.assigneeId === 'string' && payload.assigneeId.trim()) return payload.assigneeId
-  return subtask.assigneeId
-}
-
-function getSubtaskSkillIds(subtask: TaskSubtask | null): string[] {
-  if (!subtask) return []
-  const value = getSubtaskPayload(subtask).skillIds
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())) : []
-}
-
-function getSubtaskTagIds(subtask: TaskSubtask | null): string[] {
-  if (!subtask) return []
-  const value = getSubtaskPayload(subtask).tagIds
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())) : []
-}
-
-function getTaskOutputFormatId(task: TaskEntity | null): string | undefined {
-  const value = task?.payload?.outputFormatId
-  return typeof value === 'string' && value ? value : undefined
-}
-
-function getTaskInputFormatId(task: TaskEntity | null): string | undefined {
-  const value = task?.payload?.inputFormatId
-  return typeof value === 'string' && value ? value : undefined
-}
-
-function getTaskAttachments(task: TaskEntity | null): TaskAttachment[] {
-  return normalizeAttachments(task?.payload?.attachments)
-}
-
-function getSubtaskOutputFormatId(subtask: TaskSubtask | null): string | undefined {
-  if (!subtask) return undefined
-  const value = getSubtaskPayload(subtask).outputFormatId
-  return typeof value === 'string' && value ? value : undefined
-}
-
-function getSubtaskInputFormatId(subtask: TaskSubtask | null): string | undefined {
-  if (!subtask) return undefined
-  const value = getSubtaskPayload(subtask).inputFormatId
-  return typeof value === 'string' && value ? value : undefined
-}
-
-function createLocalId() {
-  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
-
-type TaskHistoryItem = {
-  at: number
-  patch: string
-}
-
-type ThreadEntry = {
-  id: string
-  at: number
-  author: string
-  eventType: string
-  summary: string
-  fields: Array<{ key: string; value: string }>
-  evidence: string[]
-  next?: string
-  source?: 'codex-plan' | 'codex-run' | 'comment' | 'history' | 'local'
-    | 'codex-chat'
-  role?: 'user' | 'assistant' | 'tool' | 'system' | 'error' | 'thinking'
-  status?: 'queued' | 'running' | 'completed' | 'failed'
-  metadata?: Record<string, unknown>
-}
-
-type TaskActivityMessage = {
-  id: string
-  runId: string
-  conversationId?: string
-  source: 'codex-plan' | 'codex-run' | 'codex-chat'
-  role: 'user' | 'assistant' | 'tool' | 'system' | 'error' | 'thinking'
-  status?: 'queued' | 'running' | 'completed' | 'failed'
-  body: string
-  metadata?: Record<string, unknown>
-  createdAt: number
-  updatedAt?: number
-}
-
-type ChatMessageSource = TaskActivityMessage['source']
-type ChatMessageRole = TaskActivityMessage['role']
-type ChatMessageStatus = NonNullable<TaskActivityMessage['status']>
-
-type ChatConversationSummary = {
-  id: string
-  title: string
-  count: number
-  status: ChatMessageStatus | 'event'
-  at: number
-  source: ChatMessageSource
-  model?: string
-}
-
-type ChatComposerMode = 'chat' | 'steer'
-type ChatAttachmentDraft = {
-  id: string
-  name: string
-  size: number
-  bytes: number[]
-}
-type CodexRunFeedback = { kind: 'error' | 'success'; message: string }
-type ChatOperationState = 'running' | 'success' | 'error'
-type ChatOperationFeedbackData = {
-  state: ChatOperationState
-  title: string
-  message: string
-}
-type SlashCommand = {
-  id: 'plan' | 'run' | 'steer' | 'settings' | 'attach' | 'context'
-  label: string
-  hint: string
-}
-
-const chatMessageSources = new Set<ChatMessageSource>(['codex-plan', 'codex-run', 'codex-chat'])
-const chatMessageRoles = new Set<ChatMessageRole>(['user', 'assistant', 'tool', 'system', 'error', 'thinking'])
-const chatMessageStatuses = new Set<ChatMessageStatus>(['queued', 'running', 'completed', 'failed'])
-const CHAT_INITIAL_MESSAGE_LIMIT = 80
-const CHAT_MESSAGE_LOAD_STEP = 80
-const CHAT_COMPOSER_MIN_HEIGHT = 72
-const CHAT_COMPOSER_MAX_HEIGHT = 270
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
-}
-
-function normalizeActivityMessage(raw: unknown): TaskActivityMessage | null {
-  const candidate = asRecord(raw)
-  if (!candidate) return null
-  if (typeof candidate.id !== 'string' || typeof candidate.runId !== 'string' || typeof candidate.body !== 'string') return null
-  const createdAt = typeof candidate.createdAt === 'number' && Number.isFinite(candidate.createdAt)
-    ? candidate.createdAt
-    : Date.now()
-  const source = typeof candidate.source === 'string' && chatMessageSources.has(candidate.source as ChatMessageSource)
-    ? candidate.source as ChatMessageSource
-    : 'codex-chat'
-  const role = typeof candidate.role === 'string' && chatMessageRoles.has(candidate.role as ChatMessageRole)
-    ? candidate.role as ChatMessageRole
-    : 'assistant'
-  const status = typeof candidate.status === 'string' && chatMessageStatuses.has(candidate.status as ChatMessageStatus)
-    ? candidate.status as ChatMessageStatus
-    : undefined
-  const metadata = asRecord(candidate.metadata)
-  const updatedAt = typeof candidate.updatedAt === 'number' && Number.isFinite(candidate.updatedAt)
-    ? candidate.updatedAt
-    : undefined
-  return {
-    id: candidate.id,
-    runId: candidate.runId,
-    conversationId: typeof candidate.conversationId === 'string' ? candidate.conversationId : undefined,
-    source,
-    role,
-    status,
-    body: candidate.body,
-    metadata,
-    createdAt,
-    updatedAt
-  }
-}
-
-function activityMessagesFromTask(task: TaskEntity): TaskActivityMessage[] {
-  const payload = task.payload && typeof task.payload === 'object' && !Array.isArray(task.payload)
-    ? task.payload as Record<string, unknown>
-    : {}
-  const raw = payload.activityMessages
-  if (!Array.isArray(raw)) return []
-  return raw.map(normalizeActivityMessage).filter((item): item is TaskActivityMessage => Boolean(item))
-}
-
-function formatCodexToolBody(body: string): string {
-  const parsed = parseCodexEvents(body)
-  if (parsed.parsedCount === 0) return body
-  const commands = parsed.commands.map((event) => {
-    const output = event.output?.trim()
-      ? `\n${event.output.trim().split(/\r?\n/).slice(-8).join('\n')}`
-      : ''
-    const exit = event.exitCode === undefined ? '' : ` (exit ${event.exitCode})`
-    return `${event.status}: ${event.command}${exit}${output}`
-  })
-  const messages = parsed.messages.map((event) => `${event.role}: ${event.text.trim()}`)
-  const usage = formatUsageSummary(parsed.usage)
-  return [
-    commands.length ? `Commands\n${commands.slice(-12).map((row) => `- ${row}`).join('\n')}` : '',
-    messages.length ? `Messages\n${messages.slice(-5).map((row) => `- ${row}`).join('\n')}` : '',
-    usage ? `Usage\n- ${usage}` : ''
-  ].filter(Boolean).join('\n\n') || 'Codex completed tool steps.'
-}
-
-function usageFromMetadata(metadata: Record<string, unknown> | undefined): CodexUsageSummary | undefined {
-  const value = asRecord(metadata?.usage)
-  if (!value) return undefined
-  const summary: CodexUsageSummary = {}
-  if (typeof value.inputTokens === 'number') summary.inputTokens = value.inputTokens
-  if (typeof value.cachedInputTokens === 'number') summary.cachedInputTokens = value.cachedInputTokens
-  if (typeof value.outputTokens === 'number') summary.outputTokens = value.outputTokens
-  if (typeof value.reasoningOutputTokens === 'number') summary.reasoningOutputTokens = value.reasoningOutputTokens
-  if (typeof value.totalTokens === 'number') summary.totalTokens = value.totalTokens
-  return Object.keys(summary).length > 0 ? summary : undefined
-}
-
-function asCodexThread(message: TaskActivityMessage): ThreadEntry {
-  const label = message.source === 'codex-plan' ? 'Codex Plan' : message.source === 'codex-run' ? 'Codex Run' : 'Codex Chat'
-  return {
-    id: `codex-${message.id}`,
-    at: message.createdAt,
-    author: label,
-    eventType: `${label} · ${message.role}`,
-    summary: message.body,
-    fields: [
-      { key: 'run', value: message.runId },
-      { key: 'status', value: message.status ?? 'event' }
-    ],
-    evidence: [],
-    source: message.source,
-    role: message.role,
-    status: message.status,
-    metadata: { ...(message.metadata ?? {}), runId: message.runId, conversationId: message.conversationId ?? message.runId }
-  }
-}
-
-function renderMarkdownLite(body: string) {
-  const segments = body.split(/```/g)
-  return segments.map((segment, index) => {
-    if (index % 2 === 1) {
-      const lines = segment.split('\n')
-      const code = lines.length > 1 ? lines.slice(1).join('\n') : segment
-      const trimmed = code.trim()
-      return (
-        <div key={index} className={styles.codexCodeBlockWrap}>
-          <button type="button" onClick={() => void navigator.clipboard?.writeText(trimmed)}>Copy</button>
-          <pre className={styles.codexCodeBlock}><code>{trimmed}</code></pre>
-        </div>
-      )
-    }
-    return segment.split('\n').map((line, lineIndex) => {
-      if (!line.trim()) return <br key={`${index}-${lineIndex}`} />
-      if (line.trim().startsWith('- ')) return <p key={`${index}-${lineIndex}`} className={styles.codexBullet}>{line.trim()}</p>
-      return <p key={`${index}-${lineIndex}`} className={styles.codexMarkdownLine}>{line}</p>
-    })
-  })
-}
-
-function formatJsonMetadata(metadata: Record<string, unknown>): string {
-  const compact = Object.fromEntries(Object.entries(metadata).filter(([, value]) => value !== undefined))
-  return JSON.stringify(compact, null, 2)
-}
-
-function formatChatTime(value: number): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-function roleLabel(role: ChatMessageRole): string {
-  if (role === 'assistant') return 'Codex'
-  if (role === 'user') return 'You'
-  if (role === 'thinking') return 'Thinking'
-  return role
-}
-
-type CodexChatMessageItemProps = {
-  message: TaskActivityMessage
-}
-
-const CodexChatMessageItem = memo(function CodexChatMessageItem({ message }: CodexChatMessageItemProps) {
-  const usage = usageFromMetadata(message.metadata)
-  const toolBody = useMemo(() => (
-    message.role === 'tool' ? formatCodexToolBody(message.body) : ''
-  ), [message.body, message.role])
-  const metadataBody = useMemo(() => (
-    message.metadata && Object.keys(message.metadata).length > 0 ? formatJsonMetadata(message.metadata) : ''
-  ), [message.metadata])
-
-  return (
-    <article className={`${styles.chatMessage} ${styles[`chatRole_${message.role}`] ?? ''}`}>
-      <div className={styles.chatMessageHeader}>
-        <span className={styles.chatRoleGlyph} aria-hidden="true">
-          {message.role === 'assistant' ? <LuBot size={14} /> : null}
-          {message.role === 'user' ? <LuMessageSquare size={14} /> : null}
-          {message.role === 'tool' || message.role === 'system' ? <LuTerminal size={14} /> : null}
-          {message.role === 'thinking' ? (message.status === 'running' ? <LuSparkles size={14} /> : <LuCircleCheck size={14} />) : null}
-          {message.role === 'error' ? <LuX size={14} /> : null}
-        </span>
-        <span className={styles.chatMessageKicker}>{roleLabel(message.role)}</span>
-        <span className={styles.chatMessageMeta}>{message.status ?? message.source} · {formatChatTime(message.createdAt)}</span>
-        {usage ? <span className={styles.chatMessageMeta}>{formatUsageSummary(usage)}</span> : null}
-      </div>
-      <div className={styles.chatMessageBody}>
-        {message.role === 'thinking' ? (
-          <div className={styles.chatThinkingBlock}>
-            <span className={styles.chatThinkingLine}>
-              {message.status === 'running' ? (
-                <>Thinking <span className={styles.thinkingDots}><i /><i /><i /></span></>
-              ) : (
-                <><LuCircleCheck size={15} /> Thinking complete</>
-              )}
-            </span>
-            {message.body.trim() ? <div className={styles.chatThinkingText}>{renderMarkdownLite(message.body)}</div> : null}
-          </div>
-        ) : null}
-        {message.role === 'tool' ? (
-          <details className={styles.codexDetails} open>
-            <summary><LuTerminal size={14} /> Tool / command output</summary>
-            <div>{renderMarkdownLite(toolBody)}</div>
-          </details>
-        ) : message.role !== 'thinking' ? (
-          renderMarkdownLite(message.body)
-        ) : null}
-      </div>
-      {metadataBody && message.role !== 'tool' ? (
-        <details className={styles.codexDetails}>
-          <summary>Details</summary>
-          <pre>{metadataBody}</pre>
-        </details>
-      ) : null}
-      {message.body.trim() ? (
-        <button
-          type="button"
-          className={styles.copyMessageButton}
-          onClick={() => void navigator.clipboard?.writeText(message.body)}
-          aria-label="Copy message"
-          title="Copy message"
-        >
-          <LuCopy size={13} />
-        </button>
-      ) : null}
-    </article>
-  )
-})
-
-function ChatOperationFeedback({ feedback }: { feedback: ChatOperationFeedbackData }) {
-  return (
-    <section
-      className={`${styles.chatOperationFeedback} ${styles[`chatOperationFeedback_${feedback.state}`] ?? ''}`}
-      role={feedback.state === 'error' ? 'alert' : 'status'}
-      aria-live="polite"
-    >
-      <span className={styles.chatOperationIcon} aria-hidden="true">
-        {feedback.state === 'running' ? <span className={styles.thinkingDots}><i /><i /><i /></span> : null}
-        {feedback.state === 'success' ? <LuCircleCheck size={15} /> : null}
-        {feedback.state === 'error' ? <LuX size={15} /> : null}
-      </span>
-      <span className={styles.chatOperationCopy}>
-        <b>{feedback.title}</b>
-        <span>{feedback.message}</span>
-      </span>
-    </section>
-  )
-}
-
-function parseHistoryPatch(item: TaskHistoryItem, index: number): ThreadEntry {
-  const baseId = `history-${item.at}-${index}`
-
-  try {
-    const parsed = JSON.parse(item.patch) as Record<string, unknown>
-    const action = typeof parsed.action === 'string' ? parsed.action : 'updated'
-    const status = typeof parsed.status === 'string' ? parsed.status : 'unknown'
-    const fields: Array<{ key: string; value: string }> = [
-      { key: 'action', value: action },
-      { key: 'status', value: status }
-    ]
-    if (typeof parsed.id === 'string') {
-      fields.push({ key: 'id', value: parsed.id })
-    }
-    for (const [key, value] of Object.entries(parsed)) {
-      if (['action', 'status', 'id'].includes(key)) continue
-      if (value == null) continue
-      fields.push({ key, value: typeof value === 'string' ? value : JSON.stringify(value) })
-    }
-
-    return {
-      id: baseId,
-      at: item.at,
-      author: 'System',
-      eventType: 'Update',
-      summary: `Task ${action}`,
-      fields,
-      evidence: [`Status changed to ${status}`],
-      next: 'Review the latest changes in this task.',
-      source: 'history'
-    }
-  } catch {
-    return {
-      id: baseId,
-      at: item.at,
-      author: 'System',
-      eventType: 'Unstructured update',
-      summary: 'History event could not be parsed.',
-      fields: [],
-      evidence: ['Non-JSON patch payload detected.'],
-      source: 'history'
-    }
-  }
-}
-
-function asCommentThread(comment: TaskComment): ThreadEntry {
-  return {
-    id: `comment-${comment.id}`,
-    at: comment.createdAt,
-    author: comment.authorName || 'Operator',
-    eventType: 'Comment added',
-    summary: 'Added a comment',
-    fields: [],
-    evidence: [comment.body],
-    source: 'comment'
-  }
 }
 
 function clampRatio(value: number) {
