@@ -764,7 +764,7 @@ export function ProjectDetailPage() {
   const [chatIncludeContext, setChatIncludeContext] = useState(true)
   const [chatComposerMode, setChatComposerMode] = useState<ChatComposerMode>('chat')
   const [chatAttachments, setChatAttachments] = useState<ChatAttachmentDraft[]>([])
-  const [selectedChatConversationId, setSelectedChatConversationId] = useState('all')
+  const [selectedChatConversationId, setSelectedChatConversationId] = useState('')
   const [chatDragDepth, setChatDragDepth] = useState(0)
   const [slashCommandIndex, setSlashCommandIndex] = useState(0)
   const [chatComposerFocused, setChatComposerFocused] = useState(false)
@@ -1594,11 +1594,26 @@ export function ProjectDetailPage() {
     }
     return ids
   }, [chatConversations])
-  const hasRunningChatConversation = runningChatConversationIds.size > 0
+  useEffect(() => {
+    if (chatConversations.length === 0) {
+      if (selectedChatConversationId) setSelectedChatConversationId('')
+      return
+    }
+    if (!chatConversations.some((conversation) => conversation.id === selectedChatConversationId)) {
+      setSelectedChatConversationId(chatConversations[0].id)
+    }
+  }, [chatConversations, selectedChatConversationId])
+  const sidebarChatConversations = useMemo(() => {
+    if (chatConversations.length <= 30) return chatConversations
+    const selected = chatConversations.find((conversation) => conversation.id === selectedChatConversationId)
+    const selectedInRecent = chatConversations.slice(0, 30).some((conversation) => conversation.id === selectedChatConversationId)
+    return selected && !selectedInRecent
+      ? [selected, ...chatConversations.slice(0, 29)]
+      : chatConversations.slice(0, 30)
+  }, [chatConversations, selectedChatConversationId])
   const visibleChatMessages = useMemo(() => {
-    const messages = selectedChatConversationId === 'all'
-      ? chatActivityMessages
-      : chatActivityMessages.filter((message) => (message.conversationId || message.runId) === selectedChatConversationId)
+    if (!selectedChatConversationId) return []
+    const messages = chatActivityMessages.filter((message) => (message.conversationId || message.runId) === selectedChatConversationId)
     const sorted = [...messages].sort((a, b) => a.createdAt - b.createdAt)
     const settledRuns = new Set<string>()
     for (const message of sorted) {
@@ -1617,16 +1632,12 @@ export function ProjectDetailPage() {
   const effectiveChatMode: 'chat' | 'plan' | 'steer' = isPlanDraft ? 'plan' : chatComposerMode
   const canSendChat = Boolean(chatDraft.trim() || chatAttachments.length > 0)
   const selectedChatSummary = useMemo(() => {
-    if (selectedChatConversationId === 'all') return null
     return chatConversations.find((conversation) => conversation.id === selectedChatConversationId) ?? null
   }, [chatConversations, selectedChatConversationId])
-  const selectedChatIsRunning = selectedChatConversationId === 'all'
-    ? hasRunningChatConversation
-    : Boolean(selectedChatSummary && runningChatConversationIds.has(selectedChatSummary.id))
+  const selectedChatIsRunning = Boolean(selectedChatSummary && runningChatConversationIds.has(selectedChatSummary.id))
   const selectedChatCanStop = visibleChatMessages.some((message) => (
     message.source === 'codex-chat' &&
-    (message.status === 'running' || message.status === 'in_progress') &&
-    (selectedChatConversationId === 'all' || (message.conversationId || message.runId) === selectedChatConversationId)
+    (message.status === 'running' || message.status === 'in_progress')
   ))
   const selectedChatUsage = useMemo(() => {
     for (const message of [...visibleChatMessages].reverse()) {
@@ -1790,14 +1801,14 @@ export function ProjectDetailPage() {
       setCodexRunFeedback({ kind: 'error', message: 'Choose a Codex gateway and model before sending chat.' })
       return
     }
-    if (effectiveChatMode === 'steer' && selectedChatConversationId === 'all') {
+    if (effectiveChatMode === 'steer' && !selectedChatConversationId) {
       setCodexRunFeedback({ kind: 'error', message: 'Select a conversation before sending a steer message.' })
       return
     }
     setChatSending(true)
     setCodexRunFeedback(null)
     try {
-      const conversationId = selectedChatConversationId !== 'all' ? selectedChatConversationId : undefined
+      const conversationId = selectedChatConversationId || undefined
       const response = await invokeBridge<{ runId: string; conversationId: string; executionMode: 'terminal' | 'exec' }>(IPC_CHANNELS.tasks.codexChatSend, {
         actorToken: token,
         taskId: selectedTask.id,
@@ -1837,7 +1848,7 @@ export function ProjectDetailPage() {
       const response = await invokeBridge<{ stopped: number }>(IPC_CHANNELS.tasks.codexChatStop, {
         actorToken: token,
         taskId: selectedTask.id,
-        conversationId: selectedChatConversationId !== 'all' ? selectedChatConversationId : undefined
+        conversationId: selectedChatConversationId || undefined
       })
       if (!response.ok) {
         setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to stop Codex chat.' })
@@ -5567,22 +5578,7 @@ export function ProjectDetailPage() {
                     <strong>Chat</strong>
                     <span>{selectedTask?.title ?? 'Task'}</span>
                   </div>
-                  <button
-                    type="button"
-                    className={selectedChatConversationId === 'all' ? styles.chatConversationActive : ''}
-                    onClick={() => setSelectedChatConversationId('all')}
-                  >
-                    <span>
-                      All conversations
-                      {hasRunningChatConversation ? (
-                        <em className={styles.chatSidebarLoader} aria-label="Codex chat is running">
-                          <i /><i /><i />
-                        </em>
-                      ) : null}
-                    </span>
-                    <small>{chatActivityMessages.length} messages</small>
-                  </button>
-                  {chatConversations.map((conversation) => (
+                  {sidebarChatConversations.map((conversation) => (
                     <button
                       type="button"
                       key={conversation.id}
@@ -5603,6 +5599,9 @@ export function ProjectDetailPage() {
                       {conversation.model ? <small>{conversation.model}</small> : null}
                     </button>
                   ))}
+                  {chatConversations.length > sidebarChatConversations.length ? (
+                    <p>{chatConversations.length - sidebarChatConversations.length} older conversations hidden for performance.</p>
+                  ) : null}
                   {chatConversations.length === 0 ? <p>No Codex conversations yet.</p> : null}
                   {chatHistoryCount > 0 ? (
                     <div className={styles.chatHistoryNote}>

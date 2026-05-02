@@ -1680,14 +1680,17 @@
 }
 
 .chatWorkspace {
+  position: relative;
   min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  height: 100%;
+  display: block;
+  overflow: hidden;
 }
 
 .chatTranscript {
   min-width: 0;
   min-height: 0;
+  height: 100%;
   overflow: auto;
   padding: 16px clamp(12px, 3vw, 36px) 22px;
   scrollbar-gutter: stable;
@@ -1931,11 +1934,18 @@
 }
 
 .chatSettingsPanel {
+  position: absolute;
+  top: 10px;
+  right: clamp(12px, 3vw, 36px);
+  bottom: 10px;
+  z-index: 6;
   width: 310px;
   min-height: 0;
   overflow: auto;
-  border-left: 1px solid var(--omc-border-subtle);
-  background: var(--omc-surface-muted);
+  border: 1px solid color-mix(in srgb, var(--omc-border) 74%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--omc-surface) 94%, var(--omc-bg) 6%);
+  box-shadow: 0 18px 46px color-mix(in srgb, var(--omc-shadow-color) 42%, transparent);
   padding: 14px;
   display: grid;
   align-content: start;
@@ -5732,7 +5742,7 @@
   }
 
   .chatWorkspace {
-    grid-template-columns: 1fr;
+    overflow: visible;
   }
 
   .chatContextBar {
@@ -5745,10 +5755,12 @@
   }
 
   .chatSettingsPanel {
+    top: auto;
+    left: 12px;
+    right: 12px;
+    bottom: 10px;
     width: auto;
     max-height: 260px;
-    border-left: 0;
-    border-top: 1px solid var(--omc-border-subtle);
   }
 
   .chatRole_user {
