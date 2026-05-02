@@ -5680,27 +5680,8 @@ export function ProjectDetailPage() {
                 <main className={styles.chatMain}>
                   <header className={styles.chatTopbar}>
                     <div className={styles.chatTopbarTitle}>
-                      <span className={styles.chatTopbarEyebrow}>Task detail</span>
                       <h2>Chat</h2>
                       <p title={selectedTask?.title ?? 'Task'}>{selectedTask?.title ?? 'Task'}</p>
-                      <div className={styles.chatPillRow}>
-                        <span className={!chatGateway ? styles.chatPillWarning : ''}>
-                          <small>Gateway</small>
-                          <b title={chatGateway?.name ?? 'Gateway required'}>{chatGateway?.name ?? 'Gateway required'}</b>
-                        </span>
-                        <span className={!chatModel ? styles.chatPillWarning : ''}>
-                          <small>Model</small>
-                          <b title={chatModel || 'Model required'}>{chatModel || 'Model required'}</b>
-                        </span>
-                        <span>
-                          <small>Mode</small>
-                          <b>{chatGatewayConfig.executionMode === 'exec' ? 'Exec / Headless' : 'Terminal'}</b>
-                        </span>
-                        <span>
-                          <small>Workspace</small>
-                          <b title={chatRuntimeWorkspace?.name ?? savedCodexSettings.runtimeWorkspaceId ?? 'Workspace required'}>{chatRuntimeWorkspace?.name ?? savedCodexSettings.runtimeWorkspaceId ?? 'Workspace required'}</b>
-                        </span>
-                      </div>
                     </div>
                     <div className={styles.chatTopbarActions}>
                       <button type="button" onClick={() => setChatSettingsOpen((value) => !value)} className={`${styles.chatIconAction} ${chatSettingsOpen ? styles.chatActionActive : ''}`} aria-label="Chat settings" title="Chat settings"><LuSettings2 size={16} /></button>
@@ -5714,26 +5695,6 @@ export function ProjectDetailPage() {
                       </button>
                     </div>
                   </header>
-                  <div className={styles.chatContextBar}>
-                    <div>
-                      <span>Session</span>
-                      <b>{selectedChatSummary?.status ?? (visibleChatMessages.length ? 'mixed' : 'ready')}</b>
-                    </div>
-                    <div>
-                      <span>Agent</span>
-                      <b>{selectedTaskAgent?.name ?? 'Unassigned'}</b>
-                    </div>
-                    <div>
-                      <span>Skills</span>
-                      <b>{taskContextSkills.length ? taskContextSkills.slice(0, 3).map((skill) => skill.name).join(', ') : 'None'}</b>
-                    </div>
-                    {selectedChatUsage ? (
-                      <div>
-                        <span>Usage</span>
-                        <b>{formatUsageSummary(selectedChatUsage)}</b>
-                      </div>
-                    ) : null}
-                  </div>
                   <div className={styles.chatWorkspace}>
                     <div className={styles.chatTranscript} ref={activityFeedRef} onScroll={onActivityScroll}>
                       {visibleChatMessages.length > 0 ? (
@@ -5836,7 +5797,6 @@ export function ProjectDetailPage() {
                     ) : null}
                   </div>
                   <footer className={styles.chatComposer}>
-                    {chatOperationFeedback ? <ChatOperationFeedback feedback={chatOperationFeedback} /> : null}
                     {chatAttachments.length > 0 ? (
                       <div className={styles.chatAttachmentChips}>
                         {chatAttachments.map((attachment) => (
@@ -5933,6 +5893,45 @@ export function ProjectDetailPage() {
                         >
                           {selectedChatCanStop ? <LuCircleStop size={17} /> : chatSending ? <span className={styles.thinkingDots}><i /><i /><i /></span> : <LuSend size={16} />}
                         </button>
+                      </div>
+                    </div>
+                    <div className={styles.chatComposerRail}>
+                      {chatOperationFeedback ? <ChatOperationFeedback feedback={chatOperationFeedback} /> : null}
+                      <div className={styles.chatPillRow}>
+                        <span className={!chatGateway ? styles.chatPillWarning : ''}>
+                          <small>Gateway</small>
+                          <b title={chatGateway?.name ?? 'Gateway required'}>{chatGateway?.name ?? 'Gateway required'}</b>
+                        </span>
+                        <span className={!chatModel ? styles.chatPillWarning : ''}>
+                          <small>Model</small>
+                          <b title={chatModel || 'Model required'}>{chatModel || 'Model required'}</b>
+                        </span>
+                        <span>
+                          <small>Mode</small>
+                          <b>{chatGatewayConfig.executionMode === 'exec' ? 'Exec' : 'Terminal'}</b>
+                        </span>
+                        <span>
+                          <small>Workspace</small>
+                          <b title={chatRuntimeWorkspace?.name ?? savedCodexSettings.runtimeWorkspaceId ?? 'Workspace required'}>{chatRuntimeWorkspace?.name ?? savedCodexSettings.runtimeWorkspaceId ?? 'Workspace required'}</b>
+                        </span>
+                        <span>
+                          <small>Session</small>
+                          <b>{selectedChatSummary?.status ?? (visibleChatMessages.length ? 'mixed' : 'ready')}</b>
+                        </span>
+                        <span>
+                          <small>Agent</small>
+                          <b>{selectedTaskAgent?.name ?? 'Unassigned'}</b>
+                        </span>
+                        <span>
+                          <small>Skills</small>
+                          <b>{taskContextSkills.length ? taskContextSkills.slice(0, 3).map((skill) => skill.name).join(', ') : 'None'}</b>
+                        </span>
+                        {selectedChatUsage ? (
+                          <span>
+                            <small>Usage</small>
+                            <b>{formatUsageSummary(selectedChatUsage)}</b>
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   </footer>
