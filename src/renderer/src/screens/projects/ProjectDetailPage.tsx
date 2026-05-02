@@ -4,6 +4,8 @@ import {
   LuCheck,
   LuBot,
   LuChevronDown,
+  LuCircleCheck,
+  LuCircleStop,
   LuColumns3,
   LuCopy,
   LuFlag,
@@ -668,6 +670,7 @@ export function ProjectDetailPage() {
   const [codexRunFeedback, setCodexRunFeedback] = useState<{ kind: 'error' | 'success'; message: string } | null>(null)
   const [chatDraft, setChatDraft] = useState('')
   const [chatSending, setChatSending] = useState(false)
+  const [chatStopping, setChatStopping] = useState(false)
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false)
   const [chatGatewayId, setChatGatewayId] = useState('')
   const [chatModel, setChatModel] = useState('')
@@ -1507,7 +1510,12 @@ export function ProjectDetailPage() {
     const messages = selectedChatConversationId === 'all'
       ? chatActivityMessages
       : chatActivityMessages.filter((message) => (message.conversationId || message.runId) === selectedChatConversationId)
-    return [...messages].sort((a, b) => a.createdAt - b.createdAt)
+    const sorted = [...messages].sort((a, b) => a.createdAt - b.createdAt)
+    const settledRuns = new Set<string>()
+    for (const message of sorted) {
+      if (message.role !== 'user' && (message.status === 'completed' || message.status === 'failed')) settledRuns.add(message.runId)
+    }
+    return sorted.filter((message) => !(message.role === 'thinking' && message.status === 'running' && settledRuns.has(message.runId)))
   }, [chatActivityMessages, selectedChatConversationId])
   const chatHistoryCount = (selectedTask?.comments?.length ?? 0) + history.length + localActivityEntries.length
   const isPlanDraft = chatDraft.trim().toLowerCase().startsWith('/plan')
@@ -1517,6 +1525,14 @@ export function ProjectDetailPage() {
     if (selectedChatConversationId === 'all') return null
     return chatConversations.find((conversation) => conversation.id === selectedChatConversationId) ?? null
   }, [chatConversations, selectedChatConversationId])
+  const selectedChatIsRunning = selectedChatConversationId === 'all'
+    ? hasRunningChatConversation
+    : Boolean(selectedChatSummary && runningChatConversationIds.has(selectedChatSummary.id))
+  const selectedChatCanStop = visibleChatMessages.some((message) => (
+    message.source === 'codex-chat' &&
+    (message.status === 'running' || message.status === 'in_progress') &&
+    (selectedChatConversationId === 'all' || (message.conversationId || message.runId) === selectedChatConversationId)
+  ))
   const selectedChatUsage = useMemo(() => {
     for (const message of [...visibleChatMessages].reverse()) {
       const usage = usageFromMetadata(message.metadata)
@@ -1660,6 +1676,10 @@ export function ProjectDetailPage() {
 
   const sendCodexChatMessage = async () => {
     if (!selectedTask || !project) return
+    if (selectedChatCanStop) {
+      await stopCodexChat()
+      return
+    }
     const message = chatDraft.trim()
     if (!message && chatAttachments.length === 0) return
     if (!chatGatewayId || !chatModel) {
@@ -1703,6 +1723,30 @@ export function ProjectDetailPage() {
       setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to send Codex chat message.' })
     } finally {
       setChatSending(false)
+    }
+  }
+
+  const stopCodexChat = async () => {
+    if (!selectedTask || chatStopping) return
+    setChatStopping(true)
+    setCodexRunFeedback(null)
+    try {
+      const response = await invokeBridge<{ stopped: number }>(IPC_CHANNELS.tasks.codexChatStop, {
+        actorToken: token,
+        taskId: selectedTask.id,
+        conversationId: selectedChatConversationId !== 'all' ? selectedChatConversationId : undefined
+      })
+      if (!response.ok) {
+        setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to stop Codex chat.' })
+        return
+      }
+      if (!response.data?.stopped) {
+        setCodexRunFeedback({ kind: 'error', message: 'No running Codex chat was found to stop.' })
+      }
+    } catch (error) {
+      setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to stop Codex chat.' })
+    } finally {
+      setChatStopping(false)
     }
   }
 
@@ -5478,6 +5522,9 @@ export function ProjectDetailPage() {
                     </div>
                     <div className={styles.chatTopbarActions}>
                       <button type="button" onClick={() => setChatSettingsOpen((value) => !value)} className={`${styles.chatIconAction} ${chatSettingsOpen ? styles.chatActionActive : ''}`} aria-label="Chat settings" title="Chat settings"><LuSettings2 size={16} /></button>
+                      {selectedChatCanStop ? (
+                        <button type="button" onClick={() => void stopCodexChat()} disabled={chatStopping} className={`${styles.chatIconAction} ${styles.chatStopAction}`} aria-label="Stop Codex chat" title="Stop Codex chat"><LuCircleStop size={16} /></button>
+                      ) : null}
                       <button type="button" onClick={() => void planSelectedTaskWithCodex()} disabled={codexPlanLaunching} className={styles.chatIconAction} aria-label={codexPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'} title={codexPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'}><LuSparkles size={16} /></button>
                       <button type="button" onClick={() => void runSelectedTaskWithCodex()} disabled={codexRunLaunching} className={styles.chatIconAction} aria-label={codexRunLaunching ? 'Running with Codex' : 'Run with Codex'} title={codexRunLaunching ? 'Running with Codex' : 'Run with Codex'}><LuPlay size={16} /></button>
                       <button type="button" onClick={() => setIsActivityModalOpen(false)} aria-label="Close chat" title="Close chat" className={styles.chatIconAction}>
@@ -5525,7 +5572,13 @@ export function ProjectDetailPage() {
                                   </div>
                                   <div className={styles.chatMessageBody}>
                                     {message.role === 'thinking' ? (
-                                      <span className={styles.chatThinkingLine}>Thinking <span className={styles.thinkingDots}><i /><i /><i /></span></span>
+                                      <span className={styles.chatThinkingLine}>
+                                        {message.status === 'running' ? (
+                                          <>Thinking <span className={styles.thinkingDots}><i /><i /><i /></span></>
+                                        ) : (
+                                          <><LuCircleCheck size={15} /> Thinking complete</>
+                                        )}
+                                      </span>
                                     ) : null}
                                     {message.role === 'tool' ? (
                                       <details className={styles.codexDetails} open>
@@ -5686,8 +5739,15 @@ export function ProjectDetailPage() {
                           }
                         }}
                       />
-                      <button type="button" onClick={() => void sendCodexChatMessage()} disabled={chatSending || !canSendChat} aria-label="Send message">
-                        {chatSending ? <span className={styles.thinkingDots}><i /><i /><i /></span> : <LuSend size={16} />}
+                      <button
+                        type="button"
+                        className={selectedChatCanStop ? styles.chatStopButton : ''}
+                        onClick={() => void (selectedChatCanStop ? stopCodexChat() : sendCodexChatMessage())}
+                        disabled={chatSending || chatStopping || (!selectedChatCanStop && (!canSendChat || selectedChatIsRunning))}
+                        aria-label={selectedChatCanStop ? 'Stop Codex chat' : 'Send message'}
+                        title={selectedChatCanStop ? 'Stop' : 'Send'}
+                      >
+                        {selectedChatCanStop ? <LuCircleStop size={17} /> : chatSending ? <span className={styles.thinkingDots}><i /><i /><i /></span> : <LuSend size={16} />}
                       </button>
                     </div>
                     {slashMenuOpen && filteredSlashCommands.length > 0 ? (

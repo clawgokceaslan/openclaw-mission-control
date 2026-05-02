@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { execFile, spawn } from 'node:child_process'
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import EventEmitter from 'node:events'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -12,6 +12,7 @@ import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
 import type {
   AddTaskCommentRequest,
+  CodexChatStopRequest,
   CodexChatSendRequest,
   ExportTaskSnapshotRequest,
   ImportTaskJsonRequest,
@@ -79,6 +80,14 @@ type PlannerLaunchResult = {
 type CodexTerminalRun = {
   finishFilePath: string
   terminalTitle: string
+}
+
+type ActiveCodexChatRun = {
+  child: ChildProcessWithoutNullStreams
+  taskId: string
+  conversationId: string
+  runId: string
+  stopRequested?: boolean
 }
 
 type ProjectPromptSnapshot = {
@@ -682,6 +691,7 @@ async function cleanupOldPlannerRuns(runtimeWorkspacePath: string, maxAgeMs = 24
 
 export class TaskService {
   private readonly codexTerminalRuns = new Map<string, CodexTerminalRun>()
+  private readonly activeCodexChatRuns = new Map<string, ActiveCodexChatRun>()
 
   constructor(
     private readonly auth: AuthService,
@@ -2055,6 +2065,8 @@ export class TaskService {
     }
 
     const child = spawn(codexPath, execArgs, { cwd: runtimeWorkspacePath, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const activeRun: ActiveCodexChatRun = { child, taskId, conversationId, runId }
+    this.activeCodexChatRuns.set(runId, activeRun)
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
     child.stdout.on('data', (chunk: string) => void appendFile(eventsPath, chunk, 'utf8'))
@@ -2072,6 +2084,28 @@ export class TaskService {
     })
     child.on('close', (code, signal) => {
       void (async () => {
+        this.activeCodexChatRuns.delete(runId)
+        if (activeRun.stopRequested) {
+          await this.appendTaskActivityMessage(taskId, {
+            runId,
+            conversationId,
+            source: 'codex-chat',
+            role: 'thinking',
+            status: 'completed',
+            body: '',
+            metadata: { code, signal, eventsPath, stopped: true }
+          })
+          await this.appendTaskActivityMessage(taskId, {
+            runId,
+            conversationId,
+            source: 'codex-chat',
+            role: 'assistant',
+            status: 'completed',
+            body: 'Stopped by user.',
+            metadata: { code, signal, eventsPath, stopped: true }
+          })
+          return
+        }
         const eventRaw = await readFile(eventsPath, 'utf8').catch(() => '')
         const eventSummary = summarizeCodexExecEvents(eventRaw)
         const finalMessage = await readFile(finalMessagePath, 'utf8').catch(() => '')
@@ -2108,6 +2142,22 @@ export class TaskService {
     })
 
     return okResponse({ runId, conversationId, executionMode, command: execCommand, pid: child.pid, runFolderPath, runtimeWorkspacePath })
+  }
+
+  async codexChatStop(payload: CodexChatStopRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ stopped: number }>> {
+    if (!payload?.taskId) return errorResponse(ErrorCodes.Validation, 'Task id is required')
+    const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
+    if (!access.ok || !access.data) return errorResponse(access.error?.code ?? ErrorCodes.Forbidden, access.error?.message ?? 'Access denied', access.error?.details)
+    const conversationId = payload.conversationId?.trim()
+    const matches = Array.from(this.activeCodexChatRuns.values()).filter((run) => {
+      if (run.taskId !== access.data?.task.id) return false
+      return conversationId ? run.conversationId === conversationId : true
+    })
+    for (const run of matches) {
+      run.stopRequested = true
+      run.child.kill('SIGTERM')
+    }
+    return okResponse({ stopped: matches.length })
   }
 
   async update(
