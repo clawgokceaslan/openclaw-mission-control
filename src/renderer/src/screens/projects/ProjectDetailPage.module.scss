@@ -1847,6 +1847,23 @@
   }
 }
 
+.chatThinkingBlock {
+  display: grid;
+  gap: 8px;
+  border-left: 2px solid color-mix(in srgb, var(--omc-border-strong) 72%, transparent);
+  padding-left: 12px;
+}
+
+.chatThinkingText {
+  color: var(--omc-text-muted);
+  font-size: 0.88rem;
+  line-height: 1.52;
+
+  p {
+    margin-bottom: 6px;
+  }
+}
+
 .chatEmptyState {
   min-height: 100%;
   width: min(520px, 100%);
@@ -4046,10 +4063,10 @@
 
 .codexDetails {
   margin-top: 8px;
-  border: 1px solid var(--omc-border);
-  border-radius: 10px;
-  background: var(--omc-surface-muted);
-  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 82%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--omc-surface-muted) 76%, transparent);
+  padding: 8px;
 
   summary {
     cursor: pointer;
@@ -4061,10 +4078,58 @@
 
   pre {
     overflow: auto;
-    margin: 8px 0 0;
+    margin: 0;
     color: var(--omc-text-strong);
     font-size: 0.78rem;
     white-space: pre-wrap;
+  }
+}
+
+.codexDetailGrid {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.codexDetailCard {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--omc-surface) 82%, transparent);
+  padding: 8px 9px;
+  display: grid;
+  gap: 5px;
+
+  span {
+    color: var(--omc-text-soft);
+    font-size: 0.66rem;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+
+  b {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--omc-text-strong);
+    font-size: 0.8rem;
+    font-weight: 850;
+    white-space: nowrap;
+  }
+}
+
+.codexDetailCardWide {
+  grid-column: 1 / -1;
+
+  pre {
+    max-height: 220px;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: var(--omc-text-strong);
+    font-size: 0.76rem;
+    line-height: 1.45;
   }
 }
 

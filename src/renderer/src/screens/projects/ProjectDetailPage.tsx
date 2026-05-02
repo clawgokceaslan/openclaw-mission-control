@@ -527,6 +527,43 @@ function renderMarkdownLite(body: string) {
   })
 }
 
+function formatJsonDetailLabel(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function formatJsonDetailValue(value: unknown): string {
+  if (value == null) return 'null'
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return JSON.stringify(value, null, 2)
+}
+
+function renderJsonDetailCards(metadata: Record<string, unknown>) {
+  const entries = Object.entries(metadata).filter(([, value]) => value !== undefined)
+  if (entries.length === 0) return null
+  return (
+    <div className={styles.codexDetailGrid}>
+      {entries.map(([key, value]) => {
+        const isStructured = value !== null && typeof value === 'object'
+        return (
+          <div key={key} className={`${styles.codexDetailCard} ${isStructured ? styles.codexDetailCardWide : ''}`}>
+            <span>{formatJsonDetailLabel(key)}</span>
+            {isStructured ? (
+              <pre>{formatJsonDetailValue(value)}</pre>
+            ) : (
+              <b>{formatJsonDetailValue(value)}</b>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function formatChatTime(value: number): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
@@ -5579,27 +5616,30 @@ export function ProjectDetailPage() {
                                   </div>
                                   <div className={styles.chatMessageBody}>
                                     {message.role === 'thinking' ? (
-                                      <span className={styles.chatThinkingLine}>
-                                        {message.status === 'running' ? (
-                                          <>Thinking <span className={styles.thinkingDots}><i /><i /><i /></span></>
-                                        ) : (
-                                          <><LuCircleCheck size={15} /> Thinking complete</>
-                                        )}
-                                      </span>
+                                      <div className={styles.chatThinkingBlock}>
+                                        <span className={styles.chatThinkingLine}>
+                                          {message.status === 'running' ? (
+                                            <>Thinking <span className={styles.thinkingDots}><i /><i /><i /></span></>
+                                          ) : (
+                                            <><LuCircleCheck size={15} /> Thinking complete</>
+                                          )}
+                                        </span>
+                                        {message.body.trim() ? <div className={styles.chatThinkingText}>{renderMarkdownLite(message.body)}</div> : null}
+                                      </div>
                                     ) : null}
                                     {message.role === 'tool' ? (
                                       <details className={styles.codexDetails} open>
                                         <summary><LuTerminal size={14} /> Tool / command output</summary>
                                         <div>{renderMarkdownLite(formatCodexToolBody(message.body))}</div>
                                       </details>
-                                    ) : (
+                                    ) : message.role !== 'thinking' ? (
                                       renderMarkdownLite(message.body)
-                                    )}
+                                    ) : null}
                                   </div>
                                   {message.metadata && Object.keys(message.metadata).length > 0 && message.role !== 'tool' ? (
                                     <details className={styles.codexDetails}>
                                       <summary>Details</summary>
-                                      <pre>{JSON.stringify(message.metadata, null, 2)}</pre>
+                                      {renderJsonDetailCards(message.metadata)}
                                     </details>
                                   ) : null}
                                   {message.body.trim() ? (
