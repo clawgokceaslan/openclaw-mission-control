@@ -38,6 +38,7 @@ import { WorkspaceRepository } from '../../db/repositories/workspace-repo.js'
 import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
 import { TaskJsonImportNormalizer } from './task-json-import.js'
 import { safeConsole } from '../utils/safe-output.js'
+import { formatUsageSummary, parseCodexEvents, type CodexUsageSummary } from '../../shared/utils/codex-events.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -407,54 +408,43 @@ function codexChatPrompt(input: {
   ].filter(Boolean).join('\n\n')
 }
 
-function summarizeCodexExecEvents(raw: string): { thinking: string; tools: string; rawTail: string } {
-  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
-  const commands: string[] = []
-  const messages: string[] = []
-  const errors: string[] = []
-  let completed = false
-  for (const line of lines) {
-    try {
-      const event = JSON.parse(line) as Record<string, unknown>
-      const type = typeof event.type === 'string' ? event.type : ''
-      const item = event.item && typeof event.item === 'object' && !Array.isArray(event.item)
-        ? event.item as Record<string, unknown>
-        : undefined
-      const itemType = typeof item?.type === 'string' ? item.type : ''
-      if (itemType === 'command_execution') {
-        const command = typeof item?.command === 'string' ? item.command : ''
-        const status = typeof item?.status === 'string' ? item.status : type.replace(/^item\./, '')
-        const output = typeof item?.aggregated_output === 'string' && item.aggregated_output.trim()
-          ? `\n${item.aggregated_output.trim().split(/\r?\n/).slice(-8).join('\n')}`
-          : ''
-        if (command) commands.push(`${status}: ${command}${output}`)
-      } else if (itemType === 'agent_message' && typeof item?.text === 'string') {
-        messages.push(item.text.trim())
-      } else if (type.includes('error')) {
-        errors.push(line)
-      } else if (type === 'turn.completed') {
-        completed = true
-      }
-    } catch {
-      if (/error|failed|enoent|exception/i.test(line)) errors.push(line)
-    }
-  }
+function summarizeCodexExecEvents(raw: string): { thinking: string; tools: string; rawTail: string; usage?: CodexUsageSummary } {
+  const parsed = parseCodexEvents(raw)
+  const commandRows = parsed.commands.slice(-12).map((event) => {
+    const output = event.output?.trim()
+      ? `\n${event.output.trim().split(/\r?\n/).slice(-8).join('\n')}`
+      : ''
+    const exit = event.exitCode === undefined ? '' : ` (exit ${event.exitCode})`
+    return `- ${event.status}: ${event.command}${exit}${output}`
+  })
+  const messageRows = parsed.messages
+    .filter((event) => event.role === 'assistant' || event.role === 'thinking')
+    .slice(-5)
+    .map((event) => `- ${event.role}: ${event.text.trim()}`)
+  const issueRows = parsed.events
+    .filter((event): event is { kind: 'malformed' | 'raw'; text: string } => event.kind === 'malformed' || event.kind === 'raw')
+    .slice(-6)
+    .map((event) => `- ${event.text}`)
+  const completed = parsed.statuses.some((event) => event.type === 'turn.completed')
+  const usageLine = formatUsageSummary(parsed.usage)
   const thinking = completed
-    ? 'Codex completed its reasoning and produced a response.'
-    : commands.length > 0
-      ? `Codex inspected and ran ${commands.length} step${commands.length === 1 ? '' : 's'}.`
-      : messages.length > 0
+    ? `Codex completed its turn${usageLine ? ` (${usageLine})` : ''}.`
+    : parsed.commands.length > 0
+      ? `Codex ran ${parsed.commands.length} command${parsed.commands.length === 1 ? '' : 's'}.`
+      : parsed.messages.length > 0
         ? 'Codex produced a response.'
         : 'Codex processed the request.'
   const toolSections = [
-    commands.length ? `Commands\n${commands.slice(-12).map((row) => `- ${row}`).join('\n')}` : '',
-    messages.length ? `Agent messages\n${messages.slice(-4).map((row) => `- ${row}`).join('\n')}` : '',
-    errors.length ? `Errors\n${errors.slice(-6).map((row) => `- ${row}`).join('\n')}` : ''
+    commandRows.length ? `Commands\n${commandRows.join('\n')}` : '',
+    messageRows.length ? `Messages\n${messageRows.join('\n')}` : '',
+    usageLine ? `Usage\n- ${usageLine}` : '',
+    issueRows.length ? `Raw / malformed\n${issueRows.join('\n')}` : ''
   ].filter(Boolean)
   return {
     thinking,
     tools: toolSections.join('\n\n'),
-    rawTail: raw.trim().slice(-4000)
+    rawTail: parsed.rawTail,
+    usage: parsed.usage
   }
 }
 
@@ -1386,7 +1376,7 @@ export class TaskService {
               role: 'thinking',
               status: code === 0 ? 'completed' : 'failed',
               body: eventSummary.thinking,
-              metadata: { code, signal, eventsPath: execEventsPath }
+              metadata: { code, signal, eventsPath: execEventsPath, usage: eventSummary.usage }
             })
             if (eventSummary.tools) {
               await this.appendTaskActivityMessage(taskId, {
@@ -1395,7 +1385,7 @@ export class TaskService {
                 role: 'tool',
                 status: code === 0 ? 'completed' : 'failed',
                 body: eventSummary.tools,
-                metadata: { code, signal, eventsPath: execEventsPath, rawTail: eventSummary.rawTail }
+                metadata: { code, signal, eventsPath: execEventsPath, rawTail: eventSummary.rawTail, usage: eventSummary.usage }
               })
             }
             if (code === 0) {
@@ -1405,7 +1395,7 @@ export class TaskService {
                 role: 'assistant',
                 status: 'completed',
                 body: finalMessage.trim() || 'Codex exec completed.',
-                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath }
+                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage: eventSummary.usage }
               })
               await this.markTaskReadyForReview({ actorToken: payload.actorToken, projectId: project.id, taskId }).catch(() => undefined)
             } else {
@@ -1415,7 +1405,7 @@ export class TaskService {
                 role: 'error',
                 status: 'failed',
                 body: eventSummary.tools || `Codex exec exited with code ${code ?? 'unknown'}.`,
-                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath }
+                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage: eventSummary.usage }
               })
             }
             await bridge?.close()
@@ -1852,7 +1842,7 @@ export class TaskService {
               role: 'thinking',
               status: code === 0 ? 'completed' : 'failed',
               body: eventSummary.thinking,
-              metadata: { code, signal, eventsPath: execEventsPath }
+              metadata: { code, signal, eventsPath: execEventsPath, usage: eventSummary.usage }
             })
             if (eventSummary.tools) {
               await this.appendTaskActivityMessage(taskId, {
@@ -1861,7 +1851,7 @@ export class TaskService {
                 role: 'tool',
                 status: code === 0 ? 'completed' : 'failed',
                 body: eventSummary.tools,
-                metadata: { code, signal, eventsPath: execEventsPath, rawTail: eventSummary.rawTail }
+                metadata: { code, signal, eventsPath: execEventsPath, rawTail: eventSummary.rawTail, usage: eventSummary.usage }
               })
             }
             if (code === 0) {
@@ -1871,7 +1861,7 @@ export class TaskService {
                 role: 'assistant',
                 status: 'completed',
                 body: finalMessage.trim() || 'Codex planner completed.',
-                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath }
+                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage: eventSummary.usage }
               })
             } else {
               await this.appendTaskActivityMessage(taskId, {
@@ -1880,7 +1870,7 @@ export class TaskService {
                 role: 'error',
                 status: 'failed',
                 body: eventSummary.tools || `Codex planner exited with code ${code ?? 'unknown'}.`,
-                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath }
+                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage: eventSummary.usage }
               })
             }
             await bridge?.close()
@@ -2092,7 +2082,7 @@ export class TaskService {
           role: 'thinking',
           status: code === 0 ? 'completed' : 'failed',
           body: eventSummary.thinking,
-          metadata: { code, signal, eventsPath }
+          metadata: { code, signal, eventsPath, usage: eventSummary.usage }
         })
         if (eventSummary.tools) {
           await this.appendTaskActivityMessage(taskId, {
@@ -2102,7 +2092,7 @@ export class TaskService {
             role: 'tool',
             status: code === 0 ? 'completed' : 'failed',
             body: eventSummary.tools,
-            metadata: { code, signal, eventsPath, rawTail: eventSummary.rawTail }
+            metadata: { code, signal, eventsPath, rawTail: eventSummary.rawTail, usage: eventSummary.usage }
           })
         }
         await this.appendTaskActivityMessage(taskId, {
@@ -2112,7 +2102,7 @@ export class TaskService {
           role: code === 0 ? 'assistant' : 'error',
           status: code === 0 ? 'completed' : 'failed',
           body: code === 0 ? finalMessage.trim() || 'Codex chat completed.' : eventSummary.tools || `Codex chat exited with code ${code ?? 'unknown'}.`,
-          metadata: { code, signal, eventsPath, finalMessagePath }
+          metadata: { code, signal, eventsPath, finalMessagePath, usage: eventSummary.usage }
         })
       })()
     })

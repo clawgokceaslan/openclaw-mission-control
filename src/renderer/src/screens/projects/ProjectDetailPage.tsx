@@ -5,6 +5,7 @@ import {
   LuBot,
   LuChevronDown,
   LuColumns3,
+  LuCopy,
   LuFlag,
   LuListChecks,
   LuListTodo,
@@ -13,15 +14,18 @@ import {
   LuPencil,
   LuPlay,
   LuPlus,
+  LuCloudUpload,
   LuSettings2,
   LuSignal,
   LuSlidersHorizontal,
   LuSend,
   LuSparkles,
+  LuTerminal,
   LuTrash2,
   LuX
 } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
+import { formatUsageSummary, parseCodexEvents, type CodexUsageSummary } from '@shared/utils/codex-events'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { Agent, CodexCliGatewayConfig, CodexCliModel, Gateway, OutputFormat, Project, ProjectCodexSettings, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, TaskTemplate, Workspace, CustomField } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
@@ -391,6 +395,11 @@ type ChatAttachmentDraft = {
   size: number
   bytes: number[]
 }
+type SlashCommand = {
+  id: 'plan' | 'run' | 'steer' | 'settings' | 'attach' | 'context'
+  label: string
+  hint: string
+}
 
 const chatMessageSources = new Set<ChatMessageSource>(['codex-plan', 'codex-run', 'codex-chat'])
 const chatMessageRoles = new Set<ChatMessageRole>(['user', 'assistant', 'tool', 'system', 'error', 'thinking'])
@@ -444,35 +453,34 @@ function activityMessagesFromTask(task: TaskEntity): TaskActivityMessage[] {
 }
 
 function formatCodexToolBody(body: string): string {
-  const lines = body.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
-  if (!lines.length) return body
-  const commands: string[] = []
-  const messages: string[] = []
-  let parsedCount = 0
-  for (const line of lines) {
-    try {
-      const event = JSON.parse(line) as Record<string, unknown>
-      parsedCount += 1
-      const item = asRecord(event.item)
-      if (item?.type === 'command_execution') {
-        const status = typeof item.status === 'string' ? item.status : typeof event.type === 'string' ? event.type.replace(/^item\./, '') : 'step'
-        const command = typeof item.command === 'string' ? item.command : ''
-        const output = typeof item.aggregated_output === 'string' && item.aggregated_output.trim()
-          ? `\n${item.aggregated_output.trim().split(/\r?\n/).slice(-6).join('\n')}`
-          : ''
-        if (command) commands.push(`${status}: ${command}${output}`)
-      } else if (item?.type === 'agent_message' && typeof item.text === 'string') {
-        messages.push(item.text.trim())
-      }
-    } catch {
-      // Non-JSON tool output is already display-ready.
-    }
-  }
-  if (parsedCount === 0) return body
+  const parsed = parseCodexEvents(body)
+  if (parsed.parsedCount === 0) return body
+  const commands = parsed.commands.map((event) => {
+    const output = event.output?.trim()
+      ? `\n${event.output.trim().split(/\r?\n/).slice(-8).join('\n')}`
+      : ''
+    const exit = event.exitCode === undefined ? '' : ` (exit ${event.exitCode})`
+    return `${event.status}: ${event.command}${exit}${output}`
+  })
+  const messages = parsed.messages.map((event) => `${event.role}: ${event.text.trim()}`)
+  const usage = formatUsageSummary(parsed.usage)
   return [
     commands.length ? `Commands\n${commands.slice(-12).map((row) => `- ${row}`).join('\n')}` : '',
-    messages.length ? `Agent messages\n${messages.slice(-4).map((row) => `- ${row}`).join('\n')}` : ''
+    messages.length ? `Messages\n${messages.slice(-5).map((row) => `- ${row}`).join('\n')}` : '',
+    usage ? `Usage\n- ${usage}` : ''
   ].filter(Boolean).join('\n\n') || 'Codex completed tool steps.'
+}
+
+function usageFromMetadata(metadata: Record<string, unknown> | undefined): CodexUsageSummary | undefined {
+  const value = asRecord(metadata?.usage)
+  if (!value) return undefined
+  const summary: CodexUsageSummary = {}
+  if (typeof value.inputTokens === 'number') summary.inputTokens = value.inputTokens
+  if (typeof value.cachedInputTokens === 'number') summary.cachedInputTokens = value.cachedInputTokens
+  if (typeof value.outputTokens === 'number') summary.outputTokens = value.outputTokens
+  if (typeof value.reasoningOutputTokens === 'number') summary.reasoningOutputTokens = value.reasoningOutputTokens
+  if (typeof value.totalTokens === 'number') summary.totalTokens = value.totalTokens
+  return Object.keys(summary).length > 0 ? summary : undefined
 }
 
 function asCodexThread(message: TaskActivityMessage): ThreadEntry {
@@ -667,6 +675,9 @@ export function ProjectDetailPage() {
   const [chatComposerMode, setChatComposerMode] = useState<ChatComposerMode>('chat')
   const [chatAttachments, setChatAttachments] = useState<ChatAttachmentDraft[]>([])
   const [selectedChatConversationId, setSelectedChatConversationId] = useState('all')
+  const [chatDragDepth, setChatDragDepth] = useState(0)
+  const [slashCommandIndex, setSlashCommandIndex] = useState(0)
+  const [chatComposerFocused, setChatComposerFocused] = useState(false)
   const [statusDrafts, setStatusDrafts] = useState<ProjectStatus[]>([])
   const [statusMapping, setStatusMapping] = useState<Record<string, string>>({})
   const [createTaskStatus, setCreateTaskStatus] = useState<TaskEntity['status']>('pending')
@@ -1494,6 +1505,36 @@ export function ProjectDetailPage() {
   const isPlanDraft = chatDraft.trim().toLowerCase().startsWith('/plan')
   const effectiveChatMode: 'chat' | 'plan' | 'steer' = isPlanDraft ? 'plan' : chatComposerMode
   const canSendChat = Boolean(chatDraft.trim() || chatAttachments.length > 0)
+  const selectedChatSummary = useMemo(() => {
+    if (selectedChatConversationId === 'all') return null
+    return chatConversations.find((conversation) => conversation.id === selectedChatConversationId) ?? null
+  }, [chatConversations, selectedChatConversationId])
+  const selectedChatUsage = useMemo(() => {
+    for (const message of [...visibleChatMessages].reverse()) {
+      const usage = usageFromMetadata(message.metadata)
+      if (usage) return usage
+    }
+    return undefined
+  }, [visibleChatMessages])
+  const taskContextSkills = selectedTask?.skills ?? []
+  const slashCommands = useMemo<SlashCommand[]>(() => [
+    { id: 'plan', label: '/plan', hint: 'Draft a plan in this chat' },
+    { id: 'run', label: '/run', hint: 'Start a Codex run for the task' },
+    { id: 'steer', label: '/steer', hint: 'Steer the selected conversation' },
+    { id: 'settings', label: '/settings', hint: 'Open Codex chat settings' },
+    { id: 'attach', label: '/attach', hint: 'Choose files to attach' },
+    { id: 'context', label: '/context', hint: 'Toggle task context in the prompt' }
+  ], [])
+  const slashMatch = chatDraft.match(/(?:^|\s)\/([a-z]*)$/i)
+  const slashQuery = slashMatch?.[1]?.toLowerCase() ?? ''
+  const slashMenuOpen = chatComposerFocused && Boolean(slashMatch)
+  const filteredSlashCommands = useMemo(() => slashCommands
+    .filter((command) => command.label.slice(1).startsWith(slashQuery))
+    .slice(0, 6), [slashCommands, slashQuery])
+
+  useEffect(() => {
+    setSlashCommandIndex(0)
+  }, [slashQuery, slashMenuOpen])
 
   const selectedTaskExportContext = useMemo(() => {
     if (!selectedTask) return null
@@ -1664,6 +1705,61 @@ export function ProjectDetailPage() {
     }
     setChatAttachments((current) => [...current, ...next].slice(0, 10))
     if (chatFileInputRef.current) chatFileInputRef.current.value = ''
+  }
+
+  const applySlashCommand = (command: SlashCommand) => {
+    if (command.id === 'plan') {
+      setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, (match) => `${match.startsWith(' ') ? ' ' : ''}/plan `))
+      setChatComposerMode('chat')
+      return
+    }
+    if (command.id === 'run') {
+      setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))
+      void runSelectedTaskWithCodex()
+      return
+    }
+    if (command.id === 'steer') {
+      setChatComposerMode('steer')
+      setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))
+      return
+    }
+    if (command.id === 'settings') {
+      setChatSettingsOpen(true)
+      setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))
+      return
+    }
+    if (command.id === 'attach') {
+      setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))
+      chatFileInputRef.current?.click()
+      return
+    }
+    setChatIncludeContext((value) => !value)
+    setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))
+  }
+
+  const handleChatDragEnter = (event: DragEvent<HTMLElement>) => {
+    if (!event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    setChatDragDepth((value) => value + 1)
+  }
+
+  const handleChatDragOver = (event: DragEvent<HTMLElement>) => {
+    if (!event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+  }
+
+  const handleChatDragLeave = (event: DragEvent<HTMLElement>) => {
+    if (!event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    setChatDragDepth((value) => Math.max(0, value - 1))
+  }
+
+  const handleChatDrop = (event: DragEvent<HTMLElement>) => {
+    if (!event.dataTransfer.files.length) return
+    event.preventDefault()
+    setChatDragDepth(0)
+    void addChatAttachments(event.dataTransfer.files)
   }
 
   const closeSelectedTaskDetail = () => {
@@ -5292,7 +5388,23 @@ export function ProjectDetailPage() {
           {isActivityModalOpen ? (
             <>
               <div className={styles.activityBackdrop} onClick={() => setIsActivityModalOpen(false)} />
-              <section className={`${styles.modalShell} ${styles.activityModalShell}`} role="dialog" aria-modal="true" aria-label="Codex chat">
+              <section
+                className={`${styles.modalShell} ${styles.activityModalShell}`}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Codex chat"
+                onDragEnter={handleChatDragEnter}
+                onDragOver={handleChatDragOver}
+                onDragLeave={handleChatDragLeave}
+                onDrop={handleChatDrop}
+              >
+                {chatDragDepth > 0 ? (
+                  <div className={styles.chatDropOverlay}>
+                    <LuCloudUpload size={30} />
+                    <strong>Drop files to attach</strong>
+                    <span>They will be sent with your next Codex message.</span>
+                  </div>
+                ) : null}
                 <aside className={styles.chatSidebar}>
                   <div className={styles.chatBrand}>
                     <span className={styles.chatBrandIcon}><LuMessageSquare size={17} /></span>
@@ -5343,57 +5455,85 @@ export function ProjectDetailPage() {
                       </div>
                     </div>
                     <div className={styles.chatTopbarActions}>
-                      <button type="button" onClick={() => setChatSettingsOpen((value) => !value)} className={chatSettingsOpen ? styles.chatActionActive : ''}><LuSettings2 size={15} /> Settings</button>
-                      <button type="button" onClick={() => void planSelectedTaskWithCodex()} disabled={codexPlanLaunching}><LuSparkles size={15} /> {codexPlanLaunching ? 'Planning' : 'Plan'}</button>
-                      <button type="button" onClick={() => void runSelectedTaskWithCodex()} disabled={codexRunLaunching}><LuPlay size={15} /> {codexRunLaunching ? 'Running' : 'Run'}</button>
-                      <button type="button" onClick={() => setIsActivityModalOpen(false)} aria-label="Close chat" className={styles.chatIconAction}>
+                      <button type="button" onClick={() => setChatSettingsOpen((value) => !value)} className={`${styles.chatIconAction} ${chatSettingsOpen ? styles.chatActionActive : ''}`} aria-label="Chat settings" title="Chat settings"><LuSettings2 size={16} /></button>
+                      <button type="button" onClick={() => void planSelectedTaskWithCodex()} disabled={codexPlanLaunching} className={styles.chatIconAction} aria-label={codexPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'} title={codexPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'}><LuSparkles size={16} /></button>
+                      <button type="button" onClick={() => void runSelectedTaskWithCodex()} disabled={codexRunLaunching} className={styles.chatIconAction} aria-label={codexRunLaunching ? 'Running with Codex' : 'Run with Codex'} title={codexRunLaunching ? 'Running with Codex' : 'Run with Codex'}><LuPlay size={16} /></button>
+                      <button type="button" onClick={() => setIsActivityModalOpen(false)} aria-label="Close chat" title="Close chat" className={styles.chatIconAction}>
                         <LuX size={16} />
                       </button>
                     </div>
                   </header>
+                  <div className={styles.chatContextBar}>
+                    <div>
+                      <span>Session</span>
+                      <b>{selectedChatSummary?.status ?? (visibleChatMessages.length ? 'mixed' : 'ready')}</b>
+                    </div>
+                    <div>
+                      <span>Agent</span>
+                      <b>{selectedTaskAgent?.name ?? 'Unassigned'}</b>
+                    </div>
+                    <div>
+                      <span>Skills</span>
+                      <b>{taskContextSkills.length ? taskContextSkills.slice(0, 3).map((skill) => skill.name).join(', ') : 'None'}</b>
+                    </div>
+                    {selectedChatUsage ? (
+                      <div>
+                        <span>Usage</span>
+                        <b>{formatUsageSummary(selectedChatUsage)}</b>
+                      </div>
+                    ) : null}
+                  </div>
                   <div className={styles.chatWorkspace}>
                     <div className={styles.chatTranscript} ref={activityFeedRef} onScroll={onActivityScroll}>
                       {visibleChatMessages.length > 0 ? (
                         <div className={styles.chatMessageList}>
-                          {visibleChatMessages.map((message) => (
-                            <article
-                              key={message.id}
-                              className={`${styles.chatMessage} ${styles[`chatRole_${message.role}`] ?? ''}`}
-                            >
-                              <div className={styles.chatMessageHeader}>
-                                <span>{roleLabel(message.role)}</span>
-                                <span>{message.status ?? message.source} · {formatChatTime(message.createdAt)}</span>
-                              </div>
-                              <div className={styles.chatMessageBody}>
-                                {message.role === 'thinking' ? (
-                                  <span className={styles.chatThinkingLine}>Thinking <span className={styles.thinkingDots}><i /><i /><i /></span></span>
-                                ) : null}
-                                {message.role === 'tool' ? (
-                                  <details className={styles.codexDetails}>
-                                    <summary>Tool / step details</summary>
-                                    <div>{renderMarkdownLite(formatCodexToolBody(message.body))}</div>
-                                  </details>
-                                ) : (
-                                  renderMarkdownLite(message.body)
-                                )}
-                              </div>
-                              {message.metadata && Object.keys(message.metadata).length > 0 && message.role !== 'tool' ? (
-                                <details className={styles.codexDetails}>
-                                  <summary>Details</summary>
-                                  <pre>{JSON.stringify(message.metadata, null, 2)}</pre>
-                                </details>
-                              ) : null}
-                              {message.body.trim() ? (
-                                <button
-                                  type="button"
-                                  className={styles.copyMessageButton}
-                                  onClick={() => void navigator.clipboard?.writeText(message.body)}
+                          {visibleChatMessages
+                            .filter((message) => !(message.role === 'system' && /^Started Codex/i.test(message.body)))
+                            .map((message) => {
+                              const usage = usageFromMetadata(message.metadata)
+                              return (
+                                <article
+                                  key={message.id}
+                                  className={`${styles.chatMessage} ${styles[`chatRole_${message.role}`] ?? ''}`}
                                 >
-                                  Copy
-                                </button>
-                              ) : null}
-                            </article>
-                          ))}
+                                  <div className={styles.chatMessageHeader}>
+                                    <span>{roleLabel(message.role)}</span>
+                                    <span>{message.status ?? message.source} · {formatChatTime(message.createdAt)}</span>
+                                    {usage ? <span>{formatUsageSummary(usage)}</span> : null}
+                                  </div>
+                                  <div className={styles.chatMessageBody}>
+                                    {message.role === 'thinking' ? (
+                                      <span className={styles.chatThinkingLine}>Thinking <span className={styles.thinkingDots}><i /><i /><i /></span></span>
+                                    ) : null}
+                                    {message.role === 'tool' ? (
+                                      <details className={styles.codexDetails} open>
+                                        <summary><LuTerminal size={14} /> Tool / command output</summary>
+                                        <div>{renderMarkdownLite(formatCodexToolBody(message.body))}</div>
+                                      </details>
+                                    ) : (
+                                      renderMarkdownLite(message.body)
+                                    )}
+                                  </div>
+                                  {message.metadata && Object.keys(message.metadata).length > 0 && message.role !== 'tool' ? (
+                                    <details className={styles.codexDetails}>
+                                      <summary>Details</summary>
+                                      <pre>{JSON.stringify(message.metadata, null, 2)}</pre>
+                                    </details>
+                                  ) : null}
+                                  {message.body.trim() ? (
+                                    <button
+                                      type="button"
+                                      className={styles.copyMessageButton}
+                                      onClick={() => void navigator.clipboard?.writeText(message.body)}
+                                      aria-label="Copy message"
+                                      title="Copy message"
+                                    >
+                                      <LuCopy size={13} />
+                                    </button>
+                                  ) : null}
+                                </article>
+                              )
+                            })}
                         </div>
                       ) : (
                         <div className={styles.chatEmptyState}>
@@ -5460,7 +5600,6 @@ export function ProjectDetailPage() {
                       <div className={styles.chatModeToggle} role="group" aria-label="Chat mode">
                         <button type="button" className={chatComposerMode === 'chat' && !isPlanDraft ? styles.chatModeActive : ''} onClick={() => setChatComposerMode('chat')}>Chat</button>
                         <button type="button" className={chatComposerMode === 'steer' && !isPlanDraft ? styles.chatModeActive : ''} onClick={() => setChatComposerMode('steer')}>Steer</button>
-                        <button type="button" className={isPlanDraft ? styles.chatModeActive : ''} onClick={() => setChatDraft((value) => value.trim().toLowerCase().startsWith('/plan') ? value : `/plan ${value}`)}>/plan</button>
                       </div>
                       <span>{effectiveChatMode === 'plan' ? 'Plan mode' : effectiveChatMode === 'steer' ? 'Steering selected conversation' : 'Continue chat'}</span>
                     </div>
@@ -5493,8 +5632,32 @@ export function ProjectDetailPage() {
                       <textarea
                         value={chatDraft}
                         onChange={(event) => setChatDraft(event.target.value)}
-                        placeholder="Message Codex, type /plan, or steer the selected conversation..."
+                        onFocus={() => setChatComposerFocused(true)}
+                        onBlur={() => setChatComposerFocused(false)}
+                        placeholder="Message Codex or type / for commands..."
                         onKeyDown={(event) => {
+                          if (slashMenuOpen && filteredSlashCommands.length > 0) {
+                            if (event.key === 'ArrowDown') {
+                              event.preventDefault()
+                              setSlashCommandIndex((value) => (value + 1) % filteredSlashCommands.length)
+                              return
+                            }
+                            if (event.key === 'ArrowUp') {
+                              event.preventDefault()
+                              setSlashCommandIndex((value) => (value - 1 + filteredSlashCommands.length) % filteredSlashCommands.length)
+                              return
+                            }
+                            if (event.key === 'Escape') {
+                              event.preventDefault()
+                              setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))
+                              return
+                            }
+                            if (event.key === 'Enter') {
+                              event.preventDefault()
+                              applySlashCommand(filteredSlashCommands[slashCommandIndex] ?? filteredSlashCommands[0])
+                              return
+                            }
+                          }
                           if (event.key === 'Enter' && !event.shiftKey) {
                             event.preventDefault()
                             void sendCodexChatMessage()
@@ -5505,6 +5668,26 @@ export function ProjectDetailPage() {
                         {chatSending ? <span className={styles.thinkingDots}><i /><i /><i /></span> : <LuSend size={16} />}
                       </button>
                     </div>
+                    {slashMenuOpen && filteredSlashCommands.length > 0 ? (
+                      <div className={styles.slashCommandMenu} role="listbox" aria-label="Slash commands">
+                        {filteredSlashCommands.map((command, index) => (
+                          <button
+                            key={command.id}
+                            type="button"
+                            className={index === slashCommandIndex ? styles.slashCommandActive : ''}
+                            onMouseDown={(event) => {
+                              event.preventDefault()
+                              applySlashCommand(command)
+                            }}
+                            role="option"
+                            aria-selected={index === slashCommandIndex}
+                          >
+                            <span>{command.label}</span>
+                            <small>{command.hint}</small>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                     <div className={styles.chatComposerMeta}>
                       <span>{chatGatewayConfig.executionMode === 'exec' ? 'Headless exec' : 'External terminal'} · Shift+Enter for newline</span>
                     </div>
