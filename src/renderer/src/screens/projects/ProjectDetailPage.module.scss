@@ -457,11 +457,11 @@
 .kanbanWrap {
   flex: 0 0 auto;
   min-height: 0;
-  max-height: clamp(420px, calc(100vh - 250px), 760px);
+  height: clamp(420px, calc(100vh - 250px), 760px);
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(300px, 340px);
-  align-items: start;
+  align-items: stretch;
   gap: 12px;
   overflow-x: auto;
   overflow-y: hidden;
@@ -483,7 +483,7 @@
     linear-gradient(180deg, color-mix(in srgb, var(--column-accent) 8%, var(--omc-surface)) 0%, var(--omc-surface) 38%),
     var(--omc-surface);
   min-height: 0;
-  max-height: clamp(420px, calc(100vh - 250px), 760px);
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
