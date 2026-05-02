@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react'
+import { useEffect, useMemo, useRef, type CSSProperties, type DragEvent } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   LuBot,
@@ -20,7 +20,7 @@ import {
   LuX
 } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
-import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
+import { invokeBridge } from '@renderer/utils/api'
 import { Agent, Gateway, OutputFormat, Project, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, TaskTemplate, Workspace, CustomField } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
@@ -32,11 +32,17 @@ import { ProjectDetailHeader } from '@renderer/components/projects/detail/Projec
 import { ProjectBoardView } from '@renderer/components/projects/detail/ProjectBoardView'
 import { ProjectListView } from '@renderer/components/projects/detail/ProjectListView'
 import { ProjectTableView } from '@renderer/components/projects/detail/ProjectTableView'
+import { ProjectSettingsModal } from '@renderer/components/projects/detail/ProjectSettingsModal'
+import { ProjectGroupPickerModal } from '@renderer/components/projects/detail/ProjectModals/ProjectGroupPickerModal'
+import { StatusTemplatePickerModal } from '@renderer/components/projects/detail/ProjectModals/StatusTemplatePickerModal'
+import { TaskModals } from '@renderer/components/projects/detail/TaskModals'
 import { createTaskWithTemplate, type CreateTaskInput } from './detail/createTaskWithTemplate'
+import { useProjectDetailData } from './detail/hooks/useProjectDetailData'
 import { AgentAssignmentPanel, SkillsAssignmentPanel } from '@renderer/components/projects/detail/AssignmentPanels'
 import { TaskDetailContent } from '@renderer/components/projects/detail/TaskDetailContent'
 import { buildAgentMarkdown, buildProjectWorkspaceExportTaskPayload, buildSkillsMarkdown, buildTaskMarkdown, buildTaskZipArchive, downloadMarkdownFile, downloadTaskZip } from './detail/taskExport'
 import { PROJECT_STATUS_COLUMNS, columnsFromProjectStatuses, resolveProjectStatusColumn } from './detail/status'
+import { useProjectDetailState } from './detail/state/projectDetailState'
 import {
   CHAT_COMPOSER_MAX_HEIGHT,
   CHAT_COMPOSER_MIN_HEIGHT,
@@ -64,8 +70,7 @@ import {
   projectWorkspaceFolder,
   statusOrderPayload,
   taskCodexGatewayId,
-  taskCodexModel,
-  withTaskMeta
+  taskCodexModel
 } from './detail/projectDetailUtils'
 import {
   getSubtaskAgentId,
@@ -153,131 +158,260 @@ export function ProjectDetailPage() {
   const navigate = useNavigate()
   const projectId = params.projectId
   const { token, user } = useAuth()
-
-  const [project, setProject] = useState<Project | null>(null)
-  const [projectGroups, setProjectGroups] = useState<ProjectGroup[]>([])
-  const [tasks, setTasks] = useState<TaskEntity[]>([])
-  const [agents, setAgents] = useState<Agent[]>([])
-  const [gateways, setGateways] = useState<Gateway[]>([])
-  const [tags, setTags] = useState<Tag[]>([])
-  const [skills, setSkills] = useState<Skill[]>([])
-  const [customFields, setCustomFields] = useState<CustomField[]>([])
-  const [outputFormats, setOutputFormats] = useState<OutputFormat[]>([])
-  const [taskTemplates, setTaskTemplates] = useState<TaskTemplate[]>([])
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
-  const [projectStatuses, setProjectStatuses] = useState<ProjectStatus[]>([])
-  const [statusTemplates, setStatusTemplates] = useState<StatusTemplate[]>([])
-  const [viewMode, setViewMode] = useState<ProjectViewMode>('board')
-  const [taskTitle, setTaskTitle] = useState('')
-  const [listCreateStatus, setListCreateStatus] = useState<TaskEntity['status'] | null>(null)
-  const [listCreateTitle, setListCreateTitle] = useState('')
-  const [tableCreateActive, setTableCreateActive] = useState(false)
-  const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false)
-  const [isStatusEditorOpen, setIsStatusEditorOpen] = useState(false)
-  const [projectSettingsTab, setProjectSettingsTab] = useState<ProjectSettingsTab>('statuses')
-  const [isWorkspacePickerOpen, setIsWorkspacePickerOpen] = useState(false)
-  const [isProjectGroupPickerOpen, setIsProjectGroupPickerOpen] = useState(false)
-  const [projectGroupNameDraft, setProjectGroupNameDraft] = useState('')
-  const [projectGroupDescriptionDraft, setProjectGroupDescriptionDraft] = useState('')
-  const [projectGroupSaving, setProjectGroupSaving] = useState(false)
-  const [projectSyncing, setProjectSyncing] = useState(false)
-  const [projectSyncMessage, setProjectSyncMessage] = useState<string | null>(null)
-  const [workspaceDraftName, setWorkspaceDraftName] = useState('')
-  const [workspaceDraftPath, setWorkspaceDraftPath] = useState('')
-  const [movingWorkspace, setMovingWorkspace] = useState(false)
-  const [workspaceMoveMessage, setWorkspaceMoveMessage] = useState<string | null>(null)
-  const [isStatusTemplatePickerOpen, setIsStatusTemplatePickerOpen] = useState(false)
-  const [pendingStatusTemplate, setPendingStatusTemplate] = useState<StatusTemplate | null>(null)
-  const [projectFolderPreview, setProjectFolderPreview] = useState('')
-  const [isProjectPromptSettingsOpen, setIsProjectPromptSettingsOpen] = useState(false)
-  const [projectPromptTab, setProjectPromptTab] = useState<ProjectPromptTab>('context')
-  const [projectPromptContext, setProjectPromptContext] = useState('')
-  const [projectPromptPrompt, setProjectPromptPrompt] = useState('')
-  const [projectPromptOutput, setProjectPromptOutput] = useState('')
-  const [projectPromptError, setProjectPromptError] = useState<string | null>(null)
-  const [isProjectPromptSaving, setIsProjectPromptSaving] = useState(false)
-  const [codexGatewayId, setCodexGatewayId] = useState('')
-  const [codexRuntimeWorkspaceId, setCodexRuntimeWorkspaceId] = useState('')
-  const [codexDefaultModel, setCodexDefaultModel] = useState('')
-  const [codexModelLoading, setCodexModelLoading] = useState(false)
-  const [codexModelError, setCodexModelError] = useState<string | null>(null)
-  const [codexSaving, setCodexSaving] = useState(false)
-  const [codexRunLaunching, setCodexRunLaunching] = useState(false)
-  const [codexPlanLaunching, setCodexPlanLaunching] = useState(false)
-  const [codexRunFeedback, setCodexRunFeedback] = useState<CodexRunFeedback | null>(null)
-  const [chatDraft, setChatDraft] = useState('')
-  const [chatSending, setChatSending] = useState(false)
-  const [chatStopping, setChatStopping] = useState(false)
-  const [chatSettingsOpen, setChatSettingsOpen] = useState(false)
-  const [chatGatewayId, setChatGatewayId] = useState('')
-  const [chatModel, setChatModel] = useState('')
-  const [chatIncludeContext, setChatIncludeContext] = useState(true)
-  const [chatComposerMode, setChatComposerMode] = useState<ChatComposerMode>('chat')
-  const [chatAttachments, setChatAttachments] = useState<ChatAttachmentDraft[]>([])
-  const [selectedChatConversationId, setSelectedChatConversationId] = useState('')
-  const [isStartingNewChat, setIsStartingNewChat] = useState(false)
-  const [chatDragDepth, setChatDragDepth] = useState(0)
-  const [slashCommandIndex, setSlashCommandIndex] = useState(0)
-  const [chatComposerFocused, setChatComposerFocused] = useState(false)
-  const [chatVisibleLimit, setChatVisibleLimit] = useState(CHAT_INITIAL_MESSAGE_LIMIT)
-  const [statusDrafts, setStatusDrafts] = useState<ProjectStatus[]>([])
-  const [statusMapping, setStatusMapping] = useState<Record<string, string>>({})
-  const [createTaskStatus, setCreateTaskStatus] = useState<TaskEntity['status']>('pending')
-  const [createTaskInitialTitle, setCreateTaskInitialTitle] = useState('')
-  const [createTaskInitialTemplateId, setCreateTaskInitialTemplateId] = useState<string | null>(null)
-  const [collapsedStatuses, setCollapsedStatuses] = useState<TaskEntity['status'][]>([])
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
-  const [isActivityModalOpen, setIsActivityModalOpen] = useState(false)
-  const [isTitleEditing, setIsTitleEditing] = useState(false)
-  const [titleDraft, setTitleDraft] = useState('')
-  const [isDescriptionEditing, setIsDescriptionEditing] = useState(false)
-  const [isDescriptionSaving, setIsDescriptionSaving] = useState(false)
-  const [isAttachmentUploading, setIsAttachmentUploading] = useState(false)
-  const [detailTab, setDetailTab] = useState<DetailTab>('subtasks')
-  const [detailViewMode, setDetailViewMode] = useState<DetailViewMode>('task')
-  const [selectedSubtaskId, setSelectedSubtaskId] = useState<string | null>(null)
-  const [descriptionDraft, setDescriptionDraft] = useState('')
-  const [subtaskDescriptionDraft, setSubtaskDescriptionDraft] = useState('')
-  const [isSubtaskDescriptionSaving, setIsSubtaskDescriptionSaving] = useState(false)
-  const [commentDraft, setCommentDraft] = useState('')
-  const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
-  const [subtaskCommentDraft, setSubtaskCommentDraft] = useState('')
-  const [editingSubtaskCommentId, setEditingSubtaskCommentId] = useState<string | null>(null)
-  const [isAddSubtaskOpen, setIsAddSubtaskOpen] = useState(false)
-  const [isTaskImportOpen, setIsTaskImportOpen] = useState(false)
-  const [isTaskImporting, setIsTaskImporting] = useState(false)
-  const [subtaskRows, setSubtaskRows] = useState<TextDraftRow[]>([{ id: createLocalId(), title: '' }])
-  const [isChecklistModalOpen, setIsChecklistModalOpen] = useState(false)
-  const [checklistRows, setChecklistRows] = useState<TextDraftRow[]>([{ id: createLocalId(), title: '' }])
-  const [checklistDraft, setChecklistDraft] = useState('')
-  const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null)
-  const [subtaskDraft, setSubtaskDraft] = useState('')
-  const [selectedCustomFieldOption, setSelectedCustomFieldOption] = useState<AppSelectOption | null>(null)
-  const [editingCustomFieldId, setEditingCustomFieldId] = useState<string | null>(null)
-  const [customFieldDraft, setCustomFieldDraft] = useState('')
-  const [customFieldError, setCustomFieldError] = useState<string | null>(null)
-  const [isCustomFieldModalOpen, setIsCustomFieldModalOpen] = useState(false)
-  const [isCreateCustomFieldOpen, setIsCreateCustomFieldOpen] = useState(false)
-  const [customFieldRows, setCustomFieldRows] = useState<CustomFieldDraftRow[]>([{ id: createLocalId(), field: null, value: '' }])
-  const [quickFieldName, setQuickFieldName] = useState('')
-  const [quickFieldType, setQuickFieldType] = useState<CustomField['type']>('text')
-  const [isOutputFormatModalOpen, setIsOutputFormatModalOpen] = useState(false)
-  const [isCreateOutputFormatOpen, setIsCreateOutputFormatOpen] = useState(false)
-  const [outputFormatDraftOption, setOutputFormatDraftOption] = useState<AppSelectOption | null>(null)
-  const [dataFormatRoleDraft, setDataFormatRoleDraft] = useState<DataFormatRole>('output')
-  const [dataFormatTarget, setDataFormatTarget] = useState<{ role: DataFormatRole; scope: DetailViewMode } | null>(null)
-  const [quickOutputFormatName, setQuickOutputFormatName] = useState('')
-  const [quickOutputFormatDescription, setQuickOutputFormatDescription] = useState('')
-  const [pendingDeleteSubtaskId, setPendingDeleteSubtaskId] = useState<string | null>(null)
-  const [selectedSubtaskIds, setSelectedSubtaskIds] = useState<string[]>([])
-  const [subtaskStatusMenu, setSubtaskStatusMenu] = useState<{ subtaskId: string; left: number; top: number } | null>(null)
-  const [history, setHistory] = useState<TaskHistoryItem[]>([])
-  const [localActivityEntries, setLocalActivityEntries] = useState<ThreadEntry[]>([])
-  const [detailRatio, setDetailRatio] = useState(loadInitialRatio)
-  const [isResizingSplit, setIsResizingSplit] = useState(false)
-  const [isTableColumnPickerOpen, setIsTableColumnPickerOpen] = useState(false)
+  const projectDetailState = useProjectDetailState({
+    chatVisibleLimit: CHAT_INITIAL_MESSAGE_LIMIT,
+    detailRatio: loadInitialRatio()
+  })
+  const {
+    project,
+    setProject,
+    projectGroups,
+    setProjectGroups,
+    tasks,
+    setTasks,
+    agents,
+    setAgents,
+    gateways,
+    setGateways,
+    tags,
+    setTags,
+    skills,
+    setSkills,
+    customFields,
+    setCustomFields,
+    outputFormats,
+    setOutputFormats,
+    taskTemplates,
+    setTaskTemplates,
+    workspaces,
+    setWorkspaces,
+    projectStatuses,
+    setProjectStatuses,
+    statusTemplates,
+    setStatusTemplates,
+    viewMode,
+    setViewMode,
+    taskTitle,
+    setTaskTitle,
+    listCreateStatus,
+    setListCreateStatus,
+    listCreateTitle,
+    setListCreateTitle,
+    tableCreateActive,
+    setTableCreateActive,
+    isCreateTaskOpen,
+    setIsCreateTaskOpen,
+    isStatusEditorOpen,
+    setIsStatusEditorOpen,
+    projectSettingsTab,
+    setProjectSettingsTab,
+    isWorkspacePickerOpen,
+    setIsWorkspacePickerOpen,
+    isProjectGroupPickerOpen,
+    setIsProjectGroupPickerOpen,
+    projectGroupNameDraft,
+    setProjectGroupNameDraft,
+    projectGroupDescriptionDraft,
+    setProjectGroupDescriptionDraft,
+    projectGroupSaving,
+    setProjectGroupSaving,
+    projectSyncing,
+    setProjectSyncing,
+    projectSyncMessage,
+    setProjectSyncMessage,
+    workspaceDraftName,
+    setWorkspaceDraftName,
+    workspaceDraftPath,
+    setWorkspaceDraftPath,
+    movingWorkspace,
+    setMovingWorkspace,
+    workspaceMoveMessage,
+    setWorkspaceMoveMessage,
+    isStatusTemplatePickerOpen,
+    setIsStatusTemplatePickerOpen,
+    pendingStatusTemplate,
+    setPendingStatusTemplate,
+    projectFolderPreview,
+    setProjectFolderPreview,
+    isProjectPromptSettingsOpen,
+    setIsProjectPromptSettingsOpen,
+    projectPromptTab,
+    setProjectPromptTab,
+    projectPromptContext,
+    setProjectPromptContext,
+    projectPromptPrompt,
+    setProjectPromptPrompt,
+    projectPromptOutput,
+    setProjectPromptOutput,
+    projectPromptError,
+    setProjectPromptError,
+    isProjectPromptSaving,
+    setIsProjectPromptSaving,
+    codexGatewayId,
+    setCodexGatewayId,
+    codexRuntimeWorkspaceId,
+    setCodexRuntimeWorkspaceId,
+    codexDefaultModel,
+    setCodexDefaultModel,
+    codexModelLoading,
+    setCodexModelLoading,
+    codexModelError,
+    setCodexModelError,
+    codexSaving,
+    setCodexSaving,
+    codexRunLaunching,
+    setCodexRunLaunching,
+    codexPlanLaunching,
+    setCodexPlanLaunching,
+    codexRunFeedback,
+    setCodexRunFeedback,
+    chatDraft,
+    setChatDraft,
+    chatSending,
+    setChatSending,
+    chatStopping,
+    setChatStopping,
+    chatSettingsOpen,
+    setChatSettingsOpen,
+    chatGatewayId,
+    setChatGatewayId,
+    chatModel,
+    setChatModel,
+    chatIncludeContext,
+    setChatIncludeContext,
+    chatComposerMode,
+    setChatComposerMode,
+    chatAttachments,
+    setChatAttachments,
+    selectedChatConversationId,
+    setSelectedChatConversationId,
+    isStartingNewChat,
+    setIsStartingNewChat,
+    chatDragDepth,
+    setChatDragDepth,
+    slashCommandIndex,
+    setSlashCommandIndex,
+    chatComposerFocused,
+    setChatComposerFocused,
+    chatVisibleLimit,
+    setChatVisibleLimit,
+    statusDrafts,
+    setStatusDrafts,
+    statusMapping,
+    setStatusMapping,
+    createTaskStatus,
+    setCreateTaskStatus,
+    createTaskInitialTitle,
+    setCreateTaskInitialTitle,
+    createTaskInitialTemplateId,
+    setCreateTaskInitialTemplateId,
+    collapsedStatuses,
+    setCollapsedStatuses,
+    error,
+    setError,
+    busy,
+    setBusy,
+    selectedTaskId,
+    setSelectedTaskId,
+    isActivityModalOpen,
+    setIsActivityModalOpen,
+    isTitleEditing,
+    setIsTitleEditing,
+    titleDraft,
+    setTitleDraft,
+    isDescriptionEditing,
+    setIsDescriptionEditing,
+    isDescriptionSaving,
+    setIsDescriptionSaving,
+    isAttachmentUploading,
+    setIsAttachmentUploading,
+    detailTab,
+    setDetailTab,
+    detailViewMode,
+    setDetailViewMode,
+    selectedSubtaskId,
+    setSelectedSubtaskId,
+    descriptionDraft,
+    setDescriptionDraft,
+    subtaskDescriptionDraft,
+    setSubtaskDescriptionDraft,
+    isSubtaskDescriptionSaving,
+    setIsSubtaskDescriptionSaving,
+    commentDraft,
+    setCommentDraft,
+    editingCommentId,
+    setEditingCommentId,
+    subtaskCommentDraft,
+    setSubtaskCommentDraft,
+    editingSubtaskCommentId,
+    setEditingSubtaskCommentId,
+    isAddSubtaskOpen,
+    setIsAddSubtaskOpen,
+    isTaskImportOpen,
+    setIsTaskImportOpen,
+    isTaskImporting,
+    setIsTaskImporting,
+    subtaskRows,
+    setSubtaskRows,
+    isChecklistModalOpen,
+    setIsChecklistModalOpen,
+    checklistRows,
+    setChecklistRows,
+    checklistDraft,
+    setChecklistDraft,
+    editingSubtaskId,
+    setEditingSubtaskId,
+    subtaskDraft,
+    setSubtaskDraft,
+    selectedCustomFieldOption,
+    setSelectedCustomFieldOption,
+    editingCustomFieldId,
+    setEditingCustomFieldId,
+    customFieldDraft,
+    setCustomFieldDraft,
+    customFieldError,
+    setCustomFieldError,
+    isCustomFieldModalOpen,
+    setIsCustomFieldModalOpen,
+    isCreateCustomFieldOpen,
+    setIsCreateCustomFieldOpen,
+    customFieldRows,
+    setCustomFieldRows,
+    quickFieldName,
+    setQuickFieldName,
+    quickFieldType,
+    setQuickFieldType,
+    isOutputFormatModalOpen,
+    setIsOutputFormatModalOpen,
+    isCreateOutputFormatOpen,
+    setIsCreateOutputFormatOpen,
+    outputFormatDraftOption,
+    setOutputFormatDraftOption,
+    dataFormatRoleDraft,
+    setDataFormatRoleDraft,
+    dataFormatTarget,
+    setDataFormatTarget,
+    quickOutputFormatName,
+    setQuickOutputFormatName,
+    quickOutputFormatDescription,
+    setQuickOutputFormatDescription,
+    pendingDeleteSubtaskId,
+    setPendingDeleteSubtaskId,
+    selectedSubtaskIds,
+    setSelectedSubtaskIds,
+    subtaskStatusMenu,
+    setSubtaskStatusMenu,
+    history,
+    setHistory,
+    localActivityEntries,
+    setLocalActivityEntries,
+    detailRatio,
+    setDetailRatio,
+    isResizingSplit,
+    setIsResizingSplit,
+    isTableColumnPickerOpen,
+    setIsTableColumnPickerOpen
+  } = projectDetailState
 
   const modalBodyRef = useRef<HTMLDivElement | null>(null)
   const activityFeedRef = useRef<HTMLDivElement | null>(null)
@@ -288,75 +422,14 @@ export function ProjectDetailPage() {
   const keepActivityBottomRef = useRef(true)
   const lastCodexModelRefreshRef = useRef<string | null>(null)
 
-  const projectLoadError = projectId ? null : 'Project id not found.'
-
-  const refresh = async () => {
-    if (!projectId) return
-    const [projectResponse, taskResponse, tagsResponse, skillsResponse, customFieldsResponse, agentsResponse, gatewaysResponse, outputFormatsResponse, taskTemplatesResponse, statusesResponse, workspacesResponse, statusTemplatesResponse, projectGroupsResponse] = await Promise.all([
-      invokeBridge<Project>(IPC_CHANNELS.projects.get, { actorToken: token, id: projectId }),
-      invokeBridge<TaskEntity[]>(IPC_CHANNELS.tasks.list, { actorToken: token, projectId }),
-      loadList<Tag[]>(IPC_CHANNELS.customFields.tagsList, token),
-      loadList<Skill[]>(IPC_CHANNELS.skills.list, token),
-      loadList<CustomField[]>(IPC_CHANNELS.customFields.list, token),
-      loadList<Agent[]>(IPC_CHANNELS.agents.list, token),
-      loadList<Gateway[]>(IPC_CHANNELS.gateways.list, token),
-      loadList<OutputFormat[]>(IPC_CHANNELS.outputFormats.list, token),
-      loadList<TaskTemplate[]>(IPC_CHANNELS.taskTemplates.list, token),
-      invokeBridge<ProjectStatus[]>(IPC_CHANNELS.statuses.getProjectStatuses, { actorToken: token, projectId }),
-      loadList<Workspace[]>(IPC_CHANNELS.workspaces.list, token),
-      invokeBridge<StatusTemplate[]>(IPC_CHANNELS.statuses.listTemplates, { actorToken: token }),
-      loadList<ProjectGroup[]>(IPC_CHANNELS.projectGroups.list, token)
-    ])
-
-    if (!projectResponse.ok || !projectResponse.data) {
-      setError(projectResponse.error?.message ?? 'Project not found')
-      setProject(null)
-      return
-    }
-
-    setProject(projectResponse.data)
-    setTasks(Array.isArray(taskResponse.data) ? taskResponse.data.map(withTaskMeta) : [])
-    setTags(Array.isArray(tagsResponse.data) ? tagsResponse.data : [])
-    setSkills(Array.isArray(skillsResponse.data) ? skillsResponse.data : [])
-    setCustomFields(Array.isArray(customFieldsResponse.data) ? customFieldsResponse.data : [])
-    setAgents(Array.isArray(agentsResponse.data) ? agentsResponse.data : [])
-    setGateways(Array.isArray(gatewaysResponse.data) ? gatewaysResponse.data : [])
-    setOutputFormats(Array.isArray(outputFormatsResponse.data) ? outputFormatsResponse.data : [])
-    setTaskTemplates(Array.isArray(taskTemplatesResponse.data) ? taskTemplatesResponse.data : [])
-    setProjectStatuses(Array.isArray(statusesResponse.data) ? statusesResponse.data : [])
-    setWorkspaces(Array.isArray(workspacesResponse.data) ? workspacesResponse.data : [])
-    setStatusTemplates(Array.isArray(statusTemplatesResponse.data) ? statusTemplatesResponse.data : [])
-    if (projectGroupsResponse.ok) setProjectGroups(Array.isArray(projectGroupsResponse.data) ? projectGroupsResponse.data : [])
-    setError(!taskResponse.ok
-      ? taskResponse.error?.message ?? 'Unable to load tasks'
-      : !outputFormatsResponse.ok
-        ? outputFormatsResponse.error?.message ?? 'Unable to load data formats'
-        : !taskTemplatesResponse.ok
-          ? taskTemplatesResponse.error?.message ?? 'Unable to load task templates'
-          : null)
-  }
-
-  useEffect(() => {
-    void refresh()
-  }, [projectId, token])
-
-  useEffect(() => {
-    const onTaskUpdated = (...args: unknown[]) => {
-      const payload = (args[1] ?? args[0]) as { projectId?: string; taskId?: string; action?: string } | undefined
-      if (!payload?.projectId || payload.projectId !== projectId) return
-      void refresh()
-      if (payload.action === 'created' && payload.taskId) setSelectedTaskId(payload.taskId)
-    }
-    subscribeToChannel(IPC_CHANNELS.events.taskUpdated, onTaskUpdated)
-    return () => unsubscribeFromChannel(IPC_CHANNELS.events.taskUpdated, onTaskUpdated)
-  }, [projectId, token])
-
-  useEffect(() => {
-    const codex = projectCodexSettings(project)
-    setCodexGatewayId(codex.gatewayId ?? '')
-    setCodexRuntimeWorkspaceId(codex.runtimeWorkspaceId ?? '')
-    setCodexDefaultModel(codex.defaultModel ?? '')
-  }, [project?.id, project?.metrics])
+  const {
+    refresh,
+    projectLoadError
+  } = useProjectDetailData({
+    token,
+    projectId,
+    state: projectDetailState
+  })
 
   const chooseProjectWorkspaceFolder = async () => {
     const pickResponse = await invokeBridge<{ rootPath: string } | null>(IPC_CHANNELS.workspaces.pickFolder, { actorToken: token })
@@ -3158,7 +3231,10 @@ export function ProjectDetailPage() {
         />
       ) : null}
 
-      {isStatusEditorOpen ? (
+      <ProjectSettingsModal
+        open={isStatusEditorOpen}
+        onClose={() => setIsStatusEditorOpen(false)}
+      >
         <>
           <div className={styles.createTaskBackdrop} onClick={() => setIsStatusEditorOpen(false)} />
           <section className={`${styles.createTaskModal} ${styles.projectSettingsModal}`} role="dialog" aria-modal="true" aria-label="Project settings">
@@ -3481,58 +3557,23 @@ export function ProjectDetailPage() {
             </footer>
           </section>
           {isStatusTemplatePickerOpen ? (
-            <>
-              <div className={styles.nestedCreateBackdrop} onClick={() => setIsStatusTemplatePickerOpen(false)} />
-              <section className={styles.nestedCreateDialog} role="dialog" aria-modal="true" aria-label="Apply status template">
-                <header>
-                  <h4>Apply status template</h4>
-                  <button type="button" onClick={() => setIsStatusTemplatePickerOpen(false)} aria-label="Close status template picker"><LuX size={15} /></button>
-                </header>
-                <div className={styles.workspacePickerList}>
-                  {statusTemplates.map((template) => (
-                    <button key={template.id} type="button" className={styles.workspacePickerRow} onClick={() => void applyStatusTemplate(template)}>
-                      <strong>{template.name}</strong>
-                      <span>{template.items?.length ?? 0} statuses</span>
-                    </button>
-                  ))}
-                  {statusTemplates.length === 0 ? <p className={styles.customFieldEmpty}>No status templates available.</p> : null}
-                </div>
-              </section>
-            </>
+            <StatusTemplatePickerModal
+              open={isStatusTemplatePickerOpen}
+              templates={statusTemplates}
+              onClose={() => setIsStatusTemplatePickerOpen(false)}
+              onPickTemplate={applyStatusTemplate}
+            />
           ) : null}
           {isProjectGroupPickerOpen ? (
-            <>
-              <div className={styles.nestedCreateBackdrop} onClick={() => setIsProjectGroupPickerOpen(false)} />
-              <section className={styles.nestedCreateDialog} role="dialog" aria-modal="true" aria-label="Choose project group">
-                <header>
-                  <h4>Choose project group</h4>
-                  <button type="button" onClick={() => setIsProjectGroupPickerOpen(false)} aria-label="Close project group picker"><LuX size={15} /></button>
-                </header>
-                <div className={styles.workspacePickerList}>
-                  <button
-                    type="button"
-                    className={projectGroupForExport ? styles.workspacePickerRow : `${styles.workspacePickerRow} ${styles.workspacePickerRowActive}`}
-                    onClick={() => void updateProjectGroupMembership(null)}
-                    disabled={projectGroupSaving}
-                  >
-                    <strong>No project group</strong>
-                    <span>Remove this project from its current group.</span>
-                  </button>
-                  {projectGroups.map((group) => (
-                    <button
-                      key={group.id}
-                      type="button"
-                      className={group.id === projectGroupForExport?.id ? `${styles.workspacePickerRow} ${styles.workspacePickerRowActive}` : styles.workspacePickerRow}
-                      onClick={() => void updateProjectGroupMembership(group.id)}
-                      disabled={projectGroupSaving}
-                    >
-                      <strong>{group.name}</strong>
-                      <span>{group.description || `${group.projectIds?.length ?? 0} projects`}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            </>
+            <ProjectGroupPickerModal
+              open={isProjectGroupPickerOpen}
+              projectGroupId={projectGroupForExport?.id}
+              projectGroups={projectGroups}
+              projectGroupSaving={projectGroupSaving}
+              onClose={() => setIsProjectGroupPickerOpen(false)}
+              onClearGroup={() => void updateProjectGroupMembership(null)}
+              onPickGroup={(group) => void updateProjectGroupMembership(group.id)}
+            />
           ) : null}
           {isWorkspacePickerOpen ? (
             <>
@@ -3599,10 +3640,10 @@ export function ProjectDetailPage() {
             </>
           ) : null}
         </>
-      ) : null}
+      </ProjectSettingsModal>
 
       {selectedTask ? (
-        <>
+        <TaskModals open>
           <TaskDetailPopup
             taskId={selectedTask.id}
             onClose={closeSelectedTaskDetail}
@@ -4426,278 +4467,283 @@ export function ProjectDetailPage() {
           </TaskDetailContent>
         </TaskDetailPopup>
 
-        {selectedSubtask && detailViewMode === 'subtask' ? (
-          <TaskDetailPopup
-            taskId={selectedSubtask.id}
-            title="Subtask detail"
-            nested
-            hideTaskActions
-            onClose={() => {
-              setSelectedSubtaskId(null)
-              setDetailViewMode('task')
-              setDetailTab('subtasks')
-              setCustomFieldError(null)
-            }}
-            onOpenActivity={() => undefined}
-            onEditTitle={() => {
-              setEditingSubtaskId(selectedSubtask.id)
-              setSubtaskDraft(selectedSubtask.title)
-            }}
-            onDeleteTask={() => void removeSubtask(selectedSubtask.id)}
-            onFilesDrop={(files) => void uploadSubtaskAttachments(files)}
-          >
-            <TaskDetailContent
-              bodyRef={modalBodyRef}
-              splitTemplate={splitTemplate}
-              onResizeStart={() => setIsResizingSplit(true)}
-              comments={getSubtaskComments(selectedSubtask)}
-              commentDraft={subtaskCommentDraft}
-              editingCommentId={editingSubtaskCommentId}
-              commentPlaceholder={editingSubtaskCommentId ? 'Edit subtask comment...' : 'Write a subtask comment...'}
-              onCommentDraftChange={setSubtaskCommentDraft}
-              onSubmitComment={() => void submitSubtaskComment()}
-              onEditComment={startEditSubtaskComment}
-              onRemoveComment={(comment) => void removeSubtaskComment(comment)}
-              onCancelEditComment={cancelEditSubtaskComment}
-            >
-            <div className={styles.subtaskModalBody}>
-              <div className={styles.detailPane}>
-                <section className={styles.breadcrumbRow}>
-                  <button
-                    type="button"
-                    className={styles.breadcrumbBtn}
-                    onClick={() => {
-                      setSelectedSubtaskId(null)
-                      setDetailViewMode('task')
-                      setDetailTab('subtasks')
-                    }}
-                  >
-                    {selectedTask.title}
-                  </button>
-                  <span className={styles.breadcrumbSep}>&gt;</span>
-                  <button type="button" className={styles.breadcrumbBtnActive}>{selectedSubtask.title}</button>
-                </section>
-                <section className={styles.detailTop}>
-                  <div className={styles.taskTypeRow}>
-                    <span className={styles.taskTypePill}>Subtask</span>
-                    <span className={styles.projectContext}>in {selectedTask.title}</span>
-                  </div>
-                  {editingSubtaskId === selectedSubtask.id ? (
-                    <textarea
-                      autoFocus
-                      ref={resizeTitleTextarea}
-                      className={styles.titleInput}
-                      value={subtaskDraft}
-                      rows={1}
-                      onInput={(event) => resizeTitleTextarea(event.currentTarget)}
-                      onChange={(event) => setSubtaskDraft(event.target.value)}
-                      onBlur={() => void saveSubtaskTitle()}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                          event.preventDefault()
-                          void saveSubtaskTitle()
-                        }
-                        if (event.key === 'Escape') {
-                          setEditingSubtaskId(null)
-                          setSubtaskDraft('')
-                        }
-                      }}
-                    />
-                  ) : (
-                    <h3
-                      className={styles.detailTitle}
-                      onClick={() => {
-                        setEditingSubtaskId(selectedSubtask.id)
-                        setSubtaskDraft(selectedSubtask.title)
-                      }}
-                    >
-                      {selectedSubtask.title}
-                    </h3>
-                  )}
-                  <div className={styles.topControlGrid}>
-                    <div
-                      className={`${styles.topControlBlock} ${styles.topControlCard} ${styles.statusControlCard}`}
-                      style={{ '--status-accent': resolveColumnByStatus(selectedSubtask.status).accent } as CSSProperties}
-                    >
-                      <span className={styles.metaLabel}>Status</span>
-                      <AppSelect
-                        mode="single"
-                        variant="borderless"
-                        className={styles.statusInlineSelect}
-                        value={{
-                          value: selectedSubtask.status,
-                          label: resolveColumnByStatus(selectedSubtask.status).title,
-                          color: resolveColumnByStatus(selectedSubtask.status).accent
-                        }}
-                        options={statusColumns.map((column) => ({ value: column.status, label: column.title, color: column.accent }))}
-                        onChange={(option) => {
-                          if (!Array.isArray(option) && option?.value) void updateSubtaskStatus(selectedSubtask, option.value as TaskSubtask['status'])
-                        }}
-                      />
-                    </div>
-                    <div className={`${styles.topControlBlock} ${styles.topControlCard}`}>
-                      <span className={styles.metaLabel}>Tags</span>
-                      <AppSelect
-                        mode="multi"
-                        creatable
-                        variant="borderless"
-                        className={styles.tagInlineSelect}
-                        value={selectedSubtaskTagOptions}
-                        options={availableTagOptions}
-                        onChange={(nextValue) => void setSubtaskTags(nextValue.map((item) => item.value))}
-                        onCreateOption={(value) => void createTagAndAttachToSubtask(value)}
-                        placeholder="Search or add tags..."
-                      />
-                    </div>
-                  </div>
-                </section>
-                <section className={styles.drawerSection}>
-                  <div className={styles.detailSectionHeader}>
-                    <div>
-                      <h4>Description</h4>
-                      <p>{isSubtaskDescriptionSaving ? 'Saving...' : isDescriptionEditing ? 'Editing' : 'Ready'}</p>
-                    </div>
-                  </div>
-                  <MarkdownDescriptionEditor
-                    value={subtaskDescriptionDraft}
-                    className={`${styles.descriptionField} ${isDescriptionEditing ? styles.editingField : ''}`}
-                    minHeight={220}
-                    placeholder="Add subtask description, notes, checklists or code..."
-                    status={isSubtaskDescriptionSaving ? 'saving' : isDescriptionEditing ? 'dirty' : 'idle'}
-                    enableDataFormatCommands
-                    dataFormats={outputFormats}
-                    onCreateDataFormat={createDescriptionDataFormat}
-                    onChange={(nextValue) => {
-                      setIsDescriptionEditing(true)
-                      setSubtaskDescriptionDraft(nextValue)
-                    }}
-                    onCommit={() => {
-                      if (isDescriptionEditing) void saveSubtaskDetail()
-                    }}
-                    onCancel={() => {
-                      setSubtaskDescriptionDraft(getSubtaskDescription(selectedSubtask))
-                      setIsDescriptionEditing(false)
-                    }}
-                  />
-                </section>
-                <section className={styles.drawerSection}>
-                  <div className={styles.tabRow}>
-                    <button type="button" className={detailTab === 'agent' ? styles.tabActive : styles.tabBtn} onClick={() => setDetailTab('agent')}><LuBot size={15} />Agent</button>
-                    <button type="button" className={detailTab === 'skills' ? styles.tabActive : styles.tabBtn} onClick={() => setDetailTab('skills')}><LuSparkles size={15} />Skills</button>
-                    <button type="button" className={detailTab === 'customFields' ? styles.tabActive : styles.tabBtn} onClick={() => setDetailTab('customFields')}><LuSlidersHorizontal size={15} />Custom fields</button>
-                    <button type="button" className={detailTab === 'attachments' ? styles.tabActive : styles.tabBtn} onClick={() => setDetailTab('attachments')}><LuPaperclip size={15} />Attachments</button>
-                  </div>
-                  {detailTab === 'agent' ? (
-                    <>
-                      <div className={styles.detailSectionHeader}>
-                        <div>
-                          <h4>Agent</h4>
-                          <p>{selectedSubtaskAgent?.name ?? 'Unassigned'}</p>
-                        </div>
-                      </div>
-                      <AgentAssignmentPanel
-                        agent={selectedSubtaskAgent}
-                        agents={agents}
-                        ctaDescription="Choose the agent responsible for this subtask."
-                        onChange={setSubtaskAgent}
-                      />
-                    </>
-                  ) : detailTab === 'skills' ? (
-                    <>
-                      <div className={styles.detailSectionHeader}>
-                        <div>
-                          <h4>Skills</h4>
-                          <p>{selectedSubtaskSkillOptions.length} selected</p>
-                        </div>
-                      </div>
-                      <SkillsAssignmentPanel
-                        selectedSkills={selectedSubtaskSkills}
-                        skills={skills}
-                        source="Subtask"
-                        ctaDescription="Select one or more skills needed for this subtask."
-                        onChange={setSubtaskSkills}
-                      />
-                    </>
-                  ) : detailTab === 'customFields' ? (
-                    <div className={styles.subtaskCustomFields}>
-                      <div className={styles.detailSectionHeader}>
-                        <div>
-                          <h4>Custom fields</h4>
-                          <p>{assignedSubtaskCustomFieldValues.length} assigned</p>
-                        </div>
-                      </div>
-                      <div className={styles.tabCtaCard}>
-                        <div>
-                          <strong>Add custom field</strong>
-                          <span>Attach a field value to this subtask.</span>
-                        </div>
-                        <button type="button" className={styles.tabActionButton} onClick={openCustomFieldModal}>
-                          <LuPlus size={15} />
-                          Add custom field
+          {selectedSubtask && detailViewMode === 'subtask' ? (
+            <TaskModals open>
+              <TaskDetailPopup
+                taskId={selectedSubtask.id}
+                title="Subtask detail"
+                nested
+                hideTaskActions
+                onClose={() => {
+                  setSelectedSubtaskId(null)
+                  setDetailViewMode('task')
+                  setDetailTab('subtasks')
+                  setCustomFieldError(null)
+                }}
+                onOpenActivity={() => undefined}
+                onEditTitle={() => {
+                  setEditingSubtaskId(selectedSubtask.id)
+                  setSubtaskDraft(selectedSubtask.title)
+                }}
+                onDeleteTask={() => void removeSubtask(selectedSubtask.id)}
+                onFilesDrop={(files) => void uploadSubtaskAttachments(files)}
+              >
+                <TaskDetailContent
+                  bodyRef={modalBodyRef}
+                  splitTemplate={splitTemplate}
+                  onResizeStart={() => setIsResizingSplit(true)}
+                  comments={getSubtaskComments(selectedSubtask)}
+                  commentDraft={subtaskCommentDraft}
+                  editingCommentId={editingSubtaskCommentId}
+                  commentPlaceholder={editingSubtaskCommentId ? 'Edit subtask comment...' : 'Write a subtask comment...'}
+                  onCommentDraftChange={setSubtaskCommentDraft}
+                  onSubmitComment={() => void submitSubtaskComment()}
+                  onEditComment={startEditSubtaskComment}
+                  onRemoveComment={(comment) => void removeSubtaskComment(comment)}
+                  onCancelEditComment={cancelEditSubtaskComment}
+                >
+                  <div className={styles.subtaskModalBody}>
+                    <div className={styles.detailPane}>
+                      <section className={styles.breadcrumbRow}>
+                        <button
+                          type="button"
+                          className={styles.breadcrumbBtn}
+                          onClick={() => {
+                            setSelectedSubtaskId(null)
+                            setDetailViewMode('task')
+                            setDetailTab('subtasks')
+                          }}
+                        >
+                          {selectedTask.title}
                         </button>
-                      </div>
-                      <div className={styles.customFieldPanel}>
-                        {customFieldError ? <p className={styles.customFieldError}>{customFieldError}</p> : null}
-                        {assignedSubtaskCustomFieldValues.length > 0 ? (
-                          <div className={styles.customFieldList}>
-                            {assignedSubtaskCustomFieldValues.map(({ field, value }) => (
-                              <div key={field.id} className={styles.customFieldRow}>
-                                <div className={styles.customFieldInfo}>
-                                  <div>
-                                    <span className={styles.customFieldName}>{field.name}</span>
-                                    {field.description ? <p>{field.description}</p> : null}
-                                  </div>
-                                  <span className={`${styles.customFieldType} ${styles[`customFieldType_${field.type}`]}`}>{field.type}</span>
-                                </div>
-                                <pre className={styles.customFieldValue}>{customFieldValueLabel(field, value)}</pre>
-                                <div className={styles.customFieldActions}>
-                                  <button
-                                    type="button"
-                                    aria-label={`Edit ${field.name}`}
-                                    onClick={() => {
-                                      setEditingCustomFieldId(field.id)
-                                      setSelectedCustomFieldOption(null)
-                                      setCustomFieldError(null)
-                                      setCustomFieldDraft(customFieldValueToDraft(field, value))
-                                    }}
-                                  >
-                                    <LuPencil size={14} />
-                                  </button>
-                                  <button type="button" aria-label={`Remove ${field.name}`} onClick={() => void removeCustomFieldValue(field.id)}>
-                                    <LuTrash2 size={14} />
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className={styles.customFieldEmpty}>No custom fields on this subtask.</p>
-                        )}
-                      </div>
-                    </div>
-                  ) : detailTab === 'attachments' ? (
-                    <>
-                      <div className={styles.detailSectionHeader}>
-                        <div>
-                          <h4>Attachments</h4>
-                          <p>{subtaskAttachmentRows.length} files</p>
+                        <span className={styles.breadcrumbSep}>&gt;</span>
+                        <button type="button" className={styles.breadcrumbBtnActive}>{selectedSubtask.title}</button>
+                      </section>
+                      <section className={styles.detailTop}>
+                        <div className={styles.taskTypeRow}>
+                          <span className={styles.taskTypePill}>Subtask</span>
+                          <span className={styles.projectContext}>in {selectedTask.title}</span>
                         </div>
-                      </div>
-                      <AttachmentTable
-                        rows={subtaskAttachmentRows}
-                        uploading={isAttachmentUploading}
-                        onUpload={(files) => void uploadSubtaskAttachments(files)}
-                        onRemove={(row) => void removeSubtaskAttachment(row)}
-                        onError={setError}
-                      />
-                    </>
-                  ) : null}
-                </section>
-              </div>
-            </div>
-            </TaskDetailContent>
-          </TaskDetailPopup>
-        ) : null}
+                        {editingSubtaskId === selectedSubtask.id ? (
+                          <textarea
+                            autoFocus
+                            ref={resizeTitleTextarea}
+                            className={styles.titleInput}
+                            value={subtaskDraft}
+                            rows={1}
+                            onInput={(event) => resizeTitleTextarea(event.currentTarget)}
+                            onChange={(event) => setSubtaskDraft(event.target.value)}
+                            onBlur={() => void saveSubtaskTitle()}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                                event.preventDefault()
+                                void saveSubtaskTitle()
+                              }
+                              if (event.key === 'Escape') {
+                                setEditingSubtaskId(null)
+                                setSubtaskDraft('')
+                              }
+                            }}
+                          />
+                        ) : (
+                          <h3
+                            className={styles.detailTitle}
+                            onClick={() => {
+                              setEditingSubtaskId(selectedSubtask.id)
+                              setSubtaskDraft(selectedSubtask.title)
+                            }}
+                          >
+                            {selectedSubtask.title}
+                          </h3>
+                        )}
+                        <div className={styles.topControlGrid}>
+                          <div
+                            className={`${styles.topControlBlock} ${styles.topControlCard} ${styles.statusControlCard}`}
+                            style={{ '--status-accent': resolveColumnByStatus(selectedSubtask.status).accent } as CSSProperties}
+                          >
+                            <span className={styles.metaLabel}>Status</span>
+                            <AppSelect
+                              mode="single"
+                              variant="borderless"
+                              className={styles.statusInlineSelect}
+                              value={{
+                                value: selectedSubtask.status,
+                                label: resolveColumnByStatus(selectedSubtask.status).title,
+                                color: resolveColumnByStatus(selectedSubtask.status).accent
+                              }}
+                              options={statusColumns.map((column) => ({ value: column.status, label: column.title, color: column.accent }))}
+                              onChange={(option) => {
+                                if (!Array.isArray(option) && option?.value) void updateSubtaskStatus(selectedSubtask, option.value as TaskSubtask['status'])
+                              }}
+                            />
+                          </div>
+                          <div className={`${styles.topControlBlock} ${styles.topControlCard}`}>
+                            <span className={styles.metaLabel}>Tags</span>
+                            <AppSelect
+                              mode="multi"
+                              creatable
+                              variant="borderless"
+                              className={styles.tagInlineSelect}
+                              value={selectedSubtaskTagOptions}
+                              options={availableTagOptions}
+                              onChange={(nextValue) => void setSubtaskTags(nextValue.map((item) => item.value))}
+                              onCreateOption={(value) => void createTagAndAttachToSubtask(value)}
+                              placeholder="Search or add tags..."
+                            />
+                          </div>
+                        </div>
+                      </section>
+                      <section className={styles.drawerSection}>
+                        <div className={styles.detailSectionHeader}>
+                          <div>
+                            <h4>Description</h4>
+                            <p>{isSubtaskDescriptionSaving ? 'Saving...' : isDescriptionEditing ? 'Editing' : 'Ready'}</p>
+                          </div>
+                        </div>
+                        <MarkdownDescriptionEditor
+                          value={subtaskDescriptionDraft}
+                          className={`${styles.descriptionField} ${isDescriptionEditing ? styles.editingField : ''}`}
+                          minHeight={220}
+                          placeholder="Add subtask description, notes, checklists or code..."
+                          status={isSubtaskDescriptionSaving ? 'saving' : isDescriptionEditing ? 'dirty' : 'idle'}
+                          enableDataFormatCommands
+                          dataFormats={outputFormats}
+                          onCreateDataFormat={createDescriptionDataFormat}
+                          onChange={(nextValue) => {
+                            setIsDescriptionEditing(true)
+                            setSubtaskDescriptionDraft(nextValue)
+                          }}
+                          onCommit={() => {
+                            if (isDescriptionEditing) void saveSubtaskDetail()
+                          }}
+                          onCancel={() => {
+                            setSubtaskDescriptionDraft(getSubtaskDescription(selectedSubtask))
+                            setIsDescriptionEditing(false)
+                          }}
+                        />
+                      </section>
+                      <section className={styles.drawerSection}>
+                        <div className={styles.tabRow}>
+                          <button type="button" className={detailTab === 'agent' ? styles.tabActive : styles.tabBtn} onClick={() => setDetailTab('agent')}><LuBot size={15} />Agent</button>
+                          <button type="button" className={detailTab === 'skills' ? styles.tabActive : styles.tabBtn} onClick={() => setDetailTab('skills')}><LuSparkles size={15} />Skills</button>
+                          <button type="button" className={detailTab === 'customFields' ? styles.tabActive : styles.tabBtn} onClick={() => setDetailTab('customFields')}><LuSlidersHorizontal size={15} />Custom fields</button>
+                          <button type="button" className={detailTab === 'attachments' ? styles.tabActive : styles.tabBtn} onClick={() => setDetailTab('attachments')}><LuPaperclip size={15} />Attachments</button>
+                        </div>
+                        {detailTab === 'agent' ? (
+                          <>
+                            <div className={styles.detailSectionHeader}>
+                              <div>
+                                <h4>Agent</h4>
+                                <p>{selectedSubtaskAgent?.name ?? 'Unassigned'}</p>
+                              </div>
+                            </div>
+                            <AgentAssignmentPanel
+                              agent={selectedSubtaskAgent}
+                              agents={agents}
+                              ctaDescription="Choose the agent responsible for this subtask."
+                              onChange={setSubtaskAgent}
+                            />
+                          </>
+                        ) : detailTab === 'skills' ? (
+                          <>
+                            <div className={styles.detailSectionHeader}>
+                              <div>
+                                <h4>Skills</h4>
+                                <p>{selectedSubtaskSkillOptions.length} selected</p>
+                              </div>
+                            </div>
+                            <SkillsAssignmentPanel
+                              selectedSkills={selectedSubtaskSkills}
+                              skills={skills}
+                              source="Subtask"
+                              ctaDescription="Select one or more skills needed for this subtask."
+                              onChange={setSubtaskSkills}
+                            />
+                          </>
+                        ) : detailTab === 'customFields' ? (
+                          <div className={styles.subtaskCustomFields}>
+                            <div className={styles.detailSectionHeader}>
+                              <div>
+                                <h4>Custom fields</h4>
+                                <p>{assignedSubtaskCustomFieldValues.length} assigned</p>
+                              </div>
+                            </div>
+                            <div className={styles.tabCtaCard}>
+                              <div>
+                                <strong>Add custom field</strong>
+                                <span>Attach a field value to this subtask.</span>
+                              </div>
+                              <button type="button" className={styles.tabActionButton} onClick={openCustomFieldModal}>
+                                <LuPlus size={15} />
+                                Add custom field
+                              </button>
+                            </div>
+                            <div className={styles.customFieldPanel}>
+                              {customFieldError ? <p className={styles.customFieldError}>{customFieldError}</p> : null}
+                              {assignedSubtaskCustomFieldValues.length > 0 ? (
+                                <div className={styles.customFieldList}>
+                                  {assignedSubtaskCustomFieldValues.map(({ field, value }) => (
+                                    <div key={field.id} className={styles.customFieldRow}>
+                                      <div className={styles.customFieldInfo}>
+                                        <div>
+                                          <span className={styles.customFieldName}>{field.name}</span>
+                                          {field.description ? <p>{field.description}</p> : null}
+                                        </div>
+                                        <span className={`${styles.customFieldType} ${styles[`customFieldType_${field.type}`]}`}>{field.type}</span>
+                                      </div>
+                                      <pre className={styles.customFieldValue}>{customFieldValueLabel(field, value)}</pre>
+                                      <div className={styles.customFieldActions}>
+                                        <button
+                                          type="button"
+                                          aria-label={`Edit ${field.name}`}
+                                          onClick={() => {
+                                            setEditingCustomFieldId(field.id)
+                                            setSelectedCustomFieldOption(null)
+                                            setCustomFieldError(null)
+                                            setCustomFieldDraft(customFieldValueToDraft(field, value))
+                                          }}
+                                        >
+                                          <LuPencil size={14} />
+                                        </button>
+                                        <button type="button" aria-label={`Remove ${field.name}`} onClick={() => void removeCustomFieldValue(field.id)}>
+                                          <LuTrash2 size={14} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className={styles.customFieldEmpty}>No custom fields on this subtask.</p>
+                              )}
+                            </div>
+                          </div>
+                        ) : detailTab === 'attachments' ? (
+                          <>
+                            <div className={styles.detailSectionHeader}>
+                              <div>
+                                <h4>Attachments</h4>
+                                <p>{subtaskAttachmentRows.length} files</p>
+                              </div>
+                            </div>
+                            <AttachmentTable
+                              rows={subtaskAttachmentRows}
+                              uploading={isAttachmentUploading}
+                              onUpload={(files) => void uploadSubtaskAttachments(files)}
+                              onRemove={(row) => void removeSubtaskAttachment(row)}
+                              onError={setError}
+                            />
+                          </>
+                        ) : null}
+                      </section>
+                    </div>
+                  </div>
+                </TaskDetailContent>
+              </TaskDetailPopup>
+            </TaskModals>
+          ) : null}
+          </TaskModals>
+        </>
+      ) : null}
 
           {isTaskImportOpen ? (
             <TaskJsonImportPopup
