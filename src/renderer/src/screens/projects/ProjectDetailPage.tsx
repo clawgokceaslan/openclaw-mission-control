@@ -166,6 +166,18 @@ function getStatusOrder(task: TaskEntity, status: string) {
   return typeof order === 'number' && Number.isFinite(order) ? order : null
 }
 
+function getTaskNewestTime(task: TaskEntity) {
+  return Number.isFinite(task.createdAt) ? task.createdAt : task.updatedAt
+}
+
+function statusOrderPayload(task: TaskEntity, status: string, order: number): Record<string, unknown> {
+  const current = task.payload?.statusOrder
+  return {
+    ...((current && typeof current === 'object' && !Array.isArray(current)) ? current as Record<string, unknown> : {}),
+    [status]: order
+  }
+}
+
 function getTableViewConfig(project: Project | null): ProjectTableViewConfig {
   const value = project?.metrics?.tableView
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
@@ -1008,7 +1020,7 @@ export function ProjectDetailPage() {
 
   const tableTasks = useMemo(() => {
     return visibleTasks
-      .map((task, index) => ({ task, index, order: getStatusOrder(task, task.status), legacyOrder: getLegacyTableOrder(task) }))
+      .map((task, index) => ({ task, index, order: getStatusOrder(task, task.status), legacyOrder: getLegacyTableOrder(task), newest: getTaskNewestTime(task) }))
       .sort((a, b) => {
         if (a.order !== null && b.order !== null) return a.order - b.order
         if (a.order !== null) return -1
@@ -1016,23 +1028,27 @@ export function ProjectDetailPage() {
         if (a.legacyOrder !== null && b.legacyOrder !== null) return a.legacyOrder - b.legacyOrder
         if (a.legacyOrder !== null) return -1
         if (b.legacyOrder !== null) return 1
+        if (a.newest !== b.newest) return b.newest - a.newest
         return a.index - b.index
       })
       .map((item) => item.task)
   }, [visibleTasks])
 
-  const orderedTasksForStatus = (rows: TaskEntity[]) => rows
-    .map((task, index) => ({ task, index, order: getStatusOrder(task, task.status), legacyOrder: getLegacyTableOrder(task) }))
-    .sort((a, b) => {
-      if (a.order !== null && b.order !== null) return a.order - b.order
-      if (a.order !== null) return -1
-      if (b.order !== null) return 1
-      if (a.legacyOrder !== null && b.legacyOrder !== null) return a.legacyOrder - b.legacyOrder
-      if (a.legacyOrder !== null) return -1
-      if (b.legacyOrder !== null) return 1
-      return a.index - b.index
-    })
-    .map((item) => item.task)
+  const orderedTasksForStatus = (rows: TaskEntity[]) => {
+    const newestFirstIndex = new Map(
+      [...rows]
+        .sort((a, b) => getTaskNewestTime(b) - getTaskNewestTime(a))
+        .map((task, index) => [task.id, index])
+    )
+    return rows
+      .map((task, index) => ({
+        task,
+        index,
+        order: getStatusOrder(task, task.status) ?? getLegacyTableOrder(task) ?? newestFirstIndex.get(task.id) ?? index
+      }))
+      .sort((a, b) => a.order - b.order || a.index - b.index)
+      .map((item) => item.task)
+  }
 
   const tasksByStatus = useMemo(() => {
     const grouped = statusColumns.reduce<Record<TaskEntity['status'], TaskEntity[]>>((acc, column) => {
@@ -1412,8 +1428,7 @@ export function ProjectDetailPage() {
       payload: {
         ...(movingTask?.payload ?? {}),
         statusOrder: {
-          ...((movingTask?.payload?.statusOrder && typeof movingTask.payload.statusOrder === 'object' && !Array.isArray(movingTask.payload.statusOrder)) ? movingTask.payload.statusOrder as Record<string, unknown> : {}),
-          [status]: nextOrder
+          ...(movingTask ? statusOrderPayload(movingTask, status, nextOrder) : { [status]: nextOrder })
         }
       }
     })
@@ -1445,7 +1460,7 @@ export function ProjectDetailPage() {
 
     setTasks((current) => current.map((task) => {
       const nextIndex = nextTasks.findIndex((item) => item.id === task.id)
-      return nextIndex >= 0 ? { ...task, payload: { ...(task.payload ?? {}), statusOrder: { ...((task.payload?.statusOrder && typeof task.payload.statusOrder === 'object' && !Array.isArray(task.payload.statusOrder)) ? task.payload.statusOrder as Record<string, unknown> : {}), [status]: nextIndex } } } : task
+      return nextIndex >= 0 ? { ...task, payload: { ...(task.payload ?? {}), statusOrder: statusOrderPayload(task, status, nextIndex) } } : task
     }))
 
     const responses = await Promise.all(nextTasks.map((task, index) => invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
@@ -1454,8 +1469,7 @@ export function ProjectDetailPage() {
       payload: {
         ...(task.payload ?? {}),
         statusOrder: {
-          ...((task.payload?.statusOrder && typeof task.payload.statusOrder === 'object' && !Array.isArray(task.payload.statusOrder)) ? task.payload.statusOrder as Record<string, unknown> : {}),
-          [status]: index
+          ...statusOrderPayload(task, status, index)
         }
       }
     })))
@@ -1478,11 +1492,13 @@ export function ProjectDetailPage() {
   const handleQuickCreate = async () => {
     if (!projectId || !taskTitle.trim()) return
     setBusy(true)
+    const statusOrder = orderedTasksForStatus(tasks.filter((task) => task.status === defaultStatus)).length
     const response = await invokeBridge(IPC_CHANNELS.tasks.create, {
       actorToken: token,
       projectId,
       title: taskTitle.trim(),
-      status: defaultStatus
+      status: defaultStatus,
+      payload: { statusOrder: { [defaultStatus]: statusOrder } }
     })
     setBusy(false)
     if (!response.ok) {
@@ -1519,12 +1535,16 @@ export function ProjectDetailPage() {
       const result = await createTaskWithTemplate({
         actorToken: token,
         userName: user?.name,
-        input: { ...input, projectId },
+        input: {
+          ...input,
+          projectId,
+          statusOrder: orderedTasksForStatus(tasks.filter((task) => task.status === input.status)).length
+        },
         templates: taskTemplates,
         statusColumns,
-      defaultStatus,
-      outputFormats
-    })
+        defaultStatus,
+        outputFormats
+      })
       if (result.warnings[0]) setError(result.warnings[0])
       setIsCreateTaskOpen(false)
       setCreateTaskInitialTitle('')
@@ -1541,11 +1561,13 @@ export function ProjectDetailPage() {
   const handleListCreate = async (status: TaskEntity['status']) => {
     if (!projectId || !listCreateTitle.trim()) return
     setBusy(true)
+    const statusOrder = orderedTasksForStatus(tasks.filter((task) => task.status === status)).length
     const response = await invokeBridge(IPC_CHANNELS.tasks.create, {
       actorToken: token,
       projectId,
       title: listCreateTitle.trim(),
-      status
+      status,
+      payload: { statusOrder: { [status]: statusOrder } }
     })
     setBusy(false)
     if (!response.ok) {

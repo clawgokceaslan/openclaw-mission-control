@@ -694,6 +694,19 @@ export class TaskService {
     return okResponse(task)
   }
 
+  private async payloadWithAppendStatusOrder(projectId: string, status: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const nextPayload = { ...payload }
+    const currentStatusOrder = asPayload(nextPayload.statusOrder)
+    const currentOrder = currentStatusOrder[status]
+    if (typeof currentOrder === 'number' && Number.isFinite(currentOrder)) return nextPayload
+    const rows = await this.repo.list(projectId)
+    nextPayload.statusOrder = {
+      ...currentStatusOrder,
+      [status]: rows.filter((task) => task.status === status).length
+    }
+    return nextPayload
+  }
+
   async create(
     payload: { actorToken?: string; projectId?: string; title?: string; status?: TaskEntity['status']; description?: string; agentId?: string | null; payload?: Record<string, unknown> },
     _meta?: Record<string, unknown>
@@ -706,12 +719,18 @@ export class TaskService {
     if (!agentIdResponse.ok) return agentIdResponse as ServiceResponse<TaskEntity>
     const statusResponse = await this.normalizeStatus(payload.projectId, actor.user.organizationId, payload.status)
     if (!statusResponse.ok) return statusResponse as ServiceResponse<TaskEntity>
+    const status = statusResponse.data ?? 'pending'
+    const createPayload = await this.payloadWithAppendStatusOrder(payload.projectId, status, {
+      ...(payload.payload ?? {}),
+      description: payload.description ?? '',
+      comments: []
+    })
     const row = await this.repo.create({
       projectId: payload.projectId,
       title: payload.title,
-      status: statusResponse.data ?? 'pending',
+      status,
       agentId: agentIdResponse.data ?? undefined,
-      payload: { ...(payload.payload ?? {}), description: payload.description ?? '', comments: [] },
+      payload: createPayload,
       result: {}
     })
     const [task] = await this.enrichTasks([row])
@@ -746,6 +765,9 @@ export class TaskService {
       inputFormatId: '',
       outputFormatId: ''
     }
+    const createPayload = targetTask
+      ? rootPayload
+      : await this.payloadWithAppendStatusOrder(projectId, rootStatus, rootPayload)
 
     const taskRow = targetTask
       ? await this.repo.update(targetTask.id, {
@@ -759,7 +781,7 @@ export class TaskService {
         title: imported.title,
         status: rootStatus,
         agentId: imported.agentId,
-        payload: rootPayload,
+        payload: createPayload,
         result: {}
       })
     if (!taskRow) return errorResponse(ErrorCodes.NotFound, 'Task not found')

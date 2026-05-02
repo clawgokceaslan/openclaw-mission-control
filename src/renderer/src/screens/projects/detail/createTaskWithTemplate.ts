@@ -13,6 +13,7 @@ export type CreateTaskInput = {
   agentId?: string | null
   templateId?: string | null
   importJson?: string | null
+  statusOrder?: number
 }
 
 export type CreateTaskWithTemplateContext = {
@@ -80,6 +81,12 @@ export async function createTaskWithTemplate(context: CreateTaskWithTemplateCont
   const templateCodexPayload = templateGatewayId || templateModel
     ? { codex: { ...(templateGatewayId ? { gatewayId: templateGatewayId } : {}), ...(templateModel ? { model: templateModel } : {}) } }
     : undefined
+  const createPayload: Record<string, unknown> = {
+    ...(templateCodexPayload ?? {})
+  }
+  if (typeof input.statusOrder === 'number' && Number.isFinite(input.statusOrder)) {
+    createPayload.statusOrder = { [normalizeStatus(input.status)]: input.statusOrder }
+  }
 
   const createResponse = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.create, {
     actorToken,
@@ -88,7 +95,7 @@ export async function createTaskWithTemplate(context: CreateTaskWithTemplateCont
     status: normalizeStatus(input.status),
     description: prefixDataFormatTokens(input.description, templatePayload?.inputFormatId, templatePayload?.outputFormatId, outputFormats),
     agentId: input.agentId ?? null,
-    payload: templateCodexPayload
+    payload: createPayload
   })
   if (!createResponse.ok || !createResponse.data) {
     throw new Error(createResponse.error?.message ?? 'Task create failed')
@@ -114,6 +121,9 @@ export async function createTaskWithTemplate(context: CreateTaskWithTemplateCont
   payloadPatch.outputFormatId = ''
   if (templateCodexPayload?.codex) {
     payloadPatch.codex = templateCodexPayload.codex
+  }
+  if (typeof input.statusOrder === 'number' && Number.isFinite(input.statusOrder)) {
+    payloadPatch.statusOrder = { [task.status]: input.statusOrder }
   }
 
   const hasTaskPatch = hasPatch(payloadPatch)
