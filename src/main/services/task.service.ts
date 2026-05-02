@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import EventEmitter from 'node:events'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -83,7 +83,7 @@ type CodexTerminalRun = {
 }
 
 type ActiveCodexChatRun = {
-  child: ChildProcessWithoutNullStreams
+  child: ChildProcess
   taskId: string
   conversationId: string
   runId: string
@@ -1445,6 +1445,30 @@ export class TaskService {
 
       if (process.platform !== 'darwin') return errorResponse(ErrorCodes.Validation, 'External Codex run currently requires macOS Terminal.app.')
       this.codexTerminalRuns.set(access.data.task.id, { finishFilePath, terminalTitle: runTerminalTitle })
+      await this.appendTaskActivityMessage(access.data.task.id, {
+        runId,
+        source: 'codex-run',
+        role: 'system',
+        status: 'running',
+        body: `Started Codex terminal run with ${model}.`,
+        metadata: { gatewayId: gateway.id, model, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath }
+      })
+      await this.appendTaskActivityMessage(access.data.task.id, {
+        runId,
+        source: 'codex-run',
+        role: 'user',
+        status: 'running',
+        body: prompt,
+        metadata: { command: codexCommand }
+      })
+      await this.appendTaskActivityMessage(access.data.task.id, {
+        runId,
+        source: 'codex-run',
+        role: 'thinking',
+        status: 'running',
+        body: 'Codex terminal is running this task...',
+        metadata: { executionMode, runtimeWorkspacePath, runFolderPath }
+      })
       await execFileAsync('osascript', [
         '-e',
         'tell application "Terminal"',
@@ -1908,6 +1932,30 @@ export class TaskService {
       }
 
       if (process.platform !== 'darwin') return errorResponse(ErrorCodes.Validation, 'Codex task planning currently requires macOS Terminal.app.')
+      await this.appendTaskActivityMessage(taskId, {
+        runId,
+        source: 'codex-plan',
+        role: 'system',
+        status: 'running',
+        body: `Started Codex terminal planner with ${model}.`,
+        metadata: { gatewayId: gateway.id, model, executionMode, runtimeWorkspacePath, runFolderPath }
+      })
+      await this.appendTaskActivityMessage(taskId, {
+        runId,
+        source: 'codex-plan',
+        role: 'user',
+        status: 'running',
+        body: prompt,
+        metadata: { command: codexCommand }
+      })
+      await this.appendTaskActivityMessage(taskId, {
+        runId,
+        source: 'codex-plan',
+        role: 'thinking',
+        status: 'running',
+        body: 'Codex terminal is planning this task...',
+        metadata: { executionMode, runtimeWorkspacePath, runFolderPath }
+      })
       await execFileAsync('osascript', [
         '-e',
         'tell application "Terminal"',
@@ -1998,6 +2046,7 @@ export class TaskService {
     const eventsPath = join(runFolderPath, 'codex-events.jsonl')
     const finalMessagePath = join(runFolderPath, 'final-message.md')
     const prompt = codexChatPrompt({ task: access.data.task, message: normalizedMessage, transcript, context, mode, attachments })
+    const activitySource: TaskActivityMessage['source'] = mode === 'plan' ? 'codex-plan' : 'codex-chat'
     const execArgs = [
       'exec',
       '--json',
@@ -2015,7 +2064,7 @@ export class TaskService {
     await this.appendTaskActivityMessage(taskId, {
       runId,
       conversationId,
-      source: 'codex-chat',
+      source: activitySource,
       role: 'user',
       status: 'completed',
       body: mode === 'plan' ? `/plan ${normalizedMessage}` : normalizedMessage,
@@ -2024,10 +2073,12 @@ export class TaskService {
     await this.appendTaskActivityMessage(taskId, {
       runId,
       conversationId,
-      source: 'codex-chat',
+      source: activitySource,
       role: 'thinking',
       status: 'running',
-      body: executionMode === 'exec' ? 'Codex is thinking...' : 'Opening Codex terminal...',
+      body: mode === 'plan'
+        ? executionMode === 'exec' ? 'Codex is revising the plan...' : 'Opening Codex terminal to revise the plan...'
+        : executionMode === 'exec' ? 'Codex is thinking...' : 'Opening Codex terminal...',
       metadata: { executionMode, runtimeWorkspacePath }
     })
 
@@ -2055,7 +2106,7 @@ export class TaskService {
       await this.appendTaskActivityMessage(taskId, {
         runId,
         conversationId,
-        source: 'codex-chat',
+        source: activitySource,
         role: 'system',
         status: 'running',
         body: 'Codex terminal chat launched.',
@@ -2075,7 +2126,7 @@ export class TaskService {
       void this.appendTaskActivityMessage(taskId, {
         runId,
         conversationId,
-        source: 'codex-chat',
+        source: activitySource,
         role: 'error',
         status: 'failed',
         body: error.message,
@@ -2089,7 +2140,7 @@ export class TaskService {
           await this.appendTaskActivityMessage(taskId, {
             runId,
             conversationId,
-            source: 'codex-chat',
+            source: activitySource,
             role: 'thinking',
             status: 'completed',
             body: '',
@@ -2098,7 +2149,7 @@ export class TaskService {
           await this.appendTaskActivityMessage(taskId, {
             runId,
             conversationId,
-            source: 'codex-chat',
+            source: activitySource,
             role: 'assistant',
             status: 'completed',
             body: 'Stopped by user.',
@@ -2112,7 +2163,7 @@ export class TaskService {
         await this.appendTaskActivityMessage(taskId, {
           runId,
           conversationId,
-          source: 'codex-chat',
+          source: activitySource,
           role: 'thinking',
           status: code === 0 ? 'completed' : 'failed',
           body: eventSummary.thinking,
@@ -2122,7 +2173,7 @@ export class TaskService {
           await this.appendTaskActivityMessage(taskId, {
             runId,
             conversationId,
-            source: 'codex-chat',
+            source: activitySource,
             role: 'tool',
             status: code === 0 ? 'completed' : 'failed',
             body: eventSummary.tools,
@@ -2132,10 +2183,10 @@ export class TaskService {
         await this.appendTaskActivityMessage(taskId, {
           runId,
           conversationId,
-          source: 'codex-chat',
+          source: activitySource,
           role: code === 0 ? 'assistant' : 'error',
           status: code === 0 ? 'completed' : 'failed',
-          body: code === 0 ? finalMessage.trim() || 'Codex chat completed.' : eventSummary.tools || `Codex chat exited with code ${code ?? 'unknown'}.`,
+          body: code === 0 ? finalMessage.trim() || (mode === 'plan' ? 'Codex plan revision completed.' : 'Codex chat completed.') : eventSummary.tools || `Codex chat exited with code ${code ?? 'unknown'}.`,
           metadata: { code, signal, eventsPath, finalMessagePath, usage: eventSummary.usage }
         })
       })()

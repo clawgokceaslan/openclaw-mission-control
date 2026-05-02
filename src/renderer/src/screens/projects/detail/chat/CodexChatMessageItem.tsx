@@ -39,6 +39,13 @@ type CodexChatMessageItemProps = {
 
 export const CodexChatMessageItem = memo(function CodexChatMessageItem({ message }: CodexChatMessageItemProps) {
   const usage = usageFromMetadata(message.metadata)
+  const thinkingText = message.body.trim() || (message.status === 'running'
+    ? message.source === 'codex-plan'
+      ? 'Codex is planning this task...'
+      : message.source === 'codex-run'
+        ? 'Codex is running this task...'
+        : 'Codex is thinking...'
+    : '')
   const toolBody = useMemo(() => (
     message.role === 'tool' ? formatCodexToolBody(message.body) : ''
   ), [message.body, message.role])
@@ -65,12 +72,12 @@ export const CodexChatMessageItem = memo(function CodexChatMessageItem({ message
           <div className={styles.chatThinkingBlock}>
             <span className={styles.chatThinkingLine}>
               {message.status === 'running' ? (
-                <>Thinking <span className={styles.thinkingDots}><i /><i /><i /></span></>
+                <>{message.source === 'codex-plan' ? 'Planning' : message.source === 'codex-run' ? 'Running' : 'Thinking'} <span className={styles.thinkingDots}><i /><i /><i /></span></>
               ) : (
                 <><LuCircleCheck size={15} /> Thinking complete</>
               )}
             </span>
-            {message.body.trim() ? <div className={styles.chatThinkingText}>{renderMarkdownLite(message.body)}</div> : null}
+            {thinkingText ? <div className={styles.chatThinkingText}>{renderMarkdownLite(thinkingText)}</div> : null}
           </div>
         ) : null}
         {message.role === 'tool' ? (

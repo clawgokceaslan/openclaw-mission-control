@@ -46,7 +46,6 @@ import { TaskDetailModal } from './detail/TaskDetailModal'
 import { TaskDetailContent } from './detail/TaskDetailContent'
 import { buildAgentMarkdown, buildProjectWorkspaceExportTaskPayload, buildSkillsMarkdown, buildTaskMarkdown, buildTaskZipArchive, downloadMarkdownFile, downloadTaskZip } from './detail/taskExport'
 import { PROJECT_STATUS_COLUMNS, columnsFromProjectStatuses, resolveProjectStatusColumn } from './detail/status'
-import { ChatOperationFeedback } from './detail/chat/ChatOperationFeedback'
 import { CodexChatMessageItem } from './detail/chat/CodexChatMessageItem'
 import {
   CHAT_COMPOSER_MAX_HEIGHT,
@@ -120,6 +119,7 @@ const DETAIL_RATIO_KEY = 'omc:task-modal:detail-ratio'
 const DEFAULT_DETAIL_RATIO = 0.7
 const MIN_DETAIL_WIDTH = 420
 const MIN_COMMENTS_WIDTH = 320
+const LOCAL_CHAT_STATUS_RUN_ID = 'local-chat-status'
 
 function resizeTitleTextarea(element: HTMLTextAreaElement | null) {
   if (!element) return
@@ -1044,7 +1044,7 @@ export function ProjectDetailPage() {
   const runningChatConversationIds = useMemo(() => {
     const ids = new Set<string>()
     for (const conversation of chatConversations) {
-      if (conversation.status === 'running' || conversation.status === 'in_progress') ids.add(conversation.id)
+      if (conversation.status === 'running') ids.add(conversation.id)
     }
     return ids
   }, [chatConversations])
@@ -1094,8 +1094,8 @@ export function ProjectDetailPage() {
   }, [chatConversations, isStartingNewChat, selectedChatConversationId])
   const selectedChatIsRunning = Boolean(selectedChatSummary && runningChatConversationIds.has(selectedChatSummary.id))
   const selectedChatCanStop = visibleChatMessages.some((message) => (
-    message.source === 'codex-chat' &&
-    (message.status === 'running' || message.status === 'in_progress')
+    (message.source === 'codex-chat' || (message.source === 'codex-plan' && Boolean(message.conversationId))) &&
+    message.status === 'running'
   ))
   const selectedChatUsage = useMemo(() => {
     for (const message of [...visibleChatMessages].reverse()) {
@@ -1162,6 +1162,31 @@ export function ProjectDetailPage() {
                 message: codexRunFeedback.message
               }
             : null
+  const localChatStatusMessage = useMemo(() => {
+    if (!chatOperationFeedback || !isChatModalMounted) return null
+    if (chatOperationFeedback.state === 'success') return null
+    const source = codexPlanLaunching
+      ? 'codex-plan'
+      : codexRunLaunching
+        ? 'codex-run'
+        : 'codex-chat'
+    const role = chatOperationFeedback.state === 'error' ? 'error' : 'thinking'
+    const status = chatOperationFeedback.state === 'running'
+      ? 'running'
+      : chatOperationFeedback.state === 'error'
+        ? 'failed'
+        : 'completed'
+    return {
+      id: `${LOCAL_CHAT_STATUS_RUN_ID}-${chatOperationFeedback.state}-${chatOperationFeedback.title}`,
+      runId: LOCAL_CHAT_STATUS_RUN_ID,
+      conversationId: selectedChatConversationId || undefined,
+      source,
+      role,
+      status,
+      body: `${chatOperationFeedback.title}: ${chatOperationFeedback.message}`,
+      createdAt: Date.now()
+    } satisfies TaskActivityMessage
+  }, [chatOperationFeedback, codexPlanLaunching, codexRunLaunching, isChatModalMounted, selectedChatConversationId])
   const canRunSelectedTaskWithCodex = Boolean(selectedTaskExportContext && selectedTaskRunGatewayId && selectedTaskRunModel)
   const canPlanSelectedTaskWithCodex = Boolean(selectedTask && selectedTaskRunGatewayId && selectedTaskRunModel)
 
@@ -1186,6 +1211,8 @@ export function ProjectDetailPage() {
     }
     setCodexRunFeedback(null)
     setCodexRunLaunching(true)
+    setIsActivityModalOpen(true)
+    setIsStartingNewChat(false)
     try {
       const { fileName, archive } = await buildTaskZipArchive(selectedTaskExportContext)
       const response = await invokeBridge<{ runFolderPath: string; workspacePath: string; model: string; gatewayId: string; command?: string; executionMode?: 'terminal' | 'exec'; runId?: string; pid?: number }>(IPC_CHANNELS.tasks.runCodex, {
@@ -1204,6 +1231,7 @@ export function ProjectDetailPage() {
         setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex' })
         return
       }
+      if (response.data.runId) setSelectedChatConversationId(response.data.runId)
       setCodexRunFeedback({
         kind: 'success',
         message: response.data.executionMode === 'exec'
@@ -1239,6 +1267,8 @@ export function ProjectDetailPage() {
     }
     setCodexRunFeedback(null)
     setCodexPlanLaunching(true)
+    setIsActivityModalOpen(true)
+    setIsStartingNewChat(false)
     try {
       const response = await invokeBridge<{ runFolderPath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; bridgeUrl?: string; command?: string; executionMode?: 'terminal' | 'exec'; runId?: string; pid?: number }>(IPC_CHANNELS.tasks.planWithCodex, {
         actorToken: token,
@@ -1254,6 +1284,7 @@ export function ProjectDetailPage() {
         setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex planner' })
         return
       }
+      if (response.data.runId) setSelectedChatConversationId(response.data.runId)
       setCodexRunFeedback({
         kind: 'success',
         message: response.data.executionMode === 'exec'
@@ -1285,6 +1316,7 @@ export function ProjectDetailPage() {
       setCodexRunFeedback({ kind: 'error', message: 'Select a conversation before sending a steer message.' })
       return
     }
+    const sendAsPlanRevision = !isStartingNewChat && selectedChatSummary?.source === 'codex-plan'
     setChatSending(true)
     setCodexRunFeedback(null)
     try {
@@ -1298,7 +1330,7 @@ export function ProjectDetailPage() {
         model: chatModel,
         conversationId,
         includeTaskContext: chatIncludeContext,
-        mode: effectiveChatMode,
+        mode: sendAsPlanRevision ? 'plan' : effectiveChatMode,
         attachments: chatAttachments.map((attachment) => ({ name: attachment.name, bytes: attachment.bytes }))
       })
       if (!response.ok || !response.data) {
@@ -3712,8 +3744,6 @@ export function ProjectDetailPage() {
                     {selectedTask.title}
                   </button>
                 </section>
-                {chatOperationFeedback ? <ChatOperationFeedback feedback={chatOperationFeedback} /> : null}
-
                 <section className={styles.detailTop}>
                   <div className={styles.taskTypeRow}>
                     <span className={styles.taskTypePill}>Task</span>
@@ -5147,17 +5177,26 @@ export function ProjectDetailPage() {
                           {renderedChatMessages
                             .filter((message) => !(message.role === 'system' && /^Started Codex/i.test(message.body)))
                             .map((message) => <CodexChatMessageItem key={message.id} message={message} />)}
+                          {localChatStatusMessage ? <CodexChatMessageItem message={localChatStatusMessage} /> : null}
                         </div>
                       ) : (
                         <div className={styles.chatEmptyState}>
-                          <LuMessageSquare size={28} />
-                          <h3>Start a Codex chat for this task</h3>
-                          <p>Use Plan, Run, or send a follow-up message. Codex messages will appear here as a transcript.</p>
-                          <div>
-                            <button type="button" onClick={() => void planSelectedTaskWithCodex()} disabled={codexPlanLaunching}><LuSparkles size={15} /> Plan</button>
-                            <button type="button" onClick={() => void runSelectedTaskWithCodex()} disabled={codexRunLaunching}><LuPlay size={15} /> Run</button>
-                            {(!chatGateway || !chatModel) ? <button type="button" onClick={() => setChatSettingsOpen(true)}><LuSettings2 size={15} /> Configure</button> : null}
-                          </div>
+                          {localChatStatusMessage ? (
+                            <div className={styles.chatMessageList}>
+                              <CodexChatMessageItem message={localChatStatusMessage} />
+                            </div>
+                          ) : (
+                            <>
+                              <LuMessageSquare size={28} />
+                              <h3>Start a Codex chat for this task</h3>
+                              <p>Use Plan, Run, or send a follow-up message. Codex messages will appear here as a transcript.</p>
+                              <div>
+                                <button type="button" onClick={() => void planSelectedTaskWithCodex()} disabled={codexPlanLaunching}><LuSparkles size={15} /> Plan</button>
+                                <button type="button" onClick={() => void runSelectedTaskWithCodex()} disabled={codexRunLaunching}><LuPlay size={15} /> Run</button>
+                                {(!chatGateway || !chatModel) ? <button type="button" onClick={() => setChatSettingsOpen(true)}><LuSettings2 size={15} /> Configure</button> : null}
+                              </div>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
@@ -5332,7 +5371,6 @@ export function ProjectDetailPage() {
                       </div>
                     </div>
                     <div className={styles.chatComposerRail}>
-                      {chatOperationFeedback ? <ChatOperationFeedback feedback={chatOperationFeedback} /> : null}
                       <div className={styles.chatPillRow}>
                         <span className={!chatGateway ? styles.chatPillWarning : ''}>
                           <small>Gateway</small>
