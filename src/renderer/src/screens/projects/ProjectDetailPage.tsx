@@ -406,6 +406,8 @@ type SlashCommand = {
 const chatMessageSources = new Set<ChatMessageSource>(['codex-plan', 'codex-run', 'codex-chat'])
 const chatMessageRoles = new Set<ChatMessageRole>(['user', 'assistant', 'tool', 'system', 'error', 'thinking'])
 const chatMessageStatuses = new Set<ChatMessageStatus>(['queued', 'running', 'completed', 'failed'])
+const CHAT_INITIAL_MESSAGE_LIMIT = 80
+const CHAT_MESSAGE_LOAD_STEP = 80
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
@@ -527,41 +529,9 @@ function renderMarkdownLite(body: string) {
   })
 }
 
-function formatJsonDetailLabel(value: string): string {
-  return value
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/[_-]+/g, ' ')
-    .trim()
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
-}
-
-function formatJsonDetailValue(value: unknown): string {
-  if (value == null) return 'null'
-  if (typeof value === 'string') return value
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  return JSON.stringify(value, null, 2)
-}
-
-function renderJsonDetailCards(metadata: Record<string, unknown>) {
-  const entries = Object.entries(metadata).filter(([, value]) => value !== undefined)
-  if (entries.length === 0) return null
-  return (
-    <div className={styles.codexDetailGrid}>
-      {entries.map(([key, value]) => {
-        const isStructured = value !== null && typeof value === 'object'
-        return (
-          <div key={key} className={`${styles.codexDetailCard} ${isStructured ? styles.codexDetailCardWide : ''}`}>
-            <span>{formatJsonDetailLabel(key)}</span>
-            {isStructured ? (
-              <pre>{formatJsonDetailValue(value)}</pre>
-            ) : (
-              <b>{formatJsonDetailValue(value)}</b>
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
+function formatJsonMetadata(metadata: Record<string, unknown>): string {
+  const compact = Object.fromEntries(Object.entries(metadata).filter(([, value]) => value !== undefined))
+  return JSON.stringify(compact, null, 2)
 }
 
 function formatChatTime(value: number): string {
@@ -718,6 +688,7 @@ export function ProjectDetailPage() {
   const [chatDragDepth, setChatDragDepth] = useState(0)
   const [slashCommandIndex, setSlashCommandIndex] = useState(0)
   const [chatComposerFocused, setChatComposerFocused] = useState(false)
+  const [chatVisibleLimit, setChatVisibleLimit] = useState(CHAT_INITIAL_MESSAGE_LIMIT)
   const [statusDrafts, setStatusDrafts] = useState<ProjectStatus[]>([])
   const [statusMapping, setStatusMapping] = useState<Record<string, string>>({})
   const [createTaskStatus, setCreateTaskStatus] = useState<TaskEntity['status']>('pending')
@@ -1554,6 +1525,12 @@ export function ProjectDetailPage() {
     }
     return sorted.filter((message) => !(message.role === 'thinking' && message.status === 'running' && settledRuns.has(message.runId)))
   }, [chatActivityMessages, selectedChatConversationId])
+  const renderedChatMessages = useMemo(() => (
+    visibleChatMessages.length > chatVisibleLimit
+      ? visibleChatMessages.slice(visibleChatMessages.length - chatVisibleLimit)
+      : visibleChatMessages
+  ), [chatVisibleLimit, visibleChatMessages])
+  const hiddenChatMessageCount = Math.max(0, visibleChatMessages.length - renderedChatMessages.length)
   const chatHistoryCount = (selectedTask?.comments?.length ?? 0) + history.length + localActivityEntries.length
   const isPlanDraft = chatDraft.trim().toLowerCase().startsWith('/plan')
   const effectiveChatMode: 'chat' | 'plan' | 'steer' = isPlanDraft ? 'plan' : chatComposerMode
@@ -1596,6 +1573,10 @@ export function ProjectDetailPage() {
   useEffect(() => {
     setSlashCommandIndex(0)
   }, [slashQuery, slashMenuOpen])
+
+  useEffect(() => {
+    setChatVisibleLimit(CHAT_INITIAL_MESSAGE_LIMIT)
+  }, [selectedChatConversationId, selectedTask?.id])
 
   const selectedTaskExportContext = useMemo(() => {
     if (!selectedTask) return null
@@ -5593,7 +5574,16 @@ export function ProjectDetailPage() {
                     <div className={styles.chatTranscript} ref={activityFeedRef} onScroll={onActivityScroll}>
                       {visibleChatMessages.length > 0 ? (
                         <div className={styles.chatMessageList}>
-                          {visibleChatMessages
+                          {hiddenChatMessageCount > 0 ? (
+                            <button
+                              type="button"
+                              className={styles.chatLoadEarlierButton}
+                              onClick={() => setChatVisibleLimit((value) => value + CHAT_MESSAGE_LOAD_STEP)}
+                            >
+                              Load {Math.min(CHAT_MESSAGE_LOAD_STEP, hiddenChatMessageCount)} earlier messages
+                            </button>
+                          ) : null}
+                          {renderedChatMessages
                             .filter((message) => !(message.role === 'system' && /^Started Codex/i.test(message.body)))
                             .map((message) => {
                               const usage = usageFromMetadata(message.metadata)
@@ -5639,7 +5629,7 @@ export function ProjectDetailPage() {
                                   {message.metadata && Object.keys(message.metadata).length > 0 && message.role !== 'tool' ? (
                                     <details className={styles.codexDetails}>
                                       <summary>Details</summary>
-                                      {renderJsonDetailCards(message.metadata)}
+                                      <pre>{formatJsonMetadata(message.metadata)}</pre>
                                     </details>
                                   ) : null}
                                   {message.body.trim() ? (
@@ -5730,7 +5720,7 @@ export function ProjectDetailPage() {
                         {chatAttachments.map((attachment) => (
                           <span key={attachment.id}>
                             <LuPaperclip size={13} />
-                            {attachment.name}
+                            <span className={styles.chatAttachmentName}>{attachment.name}</span>
                             <button type="button" onClick={() => setChatAttachments((current) => current.filter((item) => item.id !== attachment.id))} aria-label={`Remove ${attachment.name}`}>
                               <LuX size={12} />
                             </button>
