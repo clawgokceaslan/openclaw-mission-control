@@ -142,7 +142,8 @@ export const IPC_CHANNELS = {
     appNavigate: 'events:app-navigate',
     gatewayStatus: 'events:gateway-status',
     taskUpdated: 'events:task-updated',
-    jobProgress: 'events:job-progress'
+    jobProgress: 'events:job-progress',
+    taskActivity: 'events:task-activity'
   }
 } as const
 
@@ -403,6 +404,7 @@ export interface UpsertGatewayRequest {
   autoConnect?: boolean
   codexPath?: string
   provider?: 'codex_cli'
+  codexExecutionMode?: 'terminal' | 'exec'
 }
 
 export interface WorkspaceRequest {

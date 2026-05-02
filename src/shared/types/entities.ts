@@ -246,6 +246,7 @@ export interface CodexCliModel {
 export interface CodexCliGatewayConfig {
   provider: 'codex_cli'
   codexPath?: string
+  executionMode?: 'terminal' | 'exec'
   models?: CodexCliModel[]
   lastModelRefreshAt?: number
   lastModelRefreshError?: string

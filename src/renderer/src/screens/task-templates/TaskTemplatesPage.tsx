@@ -108,6 +108,7 @@ function codexConfigOf(gateway?: Gateway | null): CodexCliGatewayConfig {
   return {
     provider: 'codex_cli',
     codexPath: typeof template.codexPath === 'string' ? template.codexPath : gateway?.endpoint ?? 'codex',
+    executionMode: template.executionMode === 'exec' ? 'exec' : 'terminal',
     models: Array.isArray(template.models) ? template.models : [],
     lastModelRefreshAt: typeof template.lastModelRefreshAt === 'number' ? template.lastModelRefreshAt : undefined,
     lastModelRefreshError: typeof template.lastModelRefreshError === 'string' ? template.lastModelRefreshError : undefined

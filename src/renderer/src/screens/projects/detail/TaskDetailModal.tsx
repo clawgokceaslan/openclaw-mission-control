@@ -164,7 +164,7 @@ export function TaskDetailModal({
                     onOpenActivity()
                   }}
                 >
-                  <LuHistory size={15} /> Open activity logs
+                  <LuHistory size={15} /> Open activity chat
                 </button>
                 <button
                   type="button"
@@ -212,7 +212,7 @@ export function TaskDetailModal({
               type="button"
               className={styles.iconButton}
               onPointerDown={(event) => runHeaderAction(event, onOpenActivity)}
-              aria-label="Open activity logs"
+              aria-label="Open activity chat"
             >
               <LuHistory size={16} />
             </button>

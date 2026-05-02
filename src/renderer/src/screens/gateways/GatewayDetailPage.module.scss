@@ -350,6 +350,42 @@
   font-weight: 900;
 }
 
+.modeField {
+  display: grid;
+  gap: 8px;
+  color: var(--omc-text-muted);
+  font-size: 0.82rem;
+  font-weight: 900;
+
+  small {
+    color: var(--omc-text-muted);
+    font-weight: 700;
+  }
+}
+
+.segmentedControl {
+  display: inline-flex;
+  width: fit-content;
+  border: 1px solid var(--omc-border);
+  border-radius: 12px;
+  background: var(--omc-surface-muted);
+  padding: 3px;
+
+  button {
+    min-height: 34px !important;
+    border: 0 !important;
+    border-radius: 9px !important;
+    background: transparent !important;
+    color: var(--omc-text-muted) !important;
+    padding: 0 12px !important;
+  }
+}
+
+.segmentActive {
+  background: var(--omc-primary) !important;
+  color: var(--omc-inverse-text) !important;
+}
+
 .commandForm button,
 .settingsForm button {
   width: fit-content;

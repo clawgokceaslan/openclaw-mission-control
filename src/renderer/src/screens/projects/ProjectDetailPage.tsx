@@ -80,6 +80,7 @@ function codexConfigOf(gateway?: Gateway | null): CodexCliGatewayConfig {
   return {
     provider: 'codex_cli',
     codexPath: typeof template.codexPath === 'string' ? template.codexPath : gateway?.endpoint ?? 'codex',
+    executionMode: template.executionMode === 'exec' ? 'exec' : 'terminal',
     models: Array.isArray(template.models) ? template.models : [],
     lastModelRefreshAt: typeof template.lastModelRefreshAt === 'number' ? template.lastModelRefreshAt : undefined,
     lastModelRefreshError: typeof template.lastModelRefreshError === 'string' ? template.lastModelRefreshError : undefined
@@ -348,6 +349,74 @@ type ThreadEntry = {
   fields: Array<{ key: string; value: string }>
   evidence: string[]
   next?: string
+  source?: 'codex-plan' | 'codex-run' | 'comment' | 'history' | 'local'
+  role?: 'user' | 'assistant' | 'tool' | 'system' | 'error'
+  status?: 'running' | 'completed' | 'failed'
+  metadata?: Record<string, unknown>
+}
+
+type TaskActivityMessage = {
+  id: string
+  runId: string
+  source: 'codex-plan' | 'codex-run'
+  role: 'user' | 'assistant' | 'tool' | 'system' | 'error'
+  status?: 'running' | 'completed' | 'failed'
+  body: string
+  metadata?: Record<string, unknown>
+  createdAt: number
+  updatedAt?: number
+}
+
+function activityMessagesFromTask(task: TaskEntity): TaskActivityMessage[] {
+  const payload = task.payload && typeof task.payload === 'object' && !Array.isArray(task.payload)
+    ? task.payload as Record<string, unknown>
+    : {}
+  const raw = payload.activityMessages
+  if (!Array.isArray(raw)) return []
+  return raw.filter((item): item is TaskActivityMessage => {
+    if (!item || typeof item !== 'object') return false
+    const candidate = item as Partial<TaskActivityMessage>
+    return typeof candidate.id === 'string'
+      && typeof candidate.runId === 'string'
+      && typeof candidate.body === 'string'
+      && typeof candidate.createdAt === 'number'
+  })
+}
+
+function asCodexThread(message: TaskActivityMessage): ThreadEntry {
+  const label = message.source === 'codex-plan' ? 'Codex Plan' : 'Codex Run'
+  return {
+    id: `codex-${message.id}`,
+    at: message.createdAt,
+    author: label,
+    eventType: `${label} · ${message.role}`,
+    summary: message.body,
+    fields: [
+      { key: 'run', value: message.runId },
+      { key: 'status', value: message.status ?? 'event' }
+    ],
+    evidence: [],
+    source: message.source,
+    role: message.role,
+    status: message.status,
+    metadata: message.metadata
+  }
+}
+
+function renderMarkdownLite(body: string) {
+  const segments = body.split(/```/g)
+  return segments.map((segment, index) => {
+    if (index % 2 === 1) {
+      const lines = segment.split('\n')
+      const code = lines.length > 1 ? lines.slice(1).join('\n') : segment
+      return <pre key={index} className={styles.codexCodeBlock}><code>{code.trim()}</code></pre>
+    }
+    return segment.split('\n').map((line, lineIndex) => {
+      if (!line.trim()) return <br key={`${index}-${lineIndex}`} />
+      if (line.trim().startsWith('- ')) return <p key={`${index}-${lineIndex}`} className={styles.codexBullet}>{line.trim()}</p>
+      return <p key={`${index}-${lineIndex}`} className={styles.codexMarkdownLine}>{line}</p>
+    })
+  })
 }
 
 function parseHistoryPatch(item: TaskHistoryItem, index: number): ThreadEntry {
@@ -378,7 +447,8 @@ function parseHistoryPatch(item: TaskHistoryItem, index: number): ThreadEntry {
       summary: `Task ${action}`,
       fields,
       evidence: [`Status changed to ${status}`],
-      next: 'Review the latest changes in this task.'
+      next: 'Review the latest changes in this task.',
+      source: 'history'
     }
   } catch {
     return {
@@ -388,7 +458,8 @@ function parseHistoryPatch(item: TaskHistoryItem, index: number): ThreadEntry {
       eventType: 'Unstructured update',
       summary: 'History event could not be parsed.',
       fields: [],
-      evidence: ['Non-JSON patch payload detected.']
+      evidence: ['Non-JSON patch payload detected.'],
+      source: 'history'
     }
   }
 }
@@ -401,7 +472,8 @@ function asCommentThread(comment: TaskComment): ThreadEntry {
     eventType: 'Comment added',
     summary: 'Added a comment',
     fields: [],
-    evidence: [comment.body]
+    evidence: [comment.body],
+    source: 'comment'
   }
 }
 
@@ -1261,8 +1333,9 @@ export function ProjectDetailPage() {
   const activityEntries = useMemo(() => {
     if (!selectedTask) return []
     const commentEntries = (selectedTask.comments ?? []).map(asCommentThread)
+    const codexEntries = activityMessagesFromTask(selectedTask).map(asCodexThread)
     const historyEntries = history.map((item, index) => parseHistoryPatch(item, index))
-    return [...commentEntries, ...historyEntries, ...localActivityEntries].sort((a, b) => a.at - b.at)
+    return [...codexEntries, ...commentEntries, ...historyEntries, ...localActivityEntries].sort((a, b) => a.at - b.at)
   }, [history, localActivityEntries, selectedTask])
 
   const selectedTaskExportContext = useMemo(() => {
@@ -1297,7 +1370,7 @@ export function ProjectDetailPage() {
     setCodexRunLaunching(true)
     try {
       const { fileName, archive } = await buildTaskZipArchive(selectedTaskExportContext)
-      const response = await invokeBridge<{ runFolderPath: string; workspacePath: string; model: string; gatewayId: string; command?: string }>(IPC_CHANNELS.tasks.runCodex, {
+      const response = await invokeBridge<{ runFolderPath: string; workspacePath: string; model: string; gatewayId: string; command?: string; executionMode?: 'terminal' | 'exec'; runId?: string; pid?: number }>(IPC_CHANNELS.tasks.runCodex, {
         actorToken: token,
         taskId: selectedTask.id,
         projectId: project.id,
@@ -1310,13 +1383,18 @@ export function ProjectDetailPage() {
         defaultOutput: project.defaultOutput ?? ''
       })
       if (!response.ok) {
-        setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex terminal' })
+        setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex' })
         return
       }
-      setCodexRunFeedback({ kind: 'success', message: `Codex terminal launched. Workspace: ${response.data.workspacePath}` })
+      setCodexRunFeedback({
+        kind: 'success',
+        message: response.data.executionMode === 'exec'
+          ? `Codex exec started. Activity will update as it runs.`
+          : `Codex terminal launched. Workspace: ${response.data.workspacePath}`
+      })
       setError(null)
     } catch (error) {
-      setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to launch Codex terminal' })
+      setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to launch Codex' })
     } finally {
       setCodexRunLaunching(false)
     }
@@ -1342,7 +1420,7 @@ export function ProjectDetailPage() {
     setCodexRunFeedback(null)
     setCodexPlanLaunching(true)
     try {
-      const response = await invokeBridge<{ runFolderPath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; bridgeUrl?: string; command?: string }>(IPC_CHANNELS.tasks.planWithCodex, {
+      const response = await invokeBridge<{ runFolderPath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; bridgeUrl?: string; command?: string; executionMode?: 'terminal' | 'exec'; runId?: string; pid?: number }>(IPC_CHANNELS.tasks.planWithCodex, {
         actorToken: token,
         taskId: selectedTask.id,
         projectId: project.id,
@@ -1356,7 +1434,12 @@ export function ProjectDetailPage() {
         setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex planner' })
         return
       }
-      setCodexRunFeedback({ kind: 'success', message: `Codex planner launched. Runtime workspace: ${response.data.runtimeWorkspacePath}` })
+      setCodexRunFeedback({
+        kind: 'success',
+        message: response.data.executionMode === 'exec'
+          ? 'Codex planner exec started. Activity will update as it runs.'
+          : `Codex planner launched. Runtime workspace: ${response.data.runtimeWorkspacePath}`
+      })
       setError(null)
     } catch (error) {
       setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to launch Codex planner' })
@@ -4991,9 +5074,9 @@ export function ProjectDetailPage() {
           {isActivityModalOpen ? (
             <>
               <div className={styles.activityBackdrop} onClick={() => setIsActivityModalOpen(false)} />
-              <section className={`${styles.modalShell} ${styles.activityModalShell}`} role="dialog" aria-modal="true" aria-label="Activity logs">
+              <section className={`${styles.modalShell} ${styles.activityModalShell}`} role="dialog" aria-modal="true" aria-label="Activity chat">
                 <header className={styles.modalHeader}>
-                  <h2>ACTIVITY LOGS</h2>
+                  <h2>ACTIVITY CHAT</h2>
                   <div className={styles.modalHeaderActions}>
                     <button type="button" onClick={() => setIsActivityModalOpen(false)} aria-label="Close activity modal">
                       <LuX size={16} />
@@ -5004,13 +5087,29 @@ export function ProjectDetailPage() {
                   <div className={styles.activityFeed} ref={activityFeedRef} onScroll={onActivityScroll}>
                     <div className={styles.threadList}>
                       {activityEntries.map((entry) => (
-                        <article key={entry.id} className={styles.threadItem}>
+                        <article
+                          key={entry.id}
+                          className={`${styles.threadItem} ${entry.source === 'codex-plan' || entry.source === 'codex-run' ? styles.codexThreadItem : ''} ${entry.role ? styles[`codexRole_${entry.role}`] ?? '' : ''}`}
+                        >
                           <div className={styles.threadMeta}>
-                            <span>{entry.author}</span>
+                            <span>{entry.author}{entry.status ? ` · ${entry.status}` : ''}</span>
                             <span>{new Date(entry.at).toLocaleString()}</span>
                           </div>
                           <h5>{entry.eventType}</h5>
-                          <p className={styles.threadText}>{entry.summary}</p>
+                          {entry.source === 'codex-plan' || entry.source === 'codex-run' ? (
+                            <div className={styles.codexMessageBody}>
+                              {renderMarkdownLite(entry.summary)}
+                              <button
+                                type="button"
+                                className={styles.copyMessageButton}
+                                onClick={() => void navigator.clipboard?.writeText(entry.summary)}
+                              >
+                                Copy
+                              </button>
+                            </div>
+                          ) : (
+                            <p className={styles.threadText}>{entry.summary}</p>
+                          )}
                           {entry.fields.length > 0 ? (
                             <div className={styles.threadFieldList}>
                               {entry.fields.map((field) => (
@@ -5021,10 +5120,20 @@ export function ProjectDetailPage() {
                               ))}
                             </div>
                           ) : null}
-                          <p className={styles.threadLabel}>Evidence</p>
-                          <ul>
-                            {entry.evidence.map((row, index) => <li key={`${entry.id}-${index}`}>{row}</li>)}
-                          </ul>
+                          {entry.metadata && Object.keys(entry.metadata).length > 0 ? (
+                            <details className={styles.codexDetails}>
+                              <summary>Details</summary>
+                              <pre>{JSON.stringify(entry.metadata, null, 2)}</pre>
+                            </details>
+                          ) : null}
+                          {entry.evidence.length > 0 ? (
+                            <>
+                              <p className={styles.threadLabel}>Evidence</p>
+                              <ul>
+                                {entry.evidence.map((row, index) => <li key={`${entry.id}-${index}`}>{row}</li>)}
+                              </ul>
+                            </>
+                          ) : null}
                           {entry.next ? (
                             <>
                               <p className={styles.threadLabel}>Next</p>

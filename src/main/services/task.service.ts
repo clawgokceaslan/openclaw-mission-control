@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import EventEmitter from 'node:events'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { promisify } from 'node:util'
-import { copyFile, chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { appendFile, copyFile, chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { unzipSync } from 'fflate'
@@ -67,6 +67,11 @@ type PlannerLaunchResult = {
   gatewayId: string
   command: string
   bridgeUrl: string
+  executionMode?: 'terminal' | 'exec'
+  runId?: string
+  pid?: number
+  eventsPath?: string
+  finalMessagePath?: string
 }
 
 type CodexTerminalRun = {
@@ -78,6 +83,20 @@ type ProjectPromptSnapshot = {
   generalContext: string
   generalPrompt: string
   defaultOutput: string
+}
+
+type CodexExecutionMode = 'terminal' | 'exec'
+
+type TaskActivityMessage = {
+  id: string
+  runId: string
+  source: 'codex-plan' | 'codex-run'
+  role: 'user' | 'assistant' | 'tool' | 'system' | 'error'
+  status?: 'running' | 'completed' | 'failed'
+  body: string
+  metadata?: Record<string, unknown>
+  createdAt: number
+  updatedAt?: number
 }
 
 function asPayload(value: unknown): TaskPayload {
@@ -286,11 +305,25 @@ function codexTrustedProjectConfig(path: string): string {
   return `projects.${JSON.stringify(path)}.trust_level="trusted"`
 }
 
-function codexCliConfig(value: unknown): { codexPath: string } {
+function codexCliConfig(value: unknown): { codexPath: string; executionMode: CodexExecutionMode } {
   const template = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
   return {
-    codexPath: typeof template.codexPath === 'string' && template.codexPath.trim() ? template.codexPath.trim() : 'codex'
+    codexPath: typeof template.codexPath === 'string' && template.codexPath.trim() ? template.codexPath.trim() : 'codex',
+    executionMode: template.executionMode === 'exec' ? 'exec' : 'terminal'
   }
+}
+
+function taskActivityMessagesFromPayload(payload: unknown): TaskActivityMessage[] {
+  const source = asPayload(payload).activityMessages
+  if (!Array.isArray(source)) return []
+  return source.filter((item): item is TaskActivityMessage => {
+    if (!item || typeof item !== 'object') return false
+    const candidate = item as Partial<TaskActivityMessage>
+    return typeof candidate.id === 'string'
+      && typeof candidate.runId === 'string'
+      && typeof candidate.body === 'string'
+      && typeof candidate.createdAt === 'number'
+  })
 }
 
 function projectCodexRuntimeWorkspaceId(project: { metrics?: Record<string, unknown> }): string | null {
@@ -581,6 +614,37 @@ export class TaskService {
 
   private emitTaskUpdated(projectId: string, taskId: string, action: string): void {
     this.eventBus?.emit(IPC_CHANNELS.events.taskUpdated, { projectId, taskId, action, updatedAt: Date.now() })
+  }
+
+  private async appendTaskActivityMessage(
+    taskId: string,
+    message: Omit<TaskActivityMessage, 'id' | 'createdAt'> & { id?: string; createdAt?: number }
+  ): Promise<TaskActivityMessage | null> {
+    const task = await this.repo.get(taskId)
+    if (!task) return null
+    const now = Date.now()
+    const nextMessage: TaskActivityMessage = {
+      id: message.id ?? `codex-activity-${randomUUID()}`,
+      runId: message.runId,
+      source: message.source,
+      role: message.role,
+      status: message.status,
+      body: message.body,
+      metadata: message.metadata,
+      createdAt: message.createdAt ?? now,
+      updatedAt: now
+    }
+    const payload = asPayload(task.payload)
+    const activityMessages = [...taskActivityMessagesFromPayload(payload), nextMessage]
+    await this.repo.update(task.id, { payload: { ...payload, activityMessages } })
+    this.eventBus?.emit(IPC_CHANNELS.events.taskActivity, {
+      projectId: task.projectId,
+      taskId: task.id,
+      message: nextMessage,
+      updatedAt: now
+    })
+    this.emitTaskUpdated(task.projectId, task.id, 'activity')
+    return nextMessage
   }
 
   private async ensureTaskAccess(actorToken: string | undefined, taskId: string): Promise<ServiceResponse<{ actorOrgId: string; task: TaskEntity }>> {
@@ -959,16 +1023,15 @@ export class TaskService {
     return okResponse({ exportFolderPath, writtenFiles, skippedFiles })
   }
 
-  async runCodex(payload: RunTaskCodexRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ runFolderPath: string; workspacePath: string; exportWorkspacePath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; command: string }>> {
+  async runCodex(payload: RunTaskCodexRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ runFolderPath: string; workspacePath: string; exportWorkspacePath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; command: string; executionMode?: CodexExecutionMode; runId?: string; pid?: number; eventsPath?: string; finalMessagePath?: string }>> {
     if (!payload?.taskId || !payload.projectId) return errorResponse(ErrorCodes.Validation, 'Task and project id are required')
     if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex gateway is required')
     if (!payload.model?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex model is required')
     const zipBuffer = zipBufferFromPayload(payload.zipBytes)
     if (!zipBuffer?.length) return errorResponse(ErrorCodes.Validation, 'Task ZIP bytes are required')
-    if (process.platform !== 'darwin') return errorResponse(ErrorCodes.Validation, 'External Codex run currently requires macOS Terminal.app.')
 
     const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
-    if (!access.ok || !access.data) return access as ServiceResponse<{ runFolderPath: string; workspacePath: string; exportWorkspacePath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; command: string }>
+    if (!access.ok || !access.data) return access as ServiceResponse<{ runFolderPath: string; workspacePath: string; exportWorkspacePath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; command: string; executionMode?: CodexExecutionMode; runId?: string; pid?: number; eventsPath?: string; finalMessagePath?: string }>
     const project = await this.projects.get(payload.projectId)
     if (!project || project.id !== access.data.task.projectId) return errorResponse(ErrorCodes.NotFound, 'Project not found')
     if (project.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
@@ -1009,8 +1072,9 @@ export class TaskService {
         await writeFile(targetPath, Buffer.from(bytes))
       }
 
-      const { codexPath } = codexCliConfig(gateway.template)
+      const { codexPath, executionMode } = codexCliConfig(gateway.template)
       const model = payload.model.trim()
+      const taskId = access.data.task.id
       const wrapperPath = join(runFolderPath, 'run-codex.sh')
       const finishFilePath = join(runFolderPath, 'codex-finished.signal')
       const runTerminalTitle = terminalTitle(`OMC Codex ${access.data.task.id}`)
@@ -1078,6 +1142,20 @@ export class TaskService {
         '-c', shellQuote(codexTrustedProjectConfig(exportWorkspacePath)),
         shellQuote(prompt)
       ].join(' ')
+      const execEventsPath = join(runFolderPath, 'codex-events.jsonl')
+      const execFinalMessagePath = join(runFolderPath, 'final-message.md')
+      const execArgs = [
+        'exec',
+        '--json',
+        '--output-last-message', execFinalMessagePath,
+        '--cd', runtimeWorkspacePath,
+        '--model', model,
+        '--skip-git-repo-check',
+        '--dangerously-bypass-approvals-and-sandbox',
+        '--color', 'never',
+        prompt
+      ]
+      const execCommand = [shellQuote(codexPath), ...execArgs.map(shellQuote)].join(' ')
       const loginShellCommand = [
         'set -e',
         `cd ${shellQuote(runtimeWorkspacePath)}`,
@@ -1135,11 +1213,116 @@ export class TaskService {
         projectPrompt,
         finishFilePath,
         terminalTitle: runTerminalTitle,
+        executionMode,
         command: codexCommand,
+        execCommand,
+        eventsPath: execEventsPath,
+        finalMessagePath: execFinalMessagePath,
         terminalCommand
       }, null, 2), 'utf8')
 
       preserveRunFolderOnError = true
+      if (executionMode === 'exec') {
+        await this.appendTaskActivityMessage(taskId, {
+          runId,
+          source: 'codex-run',
+          role: 'system',
+          status: 'running',
+          body: `Started Codex exec run with ${model}.`,
+          metadata: { gatewayId: gateway.id, model, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath }
+        })
+        await this.appendTaskActivityMessage(taskId, {
+          runId,
+          source: 'codex-run',
+          role: 'user',
+          status: 'running',
+          body: prompt,
+          metadata: { command: execCommand }
+        })
+        const child = spawn(codexPath, execArgs, {
+          cwd: runtimeWorkspacePath,
+          env: process.env,
+          stdio: ['ignore', 'pipe', 'pipe']
+        })
+        child.stdout.setEncoding('utf8')
+        child.stderr.setEncoding('utf8')
+        child.stdout.on('data', (chunk: string) => {
+          void appendFile(execEventsPath, chunk, 'utf8')
+        })
+        child.stderr.on('data', (chunk: string) => {
+          void appendFile(execEventsPath, chunk, 'utf8')
+        })
+        child.on('error', (error) => {
+          void this.appendTaskActivityMessage(taskId, {
+            runId,
+            source: 'codex-run',
+            role: 'error',
+            status: 'failed',
+            body: error.message,
+            metadata: { command: execCommand }
+          })
+          void bridge?.close()
+        })
+        child.on('close', (code, signal) => {
+          void (async () => {
+            const finalMessage = await readFile(execFinalMessagePath, 'utf8').catch(() => '')
+            const eventTail = (await readFile(execEventsPath, 'utf8').catch(() => '')).trim().slice(-4000)
+            if (eventTail) {
+              await this.appendTaskActivityMessage(taskId, {
+                runId,
+                source: 'codex-run',
+                role: 'tool',
+                status: code === 0 ? 'completed' : 'failed',
+                body: eventTail,
+                metadata: { code, signal, eventsPath: execEventsPath }
+              })
+            }
+            if (code === 0) {
+              await this.appendTaskActivityMessage(taskId, {
+                runId,
+                source: 'codex-run',
+                role: 'assistant',
+                status: 'completed',
+                body: finalMessage.trim() || 'Codex exec completed.',
+                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath }
+              })
+              await this.markTaskReadyForReview({ actorToken: payload.actorToken, projectId: project.id, taskId }).catch(() => undefined)
+            } else {
+              await this.appendTaskActivityMessage(taskId, {
+                runId,
+                source: 'codex-run',
+                role: 'error',
+                status: 'failed',
+                body: eventTail || `Codex exec exited with code ${code ?? 'unknown'}.`,
+                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath }
+              })
+            }
+            await bridge?.close()
+            if (workspaceRunPathForCleanup) {
+              setTimeout(() => {
+                void rm(workspaceRunPathForCleanup ?? '', { recursive: true, force: true })
+              }, 2_000).unref?.()
+            }
+          })()
+        })
+
+        return okResponse({
+          runFolderPath,
+          workspacePath: runtimeWorkspacePath,
+          runtimeWorkspacePath,
+          exportWorkspacePath,
+          model,
+          gatewayId: gateway.id,
+          command: execCommand,
+          executionMode,
+          runId,
+          pid: child.pid,
+          eventsPath: execEventsPath,
+          finalMessagePath: execFinalMessagePath
+        })
+      }
+
+      if (process.platform !== 'darwin') return errorResponse(ErrorCodes.Validation, 'External Codex run currently requires macOS Terminal.app.')
       this.codexTerminalRuns.set(access.data.task.id, { finishFilePath, terminalTitle: runTerminalTitle })
       await execFileAsync('osascript', [
         '-e',
@@ -1165,7 +1348,9 @@ export class TaskService {
         exportWorkspacePath,
         model,
         gatewayId: gateway.id,
-        command: codexCommand
+        command: codexCommand,
+        executionMode,
+        runId
       })
     } catch (error) {
       await bridge?.close()
@@ -1314,7 +1499,6 @@ export class TaskService {
     if (!payload?.taskId || !payload.projectId) return errorResponse(ErrorCodes.Validation, 'Task and project id are required')
     if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex gateway is required')
     if (!payload.model?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex model is required')
-    if (process.platform !== 'darwin') return errorResponse(ErrorCodes.Validation, 'Codex task planning currently requires macOS Terminal.app.')
 
     const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
     if (!access.ok || !access.data) {
@@ -1393,8 +1577,9 @@ export class TaskService {
         runtimeWorkspacePath
       }), 'utf8')
 
-      const { codexPath } = codexCliConfig(gateway.template)
+      const { codexPath, executionMode } = codexCliConfig(gateway.template)
       const model = payload.model.trim()
+      const taskId = access.data.task.id
       const prompt = [
         `Read ${instructionsRelativePath} first.`,
         initialPlannerPrompt(project.id, access.data.task.id, helperRelativePath, contextRelativePath, plannedTaskRelativePath)
@@ -1408,6 +1593,20 @@ export class TaskService {
         '-c', shellQuote(codexTrustedProjectConfig(runtimeWorkspacePath)),
         shellQuote(prompt)
       ].join(' ')
+      const execEventsPath = join(runFolderPath, 'codex-events.jsonl')
+      const execFinalMessagePath = join(runFolderPath, 'final-message.md')
+      const execArgs = [
+        'exec',
+        '--json',
+        '--output-last-message', execFinalMessagePath,
+        '--cd', runtimeWorkspacePath,
+        '--model', model,
+        '--skip-git-repo-check',
+        '--dangerously-bypass-approvals-and-sandbox',
+        '--color', 'never',
+        prompt
+      ]
+      const execCommand = [shellQuote(codexPath), ...execArgs.map(shellQuote)].join(' ')
       const wrapperPath = join(runFolderPath, 'run-codex-planner.sh')
       const wrapper = [
         '#!/bin/zsh',
@@ -1463,11 +1662,114 @@ export class TaskService {
         projectPrompt,
         finishFilePath,
         terminalTitle: runTerminalTitle,
+        executionMode,
         command: codexCommand,
+        execCommand,
+        eventsPath: execEventsPath,
+        finalMessagePath: execFinalMessagePath,
         terminalCommand
       }, null, 2), 'utf8')
 
       preserveRunFolderOnError = true
+      if (executionMode === 'exec') {
+        await this.appendTaskActivityMessage(taskId, {
+          runId,
+          source: 'codex-plan',
+          role: 'system',
+          status: 'running',
+          body: `Started Codex exec planner with ${model}.`,
+          metadata: { gatewayId: gateway.id, model, executionMode, runtimeWorkspacePath, runFolderPath }
+        })
+        await this.appendTaskActivityMessage(taskId, {
+          runId,
+          source: 'codex-plan',
+          role: 'user',
+          status: 'running',
+          body: prompt,
+          metadata: { command: execCommand }
+        })
+        const child = spawn(codexPath, execArgs, {
+          cwd: runtimeWorkspacePath,
+          env: process.env,
+          stdio: ['ignore', 'pipe', 'pipe']
+        })
+        child.stdout.setEncoding('utf8')
+        child.stderr.setEncoding('utf8')
+        child.stdout.on('data', (chunk: string) => {
+          void appendFile(execEventsPath, chunk, 'utf8')
+        })
+        child.stderr.on('data', (chunk: string) => {
+          void appendFile(execEventsPath, chunk, 'utf8')
+        })
+        child.on('error', (error) => {
+          void this.appendTaskActivityMessage(taskId, {
+            runId,
+            source: 'codex-plan',
+            role: 'error',
+            status: 'failed',
+            body: error.message,
+            metadata: { command: execCommand }
+          })
+          void bridge?.close()
+        })
+        child.on('close', (code, signal) => {
+          void (async () => {
+            const finalMessage = await readFile(execFinalMessagePath, 'utf8').catch(() => '')
+            const eventTail = (await readFile(execEventsPath, 'utf8').catch(() => '')).trim().slice(-4000)
+            if (eventTail) {
+              await this.appendTaskActivityMessage(taskId, {
+                runId,
+                source: 'codex-plan',
+                role: 'tool',
+                status: code === 0 ? 'completed' : 'failed',
+                body: eventTail,
+                metadata: { code, signal, eventsPath: execEventsPath }
+              })
+            }
+            if (code === 0) {
+              await this.appendTaskActivityMessage(taskId, {
+                runId,
+                source: 'codex-plan',
+                role: 'assistant',
+                status: 'completed',
+                body: finalMessage.trim() || 'Codex planner completed.',
+                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath }
+              })
+            } else {
+              await this.appendTaskActivityMessage(taskId, {
+                runId,
+                source: 'codex-plan',
+                role: 'error',
+                status: 'failed',
+                body: eventTail || `Codex planner exited with code ${code ?? 'unknown'}.`,
+                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath }
+              })
+            }
+            await bridge?.close()
+            if (workspaceRunPathForCleanup) {
+              setTimeout(() => {
+                void rm(workspaceRunPathForCleanup ?? '', { recursive: true, force: true })
+              }, 2_000).unref?.()
+            }
+          })()
+        })
+
+        return okResponse({
+          runFolderPath,
+          runtimeWorkspacePath,
+          model,
+          gatewayId: gateway.id,
+          command: execCommand,
+          bridgeUrl: bridge.url,
+          executionMode,
+          runId,
+          pid: child.pid,
+          eventsPath: execEventsPath,
+          finalMessagePath: execFinalMessagePath
+        })
+      }
+
+      if (process.platform !== 'darwin') return errorResponse(ErrorCodes.Validation, 'Codex task planning currently requires macOS Terminal.app.')
       await execFileAsync('osascript', [
         '-e',
         'tell application "Terminal"',
@@ -1491,7 +1793,9 @@ export class TaskService {
         model,
         gatewayId: gateway.id,
         command: codexCommand,
-        bridgeUrl: bridge.url
+        bridgeUrl: bridge.url,
+        executionMode,
+        runId
       })
     } catch (error) {
       await bridge?.close()

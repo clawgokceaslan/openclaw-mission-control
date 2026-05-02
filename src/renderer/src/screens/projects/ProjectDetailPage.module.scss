@@ -3070,6 +3070,97 @@
   font-size: 0.92rem !important;
 }
 
+.codexThreadItem {
+  border: 1px solid var(--omc-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--omc-surface) 88%, var(--omc-primary) 12%);
+  padding: 12px;
+}
+
+.codexRole_user {
+  border-color: var(--omc-primary);
+}
+
+.codexRole_assistant {
+  border-color: var(--omc-success-text);
+}
+
+.codexRole_error {
+  border-color: var(--omc-danger-text);
+  background: var(--omc-danger-bg);
+}
+
+.codexMessageBody {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--omc-text-strong);
+  font-size: 0.92rem;
+
+  p {
+    margin: 0;
+    line-height: 1.48;
+  }
+}
+
+.codexMarkdownLine {
+  white-space: pre-wrap;
+}
+
+.codexBullet {
+  padding-left: 14px;
+  text-indent: -10px;
+}
+
+.codexCodeBlock {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--omc-border);
+  border-radius: 10px;
+  background: var(--omc-code-bg, #0b1220);
+  color: var(--omc-code-text, #d8e2f0);
+  padding: 10px;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+}
+
+.copyMessageButton {
+  justify-self: end;
+  min-height: 28px;
+  border: 1px solid var(--omc-border);
+  border-radius: 8px;
+  background: var(--omc-surface);
+  color: var(--omc-text-muted);
+  padding: 0 9px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.codexDetails {
+  margin-top: 8px;
+  border: 1px solid var(--omc-border);
+  border-radius: 10px;
+  background: var(--omc-surface-muted);
+  padding: 8px 10px;
+
+  summary {
+    cursor: pointer;
+    color: var(--omc-text-muted);
+    font-size: 0.78rem;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+
+  pre {
+    overflow: auto;
+    margin: 8px 0 0;
+    color: var(--omc-text-strong);
+    font-size: 0.78rem;
+    white-space: pre-wrap;
+  }
+}
+
 .subtaskDetailGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

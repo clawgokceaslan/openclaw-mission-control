@@ -46,9 +46,15 @@ function maskToken(token: string): string {
 function codexCliConfig(input: UpsertGatewayRequest, current?: Gateway): CodexCliGatewayConfig {
   const currentTemplate = (current?.template ?? {}) as Partial<CodexCliGatewayConfig>
   const codexPath = input.codexPath?.trim() || currentTemplate.codexPath || current?.endpoint || 'codex'
+  const executionMode = input.codexExecutionMode === 'exec' || input.codexExecutionMode === 'terminal'
+    ? input.codexExecutionMode
+    : currentTemplate.executionMode === 'exec' || currentTemplate.executionMode === 'terminal'
+      ? currentTemplate.executionMode
+      : 'terminal'
   return {
     provider: 'codex_cli',
     codexPath,
+    executionMode,
     models: currentTemplate.models,
     lastModelRefreshAt: currentTemplate.lastModelRefreshAt,
     lastModelRefreshError: currentTemplate.lastModelRefreshError

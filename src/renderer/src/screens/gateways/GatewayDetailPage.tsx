@@ -16,6 +16,7 @@ type TabKey = 'overview' | 'events' | 'settings'
 
 interface SettingsState {
   name: string
+  executionMode: 'terminal' | 'exec'
 }
 
 type CodexModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }
@@ -27,6 +28,7 @@ function configOf(gateway: Gateway): CodexCliGatewayConfig {
   return {
     provider: 'codex_cli',
     codexPath: typeof template.codexPath === 'string' && template.codexPath.trim() ? template.codexPath : gateway.endpoint || 'codex',
+    executionMode: template.executionMode === 'exec' ? 'exec' : 'terminal',
     models: Array.isArray(template.models) ? template.models : [],
     lastModelRefreshAt: typeof template.lastModelRefreshAt === 'number' ? template.lastModelRefreshAt : undefined,
     lastModelRefreshError: typeof template.lastModelRefreshError === 'string' ? template.lastModelRefreshError : undefined
@@ -35,7 +37,8 @@ function configOf(gateway: Gateway): CodexCliGatewayConfig {
 
 function settingsFromGateway(gateway: Gateway): SettingsState {
   return {
-    name: gateway.name
+    name: gateway.name,
+    executionMode: configOf(gateway).executionMode ?? 'terminal'
   }
 }
 
@@ -98,7 +101,14 @@ export function GatewayDetailPage() {
   const saveSettings = async (event: FormEvent) => {
     event.preventDefault()
     if (!gatewayId || !settings) return
-    await action(IPC_CHANNELS.gateways.update, { id: gatewayId, name: settings.name, endpoint: 'codex', codexPath: 'codex', provider: 'codex_cli' }, 'Gateway settings saved.')
+    await action(IPC_CHANNELS.gateways.update, {
+      id: gatewayId,
+      name: settings.name,
+      endpoint: 'codex',
+      codexPath: 'codex',
+      provider: 'codex_cli',
+      codexExecutionMode: settings.executionMode
+    }, 'Gateway settings saved.')
   }
 
   const refreshModels = async () => {
@@ -141,6 +151,7 @@ export function GatewayDetailPage() {
           <div><small>Status</small><b className={`${styles.statusPill} ${styles[gateway.status]}`}>{gateway.status}</b></div>
           <div><small>CLI</small><b>Codex CLI</b></div>
           <div><small>Command</small><b>{config.codexPath || 'codex'}</b></div>
+          <div><small>Mode</small><b>{config.executionMode === 'exec' ? 'Exec / Headless' : 'Terminal'}</b></div>
           <div><small>Models</small><b>{config.models?.length ?? 0} cached</b></div>
           <div><small>Updated</small><b>{formatTime(gateway.updatedAt)}</b></div>
         </div>
@@ -164,6 +175,7 @@ export function GatewayDetailPage() {
             <span><b>Permissions</b><small><code>/permissions</code> controls approval and sandbox behavior inside the CLI.</small></span>
             <span><b>Slash commands</b><small><code>/review</code>, <code>/model</code>, <code>/status</code>, and related commands remain CLI-owned.</small></span>
             <span><b>Remote app-server</b><small>Documented by Codex, but not used by Open Mission Control in this phase.</small></span>
+            <span><b>Exec / Headless</b><small><code>codex exec</code> runs without opening Terminal when this gateway mode is enabled.</small></span>
             <span><b>Last model refresh</b><small>{formatTime(config?.lastModelRefreshAt)}</small></span>
           </div>
           <button type="button" onClick={() => void refreshModels()}>Refresh models</button>
@@ -182,6 +194,26 @@ export function GatewayDetailPage() {
         <form className={styles.settingsForm} onSubmit={saveSettings}>
           <label>Name<input value={settings.name} onChange={(event) => setSettings({ ...settings, name: event.target.value })} /></label>
           <label>CLI<input value="Codex CLI" disabled /></label>
+          <div className={styles.modeField}>
+            <span>Execution mode</span>
+            <div className={styles.segmentedControl}>
+              <button
+                type="button"
+                className={settings.executionMode === 'terminal' ? styles.segmentActive : ''}
+                onClick={() => setSettings({ ...settings, executionMode: 'terminal' })}
+              >
+                Terminal
+              </button>
+              <button
+                type="button"
+                className={settings.executionMode === 'exec' ? styles.segmentActive : ''}
+                onClick={() => setSettings({ ...settings, executionMode: 'exec' })}
+              >
+                Exec / Headless
+              </button>
+            </div>
+            <small>{settings.executionMode === 'exec' ? 'Runs codex exec in the background and writes output to Activity.' : 'Opens external Terminal.app with the interactive Codex TUI.'}</small>
+          </div>
           <button type="submit">Save settings</button>
         </form>
       )}

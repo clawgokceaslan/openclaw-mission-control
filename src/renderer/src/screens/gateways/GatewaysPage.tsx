@@ -12,6 +12,7 @@ interface GatewayFormState {
   id?: string
   name: string
   cliProvider: 'codex_cli' | 'claude_cli'
+  executionMode: 'terminal' | 'exec'
 }
 
 type ActiveGatewayResponse = {
@@ -29,7 +30,8 @@ type CodexModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached: 
 
 const emptyForm: GatewayFormState = {
   name: '',
-  cliProvider: 'codex_cli'
+  cliProvider: 'codex_cli',
+  executionMode: 'terminal'
 }
 
 function configOf(gateway: Gateway): CodexCliGatewayConfig {
@@ -39,6 +41,7 @@ function configOf(gateway: Gateway): CodexCliGatewayConfig {
   return {
     provider: 'codex_cli',
     codexPath: typeof template.codexPath === 'string' && template.codexPath.trim() ? template.codexPath : gateway.endpoint || 'codex',
+    executionMode: template.executionMode === 'exec' ? 'exec' : 'terminal',
     models: Array.isArray(template.models) ? template.models : [],
     lastModelRefreshAt: typeof template.lastModelRefreshAt === 'number' ? template.lastModelRefreshAt : undefined,
     lastModelRefreshError: typeof template.lastModelRefreshError === 'string' ? template.lastModelRefreshError : undefined
@@ -49,7 +52,8 @@ function formFromGateway(gateway: Gateway): GatewayFormState {
   return {
     id: gateway.id,
     name: gateway.name,
-    cliProvider: 'codex_cli'
+    cliProvider: 'codex_cli',
+    executionMode: configOf(gateway).executionMode ?? 'terminal'
   }
 }
 
@@ -188,7 +192,8 @@ export function GatewaysPage() {
       name: modal.name,
       endpoint: 'codex',
       codexPath: 'codex',
-      provider: 'codex_cli'
+      provider: 'codex_cli',
+      codexExecutionMode: modal.executionMode
     }
     const ok = await invokeAction(
       modal.id ? IPC_CHANNELS.gateways.update : IPC_CHANNELS.gateways.create,
@@ -338,6 +343,26 @@ export function GatewaysPage() {
                 <option value="claude_cli">Claude CLI</option>
               </select>
             </label>
+            <div className={styles.modeField}>
+              <span>Execution mode</span>
+              <div className={styles.segmentedControl}>
+                <button
+                  type="button"
+                  className={modal.executionMode === 'terminal' ? styles.segmentActive : ''}
+                  onClick={() => setModal({ ...modal, executionMode: 'terminal' })}
+                >
+                  Terminal
+                </button>
+                <button
+                  type="button"
+                  className={modal.executionMode === 'exec' ? styles.segmentActive : ''}
+                  onClick={() => setModal({ ...modal, executionMode: 'exec' })}
+                >
+                  Exec / Headless
+                </button>
+              </div>
+              <small>{modal.executionMode === 'exec' ? 'Runs codex exec in the background and writes output to Activity.' : 'Opens external Terminal.app with the interactive Codex TUI.'}</small>
+            </div>
             {modal.cliProvider === 'claude_cli' ? <p className={styles.error}>Claude CLI is not available yet.</p> : null}
             <footer>
               <button type="button" onClick={() => setModal(null)}>Cancel</button>
