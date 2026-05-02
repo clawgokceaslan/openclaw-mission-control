@@ -1,0 +1,202 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: color-mix(in srgb, var(--omc-text) 34%, transparent);
+}
+
+.nestedBackdrop {
+  z-index: 50;
+}
+
+.shell {
+  position: relative;
+  position: fixed;
+  inset: 2vh 2vw;
+  z-index: 40;
+  isolation: isolate;
+  -webkit-app-region: no-drag;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 680px;
+  overflow: hidden;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 16px;
+  background: var(--omc-surface);
+  box-shadow: var(--omc-shadow-large);
+}
+
+.dropOverlay {
+  position: absolute;
+  inset: 12px;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--omc-primary);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--omc-primary) 16%, var(--omc-overlay));
+  color: var(--omc-text-strong);
+  font-weight: 900;
+  font-size: 1.15rem;
+  pointer-events: none;
+}
+
+.nestedShell {
+  inset: 2vh 2vw;
+  z-index: 60;
+  min-height: 680px;
+}
+
+.header {
+  position: relative;
+  z-index: 10;
+  flex: 0 0 auto;
+  -webkit-app-region: no-drag;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--omc-border-subtle);
+  background: var(--omc-surface);
+  padding: 0 14px 0 18px;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.headerTitle {
+  color: var(--omc-text-soft);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.headerActions {
+  position: relative;
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+
+.primaryActions {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.iconButton {
+  position: relative;
+  z-index: 1;
+  -webkit-app-region: no-drag;
+  width: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--omc-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+
+  &:hover {
+    border-color: var(--omc-border-subtle);
+    background: var(--omc-code-bg);
+    color: var(--omc-text-strong);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.58;
+  }
+}
+
+.runButton {
+  border-color: color-mix(in srgb, var(--omc-success-strong) 50%, transparent);
+  background: var(--omc-success-strong);
+  color: var(--omc-inverse-text);
+
+  &:hover:not(:disabled) {
+    border-color: var(--omc-success-strong);
+    background: color-mix(in srgb, var(--omc-success-strong) 88%, var(--omc-text-strong));
+    color: var(--omc-inverse-text);
+  }
+}
+
+.planButton {
+  border-color: color-mix(in srgb, var(--omc-primary) 48%, transparent);
+  background: color-mix(in srgb, var(--omc-primary) 92%, var(--omc-text-strong));
+  color: var(--omc-inverse-text);
+
+  &:hover:not(:disabled) {
+    border-color: var(--omc-primary);
+    background: color-mix(in srgb, var(--omc-primary) 82%, var(--omc-text-strong));
+    color: var(--omc-inverse-text);
+  }
+}
+
+.iconButtonActive {
+  border-color: var(--omc-border-subtle);
+  background: var(--omc-surface-muted);
+  color: var(--omc-text-strong);
+}
+
+.menuWrap {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: 220px;
+  overflow: hidden;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 13px;
+  background: var(--omc-surface);
+  box-shadow: var(--omc-shadow-medium);
+  padding: 6px;
+
+  button {
+    width: 100%;
+    min-height: 36px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--omc-text-strong);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 10px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    text-align: left;
+
+    &:hover {
+      background: var(--omc-surface-muted);
+    }
+  }
+}
+
+.dangerAction {
+  color: var(--omc-danger) !important;
+}
+
+@media (width <= 900px) {
+  .shell {
+    inset: 1.5vh 1.5vw;
+    min-height: 0;
+    border-radius: 12px;
+  }
+}
