@@ -400,6 +400,8 @@ export interface CodexChatSendRequest {
   model?: string
   conversationId?: string
   includeTaskContext?: boolean
+  mode?: 'chat' | 'plan' | 'steer'
+  attachments?: Array<{ name: string; bytes: ArrayBuffer | Uint8Array | number[] }>
 }
 
 export interface UpsertGatewayRequest {

@@ -377,22 +377,97 @@ function codexChatPrompt(input: {
   message: string
   transcript: TaskActivityMessage[]
   context?: unknown
+  mode?: 'chat' | 'plan' | 'steer'
+  attachments?: Array<{ name: string; path: string }>
 }): string {
   const transcript = input.transcript
     .slice(-24)
     .map((item) => `${item.role.toUpperCase()}: ${item.body}`)
     .join('\n\n')
+  const modeInstruction = input.mode === 'plan'
+    ? 'The user invoked /plan. Stay in planning mode: reason about the work, propose a clear plan, and do not make code or file changes unless the user explicitly asks.'
+    : input.mode === 'steer'
+      ? 'The user is steering an existing Codex conversation. Treat this as a correction or direction for the current task context and continue from the recent transcript.'
+      : 'Continue the task chat normally.'
+  const attachments = input.attachments?.length
+    ? `Attached files for this message:\n${input.attachments.map((item) => `- ${item.name}: ${item.path}`).join('\n')}`
+    : ''
   return [
     'You are continuing an Open Mission Control task chat.',
+    modeInstruction,
     `Task id: ${input.task.id}`,
     `Task title: ${input.task.title}`,
     input.task.description ? `Task description:\n${input.task.description}` : '',
     input.context ? `Current task context JSON:\n${JSON.stringify(input.context, null, 2)}` : '',
     transcript ? `Recent chat transcript:\n${transcript}` : '',
+    attachments,
     `User follow-up:\n${input.message}`,
     'Respond with concrete next steps or implementation notes. If you make changes, summarize files and checks.',
     'Do not use MCP in this flow.'
   ].filter(Boolean).join('\n\n')
+}
+
+function summarizeCodexExecEvents(raw: string): { thinking: string; tools: string; rawTail: string } {
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  const commands: string[] = []
+  const messages: string[] = []
+  const errors: string[] = []
+  let completed = false
+  for (const line of lines) {
+    try {
+      const event = JSON.parse(line) as Record<string, unknown>
+      const type = typeof event.type === 'string' ? event.type : ''
+      const item = event.item && typeof event.item === 'object' && !Array.isArray(event.item)
+        ? event.item as Record<string, unknown>
+        : undefined
+      const itemType = typeof item?.type === 'string' ? item.type : ''
+      if (itemType === 'command_execution') {
+        const command = typeof item?.command === 'string' ? item.command : ''
+        const status = typeof item?.status === 'string' ? item.status : type.replace(/^item\./, '')
+        const output = typeof item?.aggregated_output === 'string' && item.aggregated_output.trim()
+          ? `\n${item.aggregated_output.trim().split(/\r?\n/).slice(-8).join('\n')}`
+          : ''
+        if (command) commands.push(`${status}: ${command}${output}`)
+      } else if (itemType === 'agent_message' && typeof item?.text === 'string') {
+        messages.push(item.text.trim())
+      } else if (type.includes('error')) {
+        errors.push(line)
+      } else if (type === 'turn.completed') {
+        completed = true
+      }
+    } catch {
+      if (/error|failed|enoent|exception/i.test(line)) errors.push(line)
+    }
+  }
+  const thinking = completed
+    ? 'Codex completed its reasoning and produced a response.'
+    : commands.length > 0
+      ? `Codex inspected and ran ${commands.length} step${commands.length === 1 ? '' : 's'}.`
+      : messages.length > 0
+        ? 'Codex produced a response.'
+        : 'Codex processed the request.'
+  const toolSections = [
+    commands.length ? `Commands\n${commands.slice(-12).map((row) => `- ${row}`).join('\n')}` : '',
+    messages.length ? `Agent messages\n${messages.slice(-4).map((row) => `- ${row}`).join('\n')}` : '',
+    errors.length ? `Errors\n${errors.slice(-6).map((row) => `- ${row}`).join('\n')}` : ''
+  ].filter(Boolean)
+  return {
+    thinking,
+    tools: toolSections.join('\n\n'),
+    rawTail: raw.trim().slice(-4000)
+  }
+}
+
+function safeAttachmentName(name: string, index: number): string {
+  const base = name.trim().replace(/[/\\]/g, '-').replace(/[^\w.\- ]+/g, '_').slice(0, 120)
+  return base || `attachment-${index + 1}`
+}
+
+function attachmentBytes(value: ArrayBuffer | Uint8Array | number[] | undefined): Buffer {
+  if (!value) return Buffer.alloc(0)
+  if (Array.isArray(value)) return Buffer.from(value)
+  if (value instanceof Uint8Array) return Buffer.from(value)
+  return Buffer.from(new Uint8Array(value))
 }
 
 function readRequestBody(request: IncomingMessage): Promise<unknown> {
@@ -1268,6 +1343,14 @@ export class TaskService {
           body: prompt,
           metadata: { command: execCommand }
         })
+        await this.appendTaskActivityMessage(taskId, {
+          runId,
+          source: 'codex-run',
+          role: 'thinking',
+          status: 'running',
+          body: 'Codex is working through the task...',
+          metadata: { executionMode, eventsPath: execEventsPath }
+        })
         const child = spawn(codexPath, execArgs, {
           cwd: runtimeWorkspacePath,
           env: process.env,
@@ -1295,15 +1378,24 @@ export class TaskService {
         child.on('close', (code, signal) => {
           void (async () => {
             const finalMessage = await readFile(execFinalMessagePath, 'utf8').catch(() => '')
-            const eventTail = (await readFile(execEventsPath, 'utf8').catch(() => '')).trim().slice(-4000)
-            if (eventTail) {
+            const eventRaw = await readFile(execEventsPath, 'utf8').catch(() => '')
+            const eventSummary = summarizeCodexExecEvents(eventRaw)
+            await this.appendTaskActivityMessage(taskId, {
+              runId,
+              source: 'codex-run',
+              role: 'thinking',
+              status: code === 0 ? 'completed' : 'failed',
+              body: eventSummary.thinking,
+              metadata: { code, signal, eventsPath: execEventsPath }
+            })
+            if (eventSummary.tools) {
               await this.appendTaskActivityMessage(taskId, {
                 runId,
                 source: 'codex-run',
                 role: 'tool',
                 status: code === 0 ? 'completed' : 'failed',
-                body: eventTail,
-                metadata: { code, signal, eventsPath: execEventsPath }
+                body: eventSummary.tools,
+                metadata: { code, signal, eventsPath: execEventsPath, rawTail: eventSummary.rawTail }
               })
             }
             if (code === 0) {
@@ -1322,7 +1414,7 @@ export class TaskService {
                 source: 'codex-run',
                 role: 'error',
                 status: 'failed',
-                body: eventTail || `Codex exec exited with code ${code ?? 'unknown'}.`,
+                body: eventSummary.tools || `Codex exec exited with code ${code ?? 'unknown'}.`,
                 metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath }
               })
             }
@@ -1717,6 +1809,14 @@ export class TaskService {
           body: prompt,
           metadata: { command: execCommand }
         })
+        await this.appendTaskActivityMessage(taskId, {
+          runId,
+          source: 'codex-plan',
+          role: 'thinking',
+          status: 'running',
+          body: 'Codex is planning the task...',
+          metadata: { executionMode, eventsPath: execEventsPath }
+        })
         const child = spawn(codexPath, execArgs, {
           cwd: runtimeWorkspacePath,
           env: process.env,
@@ -1744,15 +1844,24 @@ export class TaskService {
         child.on('close', (code, signal) => {
           void (async () => {
             const finalMessage = await readFile(execFinalMessagePath, 'utf8').catch(() => '')
-            const eventTail = (await readFile(execEventsPath, 'utf8').catch(() => '')).trim().slice(-4000)
-            if (eventTail) {
+            const eventRaw = await readFile(execEventsPath, 'utf8').catch(() => '')
+            const eventSummary = summarizeCodexExecEvents(eventRaw)
+            await this.appendTaskActivityMessage(taskId, {
+              runId,
+              source: 'codex-plan',
+              role: 'thinking',
+              status: code === 0 ? 'completed' : 'failed',
+              body: eventSummary.thinking,
+              metadata: { code, signal, eventsPath: execEventsPath }
+            })
+            if (eventSummary.tools) {
               await this.appendTaskActivityMessage(taskId, {
                 runId,
                 source: 'codex-plan',
                 role: 'tool',
                 status: code === 0 ? 'completed' : 'failed',
-                body: eventTail,
-                metadata: { code, signal, eventsPath: execEventsPath }
+                body: eventSummary.tools,
+                metadata: { code, signal, eventsPath: execEventsPath, rawTail: eventSummary.rawTail }
               })
             }
             if (code === 0) {
@@ -1770,7 +1879,7 @@ export class TaskService {
                 source: 'codex-plan',
                 role: 'error',
                 status: 'failed',
-                body: eventTail || `Codex planner exited with code ${code ?? 'unknown'}.`,
+                body: eventSummary.tools || `Codex planner exited with code ${code ?? 'unknown'}.`,
                 metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath }
               })
             }
@@ -1857,19 +1966,38 @@ export class TaskService {
 
     const taskId = access.data.task.id
     const runId = plannerRunId(taskId)
-    const conversationId = payload.conversationId?.trim() || `chat-${runId}`
+    const requestedMode = payload.mode === 'plan' ? 'plan' : payload.mode === 'steer' ? 'steer' : 'chat'
+    const hasPlanPrefix = message.toLowerCase().startsWith('/plan')
+    const normalizedMessage = hasPlanPrefix
+      ? message.replace(/^\/plan\s*/i, '').trim()
+      : message
+    const mode = hasPlanPrefix ? 'plan' : requestedMode
+    if (!normalizedMessage) return errorResponse(ErrorCodes.Validation, 'Message is required')
+    const conversationId = payload.conversationId?.trim() || `${mode}-${runId}`
     const transcript = taskActivityMessagesFromPayload(access.data.task.payload)
       .filter((item) => !item.conversationId || item.conversationId === conversationId)
     const context = payload.includeTaskContext === false
       ? undefined
       : (await this.plannerContext({ actorToken: payload.actorToken, projectId: project.id, taskId })).data
-    const prompt = codexChatPrompt({ task: access.data.task, message, transcript, context })
     const { codexPath, executionMode } = codexCliConfig(gateway.template)
     const model = payload.model.trim()
     const runtimeWorkspacePath = runtimeWorkspace.rootPath
     const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-codex-chat-'))
+    const attachmentRoot = join(runFolderPath, 'attachments')
+    const attachments: Array<{ name: string; path: string }> = []
+    if (Array.isArray(payload.attachments) && payload.attachments.length > 0) {
+      await mkdir(attachmentRoot, { recursive: true })
+      for (const [index, attachment] of payload.attachments.entries()) {
+        if (!attachment || typeof attachment.name !== 'string') continue
+        const fileName = safeAttachmentName(attachment.name, index)
+        const filePath = join(attachmentRoot, fileName)
+        await writeFile(filePath, attachmentBytes(attachment.bytes))
+        attachments.push({ name: attachment.name, path: filePath })
+      }
+    }
     const eventsPath = join(runFolderPath, 'codex-events.jsonl')
     const finalMessagePath = join(runFolderPath, 'final-message.md')
+    const prompt = codexChatPrompt({ task: access.data.task, message: normalizedMessage, transcript, context, mode, attachments })
     const execArgs = [
       'exec',
       '--json',
@@ -1890,8 +2018,8 @@ export class TaskService {
       source: 'codex-chat',
       role: 'user',
       status: 'completed',
-      body: message,
-      metadata: { gatewayId: gateway.id, model }
+      body: mode === 'plan' ? `/plan ${normalizedMessage}` : normalizedMessage,
+      metadata: { gatewayId: gateway.id, model, mode, attachments }
     })
     await this.appendTaskActivityMessage(taskId, {
       runId,
@@ -1954,17 +2082,27 @@ export class TaskService {
     })
     child.on('close', (code, signal) => {
       void (async () => {
-        const eventTail = (await readFile(eventsPath, 'utf8').catch(() => '')).trim().slice(-4000)
+        const eventRaw = await readFile(eventsPath, 'utf8').catch(() => '')
+        const eventSummary = summarizeCodexExecEvents(eventRaw)
         const finalMessage = await readFile(finalMessagePath, 'utf8').catch(() => '')
-        if (eventTail) {
+        await this.appendTaskActivityMessage(taskId, {
+          runId,
+          conversationId,
+          source: 'codex-chat',
+          role: 'thinking',
+          status: code === 0 ? 'completed' : 'failed',
+          body: eventSummary.thinking,
+          metadata: { code, signal, eventsPath }
+        })
+        if (eventSummary.tools) {
           await this.appendTaskActivityMessage(taskId, {
             runId,
             conversationId,
             source: 'codex-chat',
             role: 'tool',
             status: code === 0 ? 'completed' : 'failed',
-            body: eventTail,
-            metadata: { code, signal, eventsPath }
+            body: eventSummary.tools,
+            metadata: { code, signal, eventsPath, rawTail: eventSummary.rawTail }
           })
         }
         await this.appendTaskActivityMessage(taskId, {
@@ -1973,7 +2111,7 @@ export class TaskService {
           source: 'codex-chat',
           role: code === 0 ? 'assistant' : 'error',
           status: code === 0 ? 'completed' : 'failed',
-          body: code === 0 ? finalMessage.trim() || 'Codex chat completed.' : eventTail || `Codex chat exited with code ${code ?? 'unknown'}.`,
+          body: code === 0 ? finalMessage.trim() || 'Codex chat completed.' : eventSummary.tools || `Codex chat exited with code ${code ?? 'unknown'}.`,
           metadata: { code, signal, eventsPath, finalMessagePath }
         })
       })()

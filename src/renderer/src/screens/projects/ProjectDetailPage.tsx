@@ -384,6 +384,14 @@ type ChatConversationSummary = {
   model?: string
 }
 
+type ChatComposerMode = 'chat' | 'steer'
+type ChatAttachmentDraft = {
+  id: string
+  name: string
+  size: number
+  bytes: number[]
+}
+
 const chatMessageSources = new Set<ChatMessageSource>(['codex-plan', 'codex-run', 'codex-chat'])
 const chatMessageRoles = new Set<ChatMessageRole>(['user', 'assistant', 'tool', 'system', 'error', 'thinking'])
 const chatMessageStatuses = new Set<ChatMessageStatus>(['queued', 'running', 'completed', 'failed'])
@@ -433,6 +441,38 @@ function activityMessagesFromTask(task: TaskEntity): TaskActivityMessage[] {
   const raw = payload.activityMessages
   if (!Array.isArray(raw)) return []
   return raw.map(normalizeActivityMessage).filter((item): item is TaskActivityMessage => Boolean(item))
+}
+
+function formatCodexToolBody(body: string): string {
+  const lines = body.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  if (!lines.length) return body
+  const commands: string[] = []
+  const messages: string[] = []
+  let parsedCount = 0
+  for (const line of lines) {
+    try {
+      const event = JSON.parse(line) as Record<string, unknown>
+      parsedCount += 1
+      const item = asRecord(event.item)
+      if (item?.type === 'command_execution') {
+        const status = typeof item.status === 'string' ? item.status : typeof event.type === 'string' ? event.type.replace(/^item\./, '') : 'step'
+        const command = typeof item.command === 'string' ? item.command : ''
+        const output = typeof item.aggregated_output === 'string' && item.aggregated_output.trim()
+          ? `\n${item.aggregated_output.trim().split(/\r?\n/).slice(-6).join('\n')}`
+          : ''
+        if (command) commands.push(`${status}: ${command}${output}`)
+      } else if (item?.type === 'agent_message' && typeof item.text === 'string') {
+        messages.push(item.text.trim())
+      }
+    } catch {
+      // Non-JSON tool output is already display-ready.
+    }
+  }
+  if (parsedCount === 0) return body
+  return [
+    commands.length ? `Commands\n${commands.slice(-12).map((row) => `- ${row}`).join('\n')}` : '',
+    messages.length ? `Agent messages\n${messages.slice(-4).map((row) => `- ${row}`).join('\n')}` : ''
+  ].filter(Boolean).join('\n\n') || 'Codex completed tool steps.'
 }
 
 function asCodexThread(message: TaskActivityMessage): ThreadEntry {
@@ -624,6 +664,8 @@ export function ProjectDetailPage() {
   const [chatGatewayId, setChatGatewayId] = useState('')
   const [chatModel, setChatModel] = useState('')
   const [chatIncludeContext, setChatIncludeContext] = useState(true)
+  const [chatComposerMode, setChatComposerMode] = useState<ChatComposerMode>('chat')
+  const [chatAttachments, setChatAttachments] = useState<ChatAttachmentDraft[]>([])
   const [selectedChatConversationId, setSelectedChatConversationId] = useState('all')
   const [statusDrafts, setStatusDrafts] = useState<ProjectStatus[]>([])
   const [statusMapping, setStatusMapping] = useState<Record<string, string>>({})
@@ -686,6 +728,7 @@ export function ProjectDetailPage() {
 
   const modalBodyRef = useRef<HTMLDivElement | null>(null)
   const activityFeedRef = useRef<HTMLDivElement | null>(null)
+  const chatFileInputRef = useRef<HTMLInputElement | null>(null)
   const subtaskStatusMenuRef = useRef<HTMLDivElement | null>(null)
   const subtaskClickTimerRef = useRef<number | null>(null)
   const keepActivityBottomRef = useRef(true)
@@ -1427,16 +1470,14 @@ export function ProjectDetailPage() {
       const id = message.conversationId || message.runId
       const current = grouped.get(id)
       const nextStatus = message.status ?? 'event'
+      const nextAt = message.updatedAt ?? message.createdAt
+      const isLatest = !current || nextAt >= current.at
       grouped.set(id, {
         id,
         title: message.source === 'codex-plan' ? 'Plan' : message.source === 'codex-run' ? 'Run' : 'Follow-up',
         count: (current?.count ?? 0) + 1,
-        status: current?.status === 'failed' || nextStatus === 'failed'
-          ? 'failed'
-          : current?.status === 'running' || nextStatus === 'running'
-            ? 'running'
-            : nextStatus,
-        at: Math.max(current?.at ?? 0, message.updatedAt ?? message.createdAt),
+        status: isLatest ? nextStatus : current?.status ?? nextStatus,
+        at: Math.max(current?.at ?? 0, nextAt),
         source: message.source,
         model: typeof message.metadata?.model === 'string' ? message.metadata.model : current?.model
       })
@@ -1450,6 +1491,9 @@ export function ProjectDetailPage() {
     return [...messages].sort((a, b) => a.createdAt - b.createdAt)
   }, [chatActivityMessages, selectedChatConversationId])
   const chatHistoryCount = (selectedTask?.comments?.length ?? 0) + history.length + localActivityEntries.length
+  const isPlanDraft = chatDraft.trim().toLowerCase().startsWith('/plan')
+  const effectiveChatMode: 'chat' | 'plan' | 'steer' = isPlanDraft ? 'plan' : chatComposerMode
+  const canSendChat = Boolean(chatDraft.trim() || chatAttachments.length > 0)
 
   const selectedTaskExportContext = useMemo(() => {
     if (!selectedTask) return null
@@ -1568,10 +1612,14 @@ export function ProjectDetailPage() {
   const sendCodexChatMessage = async () => {
     if (!selectedTask || !project) return
     const message = chatDraft.trim()
-    if (!message) return
+    if (!message && chatAttachments.length === 0) return
     if (!chatGatewayId || !chatModel) {
       setChatSettingsOpen(true)
       setCodexRunFeedback({ kind: 'error', message: 'Choose a Codex gateway and model before sending chat.' })
+      return
+    }
+    if (effectiveChatMode === 'steer' && selectedChatConversationId === 'all') {
+      setCodexRunFeedback({ kind: 'error', message: 'Select a conversation before sending a steer message.' })
       return
     }
     setChatSending(true)
@@ -1582,11 +1630,13 @@ export function ProjectDetailPage() {
         actorToken: token,
         taskId: selectedTask.id,
         projectId: project.id,
-        message,
+        message: message || 'Review the attached file(s) in the task context.',
         gatewayId: chatGatewayId,
         model: chatModel,
         conversationId,
-        includeTaskContext: chatIncludeContext
+        includeTaskContext: chatIncludeContext,
+        mode: effectiveChatMode,
+        attachments: chatAttachments.map((attachment) => ({ name: attachment.name, bytes: attachment.bytes }))
       })
       if (!response.ok || !response.data) {
         setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to send Codex chat message.' })
@@ -1594,6 +1644,7 @@ export function ProjectDetailPage() {
       }
       setSelectedChatConversationId(response.data.conversationId)
       setChatDraft('')
+      setChatAttachments([])
       setCodexRunFeedback({
         kind: 'success',
         message: response.data.executionMode === 'exec' ? 'Codex chat is running.' : 'Codex terminal chat launched.'
@@ -1603,6 +1654,16 @@ export function ProjectDetailPage() {
     } finally {
       setChatSending(false)
     }
+  }
+
+  const addChatAttachments = async (files: FileList | File[]) => {
+    const next: ChatAttachmentDraft[] = []
+    for (const file of Array.from(files).slice(0, 6)) {
+      const bytes = Array.from(new Uint8Array(await file.arrayBuffer()))
+      next.push({ id: createLocalId(), name: file.name, size: file.size, bytes })
+    }
+    setChatAttachments((current) => [...current, ...next].slice(0, 10))
+    if (chatFileInputRef.current) chatFileInputRef.current.value = ''
   }
 
   const closeSelectedTaskDetail = () => {
@@ -5308,9 +5369,9 @@ export function ProjectDetailPage() {
                                   <span className={styles.chatThinkingLine}>Thinking <span className={styles.thinkingDots}><i /><i /><i /></span></span>
                                 ) : null}
                                 {message.role === 'tool' ? (
-                                  <details className={styles.codexDetails} open>
+                                  <details className={styles.codexDetails}>
                                     <summary>Tool / step details</summary>
-                                    <div>{renderMarkdownLite(message.body)}</div>
+                                    <div>{renderMarkdownLite(formatCodexToolBody(message.body))}</div>
                                   </details>
                                 ) : (
                                   renderMarkdownLite(message.body)
@@ -5395,11 +5456,44 @@ export function ProjectDetailPage() {
                   </div>
                   <footer className={styles.chatComposer}>
                     {codexRunFeedback ? <p className={codexRunFeedback.kind === 'error' ? styles.chatError : styles.chatNotice}>{codexRunFeedback.message}</p> : null}
+                    <div className={styles.chatComposerTools}>
+                      <div className={styles.chatModeToggle} role="group" aria-label="Chat mode">
+                        <button type="button" className={chatComposerMode === 'chat' && !isPlanDraft ? styles.chatModeActive : ''} onClick={() => setChatComposerMode('chat')}>Chat</button>
+                        <button type="button" className={chatComposerMode === 'steer' && !isPlanDraft ? styles.chatModeActive : ''} onClick={() => setChatComposerMode('steer')}>Steer</button>
+                        <button type="button" className={isPlanDraft ? styles.chatModeActive : ''} onClick={() => setChatDraft((value) => value.trim().toLowerCase().startsWith('/plan') ? value : `/plan ${value}`)}>/plan</button>
+                      </div>
+                      <span>{effectiveChatMode === 'plan' ? 'Plan mode' : effectiveChatMode === 'steer' ? 'Steering selected conversation' : 'Continue chat'}</span>
+                    </div>
+                    {chatAttachments.length > 0 ? (
+                      <div className={styles.chatAttachmentChips}>
+                        {chatAttachments.map((attachment) => (
+                          <span key={attachment.id}>
+                            <LuPaperclip size={13} />
+                            {attachment.name}
+                            <button type="button" onClick={() => setChatAttachments((current) => current.filter((item) => item.id !== attachment.id))} aria-label={`Remove ${attachment.name}`}>
+                              <LuX size={12} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                     <div className={styles.chatComposerBox}>
+                      <button type="button" className={styles.chatAttachButton} onClick={() => chatFileInputRef.current?.click()} aria-label="Attach files">
+                        <LuPaperclip size={16} />
+                      </button>
+                      <input
+                        ref={chatFileInputRef}
+                        type="file"
+                        multiple
+                        hidden
+                        onChange={(event) => {
+                          if (event.currentTarget.files) void addChatAttachments(event.currentTarget.files)
+                        }}
+                      />
                       <textarea
                         value={chatDraft}
                         onChange={(event) => setChatDraft(event.target.value)}
-                        placeholder="Message Codex about this task..."
+                        placeholder="Message Codex, type /plan, or steer the selected conversation..."
                         onKeyDown={(event) => {
                           if (event.key === 'Enter' && !event.shiftKey) {
                             event.preventDefault()
@@ -5407,7 +5501,7 @@ export function ProjectDetailPage() {
                           }
                         }}
                       />
-                      <button type="button" onClick={() => void sendCodexChatMessage()} disabled={chatSending || !chatDraft.trim()} aria-label="Send message">
+                      <button type="button" onClick={() => void sendCodexChatMessage()} disabled={chatSending || !canSendChat} aria-label="Send message">
                         {chatSending ? <span className={styles.thinkingDots}><i /><i /><i /></span> : <LuSend size={16} />}
                       </button>
                     </div>

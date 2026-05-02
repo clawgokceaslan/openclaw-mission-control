@@ -75,7 +75,7 @@
   code {
     border: 1px solid var(--omc-border-subtle);
     border-radius: 10px;
-    background: var(--omc-code-bg);
+    background: var(--omc-code-bg, var(--omc-surface-muted));
     color: var(--omc-text);
     padding: 10px;
     white-space: normal;
@@ -1583,66 +1583,73 @@
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: 22px clamp(16px, 4vw, 54px);
+  padding: 22px clamp(18px, 5vw, 72px);
 }
 
 .chatMessageList {
-  width: min(940px, 100%);
+  width: min(1180px, 100%);
   margin: 0 auto;
-  display: grid;
-  gap: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
 .chatMessage {
   position: relative;
-  width: min(780px, 100%);
+  width: 100%;
   border: 1px solid transparent;
-  border-radius: 16px;
-  padding: 12px 14px 13px;
+  border-radius: 12px;
+  padding: 3px 0 5px;
   display: grid;
   gap: 8px;
 }
 
 .chatRole_user {
-  justify-self: end;
+  align-self: flex-end;
+  width: fit-content;
   max-width: min(680px, 84%);
   border-color: var(--omc-active-border);
   background: var(--omc-active-bg);
+  padding: 12px 14px;
+  border-radius: 16px;
 }
 
 .chatRole_assistant {
-  justify-self: start;
-  background: var(--omc-surface);
-  border-color: var(--omc-border-subtle);
-  box-shadow: var(--omc-shadow-soft);
+  align-self: stretch;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .chatRole_thinking {
-  justify-self: start;
-  background: color-mix(in srgb, var(--omc-surface) 88%, var(--omc-primary) 12%);
-  border-color: var(--omc-active-border);
+  align-self: stretch;
+  background: transparent;
+  border-color: transparent;
+  color: var(--omc-text-muted);
 }
 
 .chatRole_tool,
 .chatRole_system {
-  justify-self: stretch;
+  align-self: stretch;
   width: 100%;
-  background: var(--omc-surface-muted);
-  border-color: var(--omc-border-subtle);
+  background: color-mix(in srgb, var(--omc-surface-muted) 78%, transparent);
+  border-color: color-mix(in srgb, var(--omc-border-subtle) 72%, transparent);
   border-radius: 12px;
+  padding: 10px 12px;
 }
 
 .chatRole_error {
-  justify-self: stretch;
+  align-self: stretch;
   width: 100%;
   border-color: var(--omc-danger-border);
   background: var(--omc-danger-bg);
+  padding: 12px 14px;
 }
 
 .chatMessageHeader {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
 
   span {
@@ -1658,11 +1665,28 @@
 .chatMessageBody {
   min-width: 0;
   color: var(--omc-text-strong);
-  font-size: 0.93rem;
-  line-height: 1.5;
+  font-size: 0.95rem;
+  line-height: 1.62;
 
   p {
-    margin: 0;
+    margin: 0 0 10px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  pre {
+    max-width: 100%;
+    overflow: auto;
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 12px;
+    background: var(--omc-code-bg);
+    padding: 12px;
+  }
+
+  code {
+    color: var(--omc-text-strong);
   }
 }
 
@@ -1787,14 +1811,102 @@
   background: color-mix(in srgb, var(--omc-surface) 90%, var(--omc-bg) 10%);
 }
 
+.chatComposerTools,
+.chatAttachmentChips {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+}
+
+.chatComposerTools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  > span {
+    color: var(--omc-text-muted);
+    font-size: 0.78rem;
+    font-weight: 750;
+  }
+}
+
+.chatModeToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 999px;
+  background: var(--omc-surface-muted);
+  padding: 3px;
+
+  button {
+    min-height: 26px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--omc-text-muted);
+    padding: 0 10px;
+    font-size: 0.76rem;
+    font-weight: 850;
+
+    &:hover {
+      color: var(--omc-text-strong);
+      background: var(--omc-hover-bg);
+    }
+  }
+}
+
+.chatModeActive {
+  color: var(--omc-primary-strong) !important;
+  background: var(--omc-active-bg) !important;
+}
+
+.chatAttachmentChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  > span {
+    min-height: 28px;
+    max-width: 260px;
+    border: 1px solid var(--omc-border);
+    border-radius: 999px;
+    background: var(--omc-surface-muted);
+    color: var(--omc-text-strong);
+    padding: 0 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    font-weight: 800;
+  }
+
+  button {
+    width: 20px;
+    height: 20px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--omc-text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    &:hover {
+      color: var(--omc-text-strong);
+      background: var(--omc-hover-bg);
+    }
+  }
+}
+
 .chatComposerBox {
-  width: min(940px, 100%);
+  width: min(1180px, 100%);
   margin: 0 auto;
   border: 1px solid var(--omc-border);
   border-radius: 18px;
   background: var(--omc-surface);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 42px;
+  grid-template-columns: 42px minmax(0, 1fr) 42px;
   gap: 8px;
   align-items: end;
   padding: 10px;
@@ -1832,8 +1944,19 @@
   }
 }
 
+.chatAttachButton {
+  background: var(--omc-surface-muted) !important;
+  color: var(--omc-text-muted) !important;
+  border: 1px solid var(--omc-border-subtle) !important;
+
+  &:hover {
+    color: var(--omc-text-strong) !important;
+    background: var(--omc-hover-bg) !important;
+  }
+}
+
 .chatComposerMeta {
-  width: min(940px, 100%);
+  width: min(1180px, 100%);
   margin: 0 auto;
   display: flex;
   justify-content: space-between;
