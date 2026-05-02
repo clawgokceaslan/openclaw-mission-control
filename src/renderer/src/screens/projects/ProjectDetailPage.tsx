@@ -765,6 +765,7 @@ export function ProjectDetailPage() {
   const [chatComposerMode, setChatComposerMode] = useState<ChatComposerMode>('chat')
   const [chatAttachments, setChatAttachments] = useState<ChatAttachmentDraft[]>([])
   const [selectedChatConversationId, setSelectedChatConversationId] = useState('')
+  const [isStartingNewChat, setIsStartingNewChat] = useState(false)
   const [chatDragDepth, setChatDragDepth] = useState(0)
   const [slashCommandIndex, setSlashCommandIndex] = useState(0)
   const [chatComposerFocused, setChatComposerFocused] = useState(false)
@@ -1599,10 +1600,11 @@ export function ProjectDetailPage() {
       if (selectedChatConversationId) setSelectedChatConversationId('')
       return
     }
+    if (isStartingNewChat) return
     if (!chatConversations.some((conversation) => conversation.id === selectedChatConversationId)) {
       setSelectedChatConversationId(chatConversations[0].id)
     }
-  }, [chatConversations, selectedChatConversationId])
+  }, [chatConversations, isStartingNewChat, selectedChatConversationId])
   const sidebarChatConversations = useMemo(() => {
     if (chatConversations.length <= 30) return chatConversations
     const selected = chatConversations.find((conversation) => conversation.id === selectedChatConversationId)
@@ -1612,6 +1614,7 @@ export function ProjectDetailPage() {
       : chatConversations.slice(0, 30)
   }, [chatConversations, selectedChatConversationId])
   const visibleChatMessages = useMemo(() => {
+    if (isStartingNewChat) return []
     if (!selectedChatConversationId) return []
     const messages = chatActivityMessages.filter((message) => (message.conversationId || message.runId) === selectedChatConversationId)
     const sorted = [...messages].sort((a, b) => a.createdAt - b.createdAt)
@@ -1620,7 +1623,7 @@ export function ProjectDetailPage() {
       if (message.role !== 'user' && (message.status === 'completed' || message.status === 'failed')) settledRuns.add(message.runId)
     }
     return sorted.filter((message) => !(message.role === 'thinking' && message.status === 'running' && settledRuns.has(message.runId)))
-  }, [chatActivityMessages, selectedChatConversationId])
+  }, [chatActivityMessages, isStartingNewChat, selectedChatConversationId])
   const renderedChatMessages = useMemo(() => (
     visibleChatMessages.length > chatVisibleLimit
       ? visibleChatMessages.slice(visibleChatMessages.length - chatVisibleLimit)
@@ -1632,8 +1635,9 @@ export function ProjectDetailPage() {
   const effectiveChatMode: 'chat' | 'plan' | 'steer' = isPlanDraft ? 'plan' : chatComposerMode
   const canSendChat = Boolean(chatDraft.trim() || chatAttachments.length > 0)
   const selectedChatSummary = useMemo(() => {
+    if (isStartingNewChat) return null
     return chatConversations.find((conversation) => conversation.id === selectedChatConversationId) ?? null
-  }, [chatConversations, selectedChatConversationId])
+  }, [chatConversations, isStartingNewChat, selectedChatConversationId])
   const selectedChatIsRunning = Boolean(selectedChatSummary && runningChatConversationIds.has(selectedChatSummary.id))
   const selectedChatCanStop = visibleChatMessages.some((message) => (
     message.source === 'codex-chat' &&
@@ -1673,6 +1677,10 @@ export function ProjectDetailPage() {
   useEffect(() => {
     setChatVisibleLimit(CHAT_INITIAL_MESSAGE_LIMIT)
   }, [selectedChatConversationId, selectedTask?.id])
+
+  useEffect(() => {
+    setIsStartingNewChat(false)
+  }, [selectedTask?.id])
 
   const selectedTaskExportContext = useMemo(() => {
     if (!selectedTask) return null
@@ -1808,7 +1816,7 @@ export function ProjectDetailPage() {
     setChatSending(true)
     setCodexRunFeedback(null)
     try {
-      const conversationId = selectedChatConversationId || undefined
+      const conversationId = isStartingNewChat ? undefined : selectedChatConversationId || undefined
       const response = await invokeBridge<{ runId: string; conversationId: string; executionMode: 'terminal' | 'exec' }>(IPC_CHANNELS.tasks.codexChatSend, {
         actorToken: token,
         taskId: selectedTask.id,
@@ -1826,6 +1834,7 @@ export function ProjectDetailPage() {
         return
       }
       setSelectedChatConversationId(response.data.conversationId)
+      setIsStartingNewChat(false)
       setChatDraft('')
       setChatAttachments([])
       setCodexRunFeedback(
@@ -5578,12 +5587,32 @@ export function ProjectDetailPage() {
                     <strong>Chat</strong>
                     <span>{selectedTask?.title ?? 'Task'}</span>
                   </div>
+                  <button
+                    type="button"
+                    className={`${styles.chatNewConversationButton} ${isStartingNewChat ? styles.chatConversationActive : ''}`}
+                    onClick={() => {
+                      setIsStartingNewChat(true)
+                      setSelectedChatConversationId('')
+                      setChatComposerMode('chat')
+                      setCodexRunFeedback(null)
+                      setTimeout(() => chatDraftTextareaRef.current?.focus(), 0)
+                    }}
+                  >
+                    <span>
+                      <span><LuPlus size={14} /> New follow-up</span>
+                      <b className={styles.chatStatusBadge}>New</b>
+                    </span>
+                    <small>Start a separate Follow-up thread</small>
+                  </button>
                   {sidebarChatConversations.map((conversation) => (
                     <button
                       type="button"
                       key={conversation.id}
                       className={selectedChatConversationId === conversation.id ? styles.chatConversationActive : ''}
-                      onClick={() => setSelectedChatConversationId(conversation.id)}
+                      onClick={() => {
+                        setIsStartingNewChat(false)
+                        setSelectedChatConversationId(conversation.id)
+                      }}
                     >
                       <span>
                         {conversation.title}

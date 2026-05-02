@@ -1469,6 +1469,24 @@
   color: var(--omc-primary-strong);
 }
 
+.chatNewConversationButton {
+  margin-bottom: 4px;
+  border-color: color-mix(in srgb, var(--omc-border) 58%, transparent) !important;
+  background: color-mix(in srgb, var(--omc-surface) 80%, var(--omc-bg) 20%) !important;
+
+  > span > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--omc-primary) 30%, var(--omc-border) 70%) !important;
+    background: color-mix(in srgb, var(--omc-active-bg) 44%, var(--omc-surface) 56%) !important;
+  }
+}
+
 .chatConversationActive {
   border-color: color-mix(in srgb, var(--omc-primary) 48%, transparent) !important;
   background: color-mix(in srgb, var(--omc-active-bg) 72%, transparent) !important;
@@ -1559,7 +1577,7 @@
 .chatTopbar {
   min-height: 68px;
   border-bottom: 0;
-  padding: 10px clamp(12px, 3vw, 36px) 6px;
+  padding: 10px clamp(8px, 1.2vw, 16px) 6px clamp(12px, 3vw, 36px);
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
