@@ -133,12 +133,12 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
                   </Card.Body>
                 </Card>
               ))}
-              <div className={styles.projectAddRow}>
-                <button type="button" onClick={() => onOpenCreateTask(column.status)}>
-                  <LuPlus size={15} />
-                  Add task
-                </button>
-              </div>
+            </div>
+            <div className={styles.projectAddRow}>
+              <button type="button" onClick={() => onOpenCreateTask(column.status)}>
+                <LuPlus size={15} />
+                Add task
+              </button>
             </div>
           </article>
         )

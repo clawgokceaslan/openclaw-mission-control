@@ -714,8 +714,11 @@
 
 .projectAddRow {
   min-height: 38px;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
+  border-top: 1px solid color-mix(in srgb, var(--column-accent) 14%, var(--omc-border-subtle));
+  padding: 8px;
 
   button {
     border: none;
