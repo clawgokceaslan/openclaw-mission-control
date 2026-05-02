@@ -5746,89 +5746,91 @@ export function ProjectDetailPage() {
                         ))}
                       </div>
                     ) : null}
-                    <div className={styles.chatComposerBox}>
-                      <button type="button" className={styles.chatAttachButton} onClick={() => chatFileInputRef.current?.click()} aria-label="Attach files">
-                        <LuPaperclip size={16} />
-                      </button>
-                      <input
-                        ref={chatFileInputRef}
-                        type="file"
-                        multiple
-                        hidden
-                        onChange={(event) => {
-                          if (event.currentTarget.files) void addChatAttachments(event.currentTarget.files)
-                        }}
-                      />
-                      <textarea
-                        ref={chatDraftTextareaRef}
-                        value={chatDraft}
-                        onChange={(event) => {
-                          setChatDraft(event.target.value)
-                          resizeChatComposerTextarea(event.currentTarget)
-                        }}
-                        onFocus={() => setChatComposerFocused(true)}
-                        onBlur={() => setChatComposerFocused(false)}
-                        placeholder="Message Codex or type / for commands..."
-                        onKeyDown={(event) => {
-                          if (slashMenuOpen && filteredSlashCommands.length > 0) {
-                            if (event.key === 'ArrowDown') {
-                              event.preventDefault()
-                              setSlashCommandIndex((value) => (value + 1) % filteredSlashCommands.length)
-                              return
+                    <div className={styles.chatComposerFrame}>
+                      {slashMenuOpen && filteredSlashCommands.length > 0 ? (
+                        <div className={styles.slashCommandMenu} role="listbox" aria-label="Slash commands">
+                          {filteredSlashCommands.map((command, index) => (
+                            <button
+                              key={command.id}
+                              type="button"
+                              className={index === slashCommandIndex ? styles.slashCommandActive : ''}
+                              onMouseDown={(event) => {
+                                event.preventDefault()
+                                applySlashCommand(command)
+                              }}
+                              role="option"
+                              aria-selected={index === slashCommandIndex}
+                            >
+                              <span>{command.label}</span>
+                              <small>{command.hint}</small>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className={styles.chatComposerBox}>
+                        <textarea
+                          ref={chatDraftTextareaRef}
+                          value={chatDraft}
+                          onChange={(event) => {
+                            setChatDraft(event.target.value)
+                            resizeChatComposerTextarea(event.currentTarget)
+                          }}
+                          onFocus={() => setChatComposerFocused(true)}
+                          onBlur={() => setChatComposerFocused(false)}
+                          placeholder="Message Codex or type / for commands..."
+                          onKeyDown={(event) => {
+                            if (slashMenuOpen && filteredSlashCommands.length > 0) {
+                              if (event.key === 'ArrowDown') {
+                                event.preventDefault()
+                                setSlashCommandIndex((value) => (value + 1) % filteredSlashCommands.length)
+                                return
+                              }
+                              if (event.key === 'ArrowUp') {
+                                event.preventDefault()
+                                setSlashCommandIndex((value) => (value - 1 + filteredSlashCommands.length) % filteredSlashCommands.length)
+                                return
+                              }
+                              if (event.key === 'Escape') {
+                                event.preventDefault()
+                                setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))
+                                return
+                              }
+                              if (event.key === 'Enter') {
+                                event.preventDefault()
+                                applySlashCommand(filteredSlashCommands[slashCommandIndex] ?? filteredSlashCommands[0])
+                                return
+                              }
                             }
-                            if (event.key === 'ArrowUp') {
+                            if (event.key === 'Enter' && !event.shiftKey) {
                               event.preventDefault()
-                              setSlashCommandIndex((value) => (value - 1 + filteredSlashCommands.length) % filteredSlashCommands.length)
-                              return
+                              void sendCodexChatMessage()
                             }
-                            if (event.key === 'Escape') {
-                              event.preventDefault()
-                              setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))
-                              return
-                            }
-                            if (event.key === 'Enter') {
-                              event.preventDefault()
-                              applySlashCommand(filteredSlashCommands[slashCommandIndex] ?? filteredSlashCommands[0])
-                              return
-                            }
-                          }
-                          if (event.key === 'Enter' && !event.shiftKey) {
-                            event.preventDefault()
-                            void sendCodexChatMessage()
-                          }
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className={selectedChatCanStop ? styles.chatStopButton : ''}
-                        onClick={() => void (selectedChatCanStop ? stopCodexChat() : sendCodexChatMessage())}
-                        disabled={chatSending || chatStopping || (!selectedChatCanStop && (!canSendChat || selectedChatIsRunning))}
-                        aria-label={selectedChatCanStop ? 'Stop Codex chat' : 'Send message'}
-                        title={selectedChatCanStop ? 'Stop' : 'Send'}
-                      >
-                        {selectedChatCanStop ? <LuCircleStop size={17} /> : chatSending ? <span className={styles.thinkingDots}><i /><i /><i /></span> : <LuSend size={16} />}
-                      </button>
-                    </div>
-                    {slashMenuOpen && filteredSlashCommands.length > 0 ? (
-                      <div className={styles.slashCommandMenu} role="listbox" aria-label="Slash commands">
-                        {filteredSlashCommands.map((command, index) => (
-                          <button
-                            key={command.id}
-                            type="button"
-                            className={index === slashCommandIndex ? styles.slashCommandActive : ''}
-                            onMouseDown={(event) => {
-                              event.preventDefault()
-                              applySlashCommand(command)
-                            }}
-                            role="option"
-                            aria-selected={index === slashCommandIndex}
-                          >
-                            <span>{command.label}</span>
-                            <small>{command.hint}</small>
-                          </button>
-                        ))}
+                          }}
+                        />
+                        <button type="button" className={styles.chatAttachButton} onClick={() => chatFileInputRef.current?.click()} aria-label="Attach files">
+                          <LuPaperclip size={16} />
+                        </button>
+                        <input
+                          ref={chatFileInputRef}
+                          type="file"
+                          multiple
+                          hidden
+                          onChange={(event) => {
+                            if (event.currentTarget.files) void addChatAttachments(event.currentTarget.files)
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className={selectedChatCanStop ? styles.chatStopButton : ''}
+                          onClick={() => void (selectedChatCanStop ? stopCodexChat() : sendCodexChatMessage())}
+                          disabled={chatSending || chatStopping || (!selectedChatCanStop && (!canSendChat || selectedChatIsRunning))}
+                          aria-label={selectedChatCanStop ? 'Stop Codex chat' : 'Send message'}
+                          title={selectedChatCanStop ? 'Stop' : 'Send'}
+                        >
+                          {selectedChatCanStop ? <LuCircleStop size={17} /> : chatSending ? <span className={styles.thinkingDots}><i /><i /><i /></span> : <LuSend size={16} />}
+                        </button>
                       </div>
-                    ) : null}
+                    </div>
                   </footer>
                 </main>
               </section>

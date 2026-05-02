@@ -1994,6 +1994,12 @@
   background: var(--omc-bg);
 }
 
+.chatComposerFrame {
+  position: relative;
+  width: var(--chat-content-width);
+  margin: 0 auto;
+}
+
 .chatAttachmentChips {
   width: var(--chat-content-width);
   margin: 0 auto;
@@ -2077,14 +2083,13 @@
 }
 
 .chatComposerBox {
-  width: var(--chat-content-width);
-  margin: 0 auto;
   border: 1px solid color-mix(in srgb, var(--omc-border) 34%, transparent);
   border-radius: 13px;
   background: var(--omc-bg);
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr) 40px;
-  gap: 6px;
+  grid-template-rows: auto 40px;
+  gap: 4px 8px;
   align-items: end;
   padding: 8px;
   transition:
@@ -2099,6 +2104,7 @@
   }
 
   textarea {
+    grid-column: 1 / -1;
     width: 100%;
     min-height: 72px;
     max-height: 270px;
@@ -2109,8 +2115,9 @@
     border-radius: 10px;
     background: transparent !important;
     color: var(--omc-text-strong) !important;
-    padding: 8px 6px;
+    padding: 9px 8px 4px;
     font: inherit;
+    line-height: 1.5;
     outline: none !important;
     box-shadow: none !important;
 
@@ -2141,6 +2148,10 @@
       opacity: 0.55;
     }
   }
+
+  button:last-child {
+    grid-column: 3;
+  }
 }
 
 .chatStopButton {
@@ -2149,8 +2160,11 @@
 }
 
 .slashCommandMenu {
-  width: min(520px, calc(100% - 32px));
-  margin: -2px auto 0;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 8;
   border: 1px solid var(--omc-border);
   border-radius: 12px;
   background: var(--omc-surface);
