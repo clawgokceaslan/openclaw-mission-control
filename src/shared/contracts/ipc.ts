@@ -72,6 +72,12 @@ export const IPC_CHANNELS = {
     remove: 'task-templates:remove',
     importJson: 'task-templates:import-json'
   },
+  projectInstructionTemplates: {
+    list: 'project-instruction-templates:list',
+    create: 'project-instruction-templates:create',
+    update: 'project-instruction-templates:update',
+    remove: 'project-instruction-templates:remove'
+  },
   attachments: {
     upload: 'attachments:upload'
   },
@@ -462,6 +468,7 @@ export const SERVICE_MAP = {
   statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
   tasks: ['list', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runCodex', 'planWithCodex', 'codexChatSend', 'codexChatStop', 'plannerContext', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
   taskTemplates: ['list', 'create', 'update', 'remove', 'importJson'],
+  projectInstructionTemplates: ['list', 'create', 'update', 'remove'],
   attachments: ['upload'],
   agents: ['list', 'get', 'create', 'update', 'remove'],
   gateways: ['list', 'get', 'create', 'update', 'remove', 'status', 'sessions', 'commands', 'commandsHistory', 'codexModels', 'templates'],
@@ -882,6 +889,36 @@ export const SERVICE_ROUTING: {
       action: 'importJson',
       method: 'importJson',
       channel: IPC_CHANNELS.taskTemplates.importJson,
+      requiresAuth: true
+    }
+  },
+  projectInstructionTemplates: {
+    list: {
+      domain: 'projectInstructionTemplates',
+      action: 'list',
+      method: 'list',
+      channel: IPC_CHANNELS.projectInstructionTemplates.list,
+      requiresAuth: true
+    },
+    create: {
+      domain: 'projectInstructionTemplates',
+      action: 'create',
+      method: 'create',
+      channel: IPC_CHANNELS.projectInstructionTemplates.create,
+      requiresAuth: true
+    },
+    update: {
+      domain: 'projectInstructionTemplates',
+      action: 'update',
+      method: 'update',
+      channel: IPC_CHANNELS.projectInstructionTemplates.update,
+      requiresAuth: true
+    },
+    remove: {
+      domain: 'projectInstructionTemplates',
+      action: 'remove',
+      method: 'remove',
+      channel: IPC_CHANNELS.projectInstructionTemplates.remove,
       requiresAuth: true
     }
   },

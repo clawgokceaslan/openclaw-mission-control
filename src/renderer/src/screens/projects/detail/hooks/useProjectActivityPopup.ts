@@ -1,7 +1,14 @@
 import { type RefObject, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { type Agent, type Gateway, type Skill, type TaskEntity, type Workspace } from '@shared/types/entities'
-import { CHAT_MESSAGE_LOAD_STEP, usageFromMetadata } from '../chat/chatUtils'
+import {
+  CHAT_MESSAGE_LOAD_STEP,
+  CHAT_RUNNING_STATUS_LABELS,
+  conversationIdOf,
+  isFreshRunningMessage,
+  isRunCompleteMessage,
+  usageFromMetadata
+} from '../chat/chatUtils'
 import type { CodexStopResult } from './useProjectCodexFlow'
 import type { ChatAttachmentDraft, ChatConversationSummary, ChatOperationFeedbackData, SlashCommand, TaskActivityMessage, TaskHistoryItem, ThreadEntry } from '../types'
 
@@ -91,7 +98,6 @@ interface ActivityPopupHandlers {
 }
 
 const LOCAL_CHAT_STATUS_RUN_ID = 'local-chat-status'
-const RUNNING_ACTIVITY_STALE_MS = 15 * 60 * 1000
 const CHAT_BOTTOM_STICKY_THRESHOLD = 96
 const slashCommands: SlashCommand[] = [
   { id: 'plan', label: '/plan', hint: 'Draft a plan in this chat' },
@@ -102,39 +108,18 @@ const slashCommands: SlashCommand[] = [
   { id: 'context', label: '/context', hint: 'Toggle task context in the prompt' }
 ]
 
-function codexBlockOf(message: TaskActivityMessage): string {
-  return typeof message.metadata?.codexBlock === 'string' ? message.metadata.codexBlock : ''
-}
-
-function isRunCompleteMessage(message: TaskActivityMessage): boolean {
-  return codexBlockOf(message) === 'run-complete' || message.metadata?.stopped === true || message.role === 'error'
-}
-
-function conversationIdOf(message: TaskActivityMessage): string | null {
-  return message.conversationId || message.runId || null
-}
-
 function isNoRunningStopFeedback(feedback: ChatOperationFeedbackData | null): boolean {
   return feedback?.state === 'error' && /no running codex chat/i.test(feedback.message)
-}
-
-function messageTimeOf(message: TaskActivityMessage): number {
-  return message.updatedAt ?? message.createdAt
-}
-
-function isFreshRunningMessage(message: TaskActivityMessage, now: number): boolean {
-  if (message.status !== 'running' && message.metadata?.runStatus !== 'running') return false
-  return now - messageTimeOf(message) <= RUNNING_ACTIVITY_STALE_MS
 }
 
 function settledIdsFromMessages(messages: TaskActivityMessage[]): { runIds: Set<string>; conversationIds: Set<string> } {
   const runIds = new Set<string>()
   const conversationIds = new Set<string>()
-    for (const message of messages) {
-      if (!isRunCompleteMessage(message)) continue
-      if (message.runId) runIds.add(message.runId)
-      const conversationId = conversationIdOf(message)
-      if (conversationId) conversationIds.add(conversationId)
+  for (const message of messages) {
+    if (!isRunCompleteMessage(message)) continue
+    if (message.runId) runIds.add(message.runId)
+    const conversationId = conversationIdOf(message)
+    if (conversationId) conversationIds.add(conversationId)
   }
   return { runIds, conversationIds }
 }
@@ -279,32 +264,72 @@ export function useProjectActivityPopup({
   setChatDragDepth
 }: ActivityPopupParams): UseProjectActivityPopupResult {
   const keepActivityBottomRef = useRef(true)
+  const focusRequestRef = useRef<number | null>(null)
   const [stoppingConversationIds, setStoppingConversationIds] = useState<Set<string>>(() => new Set())
   const [localSettledConversationIds, setLocalSettledConversationIds] = useState<Set<string>>(() => new Set())
 
+  const cancelScheduledComposerFocus = () => {
+    if (focusRequestRef.current == null) return
+    cancelAnimationFrame(focusRequestRef.current)
+    focusRequestRef.current = null
+  }
+
+  const scheduleComposerFocus = () => {
+    cancelScheduledComposerFocus()
+    const firstFrame = requestAnimationFrame(() => {
+      const secondFrame = requestAnimationFrame(() => {
+        const textarea = chatDraftTextareaRef.current
+        if (textarea) textarea.focus({ preventScroll: true })
+        focusRequestRef.current = null
+      })
+      focusRequestRef.current = secondFrame
+    })
+    focusRequestRef.current = firstFrame
+  }
+
   const isChatModalMounted = Boolean(selectedTask && isActivityModalOpen)
-  const runningConversationIds = useMemo(() => {
-    const ids = new Set<string>()
+  const settledConversationState = useMemo(() => {
     const now = Date.now()
     const settled = settledIdsFromMessages(chatActivityMessages)
     localSettledConversationIds.forEach((conversationId) => settled.conversationIds.add(conversationId))
     if (selectedChatConversationId && isNoRunningStopFeedback(chatOperationFeedback)) {
       settled.conversationIds.add(selectedChatConversationId)
     }
-    for (const conversation of chatConversations) {
-      if (conversation.status === 'running' && !settled.conversationIds.has(conversation.id)) {
-        const hasFreshRunningEvent = chatActivityMessages.some((message) => conversationIdOf(message) === conversation.id && isFreshRunningMessage(message, now))
-        if (hasFreshRunningEvent) ids.add(conversation.id)
-      }
-    }
+    const freshRunningConversationIds = new Set<string>()
     for (const message of chatActivityMessages) {
       const conversationId = conversationIdOf(message)
       if (!conversationId) continue
-      const settledRun = settled.runIds.has(message.runId) || settled.conversationIds.has(conversationId)
-      if (isFreshRunningMessage(message, now) && !settledRun) ids.add(conversationId)
+      if (isFreshRunningMessage(message, now)) {
+        freshRunningConversationIds.add(conversationId)
+      }
+    }
+    return { settled, freshRunningConversationIds }
+  }, [
+    chatActivityMessages,
+    localSettledConversationIds,
+    selectedChatConversationId,
+    chatOperationFeedback
+  ])
+
+  const runningConversationIds = useMemo(() => {
+    const ids = new Set<string>()
+    const runningConversationIds = settledConversationState.freshRunningConversationIds
+    for (const conversation of chatConversations) {
+      if (!CHAT_RUNNING_STATUS_LABELS.includes(conversation.status) || conversation.status === 'completed' || conversation.status === 'failed') continue
+      if (!runningConversationIds.has(conversation.id)) continue
+      if (settledConversationState.settled.conversationIds.has(conversation.id)) continue
+      ids.add(conversation.id)
     }
     return ids
-  }, [chatActivityMessages, chatConversations, chatOperationFeedback, localSettledConversationIds, selectedChatConversationId])
+  }, [chatConversations, settledConversationState])
+
+  useEffect(() => {
+    if (!isActivityModalOpen) return
+    scheduleComposerFocus()
+    return cancelScheduledComposerFocus
+  }, [isActivityModalOpen])
+
+  useEffect(() => cancelScheduledComposerFocus, [])
 
   const sidebarConversations = useMemo(() => {
     if (chatConversations.length <= 30) return chatConversations
@@ -325,12 +350,13 @@ export function useProjectActivityPopup({
     const messages = chatActivityMessages.filter((message) => conversationIdOf(message) === selectedChatConversationId)
     const sorted = [...messages].sort((a, b) => a.createdAt - b.createdAt)
     const settled = settledIdsFromMessages(sorted)
-    localSettledConversationIds.forEach((conversationId) => settled.conversationIds.add(conversationId))
+    settledConversationState.settled.conversationIds.forEach((conversationId) => settled.conversationIds.add(conversationId))
     if (isNoRunningStopFeedback(chatOperationFeedback)) settled.conversationIds.add(selectedChatConversationId)
     return sorted.filter((message) => !(message.role === 'thinking' && message.status === 'running' && (
-      settled.runIds.has(message.runId) || Boolean(conversationIdOf(message) && settled.conversationIds.has(conversationIdOf(message) as string))
+      settledConversationState.settled.runIds.has(message.runId)
+      || Boolean(conversationIdOf(message) && settledConversationState.settled.conversationIds.has(conversationIdOf(message) as string))
     )))
-  }, [chatActivityMessages, chatOperationFeedback, isStartingNewChat, localSettledConversationIds, selectedChatConversationId])
+  }, [chatActivityMessages, chatOperationFeedback, isStartingNewChat, settledConversationState, selectedChatConversationId])
 
   const selectedChatSummary = (isStartingNewChat
     ? null
@@ -560,7 +586,7 @@ export function useProjectActivityPopup({
       setSelectedChatConversationId('')
       setChatComposerMode('chat')
       setCodexRunFeedback(null)
-      setTimeout(() => chatDraftTextareaRef.current?.focus(), 0)
+      scheduleComposerFocus()
     },
     onConversationSelect: (conversationId) => {
       setIsStartingNewChat(false)

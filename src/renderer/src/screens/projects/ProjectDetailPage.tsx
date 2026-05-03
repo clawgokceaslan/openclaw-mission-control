@@ -2517,6 +2517,7 @@ export function ProjectDetailPage() {
     onSetCodexModelError: setCodexModelError,
     codexSaving,
     onSaveProjectCodexSettings: saveProjectCodexSettings,
+    onRefreshCodexGatewayModels: refreshCodexGatewayModels,
     projectCodexModelOptions,
 
     isStatusTemplatePickerOpen,

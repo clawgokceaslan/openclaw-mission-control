@@ -13,13 +13,33 @@ export const CHAT_INITIAL_MESSAGE_LIMIT = 80
 export const CHAT_MESSAGE_LOAD_STEP = 80
 export const CHAT_COMPOSER_MIN_HEIGHT = 72
 export const CHAT_COMPOSER_MAX_HEIGHT = 270
+export const CHAT_RUNNING_ACTIVITY_STALE_MS = 15 * 60 * 1000
+
+export const CHAT_RUNNING_STATUS_LABELS = ['queued', 'running', 'completed', 'failed'] as const
 
 const chatMessageSources = new Set<ChatMessageSource>(['codex-plan', 'codex-run', 'codex-chat'])
 const chatMessageRoles = new Set<ChatMessageRole>(['user', 'assistant', 'tool', 'system', 'error', 'thinking'])
-const chatMessageStatuses = new Set<ChatMessageStatus>(['queued', 'running', 'completed', 'failed'])
+const chatMessageStatuses = new Set<ChatMessageStatus>(CHAT_RUNNING_STATUS_LABELS)
 
 export function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+
+export function conversationIdOf(message: TaskActivityMessage): string | null {
+  return message.conversationId || message.runId
+}
+
+export function isRunCompleteMessage(message: TaskActivityMessage): boolean {
+  return message.metadata?.codexBlock === 'run-complete' || message.metadata?.stopped === true || message.role === 'error'
+}
+
+export function messageTimeOf(message: TaskActivityMessage): number {
+  return message.updatedAt ?? message.createdAt
+}
+
+export function isFreshRunningMessage(message: TaskActivityMessage, now: number): boolean {
+  if (message.status !== 'running' && message.metadata?.runStatus !== 'running') return false
+  return now - messageTimeOf(message) <= CHAT_RUNNING_ACTIVITY_STALE_MS
 }
 
 export function normalizeActivityMessage(raw: unknown): TaskActivityMessage | null {

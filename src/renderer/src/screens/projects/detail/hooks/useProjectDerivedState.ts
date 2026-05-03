@@ -4,7 +4,7 @@ import type { ChatConversationSummary, DetailTab, DetailViewMode, TableColumnCon
 import { columnsFromProjectStatuses } from '../status'
 import { getLegacyTableOrder, getStatusOrder, getTaskNewestTime, normalizeTableColumns } from '../projectDetailUtils'
 import { PROJECT_STATUS_COLUMNS } from '../status'
-import { activityMessagesFromTask } from '../chat/chatUtils'
+import { CHAT_RUNNING_ACTIVITY_STALE_MS, activityMessagesFromTask, conversationIdOf, isFreshRunningMessage, isRunCompleteMessage, messageTimeOf } from '../chat/chatUtils'
 
 export interface ProjectDerivedStateInput {
   project: Project | null
@@ -146,24 +146,94 @@ export function useProjectDerivedState({
   }, [selectedTask])
 
   const chatConversations = useMemo<ChatConversationSummary[]>(() => {
-    const grouped = new Map<string, ChatConversationSummary>()
-    for (const message of chatActivityMessages) {
-      const id = message.conversationId || message.runId
-      const current = grouped.get(id)
-      const nextStatus = message.status ?? 'event'
-      const nextAt = message.updatedAt ?? message.createdAt
-      const isLatest = !current || nextAt >= current.at
-      grouped.set(id, {
-        id,
-        title: message.source === 'codex-plan' ? 'Plan' : message.source === 'codex-run' ? 'Run' : 'Follow-up',
-        count: (current?.count ?? 0) + 1,
-        status: isLatest ? nextStatus : current?.status ?? nextStatus,
-        at: Math.max(current?.at ?? 0, nextAt),
-        source: message.source,
-        model: typeof message.metadata?.model === 'string' ? message.metadata.model : current?.model
-      })
+    const now = Date.now()
+    type ConversationState = {
+      id: string
+      count: number
+      title: string
+      source: TaskActivityMessage['source']
+      latestAt: number
+      latestStatus: ChatConversationSummary['status']
+      model: string | undefined
+      latestRunningAt: number
+      completedStatus: { status: 'completed' | 'failed'; at: number } | null
     }
-    return Array.from(grouped.values()).sort((a, b) => b.at - a.at)
+    const grouped = new Map<string, ConversationState>()
+
+    for (const message of chatActivityMessages) {
+      const id = conversationIdOf(message)
+      if (!id) continue
+      const at = messageTimeOf(message)
+      const current = grouped.get(id)
+      const nextTitle = message.source === 'codex-plan' ? 'Plan' : message.source === 'codex-run' ? 'Run' : 'Follow-up'
+      const messageModel = typeof message.metadata?.model === 'string' ? message.metadata.model : undefined
+
+      if (!current) {
+        const status = message.status ?? 'event'
+        grouped.set(id, {
+          id,
+          title: nextTitle,
+          count: 1,
+          source: message.source,
+          latestAt: at,
+          latestStatus: status,
+          model: messageModel,
+          latestRunningAt: isFreshRunningMessage(message, now) ? at : -Infinity,
+          completedStatus: isRunCompleteMessage(message)
+            ? {
+              status: message.role === 'error' || message.status === 'failed' ? 'failed' : 'completed',
+              at
+            }
+            : null
+        })
+        continue
+      }
+
+      const nextStatus = message.status ?? 'event'
+      current.count += 1
+      if (at > current.latestAt) {
+        current.title = nextTitle
+        current.source = message.source
+        current.latestAt = at
+        current.latestStatus = nextStatus
+        current.model = messageModel ?? current.model
+      }
+      if (messageModel && !current.model) current.model = messageModel
+      if (isFreshRunningMessage(message, now)) {
+        current.latestRunningAt = Math.max(current.latestRunningAt, at)
+      }
+      if (isRunCompleteMessage(message)) {
+        const completed = message.role === 'error' || message.status === 'failed' ? 'failed' : 'completed'
+        if (!current.completedStatus || at >= current.completedStatus.at) {
+          current.completedStatus = { status: completed, at }
+        }
+      }
+    }
+
+    const deducedConversations = Array.from(grouped.values()).map<ChatConversationSummary>((entry) => {
+      let nextStatus: ChatConversationSummary['status'] = entry.latestStatus
+      if (entry.latestRunningAt > -Infinity) {
+        if (!entry.completedStatus || entry.latestRunningAt > entry.completedStatus.at) {
+          nextStatus = 'running'
+        } else {
+          nextStatus = entry.completedStatus.status
+        }
+      } else if (nextStatus === 'running' && now - entry.latestAt > CHAT_RUNNING_ACTIVITY_STALE_MS) {
+        nextStatus = entry.completedStatus?.status ?? 'completed'
+      }
+
+      return {
+        id: entry.id,
+        title: entry.title,
+        count: entry.count,
+        status: nextStatus,
+        at: entry.latestAt,
+        source: entry.source,
+        model: entry.model
+      }
+    })
+
+    return deducedConversations.sort((a, b) => b.at - a.at)
   }, [chatActivityMessages])
 
   const chatConversationsSummary = useMemo(() => chatConversations, [chatConversations])

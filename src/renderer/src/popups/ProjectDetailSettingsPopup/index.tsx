@@ -58,6 +58,7 @@ export interface ProjectDetailSettingsPopupProps {
     onSetCodexModelError: (value: string | null) => void
     codexSaving: boolean
     onSaveProjectCodexSettings: (draft?: { gatewayId: string; runtimeWorkspaceId: string; planModel: string; runModel: string }) => void | Promise<void>
+    onRefreshCodexGatewayModels?: (gatewayId: string) => Promise<void> | void
 
     isStatusTemplatePickerOpen: boolean
     statusTemplates: StatusTemplate[]
@@ -105,15 +106,27 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
   const [runtimeWorkspaceIdDraft, setRuntimeWorkspaceIdDraft] = useState(scope.codexRuntimeWorkspaceId)
   const [planModelDraft, setPlanModelDraft] = useState(scope.codexDefaultPlanModel || scope.codexDefaultModel)
   const [runModelDraft, setRunModelDraft] = useState(scope.codexDefaultRunModel || scope.codexDefaultModel)
+  const [codexSaveMessage, setCodexSaveMessage] = useState<string | null>(null)
+  const [codexSaveError, setCodexSaveError] = useState<string | null>(null)
+  const [hydratedProjectId, setHydratedProjectId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
+    const nextProjectId = scope.project?.id ?? null
+    if (hydratedProjectId === nextProjectId) return
+    setHydratedProjectId(nextProjectId)
     setActiveTab(scope.projectSettingsTab)
     setGatewayIdDraft(scope.codexGatewayId)
     setRuntimeWorkspaceIdDraft(scope.codexRuntimeWorkspaceId)
     setPlanModelDraft(scope.codexDefaultPlanModel || scope.codexDefaultModel)
     setRunModelDraft(scope.codexDefaultRunModel || scope.codexDefaultModel)
-  }, [open, scope.project?.id, scope.projectSettingsTab, scope.codexGatewayId, scope.codexRuntimeWorkspaceId, scope.codexDefaultModel, scope.codexDefaultPlanModel, scope.codexDefaultRunModel])
+    setCodexSaveMessage(null)
+    setCodexSaveError(null)
+  }, [open, scope.project?.id, hydratedProjectId, scope.projectSettingsTab, scope.codexGatewayId, scope.codexRuntimeWorkspaceId, scope.codexDefaultModel, scope.codexDefaultPlanModel, scope.codexDefaultRunModel])
+
+  useEffect(() => {
+    if (!open) setHydratedProjectId(null)
+  }, [open])
 
   const localGatewayOptions = useMemo(() => scope.codexGatewayOptions, [scope.codexGatewayOptions])
   const localWorkspaceOptions = useMemo(() => scope.workspaceOptions ?? (scope.workspaces ?? []).map((workspace) => ({ label: workspace.name, value: workspace.id })), [scope.workspaceOptions, scope.workspaces])
@@ -140,14 +153,35 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
   }
 
   const handleSaveCodexSettings = async () => {
-    s.onSetCodexGatewayId(gatewayIdDraft)
-    s.onSetCodexRuntimeWorkspaceId(runtimeWorkspaceIdDraft)
-    s.onSetCodexDefaultPlanModel(planModelDraft)
-    s.onSetCodexDefaultRunModel(runModelDraft)
-    s.onSetCodexDefaultModel(runModelDraft)
-    s.onSetCodexModelError(null)
-    await s.onSaveProjectCodexSettings({ gatewayId: gatewayIdDraft, runtimeWorkspaceId: runtimeWorkspaceIdDraft, planModel: planModelDraft, runModel: runModelDraft })
+    setCodexSaveMessage(null)
+    setCodexSaveError(null)
+    try {
+      await s.onSaveProjectCodexSettings({ gatewayId: gatewayIdDraft, runtimeWorkspaceId: runtimeWorkspaceIdDraft, planModel: planModelDraft, runModel: runModelDraft })
+      setCodexSaveMessage('Saved')
+    } catch (error) {
+      setCodexSaveError(error instanceof Error ? error.message : 'Unable to save Codex settings')
+    }
   }
+
+  const handleGatewayDraftChange = (value: string) => {
+    setGatewayIdDraft(value)
+    setPlanModelDraft('')
+    setRunModelDraft('')
+    setCodexSaveMessage(null)
+    setCodexSaveError(null)
+    s.onSetCodexModelError(null)
+    if (value) void s.onRefreshCodexGatewayModels?.(value)
+  }
+
+  const codexValidationMessage = !gatewayIdDraft
+    ? 'Select a gateway.'
+    : !runtimeWorkspaceIdDraft
+      ? 'Select a runtime workspace.'
+      : !planModelDraft
+        ? 'Select a plan model.'
+        : !runModelDraft
+          ? 'Select a run model.'
+          : ''
 
   if (!open) return null
 
@@ -387,8 +421,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     options={localGatewayOptions}
                     placeholder="Select gateway"
                     onChange={(option) => {
-                      setGatewayIdDraft(option?.value ?? '')
-                      s.onSetCodexModelError(null)
+                      handleGatewayDraftChange(option?.value ?? '')
                     }}
                   />
                 </label>
@@ -406,9 +439,13 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                   <AppSelect
                     value={localSelectedPlanModelOption}
                     options={localModelOptions}
-                    placeholder={s.codexModelLoading && gatewayIdDraft === s.codexGatewayId ? 'Loading models...' : localModelOptions.length > 0 ? 'Select plan model' : 'Select a gateway to load models'}
+                    placeholder={s.codexModelLoading ? 'Loading models...' : localModelOptions.length > 0 ? 'Select plan model' : 'Select a gateway to load models'}
                     isDisabled={!gatewayIdDraft || localModelOptions.length === 0}
-                    onChange={(option) => setPlanModelDraft(option?.value ?? '')}
+                    onChange={(option) => {
+                      setPlanModelDraft(option?.value ?? '')
+                      setCodexSaveMessage(null)
+                      setCodexSaveError(null)
+                    }}
                   />
                 </label>
                 <label>
@@ -416,14 +453,20 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                   <AppSelect
                     value={localSelectedRunModelOption}
                     options={localModelOptions}
-                    placeholder={s.codexModelLoading && gatewayIdDraft === s.codexGatewayId ? 'Loading models...' : localModelOptions.length > 0 ? 'Select run model' : 'Select a gateway to load models'}
+                    placeholder={s.codexModelLoading ? 'Loading models...' : localModelOptions.length > 0 ? 'Select run model' : 'Select a gateway to load models'}
                     isDisabled={!gatewayIdDraft || localModelOptions.length === 0}
-                    onChange={(option) => setRunModelDraft(option?.value ?? '')}
+                    onChange={(option) => {
+                      setRunModelDraft(option?.value ?? '')
+                      setCodexSaveMessage(null)
+                      setCodexSaveError(null)
+                    }}
                   />
                 </label>
               </div>
-              {s.codexModelLoading && gatewayIdDraft === s.codexGatewayId ? <div className={styles.settingsEmptyState}>Loading models from Codex CLI...</div> : null}
+              {s.codexModelLoading ? <div className={styles.settingsEmptyState}>Loading models from Codex CLI...</div> : null}
               {s.codexModelError ? <div className={styles.settingsEmptyState}>{s.codexModelError}</div> : null}
+              {codexSaveError ? <div className={styles.settingsEmptyState}>{codexSaveError}</div> : null}
+              {codexSaveMessage ? <div className={styles.settingsEmptyState}>{codexSaveMessage}</div> : null}
             </div>
           ) : null}
         </div>
@@ -457,11 +500,11 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
             </>
           ) : activeTab === 'codex' ? (
             <>
-              <span>Task and template model tabs inherit this gateway default unless they explicitly override it.</span>
+              <span>{codexValidationMessage || 'Task and template model tabs inherit this gateway default unless they explicitly override it.'}</span>
               <button
                 type="button"
                 onClick={() => void handleSaveCodexSettings()}
-                disabled={s.codexSaving || !gatewayIdDraft || !runtimeWorkspaceIdDraft || !planModelDraft || !runModelDraft}
+                disabled={s.codexSaving || Boolean(codexValidationMessage)}
               >
                 {s.codexSaving ? 'Saving...' : 'Save Codex settings'}
               </button>

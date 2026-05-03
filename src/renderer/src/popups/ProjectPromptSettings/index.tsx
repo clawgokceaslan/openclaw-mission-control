@@ -1,5 +1,10 @@
-import { LuBookOpen, LuDownload, LuX } from 'react-icons/lu'
+import { useEffect, useMemo, useState } from 'react'
+import { LuBookOpen, LuDownload, LuSparkles, LuX } from 'react-icons/lu'
+import { IPC_CHANNELS } from '@shared/contracts/ipc'
+import type { ProjectInstructionTemplate } from '@shared/types/entities'
 import type { ProjectPromptTab } from '@renderer/screens/projects/detail/types'
+import { useAuth } from '@renderer/providers/auth/auth-state'
+import { loadList } from '@renderer/utils/api'
 import styles from './index.module.scss'
 
 interface ProjectPromptSettingsPopupProps {
@@ -21,12 +26,12 @@ interface ProjectPromptSettingsPopupProps {
   onSave: () => void
 }
 
-const TAB_CONFIG: Array<{ id: ProjectPromptTab; label: string; title: string; description: string; placeholder: string; max: number }> = [
-  { id: 'context', label: 'Context', title: 'General context', description: 'Shared background and project facts that every task should know.', placeholder: 'Add common project context...', max: 4000 },
-  { id: 'prompt', label: 'Prompt', title: 'General prompt', description: 'Shared behavior instructions for planning, running, and follow-up chat.', placeholder: 'Set shared instructions for this project...', max: 4000 },
-  { id: 'planGuide', label: 'Plan guide', title: 'Plan guide', description: 'Instructions used specifically when Codex plans or revises a task.', placeholder: 'Tell Codex how to plan tasks in this project...', max: 4000 },
-  { id: 'output', label: 'Output', title: 'Default output', description: 'Default response or deliverable format expected from agents.', placeholder: 'Set default output format...', max: 3000 },
-  { id: 'rules', label: 'Rules', title: 'Project rules', description: 'Hard rules that Codex must apply in Task.md, planning, run, and chat flows.', placeholder: 'Add project-specific rules, one per line...', max: 4000 }
+const TAB_CONFIG: Array<{ id: ProjectPromptTab; label: string; title: string; description: string; placeholder: string }> = [
+  { id: 'context', label: 'Context', title: 'General context', description: 'Shared background and project facts that every task should know.', placeholder: 'Add common project context...' },
+  { id: 'prompt', label: 'Prompt', title: 'General prompt', description: 'Shared behavior instructions for planning, running, and follow-up chat.', placeholder: 'Set shared instructions for this project...' },
+  { id: 'planGuide', label: 'Plan guide', title: 'Plan guide', description: 'Instructions used specifically when Codex plans or revises a task.', placeholder: 'Tell Codex how to plan tasks in this project...' },
+  { id: 'output', label: 'Output', title: 'Default output', description: 'Default response or deliverable format expected from agents.', placeholder: 'Set default output format...' },
+  { id: 'rules', label: 'Rules', title: 'Project rules', description: 'Hard rules that Codex must apply in Task.md, planning, run, and chat flows.', placeholder: 'Add project-specific rules, one per line...' }
 ]
 
 const PLAN_GUIDE_EXAMPLE = `# Standard Plan Guide
@@ -149,9 +154,37 @@ export function ProjectPromptSettingsPopup({
   onClose,
   onSave
 }: ProjectPromptSettingsPopupProps) {
+  const { token } = useAuth()
+  const [templates, setTemplates] = useState<ProjectInstructionTemplate[]>([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const active = TAB_CONFIG.find((item) => item.id === tab) ?? TAB_CONFIG[0]
   const value = tab === 'context' ? context : tab === 'prompt' ? prompt : tab === 'planGuide' ? planGuide : tab === 'output' ? output : rules
   const onChange = tab === 'context' ? onContextChange : tab === 'prompt' ? onPromptChange : tab === 'planGuide' ? onPlanGuideChange : tab === 'output' ? onOutputChange : onRulesChange
+  const selectedTemplate = useMemo(() => templates.find((item) => item.id === selectedTemplateId) ?? null, [selectedTemplateId, templates])
+  const hasDraftContent = Boolean(context.trim() || prompt.trim() || planGuide.trim() || output.trim() || rules.trim())
+
+  useEffect(() => {
+    let cancelled = false
+    const loadTemplates = async () => {
+      const response = await loadList<ProjectInstructionTemplate[]>(IPC_CHANNELS.projectInstructionTemplates.list, token)
+      if (cancelled || !response.ok) return
+      setTemplates(Array.isArray(response.data) ? response.data : [])
+    }
+    void loadTemplates()
+    return () => {
+      cancelled = true
+    }
+  }, [token])
+
+  const applySelectedTemplate = () => {
+    if (!selectedTemplate) return
+    const template = selectedTemplate.template ?? {}
+    onContextChange(template.generalContext ?? '')
+    onPromptChange(template.generalPrompt ?? '')
+    onPlanGuideChange(template.planGuide ?? '')
+    onOutputChange(template.defaultOutput ?? '')
+    onRulesChange(template.rules ?? '')
+  }
 
   return (
     <>
@@ -177,15 +210,33 @@ export function ProjectPromptSettingsPopup({
         </div>
 
         <div className={styles.body}>
+          <section className={styles.templateApplyCard}>
+            <div>
+              <strong>Apply template</strong>
+              <span>{hasDraftContent ? 'Applying a template replaces the current unsaved draft across all instruction fields.' : 'Choose a template to fill every Project Instructions field together.'}</span>
+            </div>
+            <div className={styles.templateApplyControls}>
+              <select value={selectedTemplateId} onChange={(event) => setSelectedTemplateId(event.target.value)}>
+                <option value="">Select project instructions template...</option>
+                {templates.map((item) => (
+                  <option key={item.id} value={item.id}>{item.name}{item.builtIn ? ' (built-in)' : ''}</option>
+                ))}
+              </select>
+              <button type="button" onClick={applySelectedTemplate} disabled={!selectedTemplate}>
+                <LuSparkles size={15} />
+                Apply template
+              </button>
+            </div>
+          </section>
           <label className={styles.field}>
             <div className={styles.fieldHeader}>
               <div>
                 <span>{active.title}</span>
                 <small>{active.description}</small>
               </div>
-              <b>{value.length}/{active.max}</b>
+              <b>No character limit</b>
             </div>
-            <textarea value={value} onChange={(event) => onChange(event.target.value)} placeholder={active.placeholder} maxLength={active.max} />
+            <textarea value={value} onChange={(event) => onChange(event.target.value)} placeholder={active.placeholder} />
           </label>
           {error ? <p className={styles.error}>{error}</p> : null}
         </div>

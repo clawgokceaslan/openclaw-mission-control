@@ -6,6 +6,7 @@ import { AuthRepository } from '../../db/repositories/auth-repo.js'
 import { ProjectRepository } from '../../db/repositories/project-repo.js'
 import { TaskRepository, TaskSkillRepository, TaskSubtaskRepository, TaskTagRepository } from '../../db/repositories/task-repo.js'
 import { TaskTemplateRepository } from '../../db/repositories/task-template-repo.js'
+import { ProjectInstructionTemplateRepository } from '../../db/repositories/project-instruction-template-repo.js'
 import { AgentRepository } from '../../db/repositories/agent-repo.js'
 import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
 import { WebhookRepository } from '../../db/repositories/webhook-repo.js'
@@ -21,6 +22,7 @@ import { AuthService } from './auth.service.js'
 import { ProjectService } from './project.service.js'
 import { TaskService } from './task.service.js'
 import { TaskTemplateService } from './task-template.service.js'
+import { ProjectInstructionTemplateService } from './project-instruction-template.service.js'
 import { AgentService } from './agent.service.js'
 import { GatewayService } from './gateway/index.js'
 import { OpenClawGatewayRuntimeRegistry } from './gateway/index.js'
@@ -44,6 +46,7 @@ export interface AppServices {
   statuses: StatusService
   tasks: TaskService
   taskTemplates: TaskTemplateService
+  projectInstructionTemplates: ProjectInstructionTemplateService
   agents: AgentService
   gateways: GatewayService
   webhooks: WebhookService
@@ -72,6 +75,7 @@ export async function createAppContext(): Promise<AppContext> {
   const projectRepo = new ProjectRepository(db)
   const taskRepo = new TaskRepository(db)
   const taskTemplateRepo = new TaskTemplateRepository(db)
+  const projectInstructionTemplateRepo = new ProjectInstructionTemplateRepository(db)
   const taskSubtaskRepo = new TaskSubtaskRepository(db)
   const taskTagRepo = new TaskTagRepository(db)
   const taskSkillRepo = new TaskSkillRepository(db)
@@ -101,6 +105,7 @@ export async function createAppContext(): Promise<AppContext> {
     statuses: new StatusService(auth, statusRepo, projectRepo),
     tasks,
     taskTemplates: new TaskTemplateService(auth, taskTemplateRepo, agentRepo, tagRepo, skillRepo, customFieldRepo),
+    projectInstructionTemplates: new ProjectInstructionTemplateService(auth, projectInstructionTemplateRepo),
     agents: new AgentService(auth, agentRepo),
     gateways: new GatewayService(auth, gatewayRepo, eventBus, gatewayRuntime, appSettingsRepo),
     webhooks: new WebhookService(auth, webhookRepo),

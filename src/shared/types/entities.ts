@@ -169,6 +169,25 @@ export interface TaskTemplate {
   updatedAt: number
 }
 
+export interface ProjectInstructionTemplatePayload {
+  generalContext?: string
+  generalPrompt?: string
+  planGuide?: string
+  defaultOutput?: string
+  rules?: string
+}
+
+export interface ProjectInstructionTemplate {
+  id: string
+  organizationId: string
+  name: string
+  description?: string
+  template: ProjectInstructionTemplatePayload
+  builtIn?: boolean
+  createdAt: number
+  updatedAt: number
+}
+
 export interface TaskJsonImportResult {
   task?: TaskEntity
   template?: TaskTemplate

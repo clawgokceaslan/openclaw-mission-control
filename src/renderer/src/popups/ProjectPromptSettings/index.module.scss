@@ -119,6 +119,73 @@
   padding: 18px;
   overflow: auto;
   background: var(--omc-surface);
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.templateApplyCard {
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--omc-surface-muted) 52%, var(--omc-surface));
+  padding: 13px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+  gap: 14px;
+  align-items: center;
+
+  strong {
+    display: block;
+    color: var(--omc-text-strong);
+    font-weight: 950;
+  }
+
+  span {
+    display: block;
+    margin-top: 4px;
+    color: var(--omc-text-muted);
+    font-size: 0.8rem;
+    line-height: 1.35;
+    font-weight: 650;
+  }
+}
+
+.templateApplyControls {
+  min-width: 0;
+  display: flex;
+  gap: 8px;
+
+  select {
+    min-width: 0;
+    flex: 1;
+    min-height: 38px;
+    border: 1px solid var(--omc-input-border);
+    border-radius: 10px;
+    background: var(--omc-input-bg);
+    color: var(--omc-text-strong);
+    padding: 0 10px;
+    outline: none;
+  }
+
+  button {
+    flex-shrink: 0;
+    min-height: 38px;
+    border: 1px solid var(--omc-primary);
+    border-radius: 10px;
+    background: var(--omc-primary);
+    color: var(--omc-inverse-text);
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    font-weight: 900;
+
+    &:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+  }
 }
 
 .field {
@@ -129,6 +196,16 @@
   padding: 13px;
   display: grid;
   gap: 12px;
+}
+
+@media (max-width: 760px) {
+  .templateApplyCard {
+    grid-template-columns: 1fr;
+  }
+
+  .templateApplyControls {
+    flex-direction: column;
+  }
 }
 
 .fieldHeader {

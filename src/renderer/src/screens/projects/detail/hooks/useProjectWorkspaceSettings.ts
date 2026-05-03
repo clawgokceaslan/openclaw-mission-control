@@ -336,9 +336,9 @@ export function useProjectWorkspaceSettings({
       codex: {
         gatewayId: nextGatewayId || null,
         runtimeWorkspaceId: nextRuntimeWorkspaceId || null,
-        defaultModel: nextRunModel || codexDefaultModel || null,
-        planModel: nextPlanModel || codexDefaultModel || null,
-        runModel: nextRunModel || codexDefaultModel || null
+        defaultModel: nextRunModel || null,
+        planModel: nextPlanModel || null,
+        runModel: nextRunModel || null
       }
     })
     setCodexSaving(false)
@@ -347,6 +347,11 @@ export function useProjectWorkspaceSettings({
       return
     }
     setProject(response.data)
+    setCodexGatewayId(nextGatewayId)
+    setCodexRuntimeWorkspaceId(nextRuntimeWorkspaceId)
+    setCodexDefaultModel(nextRunModel)
+    setCodexDefaultPlanModel(nextPlanModel)
+    setCodexDefaultRunModel(nextRunModel)
     setError(null)
   }
 

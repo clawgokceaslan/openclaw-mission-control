@@ -23,6 +23,7 @@ export const APP_ROUTES = {
   CUSTOM_FIELDS: '/custom-fields',
   OUTPUT_FORMATS: '/output-formats',
   TASK_TEMPLATES: '/task-templates',
+  PROJECT_INSTRUCTION_TEMPLATES: '/project-instruction-templates',
   STATUSES: '/statuses',
   TAGS: '/tags',
   TAG_ADD: '/tags/add',
