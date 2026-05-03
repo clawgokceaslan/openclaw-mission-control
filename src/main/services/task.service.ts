@@ -93,7 +93,9 @@ type ActiveCodexChatRun = {
 type ProjectPromptSnapshot = {
   generalContext: string
   generalPrompt: string
+  planGuide: string
   defaultOutput: string
+  rules: string
 }
 
 type CodexExecutionMode = 'terminal' | 'exec'
@@ -170,6 +172,13 @@ function customFieldEntries(values: Record<string, unknown> | undefined, customF
 }
 
 function taskPlannerJson(task: TaskEntity, customFields: Array<{ id: string; name: string; type?: string }>): Record<string, unknown> {
+  const taskPayload = task.payload && typeof task.payload === 'object' && !Array.isArray(task.payload)
+    ? task.payload as Record<string, unknown>
+    : {}
+  const taskAgenticInputs = taskPayload.agenticInputs && typeof taskPayload.agenticInputs === 'object' && !Array.isArray(taskPayload.agenticInputs)
+    ? taskPayload.agenticInputs as Record<string, unknown>
+    : {}
+  const acceptanceCriteria = typeof taskAgenticInputs.acceptanceCriteria === 'string' ? taskAgenticInputs.acceptanceCriteria : ''
   const subtasks = (task.subtasks ?? []).map((subtask) => {
     const payload = subtask.payload && typeof subtask.payload === 'object' && !Array.isArray(subtask.payload)
       ? subtask.payload as Record<string, unknown>
@@ -193,6 +202,9 @@ function taskPlannerJson(task: TaskEntity, customFields: Array<{ id: string; nam
     description: task.description ?? '',
     status: task.status,
     tags: (task.tags ?? []).map((tag) => tag.name || tag.id),
+    agenticInputs: {
+      acceptanceCriteria
+    },
     checklist: task.checklistItems ?? [],
     customFields: customFieldEntries(task.customFieldValues, customFields),
     comments: task.comments ?? [],
@@ -308,11 +320,16 @@ function closeTerminalWindowByTitleShell(titleVariable = 'TERMINAL_TITLE'): stri
   ].join('\n')
 }
 
-function projectPromptSnapshot(project: { generalContext?: string | null; generalPrompt?: string | null; defaultOutput?: string | null }): ProjectPromptSnapshot {
+function projectPromptSnapshot(project: { generalContext?: string | null; generalPrompt?: string | null; defaultOutput?: string | null; metrics?: Record<string, unknown> | null }): ProjectPromptSnapshot {
+  const metrics = project.metrics && typeof project.metrics === 'object' && !Array.isArray(project.metrics) ? project.metrics : {}
+  const rules = (metrics as Record<string, unknown>).projectRules
+  const planGuide = (metrics as Record<string, unknown>).projectPlanGuide
   return {
     generalContext: project.generalContext ?? '',
     generalPrompt: project.generalPrompt ?? '',
-    defaultOutput: project.defaultOutput ?? ''
+    planGuide: typeof planGuide === 'string' ? planGuide : '',
+    defaultOutput: project.defaultOutput ?? '',
+    rules: typeof rules === 'string' ? rules : ''
   }
 }
 
@@ -355,6 +372,8 @@ function initialCodexPrompt(exportWorkspacePath: string, runtimeWorkspacePath: s
     `The Open Mission Control project id is ${projectId} and task id is ${taskId}.`,
     `Before making changes, read the run-specific .omc CLI instructions at ${omcInstructionsPath} in the runtime workspace.`,
     `Read ${exportWorkspacePath}/Task.md, ${exportWorkspacePath}/Agents.md, ${exportWorkspacePath}/Skills.md, and ${exportWorkspacePath}/attachments/ if present.`,
+    'Apply the Project Rules section in Task.md before making implementation decisions.',
+    'Apply the Plan Guide section in Task.md when planning or interpreting the task execution strategy.',
     'Execute the task described in Task.md.',
     'Respect subtask status instructions: bypass subtasks marked completed/done/closed.',
     'Do not use MCP in this flow.',
@@ -371,6 +390,7 @@ function initialPlannerPrompt(projectId: string, taskId: string, helperPath: str
     `First run: node ${helperPath} context > ${contextPath}`,
     `The project id is ${projectId} and the source task id is ${taskId}.`,
     'Plan the current task from its task-detail data: title, description, custom fields, checklist, comments, tags, and subtasks.',
+    'Apply the project context, prompt, Plan Guide, default output, and Project Rules from the context JSON before producing the planned task.',
     'For every subtask, consider its title, description, custom fields, checklist, comments, tags, status, and due date.',
     `Use ${contextPath} currentTaskJson as the starting JSON shape and revise it into the planned task JSON.`,
     `Write the planned JSON to ${plannedTaskPath}.`,
@@ -402,6 +422,10 @@ function codexChatPrompt(input: {
   const attachments = input.attachments?.length
     ? `Attached files for this message:\n${input.attachments.map((item) => `- ${item.name}: ${item.path}`).join('\n')}`
     : ''
+  const contextRecord = input.context && typeof input.context === 'object' && !Array.isArray(input.context) ? input.context as Record<string, unknown> : {}
+  const projectRecord = contextRecord.project && typeof contextRecord.project === 'object' && !Array.isArray(contextRecord.project) ? contextRecord.project as Record<string, unknown> : {}
+  const projectRules = typeof projectRecord.rules === 'string' && projectRecord.rules.trim() ? `Project Rules:\n${projectRecord.rules.trim()}` : ''
+  const projectPlanGuide = typeof projectRecord.planGuide === 'string' && projectRecord.planGuide.trim() ? `Project Plan Guide:\n${projectRecord.planGuide.trim()}` : ''
   return [
     'You are continuing an Open Mission Control task chat.',
     modeInstruction,
@@ -409,6 +433,8 @@ function codexChatPrompt(input: {
     `Task title: ${input.task.title}`,
     input.task.description ? `Task description:\n${input.task.description}` : '',
     input.context ? `Current task context JSON:\n${JSON.stringify(input.context, null, 2)}` : '',
+    input.mode === 'plan' ? projectPlanGuide : '',
+    projectRules,
     transcript ? `Recent chat transcript:\n${transcript}` : '',
     attachments,
     `User follow-up:\n${input.message}`,
@@ -1315,6 +1341,7 @@ export class TaskService {
       comments: imported.comments,
       customFields: imported.customFieldValues,
       checklist: imported.checklistItems,
+      ...(imported.agenticInputs.acceptanceCriteria ? { agenticInputs: imported.agenticInputs } : {}),
       inputFormatId: '',
       outputFormatId: ''
     }
@@ -1391,7 +1418,9 @@ export class TaskService {
         description: project.description ?? '',
         generalContext: project.generalContext ?? '',
         generalPrompt: project.generalPrompt ?? '',
-        defaultOutput: project.defaultOutput ?? ''
+        defaultOutput: project.defaultOutput ?? '',
+        planGuide: projectPromptSnapshot(project).planGuide,
+        rules: projectPromptSnapshot(project).rules
       },
       task,
       currentTaskJson: taskPlannerJson(task, customFields),
@@ -1402,9 +1431,9 @@ export class TaskService {
         statuses: statuses.map((status) => ({ id: status.id, name: status.name, category: status.category }))
       },
       jsonFormat: {
-        root: ['title', 'description', 'status', 'tags', 'checklist', 'comments', 'customFields', 'subtasks'],
+        root: ['title', 'description', 'status', 'tags', 'agenticInputs', 'checklist', 'comments', 'customFields', 'subtasks'],
         subtask: ['title', 'description', 'status', 'tags', 'checklist', 'comments', 'customFields', 'dueAt'],
-        note: 'Use tag names or ids. customFields is an array of { name, value }. checklist is an array of { title, checked }. comments is an array of { body, authorName }. omc_update_task_from_json updates the scoped source task.'
+        note: 'Use tag names or ids. agenticInputs accepts { acceptanceCriteria }. customFields is an array of { name, value }. checklist is an array of { title, checked }. comments is an array of { body, authorName }. omc_update_task_from_json updates the scoped source task.'
       }
     })
   }
@@ -2627,6 +2656,17 @@ export class TaskService {
     for (const run of matches) {
       run.stopRequested = true
       run.child.kill('SIGTERM')
+    }
+    if (matches.length === 0 && conversationId) {
+      await this.appendTaskActivityMessage(access.data.task.id, {
+        runId: conversationId,
+        conversationId,
+        source: 'codex-chat',
+        role: 'system',
+        status: 'completed',
+        body: 'No running Codex chat was found. Marked as stopped.',
+        metadata: { stopped: true, notFound: true, codexBlock: 'run-complete' }
+      })
     }
     return okResponse({ stopped: matches.length })
   }

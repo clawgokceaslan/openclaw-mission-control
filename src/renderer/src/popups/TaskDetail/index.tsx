@@ -15,6 +15,18 @@ const fallbackStatusColumn = (status: string) => ({
   accent: 'var(--omc-primary)'
 })
 
+function taskPayload(task: any): Record<string, unknown> {
+  const payload = task?.payload
+  return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : {}
+}
+
+function acceptanceCriteriaOf(task: any): string {
+  const agenticInputs = taskPayload(task).agenticInputs
+  if (!agenticInputs || typeof agenticInputs !== 'object' || Array.isArray(agenticInputs)) return ''
+  const value = (agenticInputs as Record<string, unknown>).acceptanceCriteria
+  return typeof value === 'string' ? value : ''
+}
+
 interface TaskDetailPopupProps {
   taskId: string
   children?: ReactNode
@@ -190,7 +202,9 @@ function ModelTab({ scope }: { scope: Record<string, any> }) {
 function TaskDetailBody({ scope }: { scope: Record<string, any> }) {
   const task = scope.selectedTask
   const [detailTab, setDetailTab] = useState(scope.detailTab ?? 'subtasks')
+  const [acceptanceDraft, setAcceptanceDraft] = useState(() => acceptanceCriteriaOf(task))
   useEffect(() => setDetailTab(scope.detailTab ?? 'subtasks'), [task?.id])
+  useEffect(() => setAcceptanceDraft(acceptanceCriteriaOf(task)), [task?.id, task?.payload])
   if (!task) return null
   const completed = new Set(scope.completedStatusIds ?? [])
   const resolveColumn = typeof scope.resolveColumnByStatus === 'function' ? scope.resolveColumnByStatus : fallbackStatusColumn
@@ -229,8 +243,22 @@ function TaskDetailBody({ scope }: { scope: Record<string, any> }) {
         </section>
         <section className={styles.drawerSection}>
           <h4>Description</h4>
-          <MarkdownDescriptionEditor value={scope.descriptionDraft ?? task.description ?? ''} className={`${styles.descriptionField} ${scope.isDescriptionEditing ? styles.editingField : ''}`} minHeight={220} placeholder="Add description, notes, checklists or code..." status={scope.isDescriptionSaving ? 'saving' : scope.isDescriptionEditing ? 'dirty' : 'idle'} enableDataFormatCommands dataFormats={scope.outputFormats ?? []} onCreateDataFormat={scope.createDescriptionDataFormat} onChange={(nextValue) => { scope.setIsDescriptionEditing?.(true); scope.setDescriptionDraft?.(nextValue) }} onCommit={() => { if (scope.isDescriptionEditing) void scope.saveDescription?.() }} onCancel={() => { scope.setDescriptionDraft?.(task.description ?? ''); scope.setIsDescriptionEditing?.(false) }} />
+          <MarkdownDescriptionEditor value={scope.descriptionDraft ?? task.description ?? ''} className={`${styles.descriptionField} ${scope.isDescriptionEditing ? styles.editingField : ''}`} minHeight={280} placeholder="Add description, notes, checklists or code..." status={scope.isDescriptionSaving ? 'saving' : scope.isDescriptionEditing ? 'dirty' : 'idle'} enableDataFormatCommands dataFormats={scope.outputFormats ?? []} onCreateDataFormat={scope.createDescriptionDataFormat} onChange={(nextValue) => { scope.setIsDescriptionEditing?.(true); scope.setDescriptionDraft?.(nextValue) }} onCommit={() => { if (scope.isDescriptionEditing) void scope.saveDescription?.() }} onCancel={() => { scope.setDescriptionDraft?.(task.description ?? ''); scope.setIsDescriptionEditing?.(false) }} />
           <div className={styles.fieldStateRow}>{scope.isDescriptionSaving ? <span className={styles.fieldSaving}>Saving...</span> : null}{scope.isDescriptionEditing && !scope.isDescriptionSaving ? <span className={styles.fieldDirty}>Editing</span> : null}</div>
+        </section>
+        <section className={styles.drawerSection}>
+          <div className={styles.detailSectionHeader}>
+            <div><h4>Acceptance Criteria</h4><p>Define what must be true before this task is accepted.</p></div>
+          </div>
+          <textarea
+            className={styles.acceptanceCriteriaField}
+            value={acceptanceDraft}
+            placeholder="Add acceptance criteria..."
+            onChange={(event) => setAcceptanceDraft(event.target.value)}
+            onBlur={() => {
+              if (acceptanceDraft !== acceptanceCriteriaOf(task)) void scope.saveAcceptanceCriteria?.(acceptanceDraft)
+            }}
+          />
         </section>
         <section className={styles.drawerSection}>
           <div className={styles.tabRow}>
@@ -310,7 +338,7 @@ function SubtaskDetailBody({ scope }: { scope: Record<string, any> }) {
         </section>
         <section className={styles.drawerSection}>
           <div className={styles.detailSectionHeader}><div><h4>Description</h4><p>{scope.isSubtaskDescriptionSaving ? 'Saving...' : scope.isDescriptionEditing ? 'Editing' : 'Ready'}</p></div></div>
-          <MarkdownDescriptionEditor value={scope.subtaskDescriptionDraft ?? scope.getSubtaskDescription?.(subtask) ?? ''} className={`${styles.descriptionField} ${scope.isDescriptionEditing ? styles.editingField : ''}`} minHeight={220} placeholder="Add subtask description, notes, checklists or code..." status={scope.isSubtaskDescriptionSaving ? 'saving' : scope.isDescriptionEditing ? 'dirty' : 'idle'} enableDataFormatCommands dataFormats={scope.outputFormats ?? []} onCreateDataFormat={scope.createDescriptionDataFormat} onChange={(nextValue) => { scope.setIsDescriptionEditing?.(true); scope.setSubtaskDescriptionDraft?.(nextValue) }} onCommit={() => { if (scope.isDescriptionEditing) void scope.saveSubtaskDetail?.() }} onCancel={() => { scope.setSubtaskDescriptionDraft?.(scope.getSubtaskDescription?.(subtask) ?? ''); scope.setIsDescriptionEditing?.(false) }} />
+          <MarkdownDescriptionEditor value={scope.subtaskDescriptionDraft ?? scope.getSubtaskDescription?.(subtask) ?? ''} className={`${styles.descriptionField} ${scope.isDescriptionEditing ? styles.editingField : ''}`} minHeight={280} placeholder="Add subtask description, notes, checklists or code..." status={scope.isSubtaskDescriptionSaving ? 'saving' : scope.isDescriptionEditing ? 'dirty' : 'idle'} enableDataFormatCommands dataFormats={scope.outputFormats ?? []} onCreateDataFormat={scope.createDescriptionDataFormat} onChange={(nextValue) => { scope.setIsDescriptionEditing?.(true); scope.setSubtaskDescriptionDraft?.(nextValue) }} onCommit={() => { if (scope.isDescriptionEditing) void scope.saveSubtaskDetail?.() }} onCancel={() => { scope.setSubtaskDescriptionDraft?.(scope.getSubtaskDescription?.(subtask) ?? ''); scope.setIsDescriptionEditing?.(false) }} />
         </section>
         <section className={styles.drawerSection}>
           <div className={styles.tabRow}>
@@ -407,6 +435,21 @@ export function TaskDetailPopup({
               ) : null}
             </div>
           ) : null}
+          <div className={styles.primaryActions}>
+            {onPlanWithCodex ? (
+              <button type="button" className={`${styles.iconButton} ${styles.planButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isPlanWithCodexBusy && !isPlanWithCodexDisabled) onPlanWithCodex() })} disabled={isPlanWithCodexBusy || isPlanWithCodexDisabled} aria-label="Plan task with Codex" title={isPlanWithCodexDisabled ? 'Configure Codex gateway and model before planning this task.' : 'Plan task with Codex'}>
+                <LuSparkles size={16} />
+              </button>
+            ) : null}
+            {onRunCodex ? (
+              <button type="button" className={`${styles.iconButton} ${styles.runButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isRunCodexBusy && !isRunCodexDisabled) onRunCodex() })} disabled={isRunCodexBusy || isRunCodexDisabled} aria-label="Run task with Codex" title={isRunCodexDisabled ? 'Configure Codex gateway and model before running this task.' : 'Run task with Codex'}>
+                <LuPlay size={16} />
+              </button>
+            ) : null}
+            <button type="button" className={`${styles.iconButton} ${styles.taskDetailOpenChatButton}`} onPointerDown={(event) => runHeaderAction(event, onOpenActivity)} aria-label="Open chat">
+              <LuMessageSquare size={16} />
+            </button>
+          </div>
           <div className={styles.menuWrap} ref={menuRef}>
             <button
               type="button"
@@ -428,21 +471,6 @@ export function TaskDetailPopup({
                 <button type="button" className={styles.dangerAction} onClick={() => { setIsMenuOpen(false); onDeleteTask() }}><LuTrash2 size={15} /> Delete task</button>
               </div>
             ) : null}
-          </div>
-          <div className={styles.primaryActions}>
-            {onPlanWithCodex ? (
-              <button type="button" className={`${styles.iconButton} ${styles.planButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isPlanWithCodexBusy && !isPlanWithCodexDisabled) onPlanWithCodex() })} disabled={isPlanWithCodexBusy || isPlanWithCodexDisabled} aria-label="Plan task with Codex" title={isPlanWithCodexDisabled ? 'Configure Codex gateway and model before planning this task.' : 'Plan task with Codex'}>
-                <LuSparkles size={16} />
-              </button>
-            ) : null}
-            {onRunCodex ? (
-              <button type="button" className={`${styles.iconButton} ${styles.runButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isRunCodexBusy && !isRunCodexDisabled) onRunCodex() })} disabled={isRunCodexBusy || isRunCodexDisabled} aria-label="Run task with Codex" title={isRunCodexDisabled ? 'Configure Codex gateway and model before running this task.' : 'Run task with Codex'}>
-                <LuPlay size={16} />
-              </button>
-            ) : null}
-            <button type="button" className={`${styles.iconButton} ${styles.taskDetailOpenChatButton}`} onPointerDown={(event) => runHeaderAction(event, onOpenActivity)} aria-label="Open chat">
-              <LuMessageSquare size={16} />
-            </button>
           </div>
         </>
       ) : null}

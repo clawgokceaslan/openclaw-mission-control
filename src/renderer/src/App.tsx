@@ -35,6 +35,7 @@ import { StatusesPage } from '@renderer/screens/statuses/StatusesPage'
 import { TagsPage } from '@renderer/screens/tags/TagsPage'
 import { TagAddPage } from '@renderer/screens/tags/TagAddPage'
 import { ActivityPage } from '@renderer/screens/ActivityPage'
+import { LastChatsPage } from '@renderer/screens/LastChatsPage'
 import { InvitePage } from '@renderer/screens/InvitePage'
 import { OnboardingPage } from '@renderer/screens/OnboardingPage'
 import { CompanionPage } from '@renderer/screens/CompanionPage'
@@ -75,6 +76,7 @@ const SIGNED_IN_ROUTES: RouteConfig[] = [
   { path: APP_ROUTES.TAGS, element: <TagsPage /> },
   { path: APP_ROUTES.TAG_ADD, element: <TagAddPage /> },
   { path: APP_ROUTES.ACTIVITY, element: <ActivityPage /> },
+  { path: APP_ROUTES.LAST_CHATS, element: <LastChatsPage /> },
   { path: APP_ROUTES.INVITE, element: <InvitePage /> },
   { path: APP_ROUTES.ONBOARDING, element: <OnboardingPage /> },
   { path: APP_ROUTES.COMPANION, element: <CompanionPage /> },

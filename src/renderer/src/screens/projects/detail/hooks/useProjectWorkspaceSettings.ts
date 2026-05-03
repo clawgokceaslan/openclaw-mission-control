@@ -56,7 +56,9 @@ interface UseProjectWorkspaceSettingsContext {
     | 'setProjectGroupDescriptionDraft'
     | 'setProjectPromptContext'
     | 'setProjectPromptPrompt'
+    | 'setProjectPromptPlanGuide'
     | 'setProjectPromptOutput'
+    | 'setProjectPromptRules'
     | 'setProjectPromptTab'
     | 'setProjectPromptError'
     | 'setIsProjectPromptSaving'
@@ -76,7 +78,9 @@ interface UseProjectWorkspaceSettingsContext {
     | 'setProjectSyncing'
     | 'projectPromptContext'
     | 'projectPromptPrompt'
+    | 'projectPromptPlanGuide'
     | 'projectPromptOutput'
+    | 'projectPromptRules'
     | 'projectPromptError'
     | 'isStatusTemplatePickerOpen'
     | 'pendingStatusTemplate'
@@ -175,7 +179,9 @@ export function useProjectWorkspaceSettings({
     setProjectGroupDescriptionDraft,
     setProjectPromptContext,
     setProjectPromptPrompt,
+    setProjectPromptPlanGuide,
     setProjectPromptOutput,
+    setProjectPromptRules,
     setProjectPromptTab,
     setProjectPromptError,
     setIsProjectPromptSaving,
@@ -195,7 +201,9 @@ export function useProjectWorkspaceSettings({
     setProjectSyncing,
     projectPromptContext,
     projectPromptPrompt,
+    projectPromptPlanGuide,
     projectPromptOutput,
+    projectPromptRules,
     projectPromptError,
     isStatusTemplatePickerOpen,
     pendingStatusTemplate,
@@ -447,7 +455,6 @@ export function useProjectWorkspaceSettings({
   const openStatusEditor = () => {
     setStatusDrafts(projectStatuses)
     setStatusMapping({})
-    setProjectPromptTab('statuses')
     setWorkspaceMoveMessage(null)
     setIsStatusEditorOpen(true)
   }
@@ -457,7 +464,9 @@ export function useProjectWorkspaceSettings({
     setProjectPromptTab('context')
     setProjectPromptContext(project.generalContext ?? '')
     setProjectPromptPrompt(project.generalPrompt ?? '')
+    setProjectPromptPlanGuide(typeof project.metrics?.projectPlanGuide === 'string' ? project.metrics.projectPlanGuide : '')
     setProjectPromptOutput(project.defaultOutput ?? '')
+    setProjectPromptRules(typeof project.metrics?.projectRules === 'string' ? project.metrics.projectRules : '')
     setProjectPromptError(null)
     setIsProjectPromptSettingsOpen(true)
   }
@@ -471,7 +480,12 @@ export function useProjectWorkspaceSettings({
       id: project.id,
       generalContext: projectPromptContext,
       generalPrompt: projectPromptPrompt,
-      defaultOutput: projectPromptOutput
+      defaultOutput: projectPromptOutput,
+      metrics: {
+        ...(project.metrics ?? {}),
+        projectPlanGuide: projectPromptPlanGuide,
+        projectRules: projectPromptRules
+      }
     })
     setIsProjectPromptSaving(false)
     if (!response.ok || !response.data) {

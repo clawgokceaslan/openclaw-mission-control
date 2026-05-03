@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
+  LuMessageSquare,
   LuPlus
 } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
@@ -27,6 +28,10 @@ import { resolveProjectStatusColumn } from './detail/status'
 import { useProjectDetailDispatcher, useProjectDetailReducer } from './detail/state/projectDetailState'
 import {
   CHAT_INITIAL_MESSAGE_LIMIT
+} from './detail/chat/chatUtils'
+import {
+  activityMessagesFromTask,
+  formatChatTime
 } from './detail/chat/chatUtils'
 import {
   DEFAULT_TABLE_COLUMNS,
@@ -69,8 +74,8 @@ import type {
   ProjectTableViewConfig,
   ProjectViewMode,
   TableColumnConfig,
-  TaskActivityMessage,
   TaskHistoryItem,
+  TaskActivityMessage,
   TextDraftRow,
   ThreadEntry
 } from './detail/types'
@@ -83,6 +88,39 @@ const DEFAULT_DETAIL_RATIO = 0.7
 const MIN_DETAIL_WIDTH = 420
 const MIN_COMMENTS_WIDTH = 320
 const ProjectAnalyticsModal = lazy(() => import('@renderer/components/projects/detail/ProjectAnalyticsModal'))
+
+type ProjectRecentChatRow = {
+  id: string
+  taskId: string
+  taskTitle: string
+  conversationId: string
+  source: TaskActivityMessage['source']
+  status: TaskActivityMessage['status'] | 'event'
+  at: number
+  count: number
+  model?: string
+  preview: string
+}
+
+function projectRecentChatSourceLabel(source: TaskActivityMessage['source']): string {
+  if (source === 'codex-plan') return 'Plan'
+  if (source === 'codex-run') return 'Run'
+  return 'Chat'
+}
+
+function projectRecentChatStatusLabel(status: ProjectRecentChatRow['status']): string {
+  if (status === 'running') return 'İşlemde'
+  if (status === 'queued') return 'Sırada'
+  if (status === 'completed') return 'Başarılı'
+  if (status === 'failed') return 'Başarısız'
+  return 'Event'
+}
+
+function projectRecentChatPreview(value: string, max = 118): string {
+  const normalized = value.trim().replace(/\s+/g, ' ')
+  if (!normalized) return 'Mesaj yok'
+  return normalized.length <= max ? normalized : `${normalized.slice(0, max - 1)}…`
+}
 
 function resizeTitleTextarea(element: HTMLTextAreaElement | null) {
   if (!element) return
@@ -192,8 +230,12 @@ export function ProjectDetailPage() {
     setProjectPromptContext,
     projectPromptPrompt,
     setProjectPromptPrompt,
+    projectPromptPlanGuide,
+    setProjectPromptPlanGuide,
     projectPromptOutput,
     setProjectPromptOutput,
+    projectPromptRules,
+    setProjectPromptRules,
     projectPromptError,
     setProjectPromptError,
     isProjectPromptSaving,
@@ -380,7 +422,8 @@ export function ProjectDetailPage() {
   const subtaskClickTimerRef = useRef<number | null>(null)
   const lastCodexModelRefreshRef = useRef<string | null>(null)
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false)
-
+  const [isRecentChatsView, setIsRecentChatsView] = useState(false)
+  const [pendingChatOpen, setPendingChatOpen] = useState<{ taskId: string; conversationId: string } | null>(null)
   const {
     refresh,
     projectLoadError
@@ -881,6 +924,42 @@ export function ProjectDetailPage() {
   }, [customFields, selectedSubtask])
 
   const chatConversations = derivedChatConversations
+  const projectRecentChats = useMemo<ProjectRecentChatRow[]>(() => {
+    const rows: ProjectRecentChatRow[] = []
+    for (const task of tasks) {
+      const messages = activityMessagesFromTask(task)
+      if (messages.length === 0) continue
+      const grouped = new Map<string, TaskActivityMessage[]>()
+      for (const message of messages) {
+        const conversationId = message.conversationId || message.runId
+        if (!conversationId) continue
+        const bucket = grouped.get(conversationId)
+        if (bucket) {
+          bucket.push(message)
+        } else {
+          grouped.set(conversationId, [message])
+        }
+      }
+      grouped.forEach((conversationMessages, conversationId) => {
+        const ordered = [...conversationMessages].sort((a, b) => a.createdAt - b.createdAt)
+        const last = ordered[ordered.length - 1]
+        if (!last) return
+        rows.push({
+          id: `${task.id}:${conversationId}`,
+          taskId: task.id,
+          taskTitle: task.title,
+          conversationId,
+          source: last.source,
+          status: last.status ?? 'event',
+          at: last.updatedAt ?? last.createdAt,
+          count: ordered.length,
+          model: typeof last.metadata?.model === 'string' ? last.metadata.model : undefined,
+          preview: projectRecentChatPreview(last.body)
+        })
+      })
+    }
+    return rows.sort((a, b) => b.at - a.at).slice(0, 10)
+  }, [tasks])
   const taskContextSkills = selectedTask?.skills ?? []
 
   const selectedTaskExportContext = useMemo(() => {
@@ -889,6 +968,28 @@ export function ProjectDetailPage() {
   }, [agents, customFields, project, projectGroupForExport, projectStatuses, selectedTask, skills, tags])
   const selectedTaskAgentMarkdown = selectedTaskExportContext ? buildAgentMarkdown(selectedTaskExportContext) : ''
   const selectedTaskSkillsMarkdown = selectedTaskExportContext ? buildSkillsMarkdown(selectedTaskExportContext) : ''
+
+  const openRecentChat = (row: ProjectRecentChatRow) => {
+    setPendingChatOpen({ taskId: row.taskId, conversationId: row.conversationId })
+    setSelectedTaskId(row.taskId)
+    setDetailViewMode('task')
+    setSelectedSubtaskId(null)
+  }
+
+  useEffect(() => {
+    if (!pendingChatOpen) return
+    if (selectedTask?.id !== pendingChatOpen.taskId) return
+    setIsStartingNewChat(false)
+    setSelectedChatConversationId(pendingChatOpen.conversationId)
+    setIsActivityModalOpen(true)
+    setPendingChatOpen(null)
+  }, [pendingChatOpen, selectedTask?.id])
+
+  const selectProjectViewMode = (mode: ProjectViewMode) => {
+    setIsRecentChatsView(false)
+    setViewMode(mode)
+  }
+
   const { canRunSelectedTaskWithCodex, canPlanSelectedTaskWithCodex, canSendChat, chatOperationFeedback, refreshCodexGatewayModels, runSelectedTaskWithCodex, planSelectedTaskWithCodex, sendCodexChatMessage, stopCodexChat, addChatAttachments, applySlashCommand } = useProjectCodexFlow({
     token,
     project,
@@ -1236,6 +1337,39 @@ export function ProjectDetailPage() {
       return
     }
     setIsDescriptionEditing(false)
+    await refresh()
+  }
+
+  const saveAcceptanceCriteria = async (value: string) => {
+    if (!selectedTask) return
+    const currentPayload = selectedTask.payload && typeof selectedTask.payload === 'object' && !Array.isArray(selectedTask.payload)
+      ? selectedTask.payload as Record<string, unknown>
+      : {}
+    const currentAgenticInputs = currentPayload.agenticInputs && typeof currentPayload.agenticInputs === 'object' && !Array.isArray(currentPayload.agenticInputs)
+      ? currentPayload.agenticInputs as Record<string, unknown>
+      : {}
+    const nextAgenticInputs: Record<string, unknown> = {
+      ...currentAgenticInputs,
+      acceptanceCriteria: value.trim()
+    }
+    delete nextAgenticInputs.constraints
+    delete nextAgenticInputs.expectedOutput
+    delete nextAgenticInputs.references
+    if (!nextAgenticInputs.acceptanceCriteria) delete nextAgenticInputs.acceptanceCriteria
+    const nextPayload: Record<string, unknown> = {
+      ...currentPayload,
+      agenticInputs: nextAgenticInputs
+    }
+    if (Object.keys(nextAgenticInputs).length === 0) delete nextPayload.agenticInputs
+    const response = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
+      actorToken: token,
+      id: selectedTask.id,
+      payload: nextPayload
+    })
+    if (!response.ok) {
+      setError(response.error?.message ?? 'Unable to update acceptance criteria')
+      return
+    }
     await refresh()
   }
 
@@ -2460,7 +2594,10 @@ export function ProjectDetailPage() {
         onOpenStatusSettings={openStatusEditor}
         onSyncProject={() => void syncProjectWorkspace()}
         syncDisabled={projectSyncing}
-        onViewModeChange={setViewMode}
+        onViewModeChange={selectProjectViewMode}
+        recentChatsActive={isRecentChatsView}
+        recentChatsCount={projectRecentChats.length}
+        onRecentChatsSelect={() => setIsRecentChatsView(true)}
       />
 
       {isAnalyticsOpen ? (
@@ -2496,26 +2633,55 @@ export function ProjectDetailPage() {
       {error ? <p className={styles.error}>{error}</p> : null}
       {projectSyncMessage ? <p className={styles.notice}>{projectSyncMessage}</p> : null}
 
-      <ActiveProjectView
-        viewMode={viewMode}
-        statusColumns={statusColumns}
-        tasksByStatus={tasksByStatus}
-        agents={agents}
-        onDropStatus={(event, status) => {
-          void onDropColumn(event, status)
-        }}
-        onReorder={(sourceTaskId, targetTaskId) => void reorderTableTasks(sourceTaskId, targetTaskId)}
-        onOpenTask={setSelectedTaskId}
-        onOpenCreateTask={openCreateTask}
-        onStatusChange={(taskId, status) => void updateTaskStatus(taskId, status)}
-        onToggleStatus={toggleStatusGroup}
-        onOpenColumnPicker={() => setIsTableColumnPickerOpen(true)}
-        onColumnWidthChange={(columnId, width) => void setTableColumnWidth(columnId, width)}
-        collapsedStatuses={collapsedStatuses}
-        tableTasks={tableTasks}
-        tableColumns={tableColumns}
-        customFields={customFields}
-      />
+      {isRecentChatsView ? (
+        <section className={styles.projectRecentChatsView} aria-label="Chats">
+          <header className={styles.projectRecentChatsHeader}>
+            <div>
+              <span>Codex</span>
+              <h2>Chats</h2>
+            </div>
+            <b>{projectRecentChats.length}</b>
+          </header>
+          {projectRecentChats.length > 0 ? (
+            <div className={styles.projectRecentChatList}>
+              {projectRecentChats.map((row) => (
+                <button type="button" key={row.id} className={styles.projectRecentChatRow} onClick={() => openRecentChat(row)}>
+                  <span className={styles.projectRecentChatTopline}>
+                    <strong>{projectRecentChatSourceLabel(row.source)}</strong>
+                    <b className={`${styles.chatStatusBadge} ${styles[`chatStatus_${row.status}`] ?? ''}`}>{projectRecentChatStatusLabel(row.status)}</b>
+                  </span>
+                  <span className={styles.projectRecentChatTask}>{row.taskTitle}</span>
+                  <span className={styles.projectRecentChatMeta}>{formatChatTime(row.at)} · {row.count} mesaj{row.model ? ` · ${row.model}` : ''}</span>
+                  <span className={styles.projectRecentChatPreview}>{row.preview}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className={styles.projectRecentChatEmpty}>Henüz Codex chat geçmişi yok.</p>
+          )}
+        </section>
+      ) : (
+        <ActiveProjectView
+          viewMode={viewMode}
+          statusColumns={statusColumns}
+          tasksByStatus={tasksByStatus}
+          agents={agents}
+          onDropStatus={(event, status) => {
+            void onDropColumn(event, status)
+          }}
+          onReorder={(sourceTaskId, targetTaskId) => void reorderTableTasks(sourceTaskId, targetTaskId)}
+          onOpenTask={setSelectedTaskId}
+          onOpenCreateTask={openCreateTask}
+          onStatusChange={(taskId, status) => void updateTaskStatus(taskId, status)}
+          onToggleStatus={toggleStatusGroup}
+          onOpenColumnPicker={() => setIsTableColumnPickerOpen(true)}
+          onColumnWidthChange={(columnId, width) => void setTableColumnWidth(columnId, width)}
+          collapsedStatuses={collapsedStatuses}
+          tableTasks={tableTasks}
+          tableColumns={tableColumns}
+          customFields={customFields}
+        />
+      )}
 
       <TaskModals
         open
@@ -2551,13 +2717,17 @@ export function ProjectDetailPage() {
         projectPromptTab={projectPromptTab}
         projectPromptContext={projectPromptContext}
         projectPromptPrompt={projectPromptPrompt}
+        projectPromptPlanGuide={projectPromptPlanGuide}
         projectPromptOutput={projectPromptOutput}
+        projectPromptRules={projectPromptRules}
         projectPromptError={projectPromptError}
         projectPromptSaving={isProjectPromptSaving}
         onProjectPromptTabChange={setProjectPromptTab}
         onProjectPromptContextChange={setProjectPromptContext}
         onProjectPromptPromptChange={setProjectPromptPrompt}
+        onProjectPromptPlanGuideChange={setProjectPromptPlanGuide}
         onProjectPromptOutputChange={setProjectPromptOutput}
+        onProjectPromptRulesChange={setProjectPromptRules}
         onProjectPromptClose={() => setIsProjectPromptSettingsOpen(false)}
         onProjectPromptSave={() => void saveProjectPromptSettings()}
         isCustomFieldModalOpen={isCustomFieldModalOpen}
@@ -2615,7 +2785,7 @@ export function ProjectDetailPage() {
         scope={projectSettingsModalScope}
       ></ProjectDetailSettingsPopup>
 
-      {selectedTask ? (
+      {selectedTask && !isActivityModalOpen ? (
         <>
           <TaskDetailPopup
             taskId={selectedTask.id}
@@ -2678,6 +2848,7 @@ export function ProjectDetailPage() {
               outputFormats,
               createDescriptionDataFormat,
               saveDescription,
+              saveAcceptanceCriteria,
               completedStatusIds,
               selectedSubtaskIds,
               removeSelectedSubtasks,

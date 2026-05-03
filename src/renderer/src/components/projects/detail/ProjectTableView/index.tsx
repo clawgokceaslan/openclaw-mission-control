@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { LuCheck, LuChevronDown, LuFlag, LuGripVertical, LuPlus } from 'react-icons/lu'
+import { LuCheck, LuChevronDown, LuGripVertical, LuPlus } from 'react-icons/lu'
 import type { Agent, CustomField, TaskEntity } from '@shared/types/entities'
 import { TagPill } from '@renderer/components/tags/TagPill'
 import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
@@ -24,8 +24,8 @@ function StatusPill({ status, columns }: { status: TaskEntity['status']; columns
   const column = resolveProjectStatusColumn(status, columns)
   return (
     <span className={styles.tableStatusPill} style={{ '--status-accent': column.accent } as CSSProperties}>
-      <span />
-      {column.title}
+      <span className={styles.tableStatusPillDot} />
+      <span className={styles.tableStatusPillLabel}>{column.title}</span>
     </span>
   )
 }
@@ -132,7 +132,10 @@ export function ProjectTableView({ tasks, columns, tableColumns, customFields, a
     if (tableColumn.kind === 'due') return <span className={styles.tableDateCell}>{formatTaskDate(task.updatedAt)}</span>
     if (tableColumn.kind === 'tags') return <span className={styles.tableTagCell}>{(task.tags ?? []).slice(0, 3).map((tag) => <TagPill key={tag.id} tag={tag} compact />)}</span>
     if (tableColumn.kind === 'subtasks') return <span className={styles.tableMutedCell}>{(task.subtasks ?? []).length}</span>
-    if (tableColumn.kind === 'priority') return <span className={styles.tablePriorityCell}><LuFlag size={15} /></span>
+    if (tableColumn.kind === 'priority') {
+      const value = task.customFieldValues?.priority ?? task.payload?.priority
+      return <span className={styles.tableMutedCell}>{value == null || value === '' ? '-' : String(value)}</span>
+    }
     if (tableColumn.kind === 'custom') {
       const field = customFields.find((item) => item.id === tableColumn.customFieldId)
       const value = field ? task.customFieldValues?.[field.id] : undefined
@@ -201,9 +204,10 @@ export function ProjectTableView({ tasks, columns, tableColumns, customFields, a
               onKeyDown={(event) => {
                 if (event.key === 'Enter') onOpenTask(task.id)
               }}
-              style={{ gridTemplateColumns: gridTemplate }}
+              style={{ gridTemplateColumns: `${gridTemplate} 42px` }}
             >
               {tableColumns.map((column) => <span key={column.id}>{renderCell(task, column, index)}</span>)}
+              <span className={styles.tableRowActionCell} aria-hidden="true" />
             </div>
           )
         })}

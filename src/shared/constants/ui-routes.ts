@@ -28,6 +28,7 @@ export const APP_ROUTES = {
   TAG_ADD: '/tags/add',
   INVITE: '/invite',
   ACTIVITY: '/activity',
+  LAST_CHATS: '/activity/chats',
   ONBOARDING: '/onboarding',
   COMPANION: '/companion'
 } as const

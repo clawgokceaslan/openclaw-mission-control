@@ -1,4 +1,4 @@
-import { LuColumns3, LuMessageSquare, LuPlus, LuRefreshCw, LuSettings2, LuSignal } from 'react-icons/lu'
+import { LuMessageSquare, LuPlus, LuRefreshCw, LuSettings2, LuSignal } from 'react-icons/lu'
 import type { Project } from '@shared/types/entities'
 import type { ProjectViewMode } from '@renderer/screens/projects/detail/status'
 import { ProjectViewBar } from '../ProjectViewBar'
@@ -18,6 +18,9 @@ interface ProjectDetailHeaderProps {
   onSyncProject: () => void
   syncDisabled?: boolean
   onViewModeChange: (mode: ProjectViewMode) => void
+  recentChatsActive?: boolean
+  recentChatsCount?: number
+  onRecentChatsSelect?: () => void
 }
 
 export function ProjectDetailHeader({
@@ -33,7 +36,10 @@ export function ProjectDetailHeader({
   onOpenStatusSettings,
   onSyncProject,
   syncDisabled,
-  onViewModeChange
+  onViewModeChange,
+  recentChatsActive,
+  recentChatsCount,
+  onRecentChatsSelect
 }: ProjectDetailHeaderProps) {
   return (
     <header className={styles.header}>
@@ -58,7 +64,6 @@ export function ProjectDetailHeader({
           <button type="button" className={styles.plusBtn} onClick={onOpenCreateTask} disabled={busy}>
             <LuPlus size={18} />
           </button>
-          <button type="button" className={styles.iconBtn}><LuColumns3 size={16} /></button>
           <button type="button" className={styles.iconBtn} onClick={onSyncProject} disabled={syncDisabled} aria-label="Sync project exports"><LuRefreshCw size={16} /></button>
           <button
             type="button"
@@ -72,7 +77,13 @@ export function ProjectDetailHeader({
           <button type="button" className={styles.iconBtn} onClick={onOpenStatusSettings} aria-label="Project status settings"><LuSettings2 size={16} /></button>
         </div>
       </div>
-      <ProjectViewBar viewMode={viewMode} onViewModeChange={onViewModeChange} />
+      <ProjectViewBar
+        viewMode={viewMode}
+        onViewModeChange={onViewModeChange}
+        recentChatsActive={recentChatsActive}
+        recentChatsCount={recentChatsCount}
+        onRecentChatsSelect={onRecentChatsSelect}
+      />
     </header>
   )
 }

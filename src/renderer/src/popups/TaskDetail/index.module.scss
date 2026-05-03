@@ -123,12 +123,18 @@
 .runButton {
   border-color: color-mix(in srgb, var(--omc-success-strong) 50%, transparent);
   background: var(--omc-success-strong);
-  color: var(--omc-inverse-text);
+  color: #052e16;
+
+  svg {
+    fill: currentColor;
+    stroke: currentColor;
+    stroke-width: 2.35;
+  }
 
   &:hover:not(:disabled) {
     border-color: var(--omc-success-strong);
     background: color-mix(in srgb, var(--omc-success-strong) 88%, var(--omc-text-strong));
-    color: var(--omc-inverse-text);
+    color: #052e16;
   }
 }
 
@@ -320,7 +326,9 @@
 .tagInlineSelect :global(.app-select__menu) { margin-top: 8px; border-radius: 14px; }
 .drawerSection { padding: 14px 22px; border-bottom: 1px solid var(--omc-table-border); }
 .drawerSection h4 { margin: 0 0 10px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--omc-text-soft); font-weight: 700; }
-.descriptionField { width: 100%; min-height: 220px !important; }
+.descriptionField { width: 100%; min-height: 280px !important; }
+.acceptanceCriteriaField { width: 100%; min-height: 132px; resize: vertical; border: 1px solid var(--omc-border-subtle); border-radius: 12px; background: var(--omc-table-header); color: var(--omc-text-strong); padding: 12px 14px; line-height: 1.5; outline: none; font: inherit; }
+.acceptanceCriteriaField:focus { border-color: var(--omc-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--omc-primary) 18%, transparent); }
 .editingField { border-color: var(--omc-primary) !important; background: var(--omc-pill-bg) !important; }
 .fieldStateRow { margin-top: 6px; min-height: 16px; }
 .fieldDirty, .fieldSaving { font-size: 0.8rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }

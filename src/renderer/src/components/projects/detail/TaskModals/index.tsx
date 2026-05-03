@@ -1,7 +1,7 @@
 import { ReactNode } from 'react'
 import type { AppSelectOption } from '@renderer/components/select/AppSelect'
-import type { DataFormatRole, TableColumnConfig } from '@renderer/screens/projects/detail/types'
-import type { Agent, CustomField, Project, ProjectPromptTab, Tag, TaskEntity, TaskSubtask, TaskTemplate } from '@shared/types/entities'
+import type { DataFormatRole, ProjectPromptTab, TableColumnConfig } from '@renderer/screens/projects/detail/types'
+import type { Agent, CustomField, Project, Tag, TaskEntity, TaskSubtask, TaskTemplate } from '@shared/types/entities'
 import { AddSubtaskPopup } from '@renderer/popups/AddSubtask'
 import { ChecklistPopup } from '@renderer/popups/Checklist'
 import { CreateTaskPopup } from '@renderer/popups/CreateTask'
@@ -31,16 +31,17 @@ export interface TaskModalsProps {
       title: string
       description: string
       status: TaskSubtask['status']
-      priority: number
       projectId?: string | null
       templateId?: string | null
       agentId?: string | null
-      dueAt?: number | null
       assigneeIds?: string[]
       customFields?: Record<string, unknown>
       skillIds?: string[]
       tagIds?: string[]
       payload?: Record<string, unknown>
+      agenticInputs?: {
+        acceptanceCriteria?: string
+      }
     }) => void
   }
 
@@ -71,13 +72,17 @@ export interface TaskModalsProps {
   projectPromptTab?: ProjectPromptTab
   projectPromptContext?: string
   projectPromptPrompt?: string
+  projectPromptPlanGuide?: string
   projectPromptOutput?: string
+  projectPromptRules?: string
   projectPromptError?: string | null
   projectPromptSaving?: boolean
   onProjectPromptTabChange?: (tab: ProjectPromptTab) => void
   onProjectPromptContextChange?: (value: string) => void
   onProjectPromptPromptChange?: (value: string) => void
+  onProjectPromptPlanGuideChange?: (value: string) => void
   onProjectPromptOutputChange?: (value: string) => void
+  onProjectPromptRulesChange?: (value: string) => void
   onProjectPromptClose?: () => void
   onProjectPromptSave?: () => void | Promise<void>
 
@@ -222,13 +227,17 @@ export function TaskModals(props: TaskModalsProps) {
           tab={props.projectPromptTab ?? 'context'}
           context={props.projectPromptContext ?? ''}
           prompt={props.projectPromptPrompt ?? ''}
+          planGuide={props.projectPromptPlanGuide ?? ''}
           output={props.projectPromptOutput ?? ''}
+          rules={props.projectPromptRules ?? ''}
           error={props.projectPromptError ?? null}
           saving={props.projectPromptSaving ?? false}
           onTabChange={props.onProjectPromptTabChange ?? (() => undefined)}
           onContextChange={props.onProjectPromptContextChange ?? (() => undefined)}
           onPromptChange={props.onProjectPromptPromptChange ?? (() => undefined)}
+          onPlanGuideChange={props.onProjectPromptPlanGuideChange ?? (() => undefined)}
           onOutputChange={props.onProjectPromptOutputChange ?? (() => undefined)}
+          onRulesChange={props.onProjectPromptRulesChange ?? (() => undefined)}
           onClose={props.onProjectPromptClose ?? (() => undefined)}
           onSave={props.onProjectPromptSave ?? (() => undefined)}
         />

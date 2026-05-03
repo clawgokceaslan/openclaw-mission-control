@@ -125,8 +125,7 @@ export const DEFAULT_TABLE_COLUMNS: TableColumnConfig[] = [
   { id: 'status', kind: 'status', label: 'Status', width: 180, required: true },
   { id: 'due', kind: 'due', label: 'Due date', width: 150 },
   { id: 'tags', kind: 'tags', label: 'Tags', width: 190 },
-  { id: 'subtasks', kind: 'subtasks', label: 'Subtasks', width: 110 },
-  { id: 'priority', kind: 'priority', label: 'Priority', width: 110 }
+  { id: 'subtasks', kind: 'subtasks', label: 'Subtasks', width: 110 }
 ]
 
 export function getStatusOrder(task: TaskEntity, status: string) {

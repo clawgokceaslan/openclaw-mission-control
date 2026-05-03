@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { LuCalendarPlus, LuFlag, LuFolder, LuListChecks, LuTag, LuUpload, LuUserPlus, LuX } from 'react-icons/lu'
+import { LuFolder, LuListChecks, LuTag, LuUpload, LuUserPlus, LuX } from 'react-icons/lu'
 import type { Agent, Project, Tag, TaskEntity, TaskTemplate } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { MarkdownDescriptionEditor } from '@renderer/components/markdown/MarkdownDescriptionEditor'
@@ -25,7 +25,19 @@ interface CreateTaskPopupProps {
   error?: string | null
   onClose: () => void
   onProjectChange?: (projectId: string) => void
-  onCreate: (input: { projectId: string; title: string; description: string; status: TaskEntity['status']; tagIds: string[]; agentId?: string | null; templateId?: string | null; importJson?: string | null }) => void
+  onCreate: (input: {
+    projectId: string
+    title: string
+    description: string
+    status: TaskEntity['status']
+    tagIds: string[]
+    agentId?: string | null
+    templateId?: string | null
+    importJson?: string | null
+    agenticInputs?: {
+      acceptanceCriteria?: string
+    }
+  }) => void
 }
 
 export function CreateTaskPopup({ open, project, projects = [], selectedProjectId, tags, agents, templates, statusColumns, defaultStatus, initialTitle = '', initialTemplateId = null, busy, error, onClose, onProjectChange, onCreate }: CreateTaskPopupProps) {
@@ -35,6 +47,7 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
   const [selectedTags, setSelectedTags] = useState<AppSelectOption[]>([])
   const [selectedAgent, setSelectedAgent] = useState<AppSelectOption | null>(null)
   const [selectedTemplate, setSelectedTemplate] = useState<AppSelectOption | null>(null)
+  const [acceptanceCriteria, setAcceptanceCriteria] = useState('')
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [importJson, setImportJson] = useState<string | null>(null)
   const tagOptions = tags.map((tag) => ({ label: tag.name, value: tag.id, color: tag.color }))
@@ -66,6 +79,7 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
     setStatus(defaultStatus)
     setSelectedTags([])
     setSelectedAgent(null)
+    setAcceptanceCriteria('')
     setImportJson(null)
     setIsImportOpen(false)
     const templateOption = initialTemplateId ? templates.map((template) => ({ label: template.name, value: template.id })).find((option) => option.value === initialTemplateId) ?? null : null
@@ -83,7 +97,19 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (!title.trim() || !currentProjectId) return
-    onCreate({ projectId: currentProjectId, title: title.trim(), description: description.trim(), status, tagIds: selectedTags.map((tag) => tag.value), agentId: selectedAgent?.value ?? null, templateId: selectedTemplate?.value ?? null, importJson })
+    onCreate({
+      projectId: currentProjectId,
+      title: title.trim(),
+      description: description.trim(),
+      status,
+      tagIds: selectedTags.map((tag) => tag.value),
+      agentId: selectedAgent?.value ?? null,
+      templateId: selectedTemplate?.value ?? null,
+      importJson,
+      agenticInputs: {
+        acceptanceCriteria: acceptanceCriteria.trim()
+      }
+    })
   }
 
   return (
@@ -139,7 +165,7 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
             value={description}
             onChange={setDescription}
             placeholder="Add description, notes, checklists or code..."
-            minHeight={116}
+            minHeight={180}
           />
           <div className={styles.createTaskMetaGrid}>
             <div className={styles.createTaskSelectField}>
@@ -170,20 +196,12 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
                 placeholder="Assignee"
               />
             </div>
-            <div className={styles.createTaskStaticField}>
-              <div className={styles.createTaskFieldLabel}>
-                <LuCalendarPlus size={15} />
-                <span>Due date</span>
-              </div>
-              <span>None</span>
-            </div>
-            <div className={styles.createTaskStaticField}>
-              <div className={styles.createTaskFieldLabel}>
-                <LuFlag size={15} />
-                <span>Priority</span>
-              </div>
-              <span>Normal</span>
-            </div>
+          </div>
+          <div className={styles.createTaskAgenticGrid}>
+            <label>
+              <span>Acceptance criteria</span>
+              <textarea value={acceptanceCriteria} onChange={(event) => setAcceptanceCriteria(event.target.value)} placeholder="What must be true for this task to be accepted?" />
+            </label>
           </div>
           <div className={styles.createTaskTags}>
             <div className={styles.createTaskFieldLabel}>
@@ -208,6 +226,7 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
             const preview = parseTaskJsonImportPreview(jsonText)
             setTitle(preview.title)
             setDescription(preview.description)
+            setAcceptanceCriteria('')
             setSelectedTemplate(null)
             setSelectedTags([])
             setSelectedAgent(null)

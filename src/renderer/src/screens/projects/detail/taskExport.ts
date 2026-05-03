@@ -96,6 +96,25 @@ function getTaskAttachments(task: TaskEntity): TaskAttachment[] {
   return getPayloadList<TaskAttachment>(getPayload(task), 'attachments')
 }
 
+function getProjectRules(project?: Project | null): string {
+  const metrics = project?.metrics && typeof project.metrics === 'object' && !Array.isArray(project.metrics) ? project.metrics : {}
+  const rules = (metrics as Record<string, unknown>).projectRules
+  return typeof rules === 'string' ? rules.trim() : ''
+}
+
+function getProjectPlanGuide(project?: Project | null): string {
+  const metrics = project?.metrics && typeof project.metrics === 'object' && !Array.isArray(project.metrics) ? project.metrics : {}
+  const guide = (metrics as Record<string, unknown>).projectPlanGuide
+  return typeof guide === 'string' ? guide.trim() : ''
+}
+
+function acceptanceCriteriaMarkdown(task: TaskEntity): string {
+  const inputs = getPayload(task).agenticInputs
+  if (!inputs || typeof inputs !== 'object' || Array.isArray(inputs)) return ''
+  const record = inputs as Record<string, unknown>
+  return hasExportValue(record.acceptanceCriteria) ? String(record.acceptanceCriteria).trim() : ''
+}
+
 function formatInlineValue(value: unknown): string {
   if (value === undefined || value === null || value === '') return '-'
   if (typeof value === 'object') return JSON.stringify(value)
@@ -329,7 +348,9 @@ function buildAiExecutionFlow(context: ExportContext): string {
   const hasProjectRules = Boolean(
     context.project?.generalContext?.trim()
     || context.project?.generalPrompt?.trim()
+    || getProjectPlanGuide(context.project)
     || context.project?.defaultOutput?.trim()
+    || getProjectRules(context.project)
     || context.project?.description?.trim()
     || context.projectGroup?.description?.trim()
   )
@@ -341,7 +362,7 @@ function buildAiExecutionFlow(context: ExportContext): string {
     ['Read Project Inputs']
   ]
 
-  if (hasProjectRules) nodes.push(['Apply Project Rules', 'context + prompt + output'])
+  if (hasProjectRules) nodes.push(['Apply Project Instructions', 'context + prompt + plan guide + output + rules'])
   nodes.push(['Read Task Details', 'title + description/prompt'])
   if (taskHasMetadata(task)) nodes.push(['Read Task Metadata', 'tags + fields + comments'])
   if (hasAttachments) nodes.push(['Use Attachment Folder', 'attachments/ + manifest'])
@@ -443,7 +464,9 @@ export function buildTaskMarkdown(context: ExportContext, exportStatuses: Attach
     context.project?.description?.trim() ? `### Project Description\n${context.project.description.trim()}` : '',
     context.project?.generalContext?.trim() ? `### General Context\n${context.project.generalContext.trim()}` : '',
     context.project?.generalPrompt?.trim() ? `### General Prompt\n${context.project.generalPrompt.trim()}` : '',
-    context.project?.defaultOutput?.trim() ? `### Default Output\n${context.project.defaultOutput.trim()}` : ''
+    getProjectPlanGuide(context.project) ? `### Plan Guide\n${getProjectPlanGuide(context.project)}` : '',
+    context.project?.defaultOutput?.trim() ? `### Default Output\n${context.project.defaultOutput.trim()}` : '',
+    getProjectRules(context.project) ? `### Project Rules\n${getProjectRules(context.project)}` : ''
   ].filter(Boolean).join('\n\n')
   pushSection(sections, 'AI Execution Flow', buildAiExecutionFlow(context))
   pushSection(sections, 'Project Inputs', projectInputs)
@@ -459,6 +482,7 @@ export function buildTaskMarkdown(context: ExportContext, exportStatuses: Attach
     ['Created', formatDate(task.createdAt)],
     ['Updated', formatDate(task.updatedAt)]
   ], task.description))
+  pushSection(sections, 'Acceptance Criteria', acceptanceCriteriaMarkdown(task))
   if (taskTagIds.length) pushSection(sections, 'Tags', tagDetailsMarkdown(taskTagIds, tags))
   pushSection(sections, 'Comments', commentsMarkdown(task.comments ?? []))
   pushSection(sections, 'Custom Fields', customFieldsMarkdown(task.customFieldValues, customFields))

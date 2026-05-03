@@ -110,12 +110,12 @@ function isRunCompleteMessage(message: TaskActivityMessage): boolean {
   return codexBlockOf(message) === 'run-complete' || message.metadata?.stopped === true || message.role === 'error'
 }
 
-function conversationIdOf(message: TaskActivityMessage): string {
-  return message.conversationId || message.runId
+function conversationIdOf(message: TaskActivityMessage): string | null {
+  return message.conversationId || message.runId || null
 }
 
 function isNoRunningStopFeedback(feedback: ChatOperationFeedbackData | null): boolean {
-  return feedback?.kind === 'error' && /no running codex chat/i.test(feedback.message)
+  return feedback?.state === 'error' && /no running codex chat/i.test(feedback.message)
 }
 
 function messageTimeOf(message: TaskActivityMessage): number {
@@ -130,10 +130,11 @@ function isFreshRunningMessage(message: TaskActivityMessage, now: number): boole
 function settledIdsFromMessages(messages: TaskActivityMessage[]): { runIds: Set<string>; conversationIds: Set<string> } {
   const runIds = new Set<string>()
   const conversationIds = new Set<string>()
-  for (const message of messages) {
-    if (!isRunCompleteMessage(message)) continue
-    runIds.add(message.runId)
-    conversationIds.add(conversationIdOf(message))
+    for (const message of messages) {
+      if (!isRunCompleteMessage(message)) continue
+      if (message.runId) runIds.add(message.runId)
+      const conversationId = conversationIdOf(message)
+      if (conversationId) conversationIds.add(conversationId)
   }
   return { runIds, conversationIds }
 }
@@ -298,6 +299,7 @@ export function useProjectActivityPopup({
     }
     for (const message of chatActivityMessages) {
       const conversationId = conversationIdOf(message)
+      if (!conversationId) continue
       const settledRun = settled.runIds.has(message.runId) || settled.conversationIds.has(conversationId)
       if (isFreshRunningMessage(message, now) && !settledRun) ids.add(conversationId)
     }
@@ -320,13 +322,13 @@ export function useProjectActivityPopup({
   const visibleChatMessages = useMemo(() => {
     if (isStartingNewChat) return []
     if (!selectedChatConversationId) return []
-    const messages = chatActivityMessages.filter((message) => (message.conversationId || message.runId) === selectedChatConversationId)
+    const messages = chatActivityMessages.filter((message) => conversationIdOf(message) === selectedChatConversationId)
     const sorted = [...messages].sort((a, b) => a.createdAt - b.createdAt)
     const settled = settledIdsFromMessages(sorted)
     localSettledConversationIds.forEach((conversationId) => settled.conversationIds.add(conversationId))
     if (isNoRunningStopFeedback(chatOperationFeedback)) settled.conversationIds.add(selectedChatConversationId)
     return sorted.filter((message) => !(message.role === 'thinking' && message.status === 'running' && (
-      settled.runIds.has(message.runId) || settled.conversationIds.has(conversationIdOf(message))
+      settled.runIds.has(message.runId) || Boolean(conversationIdOf(message) && settled.conversationIds.has(conversationIdOf(message) as string))
     )))
   }, [chatActivityMessages, chatOperationFeedback, isStartingNewChat, localSettledConversationIds, selectedChatConversationId])
 

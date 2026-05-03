@@ -50,7 +50,9 @@ export interface ProjectDetailUiState {
   projectPromptTab: ProjectPromptTab
   projectPromptContext: string
   projectPromptPrompt: string
+  projectPromptPlanGuide: string
   projectPromptOutput: string
+  projectPromptRules: string
   projectPromptError: string | null
   isProjectPromptSaving: boolean
   error: string | null
@@ -278,7 +280,9 @@ export const PROJECT_DETAIL_INITIAL_STATE: ProjectDetailState = {
     projectPromptTab: 'context',
     projectPromptContext: '',
     projectPromptPrompt: '',
+    projectPromptPlanGuide: '',
     projectPromptOutput: '',
+    projectPromptRules: '',
     projectPromptError: null,
     isProjectPromptSaving: false,
     error: null,
@@ -416,7 +420,9 @@ const PROJECT_DETAIL_FIELD_TO_PATH = {
   projectPromptTab: ['ui', 'projectPromptTab'],
   projectPromptContext: ['ui', 'projectPromptContext'],
   projectPromptPrompt: ['ui', 'projectPromptPrompt'],
+  projectPromptPlanGuide: ['ui', 'projectPromptPlanGuide'],
   projectPromptOutput: ['ui', 'projectPromptOutput'],
+  projectPromptRules: ['ui', 'projectPromptRules'],
   projectPromptError: ['ui', 'projectPromptError'],
   isProjectPromptSaving: ['ui', 'isProjectPromptSaving'],
   error: ['ui', 'error'],

@@ -1,6 +1,6 @@
 import { useRef, type CSSProperties, type DragEvent, type PointerEvent } from 'react'
 import { Card } from 'react-bootstrap'
-import { LuCalendarPlus, LuFlag, LuMessageSquare, LuPlus, LuUserPlus } from 'react-icons/lu'
+import { LuCalendarPlus, LuMessageSquare, LuPlus, LuUserPlus } from 'react-icons/lu'
 import type { Agent, Tag, TaskEntity } from '@shared/types/entities'
 import { TagPill } from '@renderer/components/tags/TagPill'
 import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
@@ -117,7 +117,6 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
                   <Card.Body>
                     <div className={styles.taskTop}>
                       <h3>{task.title}</h3>
-                      <span className={styles.priorityIcon} title="Priority"><LuFlag size={14} /></span>
                     </div>
                     <div className={styles.projectTaskMeta}>
                       <span><LuUserPlus size={14} /> {agentName(task)}</span>

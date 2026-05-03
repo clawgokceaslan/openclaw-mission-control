@@ -9,6 +9,7 @@
 .shell {
   position: fixed;
   z-index: 71;
+  --project-settings-modal-bg: var(--omc-modal-bg, var(--omc-surface));
   top: 28px;
   left: 50%;
   transform: translateX(-50%);
@@ -19,7 +20,7 @@
   overflow: hidden;
   border: 1px solid var(--omc-border);
   border-radius: 20px;
-  background: var(--omc-modal-bg);
+  background: var(--project-settings-modal-bg);
   color: var(--omc-text);
   box-shadow: var(--omc-modal-shadow, 0 24px 80px rgba(15, 23, 42, 0.28));
 }
@@ -31,6 +32,7 @@
 .header {
   min-height: 68px;
   border-bottom: 1px solid var(--omc-border-subtle);
+  background: var(--project-settings-modal-bg);
   padding: 14px 18px;
   display: flex;
   align-items: flex-start;
@@ -63,6 +65,7 @@
 
 .tabs {
   border-bottom: 1px solid var(--omc-border-subtle);
+  background: var(--project-settings-modal-bg);
   padding: 10px 18px;
 }
 
@@ -102,12 +105,13 @@
   padding: 16px 24px;
   display: grid;
   gap: 16px;
+  background: var(--project-settings-modal-bg);
 }
 
 .footer {
   z-index: 2;
   margin: 0;
-  background: var(--omc-modal-bg);
+  background: var(--project-settings-modal-bg);
   border-top: 1px solid var(--omc-border-subtle);
   padding: 14px 18px;
   gap: 16px;

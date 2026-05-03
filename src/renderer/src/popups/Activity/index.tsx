@@ -153,11 +153,19 @@ type ActivityPopupHandlerProps = Pick<
 interface ActivityPopupProps extends Partial<ActivityPopupStateProps>, Partial<ActivityPopupHandlerProps> {
   chatState?: Partial<ActivityPopupStateProps>
   chatHandlers?: Partial<ActivityPopupHandlerProps>
+  chatOptions?: {
+    title?: string
+    subtitle?: string
+    sidebarTitle?: string
+    sidebarSubtitle?: string
+    showRunActions?: boolean
+  }
 }
 
 export function ActivityPopup({
   chatState,
   chatHandlers,
+  chatOptions,
   ...legacyState
 }: ActivityPopupProps) {
   const noOp = () => {}
@@ -278,6 +286,11 @@ export function ActivityPopup({
   } = handlers
 
   const isChatStopping = chatStopping
+  const showRunActions = chatOptions?.showRunActions !== false
+  const title = chatOptions?.title ?? 'Chat'
+  const subtitle = chatOptions?.subtitle ?? task?.title ?? 'Task'
+  const sidebarTitle = chatOptions?.sidebarTitle ?? 'Chat'
+  const sidebarSubtitle = chatOptions?.sidebarSubtitle ?? task?.title ?? 'Task'
   const conversationStatusLabel = (conversation: ChatConversationSummary) => (
     runningConversationIds.has(conversation.id)
       ? <em className={styles.chatSidebarLoader} aria-label="Codex chat is running"><i /><i /><i /></em>
@@ -303,16 +316,27 @@ export function ActivityPopup({
         <aside className={styles.chatSidebar}>
           <div className={styles.chatBrand}>
             <span className={styles.chatBrandIcon}><LuMessageSquare size={17} /></span>
-            <strong>Chat</strong>
-            <span>{task?.title ?? 'Task'}</span>
+            <strong>{sidebarTitle}</strong>
+            <span>{sidebarSubtitle}</span>
           </div>
           <button type="button" className={`${styles.chatNewConversationButton} ${isStartingNewChat ? styles.chatConversationActive : ''}`} onClick={onNewConversation}>
-            <span><span><LuPlus size={14} /> New follow-up</span><b className={styles.chatStatusBadge}>New</b></span>
+            <span className={styles.chatConversationLine}><span><LuPlus size={14} /> New follow-up</span><b className={styles.chatStatusBadge}>New</b></span>
             <small>Start a separate Follow-up thread</small>
           </button>
           {sidebarConversations.map((conversation) => (
-            <button type="button" key={conversation.id} className={selectedConversationId === conversation.id ? styles.chatConversationActive : ''} onClick={() => onConversationSelect(conversation.id)}>
-              <span>
+            <div
+              key={conversation.id}
+              role="button"
+              tabIndex={0}
+              className={`${styles.chatConversationButton} ${selectedConversationId === conversation.id ? styles.chatConversationActive : ''}`}
+              onClick={() => onConversationSelect(conversation.id)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return
+                event.preventDefault()
+                onConversationSelect(conversation.id)
+              }}
+            >
+              <span className={styles.chatConversationLine}>
                 <span className={styles.chatConversationTitle}>{conversation.title}</span>
                 <b className={`${styles.chatStatusBadge} ${conversationStatusClass(conversation)}`}>
                   {conversationStatusLabel(conversation)}
@@ -324,6 +348,9 @@ export function ActivityPopup({
                     aria-label={`Stop ${conversation.title}`}
                     title="Stop"
                     disabled={stoppingConversationIds.has(conversation.id)}
+                    onKeyDown={(event) => {
+                      event.stopPropagation()
+                    }}
                     onClick={(event) => {
                       event.stopPropagation()
                       onStopChat(conversation.id)
@@ -335,7 +362,7 @@ export function ActivityPopup({
               </span>
               <small>{conversation.count} messages · {formatChatTime(conversation.at)}</small>
               {conversation.model ? <small>{conversation.model}</small> : null}
-            </button>
+            </div>
           ))}
           {conversations.length > sidebarConversations.length ? <p>{conversations.length - sidebarConversations.length} older conversations hidden for performance.</p> : null}
           {conversations.length === 0 ? <p>No Codex conversations yet.</p> : null}
@@ -343,12 +370,12 @@ export function ActivityPopup({
         </aside>
         <main className={styles.chatMain}>
           <header className={styles.chatTopbar}>
-            <div className={styles.chatTopbarTitle}><h2>Chat</h2><p title={task?.title ?? 'Task'}>{task?.title ?? 'Task'}</p></div>
+            <div className={styles.chatTopbarTitle}><h2>{title}</h2><p title={subtitle}>{subtitle}</p></div>
             <div className={styles.chatTopbarActions}>
               <button type="button" onClick={onSettingsToggle} className={`${styles.chatIconAction} ${chatSettingsOpen ? styles.chatActionActive : ''}`} aria-label="Chat settings" title="Chat settings"><LuSettings2 size={16} /></button>
-              {selectedChatCanStop ? <button type="button" onClick={onStopChat} disabled={chatStopping} className={`${styles.chatIconAction} ${styles.chatStopAction}`} aria-label="Stop Codex chat" title="Stop Codex chat"><LuCircleStop size={16} /></button> : null}
-              <button type="button" onClick={onPlan} disabled={codexPlanLaunching} className={styles.chatIconAction} aria-label={codexPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'} title={codexPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'}><LuSparkles size={16} /></button>
-              <button type="button" onClick={onRun} disabled={codexRunLaunching} className={styles.chatIconAction} aria-label={codexRunLaunching ? 'Running with Codex' : 'Run with Codex'} title={codexRunLaunching ? 'Running with Codex' : 'Run with Codex'}><LuPlay size={16} /></button>
+              {selectedChatCanStop ? <button type="button" onClick={() => onStopChat()} disabled={chatStopping} className={`${styles.chatIconAction} ${styles.chatStopAction}`} aria-label="Stop Codex chat" title="Stop Codex chat"><LuCircleStop size={16} /></button> : null}
+              {showRunActions ? <button type="button" onClick={onPlan} disabled={codexPlanLaunching} className={styles.chatIconAction} aria-label={codexPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'} title={codexPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'}><LuSparkles size={16} /></button> : null}
+              {showRunActions ? <button type="button" onClick={onRun} disabled={codexRunLaunching} className={styles.chatIconAction} aria-label={codexRunLaunching ? 'Running with Codex' : 'Run with Codex'} title={codexRunLaunching ? 'Running with Codex' : 'Run with Codex'}><LuPlay size={16} /></button> : null}
               <button type="button" onClick={onClose} aria-label="Close chat" title="Close chat" className={styles.chatIconAction}><LuX size={16} /></button>
             </div>
           </header>
@@ -370,8 +397,8 @@ export function ActivityPopup({
                       <h3>Start a Codex chat for this task</h3>
                       <p>Use Plan, Run, or send a follow-up message. Codex messages will appear here as a transcript.</p>
                       <div>
-                        <button type="button" onClick={onPlan} disabled={codexPlanLaunching}><LuSparkles size={15} /> Plan</button>
-                        <button type="button" onClick={onRun} disabled={codexRunLaunching}><LuPlay size={15} /> Run</button>
+                        {showRunActions ? <button type="button" onClick={onPlan} disabled={codexPlanLaunching}><LuSparkles size={15} /> Plan</button> : null}
+                        {showRunActions ? <button type="button" onClick={onRun} disabled={codexRunLaunching}><LuPlay size={15} /> Run</button> : null}
                         {(!chatGateway || (!chatPlanModel && !chatModel) || (!chatRunModel && !chatModel)) ? <button type="button" onClick={onSettingsToggle}><LuSettings2 size={15} /> Configure</button> : null}
                       </div>
                     </>

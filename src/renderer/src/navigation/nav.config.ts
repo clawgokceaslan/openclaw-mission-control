@@ -13,7 +13,8 @@ import {
   LuClipboardList,
   LuWaypoints,
   LuHardDrive,
-  LuLayers
+  LuLayers,
+  LuMessageSquare
 } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 
@@ -30,7 +31,8 @@ export const NAV_GROUP_ORDER: NavGroupKey[] = ['Overview', 'Projects', 'Template
 
 export const NAV_BY_GROUP: Record<NavGroupKey, NavItem[]> = {
   Overview: [
-    { label: 'Dashboard', path: APP_ROUTES.DASHBOARD, group: 'Overview', icon: LuLayoutDashboard }
+    { label: 'Dashboard', path: APP_ROUTES.DASHBOARD, group: 'Overview', icon: LuLayoutDashboard },
+    { label: 'Chats', path: APP_ROUTES.LAST_CHATS, group: 'Overview', icon: LuMessageSquare }
   ],
   Projects: [
     { label: 'Project groups', path: APP_ROUTES.PROJECT_GROUPS, group: 'Projects', icon: LuFolderKanban },

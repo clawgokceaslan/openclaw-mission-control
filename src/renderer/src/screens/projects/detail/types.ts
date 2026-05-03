@@ -3,7 +3,7 @@ import type { CodexCliModel, Gateway, OutputFormat } from '@shared/types/entitie
 
 export type DetailViewMode = 'task' | 'subtask'
 export type DetailTab = 'subtasks' | 'customFields' | 'checklist' | 'attachments' | 'details' | 'agent' | 'skills' | 'model'
-export type ProjectPromptTab = 'context' | 'prompt' | 'output'
+export type ProjectPromptTab = 'context' | 'prompt' | 'planGuide' | 'output' | 'rules'
 export type ProjectSettingsTab = 'statuses' | 'workspace' | 'projectGroup' | 'agents' | 'codex'
 export type ProjectViewMode = 'list' | 'table' | 'board'
 export type TextDraftRow = { id: string; title: string }

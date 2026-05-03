@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent } from 'react'
+import { createPortal } from 'react-dom'
 import '@blocknote/core/fonts/inter.css'
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core'
 import { BlockNoteView } from '@blocknote/mantine'
@@ -17,6 +18,7 @@ export type DescriptionDataFormat = Pick<OutputFormat, 'id' | 'name' | 'formatRo
   & Partial<Pick<OutputFormat, 'description'>>
 
 const LEGACY_DATA_FORMAT_TOKEN_RE = /:::omc-data-format\s+(\{[^\n]*\})\s*\n:::/g
+const EMPTY_DATA_FORMATS: DescriptionDataFormat[] = []
 
 function normalizeFields(fields: AgentOutputFormatField[]): AgentOutputFormatField[] {
   return fields
@@ -193,7 +195,7 @@ interface MarkdownDescriptionEditorProps {
 export function MarkdownDescriptionEditor({
   value,
   onChange,
-  dataFormats = [],
+  dataFormats = EMPTY_DATA_FORMATS,
   onCreateDataFormat,
   enableDataFormatCommands = false,
   onCommit,
@@ -433,7 +435,7 @@ export function MarkdownDescriptionEditor({
       >
         {isFullscreen ? null : editorContent}
       </div>
-      {isFullscreen ? (
+      {isFullscreen ? createPortal(
         <>
           <div className={styles.fullscreenBackdrop} onMouseDown={() => setIsFullscreen(false)} />
           <section
@@ -458,7 +460,8 @@ export function MarkdownDescriptionEditor({
               {editorContent}
             </div>
           </section>
-        </>
+        </>,
+        document.body
       ) : null}
     </>
   )
