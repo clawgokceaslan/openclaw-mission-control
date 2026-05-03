@@ -84,8 +84,40 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;')
 }
 
-function normalizeCodeLanguage(value: string): { displayLanguage: string; highlightLanguage: string | undefined } {
-  const displayLanguage = value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'text'
+function looksLikeJson(value: string): boolean {
+  const trimmed = value.trim()
+  if (!trimmed || !/^[{[]/.test(trimmed)) return false
+  try {
+    JSON.parse(trimmed)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function detectCodeLanguage(code: string): string {
+  const trimmed = code.trim()
+  if (!trimmed) return 'text'
+  const lines = trimmed.split(/\r?\n/)
+  const firstLines = lines.slice(0, 12).join('\n')
+  const plusMinusLines = lines.filter((line) => /^[+-](?![+-]{2})/.test(line)).length
+
+  if (/^(diff --git|index\s+[0-9a-f]+\.\.|@@\s+-\d+)/m.test(trimmed) || (/^(---|\+\+\+)\s/m.test(trimmed) && plusMinusLines >= 2)) return 'diff'
+  if (looksLikeJson(trimmed)) return 'json'
+  if (/^#!.*\b(bash|sh|zsh)\b/m.test(trimmed) || /(^|\n)\s*(npm|pnpm|yarn|bun|git|cd|mkdir|rm|cp|mv|cat|sed|rg|grep|curl|chmod|export)\s+/.test(trimmed) || /^\s*[$#]\s+\S+/m.test(trimmed)) return 'bash'
+  if (/<[a-z][\w:-]*(\s[^>]*)?>[\s\S]*<\/[a-z][\w:-]*>/i.test(firstLines) || /<!doctype html/i.test(trimmed)) return 'html'
+  if (/(^|\n)\s*(import|export)\s+.+from\s+['"]/.test(trimmed) || /\b(interface|type)\s+[A-Z_a-z][\w$]*\b/.test(trimmed) || /\bReact\.[A-Z_a-z]|\buse[A-Z]\w*\s*\(/.test(trimmed) || /<[A-Z_a-z][\w.:-]*(\s+[^>]*)?\/?>/.test(trimmed)) return 'typescript'
+  if (/\b(function|const|let|var)\s+[\w$]+|\bconsole\.(log|warn|error)\s*\(|=>/.test(trimmed)) return 'javascript'
+  if (/(^|\n)\s*[.#]?[a-zA-Z][\w-]*(\s+[.#]?[a-zA-Z][\w-]*)*\s*\{[\s\S]*\b(color|background|display|position|margin|padding|border|font-size|grid-template|align-items)\s*:/.test(trimmed)) return 'css'
+  if (/^(#{1,6}\s+\S|[-*]\s+\S|\|.+\|)$/m.test(trimmed)) return 'markdown'
+  return 'text'
+}
+
+function normalizeCodeLanguage(value: string, code = ''): { displayLanguage: string; highlightLanguage: string | undefined } {
+  const explicitLanguage = value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')
+  const displayLanguage = explicitLanguage && explicitLanguage !== 'text'
+    ? explicitLanguage
+    : detectCodeLanguage(code)
   return {
     displayLanguage,
     highlightLanguage: LANGUAGE_ALIASES[displayLanguage]
@@ -144,8 +176,8 @@ function tokenizeMarkdownLite(body: string): MarkdownSegment[] {
 }
 
 function renderCodeBlock(language: string, code: string, key: string | number) {
-  const { displayLanguage, highlightLanguage } = normalizeCodeLanguage(language)
   const trimmed = code.trim()
+  const { displayLanguage, highlightLanguage } = normalizeCodeLanguage(language, trimmed)
   const highlightedCode = highlightCode(trimmed, highlightLanguage)
   return (
     <div key={key} className={styles.codexCodeBlockWrap}>
@@ -174,7 +206,7 @@ function renderMarkdownLite(body: string) {
 
 function compactMetadataPreview(metadata: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   if (!metadata) return undefined
-  const allowedKeys = ['codexBlock', 'commandStatus', 'exitCode', 'eventsPath', 'changesPath', 'truncated', 'unavailable', 'stopped']
+  const allowedKeys = ['codexBlock', 'commandStatus', 'exitCode', 'changesPath', 'truncated', 'unavailable', 'stopped']
   const compact = Object.fromEntries(allowedKeys
     .filter((key) => metadata[key] !== undefined)
     .map((key) => [key, metadata[key]])
@@ -189,7 +221,7 @@ function shortenPath(value: string): string {
 
 function metadataPathEntries(metadata: Record<string, unknown> | undefined): Array<{ key: string; value: string }> {
   if (!metadata) return []
-  return ['eventsPath', 'changesPath', 'finalMessagePath']
+  return ['changesPath', 'finalMessagePath']
     .map((key) => ({ key, value: metadata[key] }))
     .filter((entry): entry is { key: string; value: string } => typeof entry.value === 'string' && entry.value.length > 0)
 }

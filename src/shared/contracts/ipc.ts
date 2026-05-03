@@ -303,6 +303,8 @@ export interface UpdateProjectRequest {
     gatewayId?: string | null
     runtimeWorkspaceId?: string | null
     defaultModel?: string | null
+    planModel?: string | null
+    runModel?: string | null
   }
 }
 

@@ -33,6 +33,10 @@ interface ActivityPopupLegacyProps {
   chatGatewayOptions: AppSelectOption[]
   chatModel: string
   chatModelOption: AppSelectOption | null
+  chatPlanModel: string
+  chatPlanModelOption: AppSelectOption | null
+  chatRunModel: string
+  chatRunModelOption: AppSelectOption | null
   chatModelOptions: AppSelectOption[]
   chatGatewayConfig: { executionMode?: string }
   chatRuntimeWorkspace: Workspace | null
@@ -68,6 +72,8 @@ interface ActivityPopupLegacyProps {
   onActivityScroll: () => void
   onGatewayChange: (option: AppSelectOption | null) => void
   onModelChange: (option: AppSelectOption | null) => void
+  onPlanModelChange: (option: AppSelectOption | null) => void
+  onRunModelChange: (option: AppSelectOption | null) => void
   onIncludeContextChange: (value: boolean) => void
   onAttachmentRemove: (attachmentId: string) => void
   onAttachFilesClick: () => void
@@ -98,6 +104,8 @@ type ActivityPopupStateProps = Omit<
   | 'onActivityScroll'
   | 'onGatewayChange'
   | 'onModelChange'
+  | 'onPlanModelChange'
+  | 'onRunModelChange'
   | 'onIncludeContextChange'
   | 'onAttachmentRemove'
   | 'onAttachFilesClick'
@@ -128,6 +136,8 @@ type ActivityPopupHandlerProps = Pick<
   | 'onActivityScroll'
   | 'onGatewayChange'
   | 'onModelChange'
+  | 'onPlanModelChange'
+  | 'onRunModelChange'
   | 'onIncludeContextChange'
   | 'onAttachmentRemove'
   | 'onAttachFilesClick'
@@ -172,6 +182,8 @@ export function ActivityPopup({
     onActivityScroll: chatHandlers?.onActivityScroll ?? legacyState.onActivityScroll ?? noOp,
     onGatewayChange: chatHandlers?.onGatewayChange ?? legacyState.onGatewayChange ?? (() => {}),
     onModelChange: chatHandlers?.onModelChange ?? legacyState.onModelChange ?? (() => {}),
+    onPlanModelChange: chatHandlers?.onPlanModelChange ?? legacyState.onPlanModelChange ?? (() => {}),
+    onRunModelChange: chatHandlers?.onRunModelChange ?? legacyState.onRunModelChange ?? (() => {}),
     onIncludeContextChange: chatHandlers?.onIncludeContextChange ?? legacyState.onIncludeContextChange ?? noOp,
     onAttachmentRemove: chatHandlers?.onAttachmentRemove ?? legacyState.onAttachmentRemove ?? noOp,
     onAttachFilesClick: chatHandlers?.onAttachFilesClick ?? legacyState.onAttachFilesClick ?? noOp,
@@ -209,6 +221,10 @@ export function ActivityPopup({
     chatGatewayOptions,
     chatModel,
     chatModelOption,
+    chatPlanModel,
+    chatPlanModelOption,
+    chatRunModel,
+    chatRunModelOption,
     chatModelOptions,
     chatGatewayConfig,
     chatRuntimeWorkspace,
@@ -247,6 +263,8 @@ export function ActivityPopup({
     onActivityScroll,
     onGatewayChange,
     onModelChange,
+    onPlanModelChange,
+    onRunModelChange,
     onIncludeContextChange,
     onAttachmentRemove,
     onAttachFilesClick,
@@ -264,6 +282,11 @@ export function ActivityPopup({
     runningConversationIds.has(conversation.id)
       ? <em className={styles.chatSidebarLoader} aria-label="Codex chat is running"><i /><i /><i /></em>
       : conversation.status === 'running' ? 'completed' : conversation.status
+  )
+  const conversationStatusClass = (conversation: ChatConversationSummary) => (
+    conversation.status === 'running' && !runningConversationIds.has(conversation.id)
+      ? styles.chatStatus_completed
+      : styles[`chatStatus_${conversation.status}`] ?? ''
   )
 
   return (
@@ -290,30 +313,24 @@ export function ActivityPopup({
           {sidebarConversations.map((conversation) => (
             <button type="button" key={conversation.id} className={selectedConversationId === conversation.id ? styles.chatConversationActive : ''} onClick={() => onConversationSelect(conversation.id)}>
               <span>
-                {conversation.title}
-                <b className={`${styles.chatStatusBadge} ${styles[`chatStatus_${conversation.status}`] ?? ''}`}>
+                <span className={styles.chatConversationTitle}>{conversation.title}</span>
+                <b className={`${styles.chatStatusBadge} ${conversationStatusClass(conversation)}`}>
                   {conversationStatusLabel(conversation)}
                 </b>
                 {runningConversationIds.has(conversation.id) ? (
-                  <span
-                    role="button"
-                    tabIndex={0}
+                  <button
+                    type="button"
                     className={styles.chatSidebarStopButton}
                     aria-label={`Stop ${conversation.title}`}
                     title="Stop"
+                    disabled={stoppingConversationIds.has(conversation.id)}
                     onClick={(event) => {
-                      event.stopPropagation()
-                      onStopChat(conversation.id)
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key !== 'Enter' && event.key !== ' ') return
-                      event.preventDefault()
                       event.stopPropagation()
                       onStopChat(conversation.id)
                     }}
                   >
                     {stoppingConversationIds.has(conversation.id) ? <em className={styles.chatSidebarLoader} aria-label="Stopping"><i /><i /><i /></em> : <LuCircleStop size={13} />}
-                  </span>
+                  </button>
                 ) : null}
               </span>
               <small>{conversation.count} messages · {formatChatTime(conversation.at)}</small>
@@ -355,7 +372,7 @@ export function ActivityPopup({
                       <div>
                         <button type="button" onClick={onPlan} disabled={codexPlanLaunching}><LuSparkles size={15} /> Plan</button>
                         <button type="button" onClick={onRun} disabled={codexRunLaunching}><LuPlay size={15} /> Run</button>
-                        {(!chatGateway || !chatModel) ? <button type="button" onClick={onSettingsToggle}><LuSettings2 size={15} /> Configure</button> : null}
+                        {(!chatGateway || (!chatPlanModel && !chatModel) || (!chatRunModel && !chatModel)) ? <button type="button" onClick={onSettingsToggle}><LuSettings2 size={15} /> Configure</button> : null}
                       </div>
                     </>
                   )}
@@ -373,8 +390,12 @@ export function ActivityPopup({
                   <AppSelect mode="single" value={chatGatewayOption} options={chatGatewayOptions} onChange={(option) => { if (!Array.isArray(option)) onGatewayChange(option) }} placeholder="Select gateway" />
                 </div>
                 <div className={styles.chatSettingsCard}>
-                  <div className={styles.chatSettingTitle}><span><LuBot size={14} /></span><div><b>Model</b><small>{chatModel || 'Select a model'}</small></div></div>
-                  <AppSelect mode="single" value={chatModelOption} options={chatModelOptions} onChange={(option) => { if (!Array.isArray(option)) onModelChange(option) }} placeholder="Select model" isDisabled={!chatGatewayOption} />
+                  <div className={styles.chatSettingTitle}><span><LuBot size={14} /></span><div><b>Plan model</b><small>{chatPlanModel || chatModel || 'Select a plan model'}</small></div></div>
+                  <AppSelect mode="single" value={chatPlanModelOption} options={chatModelOptions} onChange={(option) => { if (!Array.isArray(option)) onPlanModelChange(option) }} placeholder="Select plan model" isDisabled={!chatGatewayOption} />
+                </div>
+                <div className={styles.chatSettingsCard}>
+                  <div className={styles.chatSettingTitle}><span><LuBot size={14} /></span><div><b>Run / chat model</b><small>{chatRunModel || chatModel || 'Select a run model'}</small></div></div>
+                  <AppSelect mode="single" value={chatRunModelOption ?? chatModelOption} options={chatModelOptions} onChange={(option) => { if (!Array.isArray(option)) onRunModelChange(option) }} placeholder="Select run model" isDisabled={!chatGatewayOption} />
                 </div>
                 <div className={styles.chatSettingsMetaGrid}>
                   <div className={styles.chatSettingReadout}><span>Mode</span><b>{chatGatewayConfig.executionMode === 'exec' ? 'Exec' : 'Terminal'}</b></div>
@@ -441,7 +462,8 @@ export function ActivityPopup({
             <div className={styles.chatComposerRail}>
               <div className={styles.chatPillRow}>
                 <span className={!chatGateway ? styles.chatPillWarning : ''}><small>Gateway</small><b title={chatGateway?.name ?? 'Gateway required'}>{chatGateway?.name ?? 'Gateway required'}</b></span>
-                <span className={!chatModel ? styles.chatPillWarning : ''}><small>Model</small><b title={chatModel || 'Model required'}>{chatModel || 'Model required'}</b></span>
+                <span className={!chatPlanModel && !chatModel ? styles.chatPillWarning : ''}><small>Plan</small><b title={chatPlanModel || chatModel || 'Plan model required'}>{chatPlanModel || chatModel || 'Plan model required'}</b></span>
+                <span className={!chatRunModel && !chatModel ? styles.chatPillWarning : ''}><small>Run</small><b title={chatRunModel || chatModel || 'Run model required'}>{chatRunModel || chatModel || 'Run model required'}</b></span>
                 <span><small>Mode</small><b>{chatGatewayConfig.executionMode === 'exec' ? 'Exec' : 'Terminal'}</b></span>
                 <span><small>Workspace</small><b title={chatRuntimeWorkspace?.name ?? runtimeWorkspaceId ?? 'Workspace required'}>{chatRuntimeWorkspace?.name ?? runtimeWorkspaceId ?? 'Workspace required'}</b></span>
                 <span><small>Session</small><b>{selectedChatSummary?.status ?? (visibleMessages.length ? 'mixed' : 'ready')}</b></span>

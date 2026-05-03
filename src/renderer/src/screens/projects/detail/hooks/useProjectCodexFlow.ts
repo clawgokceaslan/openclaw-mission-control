@@ -1,7 +1,6 @@
 import { useCallback } from 'react'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
-import type { Gateway, Project } from '@shared/types/entities'
-import type { TaskEntity } from '@shared/types/entities'
+import type { Agent, CustomField, Gateway, Project, ProjectGroup, ProjectStatus, Skill, Tag, TaskEntity } from '@shared/types/entities'
 import { invokeBridge } from '@renderer/utils/api'
 import { buildTaskZipArchive } from '../taskExport'
 import { createLocalId, taskCodexGatewayId, taskCodexModel } from '../projectDetailUtils'
@@ -55,12 +54,12 @@ interface CodexModelsResponse {
 interface CodexTaskExportContext {
   task: TaskEntity
   project?: Project | null
-  projectGroup?: { id: string; name?: string } | null
-  agents?: Array<{ id: string }>
-  skills?: Array<{ id: string }>
-  tags?: Array<{ id: string }>
-  customFields?: Array<{ id: string }>
-  projectStatuses?: Array<{ id: string; status: string }>
+  projectGroup?: ProjectGroup | null
+  agents: Agent[]
+  skills: Skill[]
+  tags: Tag[]
+  customFields: CustomField[]
+  projectStatuses?: ProjectStatus[]
 }
 
 export interface ProjectCodexFlowContext {
@@ -69,13 +68,18 @@ export interface ProjectCodexFlowContext {
   selectedTask: TaskEntity | null
   selectedTaskExportContext: CodexTaskExportContext | null
   taskRunGatewayId: string
+  taskPlanModel: string
   taskRunModel: string
   savedCodexDefaultGatewayId: string
   savedCodexDefaultModel: string
+  savedCodexDefaultPlanModel: string
+  savedCodexDefaultRunModel: string
   chatDraft: string
   chatAttachments: ChatAttachmentDraft[]
   chatGatewayId: string
   chatModel: string
+  chatPlanModel: string
+  chatRunModel: string
   chatIncludeContext: boolean
   chatComposerMode: 'chat' | 'steer'
   selectedChatConversationId: string
@@ -134,13 +138,18 @@ export function useProjectCodexFlow({
   selectedTask,
   selectedTaskExportContext,
   taskRunGatewayId,
+  taskPlanModel,
   taskRunModel,
   savedCodexDefaultGatewayId,
   savedCodexDefaultModel,
+  savedCodexDefaultPlanModel,
+  savedCodexDefaultRunModel,
   chatDraft,
   chatAttachments,
   chatGatewayId,
   chatModel,
+  chatPlanModel,
+  chatRunModel,
   chatIncludeContext,
   chatComposerMode,
   selectedChatConversationId,
@@ -179,12 +188,13 @@ export function useProjectCodexFlow({
   const selectedTaskGatewayId = selectedTask ? taskCodexGatewayId(selectedTask) : ''
   const selectedTaskGatewayModel = selectedTask ? taskCodexModel(selectedTask) : ''
   const resolvedTaskGatewayId = taskRunGatewayId || selectedTaskGatewayId || savedCodexDefaultGatewayId
-  const resolvedTaskModel = taskRunModel || selectedTaskGatewayModel || savedCodexDefaultModel
+  const resolvedPlanModel = taskPlanModel || selectedTaskGatewayModel || savedCodexDefaultPlanModel || savedCodexDefaultModel
+  const resolvedRunModel = taskRunModel || selectedTaskGatewayModel || savedCodexDefaultRunModel || savedCodexDefaultModel
 
   const isPlanDraft = chatDraft.trim().toLowerCase().startsWith('/plan')
   const chatMode: 'chat' | 'plan' | 'steer' = isPlanDraft ? 'plan' : chatComposerMode
-  const canRunSelectedTaskWithCodex = Boolean(selectedTaskExportContext && resolvedTaskGatewayId && resolvedTaskModel)
-  const canPlanSelectedTaskWithCodex = Boolean(selectedTask && resolvedTaskGatewayId && resolvedTaskModel)
+  const canRunSelectedTaskWithCodex = Boolean(selectedTaskExportContext && resolvedTaskGatewayId && resolvedRunModel)
+  const canPlanSelectedTaskWithCodex = Boolean(selectedTask && resolvedTaskGatewayId && resolvedPlanModel)
   const canSendChat = Boolean(chatDraft.trim() || chatAttachments.length > 0)
 
   const selectedTaskSummary = selectedTask?.title ?? ''
@@ -210,7 +220,7 @@ export function useProjectCodexFlow({
     if (gatewayId === savedCodexDefaultGatewayId && savedCodexDefaultModel && !modelIds.has(savedCodexDefaultModel)) {
       setCodexDefaultModel('')
     }
-    if (gatewayId === savedCodexDefaultGatewayId && resolvedTaskModel && !modelIds.has(resolvedTaskModel)) {
+    if (gatewayId === savedCodexDefaultGatewayId && resolvedRunModel && !modelIds.has(resolvedRunModel)) {
       setSelectedChatConversationId('')
     }
     setError(response.data.error ?? null)
@@ -224,7 +234,7 @@ export function useProjectCodexFlow({
     setError,
     savedCodexDefaultGatewayId,
     savedCodexDefaultModel,
-    resolvedTaskModel
+    resolvedRunModel
   ])
 
   const runSelectedTaskWithCodex = useCallback(async () => {
@@ -239,7 +249,7 @@ export function useProjectCodexFlow({
       setDetailTab('model')
       return
     }
-    if (!resolvedTaskModel) {
+    if (!resolvedRunModel) {
       setCodexRunFeedback({ kind: 'error', message: 'Choose a Codex model before running this task.' })
       setChatSettingsOpen(true)
       setDetailTab('model')
@@ -259,7 +269,7 @@ export function useProjectCodexFlow({
         zipName: fileName,
         zipBytes: archive,
         gatewayId: resolvedTaskGatewayId,
-        model: resolvedTaskModel,
+        model: resolvedRunModel,
         generalContext: project.generalContext ?? '',
         generalPrompt: project.generalPrompt ?? '',
         defaultOutput: project.defaultOutput ?? ''
@@ -286,7 +296,7 @@ export function useProjectCodexFlow({
     selectedTask,
     selectedTaskExportContext,
     resolvedTaskGatewayId,
-    resolvedTaskModel,
+    resolvedRunModel,
     token,
     setCodexRunFeedback,
     setCodexRunLaunching,
@@ -310,8 +320,8 @@ export function useProjectCodexFlow({
       setDetailTab('model')
       return
     }
-    if (!resolvedTaskModel) {
-      setCodexRunFeedback({ kind: 'error', message: 'Choose a Codex model before planning this task.' })
+    if (!resolvedPlanModel) {
+      setCodexRunFeedback({ kind: 'error', message: 'Choose a Codex plan model before planning this task.' })
       setChatSettingsOpen(true)
       setDetailTab('model')
       return
@@ -327,7 +337,7 @@ export function useProjectCodexFlow({
         taskId: selectedTask.id,
         projectId: project.id,
         gatewayId: resolvedTaskGatewayId,
-        model: resolvedTaskModel,
+        model: resolvedPlanModel,
         generalContext: project.generalContext ?? '',
         generalPrompt: project.generalPrompt ?? '',
         defaultOutput: project.defaultOutput ?? ''
@@ -353,7 +363,7 @@ export function useProjectCodexFlow({
     project,
     selectedTask,
     resolvedTaskGatewayId,
-    resolvedTaskModel,
+    resolvedPlanModel,
     token,
     setCodexRunFeedback,
     setCodexPlanLaunching,
@@ -368,18 +378,22 @@ export function useProjectCodexFlow({
   const sendCodexChatMessage = useCallback(async () => {
     if (!selectedTask || !project) return
     if (!chatDraft.trim() && chatAttachments.length === 0) return
-    if (!chatGatewayId || !chatModel) {
+    const effectiveSelectedChatSummary = isStartingNewChat ? null : selectedChatSummary
+    const sendAsPlanRevision = !isStartingNewChat && effectiveSelectedChatSummary?.source === 'codex-plan'
+    const effectiveChatMode = sendAsPlanRevision ? 'plan' : chatMode
+    const resolvedChatModel = effectiveChatMode === 'plan'
+      ? (chatPlanModel || chatModel)
+      : (chatRunModel || chatModel)
+    if (!chatGatewayId || !resolvedChatModel) {
       setChatSettingsOpen(true)
       setCodexRunFeedback({ kind: 'error', message: 'Choose a Codex gateway and model before sending chat.' })
       return
     }
-    const effectiveSelectedChatSummary = isStartingNewChat ? null : selectedChatSummary
     if ((chatMode === 'steer' || effectiveSelectedChatSummary?.source === 'codex-plan') && !selectedChatConversationId) {
       setCodexRunFeedback({ kind: 'error', message: 'Select a conversation before sending a steer message.' })
       return
     }
 
-    const sendAsPlanRevision = !isStartingNewChat && effectiveSelectedChatSummary?.source === 'codex-plan'
     setChatSending(true)
     setCodexRunFeedback(null)
 
@@ -390,10 +404,10 @@ export function useProjectCodexFlow({
         projectId: project.id,
         message: chatDraft.trim() || 'Review the attached file(s) in the task context.',
         gatewayId: chatGatewayId,
-        model: chatModel,
+        model: resolvedChatModel,
         conversationId: isStartingNewChat ? undefined : selectedChatConversationId || undefined,
         includeTaskContext: chatIncludeContext,
-        mode: sendAsPlanRevision ? 'plan' : chatMode,
+        mode: effectiveChatMode,
         attachments: chatAttachments.map((attachment) => ({ name: attachment.name, bytes: attachment.bytes }))
       })
       if (!response.ok || !response.data) {
@@ -424,6 +438,8 @@ export function useProjectCodexFlow({
     chatAttachments,
     chatGatewayId,
     chatModel,
+    chatPlanModel,
+    chatRunModel,
     isStartingNewChat,
     chatIncludeContext,
     selectedChatConversationId,
@@ -523,11 +539,11 @@ export function useProjectCodexFlow({
   ])
 
   const chatOperationFeedback: ChatOperationFeedbackData | null = codexPlanLaunching
-    ? { state: 'running', title: 'Planning with Codex', message: `Launching ${chatModel || resolvedTaskModel || 'the selected model'} with the current task context.` }
+    ? { state: 'running', title: 'Planning with Codex', message: `Launching ${chatPlanModel || resolvedPlanModel || 'the selected model'} with the current task context.` }
     : codexRunLaunching
-      ? { state: 'running', title: 'Running task with Codex', message: `Preparing the task workspace for ${chatModel || resolvedTaskModel || 'the selected model'}.` }
+      ? { state: 'running', title: 'Running task with Codex', message: `Preparing the task workspace for ${chatRunModel || chatModel || resolvedRunModel || 'the selected model'}.` }
       : chatSending
-        ? { state: 'running', title: 'Sending message', message: `Starting ${chatModel || 'the selected model'} for this chat thread.` }
+        ? { state: 'running', title: 'Sending message', message: `Starting ${chatRunModel || chatModel || 'the selected model'} for this chat thread.` }
         : chatStopping
           ? { state: 'running', title: 'Stopping chat', message: 'Asking Codex to stop the active run.' }
           : codexRunFeedback

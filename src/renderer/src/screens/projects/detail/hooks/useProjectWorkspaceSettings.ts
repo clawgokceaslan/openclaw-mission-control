@@ -1,23 +1,41 @@
 import { useEffect, useMemo } from 'react'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
-import type { Gateway, Project, ProjectGroup, Workspace } from '@shared/types/entities'
+import { AppSelectOption } from '@renderer/components/select/AppSelect'
+import type { Gateway, Project, ProjectGroup, ProjectStatus, StatusTemplate, Workspace, Tag, Skill, Agent, CustomField, TaskEntity } from '@shared/types/entities'
 import { invokeBridge } from '@renderer/utils/api'
-import type { AppSelectOption } from '@renderer/components/select/AppSelect'
-import { codexConfigOf, projectCodexSettings, projectWorkspaceFolder } from '../projectDetailUtils'
+import {
+  codexConfigOf,
+  createLocalId,
+  getTableViewConfig,
+  projectCodexSettings,
+  projectWorkspaceFolder
+} from '../projectDetailUtils'
+import { buildProjectWorkspaceExportTaskPayload } from '../taskExport'
 import type { ProjectDetailStateBindings } from '../state/projectDetailState'
+import type { ProjectTableViewConfig, TableColumnConfig } from '../types'
 
 interface UseProjectWorkspaceSettingsContext {
-  token: string | null
+  token?: string | null
   project: Project | null
   projectGroups: ProjectGroup[]
   workspaces: Workspace[]
   gateways: Gateway[]
+  projectStatuses: ProjectStatus[]
+  defaultStatus: ProjectStatus['status']
+  tableColumns: TableColumnConfig[]
+  tags: Tag[]
+  skills: Skill[]
+  agents: Agent[]
+  customFields: CustomField[]
+  tasks: TaskEntity[]
   refresh: () => Promise<void>
   state: Pick<
     ProjectDetailStateBindings,
     | 'codexGatewayId'
     | 'codexRuntimeWorkspaceId'
     | 'codexDefaultModel'
+    | 'codexDefaultPlanModel'
+    | 'codexDefaultRunModel'
     | 'workspaceDraftName'
     | 'workspaceDraftPath'
     | 'projectGroupNameDraft'
@@ -36,7 +54,82 @@ interface UseProjectWorkspaceSettingsContext {
     | 'setProjectGroups'
     | 'setProjectGroupNameDraft'
     | 'setProjectGroupDescriptionDraft'
+    | 'setProjectPromptContext'
+    | 'setProjectPromptPrompt'
+    | 'setProjectPromptOutput'
+    | 'setProjectPromptTab'
+    | 'setProjectPromptError'
+    | 'setIsProjectPromptSaving'
+    | 'setIsProjectPromptSettingsOpen'
+    | 'setCodexGatewayId'
+    | 'setCodexRuntimeWorkspaceId'
+    | 'setCodexDefaultModel'
+    | 'setCodexDefaultPlanModel'
+    | 'setCodexDefaultRunModel'
+    | 'setCodexModelError'
+    | 'setIsStatusTemplatePickerOpen'
+    | 'setPendingStatusTemplate'
+    | 'setIsStatusEditorOpen'
+    | 'setStatusDrafts'
+    | 'setStatusMapping'
+    | 'setProjectSyncMessage'
+    | 'setProjectSyncing'
+    | 'projectPromptContext'
+    | 'projectPromptPrompt'
+    | 'projectPromptOutput'
+    | 'projectPromptError'
+    | 'isStatusTemplatePickerOpen'
+    | 'pendingStatusTemplate'
+    | 'projectFolderPreview'
+    | 'projectSyncMessage'
+    | 'projectSyncing'
+    | 'statusDrafts'
+    | 'statusMapping'
+    | 'isStatusEditorOpen'
   >
+}
+
+interface UseProjectWorkspaceSettingsResult {
+  state: {
+    selectedWorkspace: Workspace | null
+    selectedCodexGateway: Gateway | null
+    selectedCodexConfig: ReturnType<typeof codexConfigOf>
+    codexModelOptions: ReturnType<typeof codexConfigOf>['models']
+    codexGatewayOptions: AppSelectOption[]
+    workspaceOptions: AppSelectOption[]
+    projectCodexModelOptions: AppSelectOption[]
+    selectedCodexGatewayOption: AppSelectOption | null
+    selectedRuntimeWorkspaceOption: AppSelectOption | null
+    selectedDefaultModelOption: AppSelectOption | null
+    selectedDefaultPlanModelOption: AppSelectOption | null
+    selectedDefaultRunModelOption: AppSelectOption | null
+    chatRuntimeWorkspace: Workspace | null
+    projectGroupForExport: ProjectGroup | null
+    savedCodexSettings: ReturnType<typeof projectCodexSettings>
+    codexModelOptionsNormalized: ReturnType<typeof codexConfigOf>['models']
+    codexGatewayOptionsNormalized: AppSelectOption[]
+  }
+  actions: {
+    chooseProjectWorkspaceFolder: () => Promise<void>
+    createWorkspaceFromDraft: () => Promise<Workspace | null>
+    updateProjectWorkspace: (workspaceId: string | null) => Promise<void>
+    saveProjectCodexSettings: (draft?: { gatewayId: string; runtimeWorkspaceId: string; planModel: string; runModel: string }) => Promise<void>
+    updateProjectGroupMembership: (nextGroupId: string | null) => Promise<void>
+    saveSelectedProjectGroup: () => Promise<void>
+    syncProjectWorkspace: () => Promise<void>
+    openStatusEditor: () => void
+    openProjectPromptSettings: () => void
+    saveProjectPromptSettings: () => Promise<void>
+    saveProjectTableView: (nextConfig: ProjectTableViewConfig) => Promise<void>
+    setTableColumns: (columns: TableColumnConfig[]) => Promise<void>
+    setTableColumnWidth: (columnId: string, width: number) => Promise<void>
+    updateStatusDraft: (id: string, patch: Partial<ProjectStatus>) => void
+    addActiveStatus: () => void
+    removeStatusDraft: (status: ProjectStatus) => void
+    applyStatusTemplate: (template: StatusTemplate) => Promise<void>
+    saveProjectStatuses: () => Promise<void>
+    setCodexGateway: (value: string) => void
+  }
 }
 
 export function useProjectWorkspaceSettings({
@@ -45,13 +138,23 @@ export function useProjectWorkspaceSettings({
   projectGroups,
   workspaces,
   gateways,
+  projectStatuses,
+  defaultStatus,
+  tableColumns,
+  tags,
+  skills,
+  agents,
+  customFields,
+  tasks,
   refresh,
   state
-}: UseProjectWorkspaceSettingsContext) {
+}: UseProjectWorkspaceSettingsContext): UseProjectWorkspaceSettingsResult {
   const {
     codexGatewayId,
     codexRuntimeWorkspaceId,
     codexDefaultModel,
+    codexDefaultPlanModel,
+    codexDefaultRunModel,
     workspaceDraftName,
     workspaceDraftPath,
     projectGroupNameDraft,
@@ -69,7 +172,39 @@ export function useProjectWorkspaceSettings({
     setIsProjectGroupPickerOpen,
     setProjectGroups,
     setProjectGroupNameDraft,
-    setProjectGroupDescriptionDraft
+    setProjectGroupDescriptionDraft,
+    setProjectPromptContext,
+    setProjectPromptPrompt,
+    setProjectPromptOutput,
+    setProjectPromptTab,
+    setProjectPromptError,
+    setIsProjectPromptSaving,
+    setIsProjectPromptSettingsOpen,
+    setCodexGatewayId,
+    setCodexRuntimeWorkspaceId,
+    setCodexDefaultModel,
+    setCodexDefaultPlanModel,
+    setCodexDefaultRunModel,
+    setCodexModelError,
+    setIsStatusTemplatePickerOpen,
+    setPendingStatusTemplate,
+    setIsStatusEditorOpen,
+    setStatusDrafts,
+    setStatusMapping,
+    setProjectSyncMessage,
+    setProjectSyncing,
+    projectPromptContext,
+    projectPromptPrompt,
+    projectPromptOutput,
+    projectPromptError,
+    isStatusTemplatePickerOpen,
+    pendingStatusTemplate,
+    projectFolderPreview,
+    projectSyncMessage,
+    projectSyncing,
+    statusDrafts,
+    statusMapping,
+    isStatusEditorOpen
   } = state
 
   const selectedWorkspace = useMemo(() => {
@@ -99,6 +234,9 @@ export function useProjectWorkspaceSettings({
   const selectedCodexGatewayOption = codexGatewayOptions.find((option) => option.value === codexGatewayId) ?? null
   const selectedRuntimeWorkspaceOption = workspaceOptions.find((option) => option.value === codexRuntimeWorkspaceId) ?? null
   const selectedDefaultModelOption = projectCodexModelOptions.find((option) => option.value === codexDefaultModel) ?? null
+  const selectedDefaultPlanModelOption = projectCodexModelOptions.find((option) => option.value === (codexDefaultPlanModel || codexDefaultModel)) ?? null
+  const selectedDefaultRunModelOption = projectCodexModelOptions.find((option) => option.value === (codexDefaultRunModel || codexDefaultModel)) ?? null
+
   const chatRuntimeWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === savedCodexSettings.runtimeWorkspaceId) ?? null,
     [savedCodexSettings.runtimeWorkspaceId, workspaces]
@@ -112,8 +250,11 @@ export function useProjectWorkspaceSettings({
   useEffect(() => {
     let cancelled = false
     void projectWorkspaceFolder(selectedWorkspace, project).then((value) => {
-      if (!cancelled) setProjectFolderPreview(value)
+      if (!cancelled) {
+        setProjectFolderPreview(value)
+      }
     })
+
     return () => {
       cancelled = true
     }
@@ -122,7 +263,7 @@ export function useProjectWorkspaceSettings({
   useEffect(() => {
     setProjectGroupNameDraft(projectGroupForExport?.name ?? '')
     setProjectGroupDescriptionDraft(projectGroupForExport?.description ?? '')
-  }, [projectGroupForExport, setProjectGroupDescriptionDraft, setProjectGroupNameDraft])
+  }, [projectGroupForExport, setProjectGroupNameDraft, setProjectGroupDescriptionDraft])
 
   const chooseProjectWorkspaceFolder = async () => {
     const pickResponse = await invokeBridge<{ rootPath: string } | null>(IPC_CHANNELS.workspaces.pickFolder, { actorToken: token })
@@ -131,7 +272,9 @@ export function useProjectWorkspaceSettings({
       return
     }
     const rootPath = pickResponse.data?.rootPath
-    if (rootPath) setWorkspaceDraftPath(rootPath)
+    if (rootPath) {
+      setWorkspaceDraftPath(rootPath)
+    }
   }
 
   const createWorkspaceFromDraft = async (): Promise<Workspace | null> => {
@@ -171,16 +314,23 @@ export function useProjectWorkspaceSettings({
     await refresh()
   }
 
-  const saveProjectCodexSettings = async () => {
+  const saveProjectCodexSettings = async (draft?: { gatewayId: string; runtimeWorkspaceId: string; planModel: string; runModel: string }) => {
     if (!project) return
+    const nextGatewayId = draft?.gatewayId ?? codexGatewayId
+    const nextRuntimeWorkspaceId = draft?.runtimeWorkspaceId ?? codexRuntimeWorkspaceId
+    const nextPlanModel = draft?.planModel ?? codexDefaultPlanModel
+    const nextRunModel = draft?.runModel ?? codexDefaultRunModel
+
     setCodexSaving(true)
     const response = await invokeBridge<Project>(IPC_CHANNELS.projects.update, {
       actorToken: token,
       id: project.id,
       codex: {
-        gatewayId: codexGatewayId || null,
-        runtimeWorkspaceId: codexRuntimeWorkspaceId || null,
-        defaultModel: codexDefaultModel || null
+        gatewayId: nextGatewayId || null,
+        runtimeWorkspaceId: nextRuntimeWorkspaceId || null,
+        defaultModel: nextRunModel || codexDefaultModel || null,
+        planModel: nextPlanModel || codexDefaultModel || null,
+        runModel: nextRunModel || codexDefaultModel || null
       }
     })
     setCodexSaving(false)
@@ -202,6 +352,7 @@ export function useProjectWorkspaceSettings({
 
     setProjectGroupSaving(true)
     setError(null)
+
     if (currentGroup) {
       const removeResponse = await invokeBridge<ProjectGroup>(IPC_CHANNELS.projectGroups.update, {
         actorToken: token,
@@ -259,10 +410,244 @@ export function useProjectWorkspaceSettings({
     setProjectGroups((current) => current.map((group) => group.id === response.data!.id ? response.data! : group))
   }
 
+  const syncProjectWorkspace = async () => {
+    if (!project) return
+    if (!project.workspaceId) {
+      setProjectSyncMessage('Assign a workspace before syncing project exports.')
+      return
+    }
+
+    setProjectSyncing(true)
+    setProjectSyncMessage(`Preparing ${tasks.length} task export(s)...`)
+    const exportTasks = tasks.map((taskItem) => buildProjectWorkspaceExportTaskPayload({
+      task: taskItem,
+      project,
+      projectGroup: projectGroupForExport,
+      agents,
+      skills,
+      tags,
+      customFields,
+      projectStatuses
+    }))
+    const response = await invokeBridge<{ projectFolderPath: string; processedTasks: number; writtenFiles: string[]; skippedFiles: string[]; errors: string[] }>(IPC_CHANNELS.projects.exportWorkspace, {
+      actorToken: token,
+      projectId: project.id,
+      tasks: exportTasks
+    })
+    setProjectSyncing(false)
+    if (!response.ok || !response.data) {
+      setProjectSyncMessage(response.error?.message ?? 'Unable to sync project exports.')
+      return
+    }
+    const skipped = response.data.skippedFiles.length ? ` ${response.data.skippedFiles.length} skipped.` : ''
+    const errors = response.data.errors.length ? ` ${response.data.errors.length} errors.` : ''
+    setProjectSyncMessage(`Synced ${response.data.processedTasks} task(s), wrote ${response.data.writtenFiles.length} file(s).${skipped}${errors}`)
+  }
+
+  const openStatusEditor = () => {
+    setStatusDrafts(projectStatuses)
+    setStatusMapping({})
+    setProjectPromptTab('statuses')
+    setWorkspaceMoveMessage(null)
+    setIsStatusEditorOpen(true)
+  }
+
+  const openProjectPromptSettings = () => {
+    if (!project) return
+    setProjectPromptTab('context')
+    setProjectPromptContext(project.generalContext ?? '')
+    setProjectPromptPrompt(project.generalPrompt ?? '')
+    setProjectPromptOutput(project.defaultOutput ?? '')
+    setProjectPromptError(null)
+    setIsProjectPromptSettingsOpen(true)
+  }
+
+  const saveProjectPromptSettings = async () => {
+    if (!project) return
+    setIsProjectPromptSaving(true)
+    setProjectPromptError(null)
+    const response = await invokeBridge<Project>(IPC_CHANNELS.projects.update, {
+      actorToken: token,
+      id: project.id,
+      generalContext: projectPromptContext,
+      generalPrompt: projectPromptPrompt,
+      defaultOutput: projectPromptOutput
+    })
+    setIsProjectPromptSaving(false)
+    if (!response.ok || !response.data) {
+      setProjectPromptError(response.error?.message ?? 'Unable to save project prompt settings')
+      return
+    }
+    setProject(response.data)
+    setIsProjectPromptSettingsOpen(false)
+  }
+
+  const saveProjectTableView = async (nextConfig: ProjectTableViewConfig) => {
+    if (!project) return
+    const response = await invokeBridge<Project>(IPC_CHANNELS.projects.update, {
+      actorToken: token,
+      id: project.id,
+      metrics: {
+        ...(project.metrics ?? {}),
+        tableView: nextConfig
+      }
+    })
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? 'Unable to save table view settings')
+      return
+    }
+    setProject(response.data)
+  }
+
+  const setTableColumns = async (columns: TableColumnConfig[]) => {
+    const current = getTableViewConfig(project)
+    await saveProjectTableView({ ...current, columns: columns.slice(0, 12) })
+  }
+
+  const setTableColumnWidth = async (columnId: string, width: number) => {
+    const current = getTableViewConfig(project)
+    await saveProjectTableView({
+      ...current,
+      columns: tableColumns.map((column) => (column.id === columnId ? { ...column, width } : column)),
+      columnWidths: {
+        ...(current.columnWidths ?? {}),
+        [columnId]: Math.max(80, Math.min(520, Math.round(width)))
+      }
+    })
+  }
+
+  const updateStatusDraft = (id: string, patch: Partial<ProjectStatus>) => {
+    setStatusDrafts((current) => current.map((item) => item.id === id ? { ...item, ...patch, updatedAt: Date.now() } : item))
+  }
+
+  const addActiveStatus = () => {
+    if (!project) return
+    const now = Date.now()
+    const id = createLocalId()
+    setStatusDrafts((current) => [
+      ...current,
+      {
+        id,
+        organizationId: project.organizationId,
+        projectId: project.id,
+        name: 'New active status',
+        category: 'active',
+        color: '#5B7CFA',
+        sortOrder: current.length,
+        isDefault: false,
+        createdAt: now,
+        updatedAt: now
+      }
+    ])
+  }
+
+  const removeStatusDraft = (status: ProjectStatus) => {
+    if (status.category !== 'active') return
+    setStatusDrafts((current) => current.filter((item) => item.id !== status.id))
+    setStatusMapping((current) => ({ ...current, [status.id]: defaultStatus }))
+  }
+
+  const buildStatusTemplateMapping = (template: StatusTemplate): { mapping: Record<string, string>; needsReview: boolean } => {
+    const nextItems = template.items ?? []
+    const mapping: Record<string, string> = {}
+    let needsReview = false
+
+    for (const current of projectStatuses) {
+      const exact = nextItems.find((item) => item.id === current.id)
+      if (exact) continue
+
+      const named = nextItems.find((item) => item.category === current.category && item.name.trim().toLowerCase() === current.name.trim().toLowerCase())
+      if (named) {
+        mapping[current.id] = named.id
+        continue
+      }
+      const categoryFallback = nextItems.find((item) => item.category === current.category) ?? nextItems[0]
+      if (categoryFallback) {
+        mapping[current.id] = categoryFallback.id
+        needsReview = true
+      }
+    }
+
+    return { mapping, needsReview }
+  }
+
+  const applyStatusTemplate = async (template: StatusTemplate) => {
+    if (!project) return
+    const items = template.items ?? []
+    if (!items.length) return
+
+    const { mapping, needsReview } = buildStatusTemplateMapping(template)
+    const nextDrafts = items.map((item, index) => ({
+      ...item,
+      projectId: project.id,
+      sortOrder: index,
+      isDefault: item.category === 'not_started'
+    }))
+
+    setStatusDrafts(nextDrafts)
+    setStatusMapping(mapping)
+    setPendingStatusTemplate(needsReview ? template : null)
+    setIsStatusTemplatePickerOpen(false)
+
+    if (!needsReview && project.id) {
+      const response = await invokeBridge<ProjectStatus[]>(IPC_CHANNELS.statuses.updateProjectStatuses, {
+        actorToken: token,
+        projectId: project.id,
+        items: nextDrafts.map((item, index) => ({
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          color: item.color,
+          sortOrder: index,
+          isDefault: item.category === 'not_started'
+        })),
+        mapping: {}
+      })
+      if (!response.ok) {
+        setError(response.error?.message ?? 'Unable to apply status template')
+        return
+      }
+      setIsStatusEditorOpen(false)
+      await refresh()
+    }
+  }
+
+  const saveProjectStatuses = async () => {
+    if (!project?.id) return
+    const response = await invokeBridge<ProjectStatus[]>(IPC_CHANNELS.statuses.updateProjectStatuses, {
+      actorToken: token,
+      projectId: project.id,
+      items: statusDrafts.map((item, index) => ({
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        color: item.color,
+        sortOrder: index,
+        isDefault: item.category === 'not_started'
+      })),
+      mapping: statusMapping
+    })
+    if (!response.ok) {
+      setError(response.error?.message ?? 'Unable to update project statuses')
+      return
+    }
+    setIsStatusEditorOpen(false)
+    await refresh()
+  }
+
+  const setCodexGateway = (value: string) => {
+    const nextGateway = gateways.find((item) => item.id === value)
+    const models = codexConfigOf(nextGateway).models ?? []
+    setCodexGatewayId(value)
+    setCodexModelError(null)
+    if (!models.some((model) => model.id === codexDefaultModel)) setCodexDefaultModel('')
+    if (!models.some((model) => model.id === codexDefaultPlanModel)) setCodexDefaultPlanModel('')
+    if (!models.some((model) => model.id === codexDefaultRunModel)) setCodexDefaultRunModel('')
+  }
+
   return {
     state: {
       selectedWorkspace,
-      savedCodexSettings,
       selectedCodexGateway,
       selectedCodexConfig,
       codexModelOptions,
@@ -272,8 +657,13 @@ export function useProjectWorkspaceSettings({
       selectedCodexGatewayOption,
       selectedRuntimeWorkspaceOption,
       selectedDefaultModelOption,
+      selectedDefaultPlanModelOption,
+      selectedDefaultRunModelOption,
       chatRuntimeWorkspace,
-      projectGroupForExport
+      projectGroupForExport,
+      savedCodexSettings,
+      codexModelOptionsNormalized: codexModelOptions,
+      codexGatewayOptionsNormalized: codexGatewayOptions
     },
     actions: {
       chooseProjectWorkspaceFolder,
@@ -281,7 +671,20 @@ export function useProjectWorkspaceSettings({
       updateProjectWorkspace,
       saveProjectCodexSettings,
       updateProjectGroupMembership,
-      saveSelectedProjectGroup
+      saveSelectedProjectGroup,
+      syncProjectWorkspace,
+      openStatusEditor,
+      openProjectPromptSettings,
+      saveProjectPromptSettings,
+      saveProjectTableView,
+      setTableColumns,
+      setTableColumnWidth,
+      updateStatusDraft,
+      addActiveStatus,
+      removeStatusDraft,
+      applyStatusTemplate,
+      saveProjectStatuses,
+      setCodexGateway
     }
   }
 }

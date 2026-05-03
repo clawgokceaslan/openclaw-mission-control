@@ -41,6 +41,8 @@ export interface ProjectDetailDataContext {
       | 'setCodexGatewayId'
       | 'setCodexRuntimeWorkspaceId'
       | 'setCodexDefaultModel'
+      | 'setCodexDefaultPlanModel'
+      | 'setCodexDefaultRunModel'
       | 'setSelectedTaskId'
       | 'project'
   >
@@ -70,6 +72,8 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
     setCodexGatewayId,
     setCodexRuntimeWorkspaceId,
     setCodexDefaultModel,
+    setCodexDefaultPlanModel,
+    setCodexDefaultRunModel,
     setSelectedTaskId,
     project
   } = state
@@ -181,7 +185,9 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
     setCodexGatewayId(codex.gatewayId ?? '')
     setCodexRuntimeWorkspaceId(codex.runtimeWorkspaceId ?? '')
     setCodexDefaultModel(codex.defaultModel ?? '')
-  }, [project?.id, project?.metrics, project, setCodexGatewayId, setCodexRuntimeWorkspaceId, setCodexDefaultModel])
+    setCodexDefaultPlanModel(codex.planModel ?? codex.defaultModel ?? '')
+    setCodexDefaultRunModel(codex.runModel ?? codex.defaultModel ?? '')
+  }, [project?.id, project?.metrics, project, setCodexGatewayId, setCodexRuntimeWorkspaceId, setCodexDefaultModel, setCodexDefaultPlanModel, setCodexDefaultRunModel])
 
   return {
     refresh,

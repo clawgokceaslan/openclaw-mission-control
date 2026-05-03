@@ -15,7 +15,9 @@ export function projectCodexSettings(project: Project | null): ProjectCodexSetti
   return {
     gatewayId: typeof record.gatewayId === 'string' ? record.gatewayId : null,
     runtimeWorkspaceId: typeof record.runtimeWorkspaceId === 'string' ? record.runtimeWorkspaceId : null,
-    defaultModel: typeof record.defaultModel === 'string' ? record.defaultModel : null
+    defaultModel: typeof record.defaultModel === 'string' ? record.defaultModel : null,
+    planModel: typeof record.planModel === 'string' ? record.planModel : null,
+    runModel: typeof record.runModel === 'string' ? record.runModel : null
   }
 }
 
@@ -34,23 +36,50 @@ export function codexConfigOf(gateway?: { template?: unknown; endpoint?: string 
 }
 
 export function taskCodexModel(task: TaskEntity | null | undefined): string {
+  return readTaskCodexOverride(task).legacyModel
+}
+
+export function readTaskCodexOverride(task: TaskEntity | null | undefined): { gatewayId: string; legacyModel: string; planModel: string; runModel: string } {
   const codex = task?.payload?.codex
-  return codex && typeof codex === 'object' && !Array.isArray(codex) && typeof (codex as Record<string, unknown>).model === 'string'
-    ? String((codex as Record<string, unknown>).model)
-    : ''
+  if (!codex || typeof codex !== 'object' || Array.isArray(codex)) {
+    return { gatewayId: '', legacyModel: '', planModel: '', runModel: '' }
+  }
+  const record = codex as Record<string, unknown>
+  return {
+    gatewayId: typeof record.gatewayId === 'string' ? record.gatewayId : '',
+    legacyModel: typeof record.model === 'string' ? record.model : '',
+    planModel: typeof record.planModel === 'string' ? record.planModel : '',
+    runModel: typeof record.runModel === 'string' ? record.runModel : ''
+  }
+}
+
+export function taskCodexPlanModel(task: TaskEntity | null | undefined): string {
+  return readTaskCodexOverride(task).planModel
+}
+
+export function taskCodexRunModel(task: TaskEntity | null | undefined): string {
+  const { runModel, legacyModel } = readTaskCodexOverride(task)
+  return runModel || legacyModel
+}
+
+export function taskCodexExplicitPlanModel(task: TaskEntity | null | undefined): string {
+  return readTaskCodexOverride(task).planModel
+}
+
+export function taskCodexExplicitRunModel(task: TaskEntity | null | undefined): string {
+  return readTaskCodexOverride(task).runModel
 }
 
 export function taskCodexGatewayId(task: TaskEntity | null | undefined): string {
-  const codex = task?.payload?.codex
-  return codex && typeof codex === 'object' && !Array.isArray(codex) && typeof (codex as Record<string, unknown>).gatewayId === 'string'
-    ? String((codex as Record<string, unknown>).gatewayId)
-    : ''
+  return readTaskCodexOverride(task).gatewayId
 }
 
-export function codexPayloadOverride(gatewayId: string, model: string): Record<string, string> | undefined {
+export function codexPayloadOverride(gatewayId: string, model: string, planModel = '', runModel = ''): Record<string, string> | undefined {
   const next: Record<string, string> = {}
   if (gatewayId) next.gatewayId = gatewayId
   if (model) next.model = model
+  if (planModel) next.planModel = planModel
+  if (runModel) next.runModel = runModel
   return Object.keys(next).length > 0 ? next : undefined
 }
 

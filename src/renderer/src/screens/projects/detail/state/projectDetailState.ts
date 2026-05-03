@@ -120,6 +120,8 @@ export interface ProjectDetailCodexState {
   codexGatewayId: string
   codexRuntimeWorkspaceId: string
   codexDefaultModel: string
+  codexDefaultPlanModel: string
+  codexDefaultRunModel: string
   codexModelLoading: boolean
   codexModelError: string | null
   codexSaving: boolean
@@ -135,6 +137,8 @@ export interface ProjectDetailChatState {
   chatSettingsOpen: boolean
   chatGatewayId: string
   chatModel: string
+  chatPlanModel: string
+  chatRunModel: string
   chatIncludeContext: boolean
   chatComposerMode: ChatComposerMode
   chatAttachments: ChatAttachmentDraft[]
@@ -342,6 +346,8 @@ export const PROJECT_DETAIL_INITIAL_STATE: ProjectDetailState = {
     codexGatewayId: '',
     codexRuntimeWorkspaceId: '',
     codexDefaultModel: '',
+    codexDefaultPlanModel: '',
+    codexDefaultRunModel: '',
     codexModelLoading: false,
     codexModelError: null,
     codexSaving: false,
@@ -356,6 +362,8 @@ export const PROJECT_DETAIL_INITIAL_STATE: ProjectDetailState = {
     chatSettingsOpen: false,
     chatGatewayId: '',
     chatModel: '',
+    chatPlanModel: '',
+    chatRunModel: '',
     chatIncludeContext: true,
     chatComposerMode: 'chat',
     chatAttachments: [],
@@ -472,6 +480,8 @@ const PROJECT_DETAIL_FIELD_TO_PATH = {
   codexGatewayId: ['codex', 'codexGatewayId'],
   codexRuntimeWorkspaceId: ['codex', 'codexRuntimeWorkspaceId'],
   codexDefaultModel: ['codex', 'codexDefaultModel'],
+  codexDefaultPlanModel: ['codex', 'codexDefaultPlanModel'],
+  codexDefaultRunModel: ['codex', 'codexDefaultRunModel'],
   codexModelLoading: ['codex', 'codexModelLoading'],
   codexModelError: ['codex', 'codexModelError'],
   codexSaving: ['codex', 'codexSaving'],
@@ -484,6 +494,8 @@ const PROJECT_DETAIL_FIELD_TO_PATH = {
   chatSettingsOpen: ['chat', 'chatSettingsOpen'],
   chatGatewayId: ['chat', 'chatGatewayId'],
   chatModel: ['chat', 'chatModel'],
+  chatPlanModel: ['chat', 'chatPlanModel'],
+  chatRunModel: ['chat', 'chatRunModel'],
   chatIncludeContext: ['chat', 'chatIncludeContext'],
   chatComposerMode: ['chat', 'chatComposerMode'],
   chatAttachments: ['chat', 'chatAttachments'],

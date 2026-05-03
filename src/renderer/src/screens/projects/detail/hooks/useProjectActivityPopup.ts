@@ -34,6 +34,10 @@ export interface ActivityPopupState {
   chatGatewayOptions: AppSelectOption[]
   chatModel: string
   chatModelOption: AppSelectOption | null
+  chatPlanModel: string
+  chatPlanModelOption: AppSelectOption | null
+  chatRunModel: string
+  chatRunModelOption: AppSelectOption | null
   chatModelOptions: AppSelectOption[]
   chatGatewayConfig: { executionMode?: string }
   chatRuntimeWorkspace: Workspace | null
@@ -72,6 +76,8 @@ interface ActivityPopupHandlers {
   onActivityScroll: () => void
   onGatewayChange: (option: AppSelectOption | null) => void
   onModelChange: (option: AppSelectOption | null) => void
+  onPlanModelChange: (option: AppSelectOption | null) => void
+  onRunModelChange: (option: AppSelectOption | null) => void
   onIncludeContextChange: (value: boolean) => void
   onAttachmentRemove: (attachmentId: string) => void
   onAttachFilesClick: () => void
@@ -86,6 +92,7 @@ interface ActivityPopupHandlers {
 
 const LOCAL_CHAT_STATUS_RUN_ID = 'local-chat-status'
 const RUNNING_ACTIVITY_STALE_MS = 15 * 60 * 1000
+const CHAT_BOTTOM_STICKY_THRESHOLD = 96
 const slashCommands: SlashCommand[] = [
   { id: 'plan', label: '/plan', hint: 'Draft a plan in this chat' },
   { id: 'run', label: '/run', hint: 'Start a Codex run for the task' },
@@ -148,6 +155,10 @@ interface ActivityPopupParams {
   chatGatewayOptions: AppSelectOption[]
   chatModel: string
   chatModelOption: AppSelectOption | null
+  chatPlanModel: string
+  chatPlanModelOption: AppSelectOption | null
+  chatRunModel: string
+  chatRunModelOption: AppSelectOption | null
   chatModelOptions: AppSelectOption[]
   chatGatewayConfig: { executionMode?: string }
   chatRuntimeWorkspace: Workspace | null
@@ -175,6 +186,8 @@ interface ActivityPopupParams {
   setSlashCommandIndex: Setter<number>
   setChatSettingsOpen: Setter<boolean>
   setChatModel: Setter<string>
+  setChatPlanModel: Setter<string>
+  setChatRunModel: Setter<string>
   setChatIncludeContext: Setter<boolean>
   setChatGatewayId: Setter<string>
   setChatComposerFocused: Setter<boolean>
@@ -215,6 +228,10 @@ export function useProjectActivityPopup({
   chatGatewayOptions,
   chatModel,
   chatModelOption,
+  chatPlanModel,
+  chatPlanModelOption,
+  chatRunModel,
+  chatRunModelOption,
   chatModelOptions,
   chatGatewayConfig,
   chatRuntimeWorkspace,
@@ -242,6 +259,8 @@ export function useProjectActivityPopup({
   setSlashCommandIndex,
   setChatSettingsOpen,
   setChatModel,
+  setChatPlanModel,
+  setChatRunModel,
   setChatIncludeContext,
   setChatGatewayId,
   setChatComposerFocused,
@@ -311,10 +330,10 @@ export function useProjectActivityPopup({
     )))
   }, [chatActivityMessages, chatOperationFeedback, isStartingNewChat, localSettledConversationIds, selectedChatConversationId])
 
-  const selectedChatSummary = isStartingNewChat
+  const selectedChatSummary = (isStartingNewChat
     ? null
-    : selectedChatSummaryFromState
-    ?? chatConversations.find((conversation) => conversation.id === selectedChatConversationId) ?? null
+    : selectedChatSummaryFromState)
+    ?? (isStartingNewChat ? null : chatConversations.find((conversation) => conversation.id === selectedChatConversationId) ?? null)
 
   const selectedChatIsRunning = Boolean(selectedChatSummary && runningConversationIds.has(selectedChatSummary.id))
 
@@ -338,8 +357,8 @@ export function useProjectActivityPopup({
   }, [visibleChatMessages])
 
   const selectedChatCanStopComputed = useMemo(() => {
-    return Boolean(selectedChatSummary && runningConversationIds.has(selectedChatSummary.id) && (selectedChatCanStop || selectedChatSummary.source === 'codex-chat' || selectedChatSummary.source === 'codex-plan'))
-  }, [runningConversationIds, selectedChatCanStop, selectedChatSummary])
+    return Boolean(selectedChatSummary && runningConversationIds.has(selectedChatSummary.id))
+  }, [runningConversationIds, selectedChatSummary])
 
   const localChatStatusMessage = useMemo<TaskActivityMessage | null>(() => {
     if (!chatOperationFeedback || !isChatModalMounted) return null
@@ -362,6 +381,21 @@ export function useProjectActivityPopup({
       createdAt: Date.now()
     }
   }, [chatOperationFeedback, codexPlanLaunching, codexRunLaunching, isChatModalMounted, selectedChatConversationId])
+
+  const scrollSignal = useMemo(() => {
+    const lastMessage = renderedChatMessages[renderedChatMessages.length - 1]
+    const localSignal = localChatStatusMessage
+      ? `${localChatStatusMessage.id}:${localChatStatusMessage.status ?? ''}:${localChatStatusMessage.body.length}`
+      : ''
+    return [
+      renderedChatMessages.length,
+      lastMessage?.id ?? '',
+      lastMessage?.updatedAt ?? lastMessage?.createdAt ?? 0,
+      lastMessage?.status ?? '',
+      lastMessage?.body.length ?? 0,
+      localSignal
+    ].join(':')
+  }, [localChatStatusMessage, renderedChatMessages])
 
   const slashMatch = chatDraft.match(/(?:^|\s)\/([a-z]*)$/i)
   const slashQuery = slashMatch?.[1]?.toLowerCase() ?? ''
@@ -399,10 +433,25 @@ export function useProjectActivityPopup({
     if (!isActivityModalOpen) return
     const feed = activityFeedRef.current
     if (!feed) return
-    if (keepActivityBottomRef.current) {
+    const distanceToBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight
+    const shouldStickToBottom = keepActivityBottomRef.current || distanceToBottom < CHAT_BOTTOM_STICKY_THRESHOLD
+    if (!shouldStickToBottom) return
+    let secondFrame = 0
+    const firstFrame = requestAnimationFrame(() => {
       feed.scrollTop = feed.scrollHeight
+      secondFrame = requestAnimationFrame(() => {
+        feed.scrollTop = feed.scrollHeight
+      })
+    })
+    return () => {
+      cancelAnimationFrame(firstFrame)
+      if (secondFrame) cancelAnimationFrame(secondFrame)
     }
-  }, [visibleChatMessages.length, isActivityModalOpen, activityFeedRef])
+  }, [activityFeedRef, isActivityModalOpen, isStartingNewChat, scrollSignal, selectedChatConversationId])
+
+  useEffect(() => {
+    keepActivityBottomRef.current = true
+  }, [isStartingNewChat, selectedChatConversationId])
 
   useEffect(() => {
     if (!isChatModalMounted) return
@@ -420,7 +469,7 @@ export function useProjectActivityPopup({
     const feed = activityFeedRef.current
     if (!feed) return
     const distanceToBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight
-    keepActivityBottomRef.current = distanceToBottom < 36
+    keepActivityBottomRef.current = distanceToBottom < CHAT_BOTTOM_STICKY_THRESHOLD
   }
 
   const handleChatDragEnter = (event: DragEvent<HTMLElement>) => {
@@ -473,6 +522,10 @@ export function useProjectActivityPopup({
     chatGatewayOptions,
     chatModel,
     chatModelOption,
+    chatPlanModel,
+    chatPlanModelOption,
+    chatRunModel,
+    chatRunModelOption,
     chatModelOptions,
     chatGatewayConfig,
     chatRuntimeWorkspace,
@@ -538,8 +591,16 @@ export function useProjectActivityPopup({
     onGatewayChange: (option) => {
       setChatGatewayId(option?.value ?? '')
       setChatModel('')
+      setChatPlanModel('')
+      setChatRunModel('')
     },
     onModelChange: (option) => setChatModel(option?.value ?? ''),
+    onPlanModelChange: (option) => setChatPlanModel(option?.value ?? ''),
+    onRunModelChange: (option) => {
+      const next = option?.value ?? ''
+      setChatRunModel(next)
+      setChatModel(next)
+    },
     onIncludeContextChange: setChatIncludeContext,
     onAttachmentRemove: (attachmentId) => setChatAttachments((current) => current.filter((item) => item.id !== attachmentId)),
     onAttachFilesClick: () => chatFileInputRef.current?.click(),
