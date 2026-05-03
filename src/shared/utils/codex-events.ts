@@ -18,6 +18,9 @@ export type CodexMessageEvent = {
   kind: 'message'
   role: 'assistant' | 'user' | 'system' | 'tool' | 'thinking'
   text: string
+  durationMs?: number
+  startedAt?: number
+  endedAt?: number
 }
 
 export type CodexStatusEvent = {
@@ -50,6 +53,30 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function finiteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function finiteNumberFromString(value: unknown): number | undefined {
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : undefined
+  }
+  return undefined
+}
+
+function asDurationMs(record: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const direct = finiteNumber(record[key]) ?? finiteNumberFromString(record[key])
+    if (direct !== undefined) return Math.max(0, Math.trunc(direct))
+  }
+  return undefined
+}
+
+function asMsFromSeconds(record: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = finiteNumber(record[key]) ?? finiteNumberFromString(record[key])
+    if (value !== undefined) return Math.max(0, Math.round(value * 1_000))
+  }
+  return undefined
 }
 
 function pickNumber(record: Record<string, unknown>, keys: string[]): number | undefined {
@@ -156,7 +183,17 @@ function normalizeEvent(rawEvent: Record<string, unknown>): CodexNormalizedEvent
 
   if ((itemType === 'reasoning' || itemType === 'reasoning_summary') && item) {
     const text = typeof item.text === 'string' ? item.text : typeof item.summary === 'string' ? item.summary : ''
-    return text ? [{ kind: 'message', role: 'thinking', text }] : []
+    const durationMs = asDurationMs(item, ['duration_ms', 'durationMs', 'duration']) ?? asMsFromSeconds(item, ['duration_sec', 'durationSeconds', 'duration_second'])
+    const startedAt = asDurationMs(item, ['started_at', 'startedAt', 'start_time', 'startTime', 'event_started_at', 'eventStartedAt'])
+    const endedAt = asDurationMs(item, ['ended_at', 'endedAt', 'end_time', 'endTime', 'event_ended_at', 'eventEndedAt'])
+    return text ? [{
+      kind: 'message',
+      role: 'thinking',
+      text,
+      durationMs,
+      startedAt,
+      endedAt
+    }] : []
   }
 
   if (['message', 'user_message', 'system_message', 'tool_message'].includes(itemType) && item) {

@@ -1809,7 +1809,11 @@
   border: 0;
   border-radius: 10px;
   background: transparent;
-  padding: 0 0 0 30px;
+  padding: 0;
+}
+
+.chatRole_system {
+  padding-left: 30px;
 }
 
 .chatRole_error {

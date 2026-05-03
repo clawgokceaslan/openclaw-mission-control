@@ -11,6 +11,15 @@ import {
 } from '@renderer/screens/projects/detail/chat/chatUtils'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
+function parseDurationMs(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : undefined
+  }
+  return undefined
+}
+
 function renderMarkdownLite(body: string) {
   const segments = body.split(/```/g)
   return segments.map((segment, index) => {
@@ -37,8 +46,19 @@ type CodexChatMessageItemProps = {
   message: TaskActivityMessage
 }
 
+function thinkingDurationLabel(message: TaskActivityMessage): string {
+  const metadata = message.metadata ?? {}
+  const explicitDurationMs = parseDurationMs(metadata.thinkingDurationMs) ?? parseDurationMs(metadata.durationMs)
+  const startedAt = parseDurationMs(metadata.thinkingStartedAt) ?? parseDurationMs(metadata.thinkingStartAt)
+  const endedAt = parseDurationMs(metadata.thinkingEndedAt) ?? parseDurationMs(metadata.thinkingEndAt) ?? message.createdAt
+  const fallbackDurationMs = explicitDurationMs ?? (startedAt !== undefined && endedAt !== undefined ? Math.max(0, endedAt - startedAt) : undefined)
+  if (!Number.isFinite(fallbackDurationMs) || !fallbackDurationMs) return ''
+  return `Working for ${Math.max(0, Math.round(fallbackDurationMs / 1000))}s`
+}
+
 export const CodexChatMessageItem = memo(function CodexChatMessageItem({ message }: CodexChatMessageItemProps) {
   const usage = usageFromMetadata(message.metadata)
+  const thinkingLabel = thinkingDurationLabel(message)
   const thinkingText = message.body.trim() || (message.status === 'running'
     ? message.source === 'codex-plan'
       ? 'Codex is planning this task...'
@@ -74,7 +94,7 @@ export const CodexChatMessageItem = memo(function CodexChatMessageItem({ message
               {message.status === 'running' ? (
                 <>{message.source === 'codex-plan' ? 'Planning' : message.source === 'codex-run' ? 'Running' : 'Thinking'} <span className={styles.thinkingDots}><i /><i /><i /></span></>
               ) : (
-                <><LuCircleCheck size={15} /> Thinking complete</>
+                <><LuCircleCheck size={15} /> {thinkingLabel || 'Thinking complete'}</>
               )}
             </span>
             {thinkingText ? <div className={styles.chatThinkingText}>{renderMarkdownLite(thinkingText)}</div> : null}

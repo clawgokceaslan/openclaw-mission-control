@@ -210,7 +210,7 @@ export function TaskDetailPopup({
             ) : null}
             <button
               type="button"
-              className={styles.iconButton}
+              className={`${styles.iconButton} ${styles.taskDetailOpenChatButton}`}
               onPointerDown={(event) => runHeaderAction(event, onOpenActivity)}
               aria-label="Open chat"
             >

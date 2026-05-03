@@ -417,7 +417,23 @@ function codexChatPrompt(input: {
   ].filter(Boolean).join('\n\n')
 }
 
-function summarizeCodexExecEvents(raw: string): { thinking: string; tools: string; rawTail: string; usage?: CodexUsageSummary } {
+type CodexThinkingSegment = {
+  text: string
+  durationMs?: number
+  startedAt?: number
+  endedAt?: number
+}
+
+function summarizeCodexExecEvents(
+  raw: string,
+  options?: { startedAt?: number; endedAt?: number }
+): {
+  thinking: string
+  thinkingSegments: CodexThinkingSegment[]
+  tools: string
+  rawTail: string
+  usage?: CodexUsageSummary
+} {
   const parsed = parseCodexEvents(raw)
   const commandRows = parsed.commands.slice(-12).map((event) => {
     const output = event.output?.trim()
@@ -434,6 +450,16 @@ function summarizeCodexExecEvents(raw: string): { thinking: string; tools: strin
     .filter((event): event is { kind: 'malformed' | 'raw'; text: string } => event.kind === 'malformed' || event.kind === 'raw')
     .slice(-6)
     .map((event) => `- ${event.text}`)
+  const thinkingSegments = parsed.messages
+    .filter((event) => event.role === 'thinking')
+    .slice(-10)
+    .map((event) => ({
+      text: event.text.trim(),
+      durationMs: event.durationMs,
+      startedAt: event.startedAt,
+      endedAt: event.endedAt
+    }))
+    .filter((event) => event.text)
   const completed = parsed.statuses.some((event) => event.type === 'turn.completed')
   const usageLine = formatUsageSummary(parsed.usage)
   const thinking = completed
@@ -449,8 +475,22 @@ function summarizeCodexExecEvents(raw: string): { thinking: string; tools: strin
     usageLine ? `Usage\n- ${usageLine}` : '',
     issueRows.length ? `Raw / malformed\n${issueRows.join('\n')}` : ''
   ].filter(Boolean)
+  const fallbackDurationMs = typeof options?.startedAt === 'number' && typeof options?.endedAt === 'number'
+    ? Math.max(0, options.endedAt - options.startedAt)
+    : undefined
+  const normalizedThinkingSegments = [...thinkingSegments]
+  if (normalizedThinkingSegments.length === 1 && fallbackDurationMs && !normalizedThinkingSegments[0].durationMs) {
+    const segment = normalizedThinkingSegments[0]
+    normalizedThinkingSegments[0] = {
+      ...segment,
+      durationMs: fallbackDurationMs,
+      startedAt: typeof segment.startedAt === 'number' ? segment.startedAt : options?.startedAt,
+      endedAt: typeof segment.endedAt === 'number' ? segment.endedAt : options?.endedAt
+    }
+  }
   return {
     thinking,
+    thinkingSegments: normalizedThinkingSegments,
     tools: toolSections.join('\n\n'),
     rawTail: parsed.rawTail,
     usage: parsed.usage
@@ -1351,6 +1391,7 @@ export class TaskService {
           body: 'Codex is working through the task...',
           metadata: { executionMode, eventsPath: execEventsPath }
         })
+        const executionStartedAt = Date.now()
         const child = spawn(codexPath, execArgs, {
           cwd: runtimeWorkspacePath,
           env: process.env,
@@ -1379,15 +1420,28 @@ export class TaskService {
           void (async () => {
             const finalMessage = await readFile(execFinalMessagePath, 'utf8').catch(() => '')
             const eventRaw = await readFile(execEventsPath, 'utf8').catch(() => '')
-            const eventSummary = summarizeCodexExecEvents(eventRaw)
-            await this.appendTaskActivityMessage(taskId, {
-              runId,
-              source: 'codex-run',
-              role: 'thinking',
-              status: code === 0 ? 'completed' : 'failed',
-              body: eventSummary.thinking,
-              metadata: { code, signal, eventsPath: execEventsPath, usage: eventSummary.usage }
-            })
+            const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
+            const thinkingMessages = eventSummary.thinkingSegments.length > 0
+              ? eventSummary.thinkingSegments
+              : [{ text: eventSummary.thinking }]
+            for (const thinkingMessage of thinkingMessages) {
+              await this.appendTaskActivityMessage(taskId, {
+                runId,
+                source: 'codex-run',
+                role: 'thinking',
+                status: code === 0 ? 'completed' : 'failed',
+                body: thinkingMessage.text,
+                metadata: {
+                  code,
+                  signal,
+                  eventsPath: execEventsPath,
+                  usage: eventSummary.usage,
+                  thinkingDurationMs: thinkingMessage.durationMs,
+                  thinkingStartedAt: thinkingMessage.startedAt,
+                  thinkingEndedAt: thinkingMessage.endedAt
+                }
+              })
+            }
             if (eventSummary.tools) {
               await this.appendTaskActivityMessage(taskId, {
                 runId,
@@ -1841,6 +1895,7 @@ export class TaskService {
           body: 'Codex is planning the task...',
           metadata: { executionMode, eventsPath: execEventsPath }
         })
+        const executionStartedAt = Date.now()
         const child = spawn(codexPath, execArgs, {
           cwd: runtimeWorkspacePath,
           env: process.env,
@@ -1869,15 +1924,28 @@ export class TaskService {
           void (async () => {
             const finalMessage = await readFile(execFinalMessagePath, 'utf8').catch(() => '')
             const eventRaw = await readFile(execEventsPath, 'utf8').catch(() => '')
-            const eventSummary = summarizeCodexExecEvents(eventRaw)
-            await this.appendTaskActivityMessage(taskId, {
-              runId,
-              source: 'codex-plan',
-              role: 'thinking',
-              status: code === 0 ? 'completed' : 'failed',
-              body: eventSummary.thinking,
-              metadata: { code, signal, eventsPath: execEventsPath, usage: eventSummary.usage }
-            })
+            const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
+            const thinkingMessages = eventSummary.thinkingSegments.length > 0
+              ? eventSummary.thinkingSegments
+              : [{ text: eventSummary.thinking }]
+            for (const thinkingMessage of thinkingMessages) {
+              await this.appendTaskActivityMessage(taskId, {
+                runId,
+                source: 'codex-plan',
+                role: 'thinking',
+                status: code === 0 ? 'completed' : 'failed',
+                body: thinkingMessage.text,
+                metadata: {
+                  code,
+                  signal,
+                  eventsPath: execEventsPath,
+                  usage: eventSummary.usage,
+                  thinkingDurationMs: thinkingMessage.durationMs,
+                  thinkingStartedAt: thinkingMessage.startedAt,
+                  thinkingEndedAt: thinkingMessage.endedAt
+                }
+              })
+            }
             if (eventSummary.tools) {
               await this.appendTaskActivityMessage(taskId, {
                 runId,
@@ -2115,6 +2183,7 @@ export class TaskService {
       return okResponse({ runId, conversationId, executionMode, command: codexCommand, runFolderPath, runtimeWorkspacePath })
     }
 
+    const executionStartedAt = Date.now()
     const child = spawn(codexPath, execArgs, { cwd: runtimeWorkspacePath, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
     const activeRun: ActiveCodexChatRun = { child, taskId, conversationId, runId }
     this.activeCodexChatRuns.set(runId, activeRun)
@@ -2158,17 +2227,30 @@ export class TaskService {
           return
         }
         const eventRaw = await readFile(eventsPath, 'utf8').catch(() => '')
-        const eventSummary = summarizeCodexExecEvents(eventRaw)
+        const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
         const finalMessage = await readFile(finalMessagePath, 'utf8').catch(() => '')
-        await this.appendTaskActivityMessage(taskId, {
-          runId,
-          conversationId,
-          source: activitySource,
-          role: 'thinking',
-          status: code === 0 ? 'completed' : 'failed',
-          body: eventSummary.thinking,
-          metadata: { code, signal, eventsPath, usage: eventSummary.usage }
-        })
+        const thinkingMessages = eventSummary.thinkingSegments.length > 0
+          ? eventSummary.thinkingSegments
+          : [{ text: eventSummary.thinking }]
+        for (const thinkingMessage of thinkingMessages) {
+          await this.appendTaskActivityMessage(taskId, {
+            runId,
+            conversationId,
+            source: activitySource,
+            role: 'thinking',
+            status: code === 0 ? 'completed' : 'failed',
+            body: thinkingMessage.text,
+            metadata: {
+              code,
+              signal,
+              eventsPath,
+              usage: eventSummary.usage,
+              thinkingDurationMs: thinkingMessage.durationMs,
+              thinkingStartedAt: thinkingMessage.startedAt,
+              thinkingEndedAt: thinkingMessage.endedAt
+            }
+          })
+        }
         if (eventSummary.tools) {
           await this.appendTaskActivityMessage(taskId, {
             runId,

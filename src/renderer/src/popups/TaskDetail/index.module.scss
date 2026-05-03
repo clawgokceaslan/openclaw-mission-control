@@ -145,6 +145,24 @@
   }
 }
 
+.taskDetailOpenChatButton {
+  border-color: #f7c948;
+  background: #f7c948;
+  color: #050505;
+
+  svg {
+    color: currentColor;
+    stroke: currentColor;
+  }
+
+  &:hover:not(:disabled),
+  &:active:not(:disabled) {
+    border-color: #ffd666;
+    background: #ffd666;
+    color: #050505;
+  }
+}
+
 .iconButtonActive {
   border-color: var(--omc-border-subtle);
   background: var(--omc-surface-muted);
