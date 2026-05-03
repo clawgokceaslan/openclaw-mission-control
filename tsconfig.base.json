@@ -9,6 +9,12 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "baseUrl": ".",
+    "paths": {
+      "@renderer/*": ["src/renderer/src/*"],
+      "@shared/*": ["src/shared/*"],
+      "@main/*": ["src/main/*"],
+      "@db/*": ["src/db/*"]
+    },
     "types": ["node"],
     "sourceMap": false,
     "downlevelIteration": true,

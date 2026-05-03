@@ -39,7 +39,7 @@ import { WorkspaceRepository } from '../../db/repositories/workspace-repo.js'
 import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
 import { TaskJsonImportNormalizer } from './task-json-import.js'
 import { safeConsole } from '../utils/safe-output.js'
-import { formatUsageSummary, parseCodexEvents, type CodexUsageSummary } from '../../shared/utils/codex-events.js'
+import { formatUsageSummary, parseCodexEvents, type CodexNormalizedEvent, type CodexUsageSummary } from '../../shared/utils/codex-events.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -424,6 +424,350 @@ type CodexThinkingSegment = {
   endedAt?: number
 }
 
+type CodexActivityStreamContext = {
+  taskId: string
+  runId: string
+  conversationId?: string
+  source: TaskActivityMessage['source']
+  eventsPath: string
+}
+
+type CodexActivityAppender = (message: Omit<TaskActivityMessage, 'id' | 'createdAt'> & { id?: string; createdAt?: number }) => Promise<TaskActivityMessage | null>
+
+type CodexActivityStreamer = {
+  writeStdout: (chunk: string) => void
+  writeStderr: (chunk: string) => void
+  flush: () => Promise<void>
+  hasAssistantMessage: () => boolean
+  latestUsage: () => CodexUsageSummary | undefined
+}
+
+const ACTIVITY_MESSAGE_LIMIT = 300
+const ACTIVITY_BODY_LIMIT = 18_000
+const ACTIVITY_METADATA_STRING_LIMIT = 2_000
+const CODEX_COMMAND_OUTPUT_LIMIT = 4_000
+const CODEX_RAW_OUTPUT_LIMIT = 2_000
+const CODEX_DIFF_PATCH_LIMIT = 10_000
+const CODEX_STREAM_FLUSH_MS = 850
+const CODEX_STREAM_BATCH_LIMIT = 8
+
+function truncateCodexText(value: string, limit: number): { text: string; truncated: boolean } {
+  if (value.length <= limit) return { text: value, truncated: false }
+  return { text: `${value.slice(0, limit)}\n\n[truncated ${value.length - limit} chars]`, truncated: true }
+}
+
+function compactMetadata(value: unknown): unknown {
+  if (typeof value === 'string') return truncateCodexText(value, ACTIVITY_METADATA_STRING_LIMIT).text
+  if (Array.isArray(value)) return value.slice(0, 20).map(compactMetadata)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, compactMetadata(item)]))
+  }
+  return value
+}
+
+function compactActivityMessage(
+  message: Omit<TaskActivityMessage, 'id' | 'createdAt'> & { id?: string; createdAt?: number }
+): Omit<TaskActivityMessage, 'id' | 'createdAt'> & { id?: string; createdAt?: number } {
+  const body = truncateCodexText(message.body, ACTIVITY_BODY_LIMIT)
+  const metadata = message.metadata ? Object.fromEntries(Object.entries(message.metadata).map(([key, value]) => [key, compactMetadata(value)])) : undefined
+  return {
+    ...message,
+    body: body.text,
+    metadata: metadata || body.truncated
+      ? { ...(metadata ?? {}), truncated: metadata?.truncated === true || body.truncated }
+      : undefined
+  }
+}
+
+function codexCommandBody(event: Extract<CodexNormalizedEvent, { kind: 'command' }>): { body: string; truncated: boolean } {
+  const parts = [
+    `Command: ${event.command}`,
+    `Status: ${event.status}${event.exitCode === undefined ? '' : ` (exit ${event.exitCode})`}`
+  ]
+  if (event.output?.trim()) {
+    const output = truncateCodexText(event.output.trim(), CODEX_COMMAND_OUTPUT_LIMIT)
+    parts.push('', '```text', output.text, '```')
+    return { body: parts.join('\n'), truncated: output.truncated }
+  }
+  return { body: parts.join('\n'), truncated: false }
+}
+
+function codexEventStatus(event: CodexNormalizedEvent): TaskActivityMessage['status'] {
+  if (event.kind === 'command') {
+    if (event.exitCode !== undefined && event.exitCode !== 0) return 'failed'
+    return event.status === 'failed' ? 'failed' : event.status === 'running' ? 'running' : 'completed'
+  }
+  return 'completed'
+}
+
+function createCodexActivityStreamer(context: CodexActivityStreamContext, append: CodexActivityAppender): CodexActivityStreamer {
+  let stdoutBuffer = ''
+  let stderrBuffer = ''
+  let queue = Promise.resolve()
+  let assistantSeen = false
+  let usage: CodexUsageSummary | undefined
+  let pendingMessages: Array<Omit<TaskActivityMessage, 'id' | 'createdAt'> & { id?: string; createdAt?: number }> = []
+  let pendingRawLogs: string[] = []
+  let flushTimer: NodeJS.Timeout | undefined
+
+  const flushPending = async (drainAll = false) => {
+    if (flushTimer) {
+      clearTimeout(flushTimer)
+      flushTimer = undefined
+    }
+    const rawLogs = pendingRawLogs
+    pendingRawLogs = []
+    if (rawLogs.length > 0) {
+      const joined = rawLogs.join('\n')
+      const truncated = truncateCodexText(joined, CODEX_RAW_OUTPUT_LIMIT)
+      pendingMessages.push({
+        runId: context.runId,
+        conversationId: context.conversationId,
+        source: context.source,
+        role: 'tool',
+        status: 'completed',
+        body: truncated.text,
+        metadata: { codexBlock: 'log', runStatus: 'running', eventsPath: context.eventsPath, truncated: truncated.truncated || joined.length > truncated.text.length, logLines: rawLogs.length }
+      })
+    }
+    const messages = pendingMessages.splice(0, drainAll ? pendingMessages.length : CODEX_STREAM_BATCH_LIMIT)
+    for (const message of messages) await append(compactActivityMessage(message))
+    if (!drainAll && (pendingMessages.length > 0 || pendingRawLogs.length > 0)) scheduleFlush(0)
+  }
+
+  const enqueueFlush = () => {
+    queue = queue.then(() => flushPending()).catch((error) => {
+      safeConsole.warn('[codex-stream] failed to append activity event', error instanceof Error ? error.message : String(error))
+    })
+  }
+
+  const scheduleFlush = (delay = CODEX_STREAM_FLUSH_MS) => {
+    if (flushTimer) return
+    flushTimer = setTimeout(() => {
+      flushTimer = undefined
+      enqueueFlush()
+    }, delay)
+    flushTimer.unref?.()
+  }
+
+  const pushMessage = (message: Omit<TaskActivityMessage, 'id' | 'createdAt'> & { id?: string; createdAt?: number }) => {
+    pendingMessages.push(message)
+    if (pendingMessages.length >= CODEX_STREAM_BATCH_LIMIT) {
+      enqueueFlush()
+      return
+    }
+    scheduleFlush()
+  }
+
+  const appendEvent = (event: CodexNormalizedEvent) => {
+    if (event.kind === 'status') {
+      usage = event.usage ?? usage
+      return
+    }
+
+    if (event.kind === 'command') {
+      if (!event.command.trim()) return
+      if ((event.status === 'started' || event.status === 'running') && !event.output?.trim()) return
+      const formatted = codexCommandBody(event)
+      pushMessage({
+        runId: context.runId,
+        conversationId: context.conversationId,
+        source: context.source,
+        role: 'tool',
+        status: codexEventStatus(event),
+        body: formatted.body,
+        metadata: {
+          codexBlock: 'command',
+          runStatus: 'running',
+          command: event.command,
+          commandStatus: event.status,
+          exitCode: event.exitCode,
+          eventsPath: context.eventsPath,
+          truncated: formatted.truncated
+        }
+      })
+      return
+    }
+
+    if (event.kind === 'message') {
+      const body = event.text.trim()
+      if (!body) return
+      if (event.role === 'assistant') assistantSeen = true
+      pushMessage({
+        runId: context.runId,
+        conversationId: context.conversationId,
+        source: context.source,
+        role: event.role,
+        status: 'completed',
+        body,
+        metadata: {
+          codexBlock: event.role === 'thinking' ? 'thinking' : event.role === 'assistant' ? 'assistant' : 'message',
+          runStatus: 'running',
+          eventsPath: context.eventsPath,
+          thinkingDurationMs: event.durationMs,
+          thinkingStartedAt: event.startedAt,
+          thinkingEndedAt: event.endedAt
+        }
+      })
+      return
+    }
+
+    const body = truncateCodexText(event.text.trim(), CODEX_RAW_OUTPUT_LIMIT)
+    if (!body.text) return
+    pushMessage({
+      runId: context.runId,
+      conversationId: context.conversationId,
+      source: context.source,
+      role: 'tool',
+      status: event.kind === 'malformed' ? 'failed' : 'completed',
+      body: body.text,
+      metadata: {
+        codexBlock: event.kind === 'raw' ? 'log' : event.kind,
+        runStatus: 'running',
+        eventsPath: context.eventsPath,
+        truncated: body.truncated
+      }
+    })
+  }
+
+  const processLine = (line: string) => {
+    const trimmed = line.trim()
+    if (!trimmed) return
+    const parsed = parseCodexEvents(trimmed)
+    for (const event of parsed.events) appendEvent(event)
+  }
+
+  const drainLines = (buffer: string, flush: boolean): string => {
+    const lines = buffer.split(/\r?\n/)
+    const rest = flush ? '' : lines.pop() ?? ''
+    for (const line of lines) processLine(line)
+    if (flush && rest.trim()) processLine(rest)
+    return rest
+  }
+
+  const processRawStderr = (line: string) => {
+    const body = line.trim()
+    if (!body) return
+    pendingRawLogs.push(body)
+    if (pendingRawLogs.length >= CODEX_STREAM_BATCH_LIMIT) {
+      enqueueFlush()
+      return
+    }
+    scheduleFlush()
+  }
+
+  const drainRawLines = (buffer: string, flush: boolean): string => {
+    const lines = buffer.split(/\r?\n/)
+    const rest = flush ? '' : lines.pop() ?? ''
+    for (const line of lines) processRawStderr(line)
+    if (flush && rest.trim()) processRawStderr(rest)
+    return rest
+  }
+
+  return {
+    writeStdout: (chunk: string) => {
+      void appendFile(context.eventsPath, chunk, 'utf8')
+      stdoutBuffer = drainLines(`${stdoutBuffer}${chunk}`, false)
+    },
+    writeStderr: (chunk: string) => {
+      void appendFile(context.eventsPath, chunk, 'utf8')
+      stderrBuffer = drainRawLines(`${stderrBuffer}${chunk}`, false)
+    },
+    flush: async () => {
+      stdoutBuffer = drainLines(stdoutBuffer, true)
+      stderrBuffer = drainRawLines(stderrBuffer, true)
+      await queue
+      await flushPending(true)
+    },
+    hasAssistantMessage: () => assistantSeen,
+    latestUsage: () => usage
+  }
+}
+
+function parseGitNumstat(value: string): { files: number; insertions: number; deletions: number; fileStats: Array<{ path: string; insertions: number; deletions: number }> } {
+  return value.trim().split(/\r?\n/).filter(Boolean).reduce((summary, line) => {
+    const [insertions, deletions, ...pathParts] = line.split(/\s+/)
+    const fileStat = {
+      path: pathParts.join(' '),
+      insertions: insertions === '-' ? 0 : Number(insertions) || 0,
+      deletions: deletions === '-' ? 0 : Number(deletions) || 0
+    }
+    return {
+      files: summary.files + 1,
+      insertions: summary.insertions + fileStat.insertions,
+      deletions: summary.deletions + fileStat.deletions,
+      fileStats: fileStat.path ? [...summary.fileStats, fileStat] : summary.fileStats
+    }
+  }, { files: 0, insertions: 0, deletions: 0, fileStats: [] as Array<{ path: string; insertions: number; deletions: number }> })
+}
+
+async function codexWorkspaceChanges(runtimeWorkspacePath: string, changesPath?: string): Promise<{
+  body: string
+  truncated: boolean
+  unavailable?: boolean
+  changesPath?: string
+  metadata?: Record<string, unknown>
+}> {
+  try {
+    const statusResult = await execFileAsync('git', ['status', '--short', '--untracked-files=all', '--', '.', ':(exclude).omc/**'], {
+      cwd: runtimeWorkspacePath,
+      maxBuffer: 2 * 1024 * 1024
+    })
+    const statResult = await execFileAsync('git', ['diff', '--stat', '--', '.', ':(exclude).omc/**'], {
+      cwd: runtimeWorkspacePath,
+      maxBuffer: 2 * 1024 * 1024
+    })
+    const numstatResult = await execFileAsync('git', ['diff', '--numstat', '--', '.', ':(exclude).omc/**'], {
+      cwd: runtimeWorkspacePath,
+      maxBuffer: 2 * 1024 * 1024
+    })
+    const patchResult = await execFileAsync('git', ['diff', '--patch', '--', '.', ':(exclude).omc/**'], {
+      cwd: runtimeWorkspacePath,
+      maxBuffer: 8 * 1024 * 1024
+    })
+    const status = String(statusResult.stdout).trim()
+    const stat = String(statResult.stdout).trim()
+    const numstat = String(numstatResult.stdout).trim()
+    const patch = String(patchResult.stdout).trim()
+    if (!status && !stat && !patch) return { body: 'No workspace changes detected.', truncated: false }
+    if (changesPath && patch) await writeFile(changesPath, patch, 'utf8').catch(() => undefined)
+    const truncatedPatch = truncateCodexText(patch, CODEX_DIFF_PATCH_LIMIT)
+    const changeSummary = parseGitNumstat(numstat)
+    return {
+      body: [
+        'Changes',
+        '',
+        status ? ['Status', '````text', status, '````'].join('\n') : '',
+        stat ? ['Stat', '````text', stat, '````'].join('\n') : '',
+        truncatedPatch.text ? ['', '````diff', truncatedPatch.text, '````'].join('\n') : ''
+      ].filter(Boolean).join('\n'),
+      truncated: truncatedPatch.truncated,
+      changesPath: changesPath && patch ? changesPath : undefined,
+      metadata: {
+        changeStatus: status,
+        changeStat: stat,
+        changeFiles: changeSummary.files,
+        changeInsertions: changeSummary.insertions,
+        changeDeletions: changeSummary.deletions,
+        changeFileStats: changeSummary.fileStats,
+        patchPreviewLanguage: 'diff'
+      }
+    }
+  } catch (error) {
+    return {
+      body: `Workspace changes could not be inspected.\n\n\`\`\`\`text\n${error instanceof Error ? error.message : String(error)}\n\`\`\`\``,
+      truncated: false,
+      unavailable: true,
+      metadata: {
+        changeFiles: 0,
+        changeInsertions: 0,
+        changeDeletions: 0,
+        patchPreviewLanguage: 'text'
+      }
+    }
+  }
+}
+
 function summarizeCodexExecEvents(
   raw: string,
   options?: { startedAt?: number; endedAt?: number }
@@ -766,20 +1110,21 @@ export class TaskService {
     const task = await this.repo.get(taskId)
     if (!task) return null
     const now = Date.now()
+    const compactMessage = compactActivityMessage(message)
     const nextMessage: TaskActivityMessage = {
       id: message.id ?? `codex-activity-${randomUUID()}`,
-      runId: message.runId,
-      conversationId: message.conversationId,
-      source: message.source,
-      role: message.role,
-      status: message.status,
-      body: message.body,
-      metadata: message.metadata,
-      createdAt: message.createdAt ?? now,
+      runId: compactMessage.runId,
+      conversationId: compactMessage.conversationId,
+      source: compactMessage.source,
+      role: compactMessage.role,
+      status: compactMessage.status,
+      body: compactMessage.body,
+      metadata: compactMessage.metadata,
+      createdAt: compactMessage.createdAt ?? now,
       updatedAt: now
     }
     const payload = asPayload(task.payload)
-    const activityMessages = [...taskActivityMessagesFromPayload(payload), nextMessage]
+    const activityMessages = [...taskActivityMessagesFromPayload(payload), nextMessage].slice(-ACTIVITY_MESSAGE_LIMIT)
     await this.repo.update(task.id, { payload: { ...payload, activityMessages } })
     this.eventBus?.emit(IPC_CHANNELS.events.taskActivity, {
       projectId: task.projectId,
@@ -1397,14 +1742,16 @@ export class TaskService {
           env: process.env,
           stdio: ['ignore', 'pipe', 'pipe']
         })
+        const streamer = createCodexActivityStreamer({
+          taskId,
+          runId,
+          source: 'codex-run',
+          eventsPath: execEventsPath
+        }, (message) => this.appendTaskActivityMessage(taskId, message))
         child.stdout.setEncoding('utf8')
         child.stderr.setEncoding('utf8')
-        child.stdout.on('data', (chunk: string) => {
-          void appendFile(execEventsPath, chunk, 'utf8')
-        })
-        child.stderr.on('data', (chunk: string) => {
-          void appendFile(execEventsPath, chunk, 'utf8')
-        })
+        child.stdout.on('data', (chunk: string) => streamer.writeStdout(chunk))
+        child.stderr.on('data', (chunk: string) => streamer.writeStderr(chunk))
         child.on('error', (error) => {
           void this.appendTaskActivityMessage(taskId, {
             runId,
@@ -1418,49 +1765,39 @@ export class TaskService {
         })
         child.on('close', (code, signal) => {
           void (async () => {
+            await streamer.flush()
             const finalMessage = await readFile(execFinalMessagePath, 'utf8').catch(() => '')
             const eventRaw = await readFile(execEventsPath, 'utf8').catch(() => '')
             const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
-            const thinkingMessages = eventSummary.thinkingSegments.length > 0
-              ? eventSummary.thinkingSegments
-              : [{ text: eventSummary.thinking }]
-            for (const thinkingMessage of thinkingMessages) {
-              await this.appendTaskActivityMessage(taskId, {
-                runId,
-                source: 'codex-run',
-                role: 'thinking',
-                status: code === 0 ? 'completed' : 'failed',
-                body: thinkingMessage.text,
-                metadata: {
-                  code,
-                  signal,
-                  eventsPath: execEventsPath,
-                  usage: eventSummary.usage,
-                  thinkingDurationMs: thinkingMessage.durationMs,
-                  thinkingStartedAt: thinkingMessage.startedAt,
-                  thinkingEndedAt: thinkingMessage.endedAt
-                }
-              })
-            }
-            if (eventSummary.tools) {
-              await this.appendTaskActivityMessage(taskId, {
-                runId,
-                source: 'codex-run',
-                role: 'tool',
-                status: code === 0 ? 'completed' : 'failed',
-                body: eventSummary.tools,
-                metadata: { code, signal, eventsPath: execEventsPath, rawTail: eventSummary.rawTail, usage: eventSummary.usage }
-              })
-            }
+            const usage = eventSummary.usage ?? streamer.latestUsage()
+            const changes = await codexWorkspaceChanges(runtimeWorkspacePath, join(runFolderPath, 'changes.diff'))
+            await this.appendTaskActivityMessage(taskId, {
+              runId,
+              source: 'codex-run',
+              role: 'tool',
+              status: changes.unavailable ? 'failed' : 'completed',
+              body: changes.body,
+              metadata: { codexBlock: 'changes', code, signal, eventsPath: execEventsPath, changesPath: changes.changesPath, usage, truncated: changes.truncated, unavailable: changes.unavailable, ...(changes.metadata ?? {}) }
+            })
+            await this.appendTaskActivityMessage(taskId, {
+              runId,
+              source: 'codex-run',
+              role: 'system',
+              status: code === 0 ? 'completed' : 'failed',
+              body: code === 0 ? 'Codex run completed.' : `Codex run failed with code ${code ?? 'unknown'}.`,
+              metadata: { codexBlock: 'run-complete', code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage }
+            })
             if (code === 0) {
-              await this.appendTaskActivityMessage(taskId, {
-                runId,
-                source: 'codex-run',
-                role: 'assistant',
-                status: 'completed',
-                body: finalMessage.trim() || 'Codex exec completed.',
-                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage: eventSummary.usage }
-              })
+              if (!streamer.hasAssistantMessage()) {
+                await this.appendTaskActivityMessage(taskId, {
+                  runId,
+                  source: 'codex-run',
+                  role: 'assistant',
+                  status: 'completed',
+                  body: finalMessage.trim() || 'Codex exec completed.',
+                  metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, codexBlock: 'final-fallback' }
+                })
+              }
               await this.markTaskReadyForReview({ actorToken: payload.actorToken, projectId: project.id, taskId }).catch(() => undefined)
             } else {
               await this.appendTaskActivityMessage(taskId, {
@@ -1468,8 +1805,8 @@ export class TaskService {
                 source: 'codex-run',
                 role: 'error',
                 status: 'failed',
-                body: eventSummary.tools || `Codex exec exited with code ${code ?? 'unknown'}.`,
-                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage: eventSummary.usage }
+                body: finalMessage.trim() || `Codex exec exited with code ${code ?? 'unknown'}.`,
+                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, rawTail: eventSummary.rawTail }
               })
             }
             await bridge?.close()
@@ -1901,14 +2238,16 @@ export class TaskService {
           env: process.env,
           stdio: ['ignore', 'pipe', 'pipe']
         })
+        const streamer = createCodexActivityStreamer({
+          taskId,
+          runId,
+          source: 'codex-plan',
+          eventsPath: execEventsPath
+        }, (message) => this.appendTaskActivityMessage(taskId, message))
         child.stdout.setEncoding('utf8')
         child.stderr.setEncoding('utf8')
-        child.stdout.on('data', (chunk: string) => {
-          void appendFile(execEventsPath, chunk, 'utf8')
-        })
-        child.stderr.on('data', (chunk: string) => {
-          void appendFile(execEventsPath, chunk, 'utf8')
-        })
+        child.stdout.on('data', (chunk: string) => streamer.writeStdout(chunk))
+        child.stderr.on('data', (chunk: string) => streamer.writeStderr(chunk))
         child.on('error', (error) => {
           void this.appendTaskActivityMessage(taskId, {
             runId,
@@ -1922,57 +2261,47 @@ export class TaskService {
         })
         child.on('close', (code, signal) => {
           void (async () => {
+            await streamer.flush()
             const finalMessage = await readFile(execFinalMessagePath, 'utf8').catch(() => '')
             const eventRaw = await readFile(execEventsPath, 'utf8').catch(() => '')
             const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
-            const thinkingMessages = eventSummary.thinkingSegments.length > 0
-              ? eventSummary.thinkingSegments
-              : [{ text: eventSummary.thinking }]
-            for (const thinkingMessage of thinkingMessages) {
-              await this.appendTaskActivityMessage(taskId, {
-                runId,
-                source: 'codex-plan',
-                role: 'thinking',
-                status: code === 0 ? 'completed' : 'failed',
-                body: thinkingMessage.text,
-                metadata: {
-                  code,
-                  signal,
-                  eventsPath: execEventsPath,
-                  usage: eventSummary.usage,
-                  thinkingDurationMs: thinkingMessage.durationMs,
-                  thinkingStartedAt: thinkingMessage.startedAt,
-                  thinkingEndedAt: thinkingMessage.endedAt
-                }
-              })
-            }
-            if (eventSummary.tools) {
-              await this.appendTaskActivityMessage(taskId, {
-                runId,
-                source: 'codex-plan',
-                role: 'tool',
-                status: code === 0 ? 'completed' : 'failed',
-                body: eventSummary.tools,
-                metadata: { code, signal, eventsPath: execEventsPath, rawTail: eventSummary.rawTail, usage: eventSummary.usage }
-              })
-            }
+            const usage = eventSummary.usage ?? streamer.latestUsage()
+            const changes = await codexWorkspaceChanges(runtimeWorkspacePath, join(runFolderPath, 'changes.diff'))
+            await this.appendTaskActivityMessage(taskId, {
+              runId,
+              source: 'codex-plan',
+              role: 'tool',
+              status: changes.unavailable ? 'failed' : 'completed',
+              body: changes.body,
+              metadata: { codexBlock: 'changes', code, signal, eventsPath: execEventsPath, changesPath: changes.changesPath, usage, truncated: changes.truncated, unavailable: changes.unavailable, ...(changes.metadata ?? {}) }
+            })
+            await this.appendTaskActivityMessage(taskId, {
+              runId,
+              source: 'codex-plan',
+              role: 'system',
+              status: code === 0 ? 'completed' : 'failed',
+              body: code === 0 ? 'Codex planner completed.' : `Codex planner failed with code ${code ?? 'unknown'}.`,
+              metadata: { codexBlock: 'run-complete', code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage }
+            })
             if (code === 0) {
-              await this.appendTaskActivityMessage(taskId, {
-                runId,
-                source: 'codex-plan',
-                role: 'assistant',
-                status: 'completed',
-                body: finalMessage.trim() || 'Codex planner completed.',
-                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage: eventSummary.usage }
-              })
+              if (!streamer.hasAssistantMessage()) {
+                await this.appendTaskActivityMessage(taskId, {
+                  runId,
+                  source: 'codex-plan',
+                  role: 'assistant',
+                  status: 'completed',
+                  body: finalMessage.trim() || 'Codex planner completed.',
+                  metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, codexBlock: 'final-fallback' }
+                })
+              }
             } else {
               await this.appendTaskActivityMessage(taskId, {
                 runId,
                 source: 'codex-plan',
                 role: 'error',
                 status: 'failed',
-                body: eventSummary.tools || `Codex planner exited with code ${code ?? 'unknown'}.`,
-                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage: eventSummary.usage }
+                body: finalMessage.trim() || `Codex planner exited with code ${code ?? 'unknown'}.`,
+                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, rawTail: eventSummary.rawTail }
               })
             }
             await bridge?.close()
@@ -2187,10 +2516,17 @@ export class TaskService {
     const child = spawn(codexPath, execArgs, { cwd: runtimeWorkspacePath, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
     const activeRun: ActiveCodexChatRun = { child, taskId, conversationId, runId }
     this.activeCodexChatRuns.set(runId, activeRun)
+    const streamer = createCodexActivityStreamer({
+      taskId,
+      runId,
+      conversationId,
+      source: activitySource,
+      eventsPath
+    }, (message) => this.appendTaskActivityMessage(taskId, message))
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => void appendFile(eventsPath, chunk, 'utf8'))
-    child.stderr.on('data', (chunk: string) => void appendFile(eventsPath, chunk, 'utf8'))
+    child.stdout.on('data', (chunk: string) => streamer.writeStdout(chunk))
+    child.stderr.on('data', (chunk: string) => streamer.writeStderr(chunk))
     child.on('error', (error) => {
       void this.appendTaskActivityMessage(taskId, {
         runId,
@@ -2205,15 +2541,16 @@ export class TaskService {
     child.on('close', (code, signal) => {
       void (async () => {
         this.activeCodexChatRuns.delete(runId)
+        await streamer.flush()
         if (activeRun.stopRequested) {
           await this.appendTaskActivityMessage(taskId, {
             runId,
             conversationId,
             source: activitySource,
-            role: 'thinking',
+            role: 'system',
             status: 'completed',
-            body: '',
-            metadata: { code, signal, eventsPath, stopped: true }
+            body: 'Codex chat stopped.',
+            metadata: { code, signal, eventsPath, stopped: true, codexBlock: 'run-complete' }
           })
           await this.appendTaskActivityMessage(taskId, {
             runId,
@@ -2229,48 +2566,49 @@ export class TaskService {
         const eventRaw = await readFile(eventsPath, 'utf8').catch(() => '')
         const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
         const finalMessage = await readFile(finalMessagePath, 'utf8').catch(() => '')
-        const thinkingMessages = eventSummary.thinkingSegments.length > 0
-          ? eventSummary.thinkingSegments
-          : [{ text: eventSummary.thinking }]
-        for (const thinkingMessage of thinkingMessages) {
-          await this.appendTaskActivityMessage(taskId, {
-            runId,
-            conversationId,
-            source: activitySource,
-            role: 'thinking',
-            status: code === 0 ? 'completed' : 'failed',
-            body: thinkingMessage.text,
-            metadata: {
-              code,
-              signal,
-              eventsPath,
-              usage: eventSummary.usage,
-              thinkingDurationMs: thinkingMessage.durationMs,
-              thinkingStartedAt: thinkingMessage.startedAt,
-              thinkingEndedAt: thinkingMessage.endedAt
-            }
-          })
-        }
-        if (eventSummary.tools) {
-          await this.appendTaskActivityMessage(taskId, {
-            runId,
-            conversationId,
-            source: activitySource,
-            role: 'tool',
-            status: code === 0 ? 'completed' : 'failed',
-            body: eventSummary.tools,
-            metadata: { code, signal, eventsPath, rawTail: eventSummary.rawTail, usage: eventSummary.usage }
-          })
-        }
+        const usage = eventSummary.usage ?? streamer.latestUsage()
+        const changes = await codexWorkspaceChanges(runtimeWorkspacePath, join(runFolderPath, 'changes.diff'))
         await this.appendTaskActivityMessage(taskId, {
           runId,
           conversationId,
           source: activitySource,
-          role: code === 0 ? 'assistant' : 'error',
-          status: code === 0 ? 'completed' : 'failed',
-          body: code === 0 ? finalMessage.trim() || (mode === 'plan' ? 'Codex plan revision completed.' : 'Codex chat completed.') : eventSummary.tools || `Codex chat exited with code ${code ?? 'unknown'}.`,
-          metadata: { code, signal, eventsPath, finalMessagePath, usage: eventSummary.usage }
+          role: 'tool',
+          status: changes.unavailable ? 'failed' : 'completed',
+          body: changes.body,
+          metadata: { codexBlock: 'changes', code, signal, eventsPath, changesPath: changes.changesPath, usage, truncated: changes.truncated, unavailable: changes.unavailable, ...(changes.metadata ?? {}) }
         })
+        await this.appendTaskActivityMessage(taskId, {
+          runId,
+          conversationId,
+          source: activitySource,
+          role: 'system',
+          status: code === 0 ? 'completed' : 'failed',
+          body: code === 0 ? 'Codex chat completed.' : `Codex chat failed with code ${code ?? 'unknown'}.`,
+          metadata: { codexBlock: 'run-complete', code, signal, eventsPath, finalMessagePath, usage }
+        })
+        if (code === 0) {
+          if (!streamer.hasAssistantMessage()) {
+            await this.appendTaskActivityMessage(taskId, {
+              runId,
+              conversationId,
+              source: activitySource,
+              role: 'assistant',
+              status: 'completed',
+              body: finalMessage.trim() || (mode === 'plan' ? 'Codex plan revision completed.' : 'Codex chat completed.'),
+              metadata: { code, signal, eventsPath, finalMessagePath, usage, codexBlock: 'final-fallback' }
+            })
+          }
+        } else {
+          await this.appendTaskActivityMessage(taskId, {
+            runId,
+            conversationId,
+            source: activitySource,
+            role: 'error',
+            status: 'failed',
+            body: finalMessage.trim() || `Codex chat exited with code ${code ?? 'unknown'}.`,
+            metadata: { code, signal, eventsPath, finalMessagePath, usage, rawTail: eventSummary.rawTail }
+          })
+        }
       })()
     })
 

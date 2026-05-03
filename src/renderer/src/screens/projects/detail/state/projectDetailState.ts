@@ -515,6 +515,7 @@ function setFieldValue(state: ProjectDetailState, key: keyof ProjectDetailFlatSt
   const slice = state[sliceName]
   const previous = slice[fieldName as keyof typeof slice]
   const nextValue = typeof rawValue === 'function' ? (rawValue as (value: unknown) => unknown)(previous) : rawValue
+  if (Object.is(previous, nextValue)) return state
   return {
     ...state,
     [sliceName]: {
@@ -526,12 +527,18 @@ function setFieldValue(state: ProjectDetailState, key: keyof ProjectDetailFlatSt
 
 function mergeNestedState<T>(state: T, patch: T | undefined): T {
   if (!patch) return state
-  return { ...state, ...patch }
+  let changed = false
+  for (const [key, value] of Object.entries(patch as Record<string, unknown>)) {
+    if (!Object.is((state as Record<string, unknown>)[key], value)) {
+      changed = true
+      break
+    }
+  }
+  return changed ? { ...state, ...patch } : state
 }
 
 function applyStatePatch(state: ProjectDetailState, patch: Partial<ProjectDetailState>): ProjectDetailState {
-  return {
-    ...state,
+  const next = {
     data: mergeNestedState(state.data, patch.data),
     selection: mergeNestedState(state.selection, patch.selection),
     ui: mergeNestedState(state.ui, patch.ui),
@@ -539,6 +546,15 @@ function applyStatePatch(state: ProjectDetailState, patch: Partial<ProjectDetail
     codex: mergeNestedState(state.codex, patch.codex),
     chat: mergeNestedState(state.chat, patch.chat)
   }
+  if (
+    next.data === state.data &&
+    next.selection === state.selection &&
+    next.ui === state.ui &&
+    next.forms === state.forms &&
+    next.codex === state.codex &&
+    next.chat === state.chat
+  ) return state
+  return { ...state, ...next }
 }
 
 function flatPatchToState(patch: Partial<ProjectDetailFlatState>): ProjectDetailState {

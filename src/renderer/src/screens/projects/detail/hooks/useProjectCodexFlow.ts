@@ -39,6 +39,12 @@ interface CodexStopResponse {
   stopped: number
 }
 
+export type CodexStopResult = {
+  conversationId: string
+  stopped: number
+  notFound: boolean
+}
+
 interface CodexModelsResponse {
   gateway: Gateway
   models: Array<{ id: string; label?: string; lastModelRefreshAt?: number; executionMode?: string }>
@@ -117,7 +123,7 @@ export interface UseProjectCodexFlowResult {
   runSelectedTaskWithCodex: () => Promise<void>
   planSelectedTaskWithCodex: () => Promise<void>
   sendCodexChatMessage: () => Promise<void>
-  stopCodexChat: () => Promise<void>
+  stopCodexChat: (conversationIdOverride?: string) => Promise<CodexStopResult>
   addChatAttachments: (files: FileList | File[]) => Promise<void>
   applySlashCommand: (command: SlashCommand) => Promise<void>
 }
@@ -367,12 +373,13 @@ export function useProjectCodexFlow({
       setCodexRunFeedback({ kind: 'error', message: 'Choose a Codex gateway and model before sending chat.' })
       return
     }
-    if ((chatMode === 'steer' || selectedChatSummary?.source === 'codex-plan') && !selectedChatConversationId) {
+    const effectiveSelectedChatSummary = isStartingNewChat ? null : selectedChatSummary
+    if ((chatMode === 'steer' || effectiveSelectedChatSummary?.source === 'codex-plan') && !selectedChatConversationId) {
       setCodexRunFeedback({ kind: 'error', message: 'Select a conversation before sending a steer message.' })
       return
     }
 
-    const sendAsPlanRevision = !isStartingNewChat && selectedChatSummary?.source === 'codex-plan'
+    const sendAsPlanRevision = !isStartingNewChat && effectiveSelectedChatSummary?.source === 'codex-plan'
     setChatSending(true)
     setCodexRunFeedback(null)
 
@@ -432,25 +439,29 @@ export function useProjectCodexFlow({
     setChatSettingsOpen
   ])
 
-  const stopCodexChat = useCallback(async () => {
-    if (!selectedTask) return
+  const stopCodexChat = useCallback(async (conversationIdOverride?: string): Promise<CodexStopResult> => {
+    const conversationId = conversationIdOverride || selectedChatConversationId
+    if (!selectedTask) return { conversationId, stopped: 0, notFound: true }
     setChatStopping(true)
     setCodexRunFeedback(null)
     try {
       const response = await invokeBridge<CodexStopResponse>(IPC_CHANNELS.tasks.codexChatStop, {
         actorToken: token,
         taskId: selectedTask.id,
-        conversationId: selectedChatConversationId || undefined
+        conversationId: conversationId || undefined
       })
       if (!response.ok) {
         setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to stop Codex chat.' })
-        return
+        return { conversationId, stopped: 0, notFound: false }
       }
       if (!response.data?.stopped) {
         setCodexRunFeedback({ kind: 'error', message: 'No running Codex chat was found to stop.' })
+        return { conversationId, stopped: 0, notFound: true }
       }
+      return { conversationId, stopped: response.data.stopped, notFound: false }
     } catch (error) {
       setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to stop Codex chat.' })
+      return { conversationId, stopped: 0, notFound: false }
     } finally {
       setChatStopping(false)
     }

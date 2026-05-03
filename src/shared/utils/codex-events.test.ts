@@ -40,4 +40,25 @@ describe('parseCodexEvents', () => {
     expect(result.commands[0]?.command).toBe('pwd')
     expect(result.events.some((event) => event.kind === 'malformed')).toBe(false)
   })
+
+  it('preserves reasoning timing and unknown events', () => {
+    const result = parseCodexEvents([
+      JSON.stringify({
+        type: 'item.completed',
+        item: {
+          type: 'reasoning',
+          text: 'Checking the implementation path.',
+          duration_ms: 2400
+        }
+      }),
+      JSON.stringify({ type: 'custom.event', payload: { line: 'raw log' } })
+    ].join('\n'))
+
+    expect(result.messages[0]).toMatchObject({
+      role: 'thinking',
+      text: 'Checking the implementation path.',
+      durationMs: 2400
+    })
+    expect(result.events.some((event) => event.kind === 'raw' && event.text.includes('custom.event'))).toBe(true)
+  })
 })

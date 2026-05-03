@@ -1,7 +1,7 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "module": "ESNext",
+    "module": "NodeNext",
     "lib": [
       "DOM",
       "DOM.Iterable",
@@ -11,16 +11,7 @@
     "types": [
       "node",
       "vite/client"
-    ],
-    "baseUrl": ".",
-    "paths": {
-      "@renderer/*": [
-        "src/renderer/src/*"
-      ],
-      "@shared/*": [
-        "src/shared/*"
-      ]
-    }
+    ]
   },
   "include": [
     "src/renderer/**/*.tsx",

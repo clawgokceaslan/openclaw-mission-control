@@ -210,7 +210,12 @@ function normalizeEvent(rawEvent: Record<string, unknown>): CodexNormalizedEvent
     return [{ kind: 'status', type, label: type.replace('.', ' ') }]
   }
 
-  return []
+  return [{ kind: 'raw', text: JSON.stringify(rawEvent).slice(0, 4000) }]
+}
+
+export function normalizeCodexEvent(rawEvent: unknown): CodexNormalizedEvent[] {
+  const record = asRecord(rawEvent)
+  return record ? normalizeEvent(record) : []
 }
 
 export function parseCodexEvents(raw: string): CodexParseResult {
@@ -223,7 +228,7 @@ export function parseCodexEvents(raw: string): CodexParseResult {
       const record = asRecord(parsed)
       if (!record) continue
       parsedCount += 1
-      const normalized = normalizeEvent(record)
+      const normalized = normalizeCodexEvent(record)
       for (const event of normalized) {
         events.push(event)
         if (event.kind === 'status') usage = mergeUsage(usage, event.usage)

@@ -1,7 +1,8 @@
-import { type RefObject, useEffect, useMemo, useRef, type DragEvent } from 'react'
+import { type RefObject, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { type Agent, type Gateway, type Skill, type TaskEntity, type Workspace } from '@shared/types/entities'
 import { CHAT_MESSAGE_LOAD_STEP, usageFromMetadata } from '../chat/chatUtils'
+import type { CodexStopResult } from './useProjectCodexFlow'
 import type { ChatAttachmentDraft, ChatConversationSummary, ChatOperationFeedbackData, SlashCommand, TaskActivityMessage, TaskHistoryItem, ThreadEntry } from '../types'
 
 interface Setter<T> {
@@ -16,6 +17,7 @@ export interface ActivityPopupState {
   selectedConversationId: string
   isStartingNewChat: boolean
   runningConversationIds: Set<string>
+  stoppingConversationIds: Set<string>
   chatHistoryCount: number
   chatSettingsOpen: boolean
   selectedChatCanStop: boolean
@@ -63,7 +65,7 @@ interface ActivityPopupHandlers {
   onConversationSelect: (conversationId: string) => void
   onSettingsToggle: () => void
   onSettingsClose: () => void
-  onStopChat: () => void
+  onStopChat: (conversationId?: string) => void
   onPlan: () => void
   onRun: () => void
   onLoadEarlier: () => void
@@ -83,6 +85,7 @@ interface ActivityPopupHandlers {
 }
 
 const LOCAL_CHAT_STATUS_RUN_ID = 'local-chat-status'
+const RUNNING_ACTIVITY_STALE_MS = 15 * 60 * 1000
 const slashCommands: SlashCommand[] = [
   { id: 'plan', label: '/plan', hint: 'Draft a plan in this chat' },
   { id: 'run', label: '/run', hint: 'Start a Codex run for the task' },
@@ -91,6 +94,42 @@ const slashCommands: SlashCommand[] = [
   { id: 'attach', label: '/attach', hint: 'Choose files to attach' },
   { id: 'context', label: '/context', hint: 'Toggle task context in the prompt' }
 ]
+
+function codexBlockOf(message: TaskActivityMessage): string {
+  return typeof message.metadata?.codexBlock === 'string' ? message.metadata.codexBlock : ''
+}
+
+function isRunCompleteMessage(message: TaskActivityMessage): boolean {
+  return codexBlockOf(message) === 'run-complete' || message.metadata?.stopped === true || message.role === 'error'
+}
+
+function conversationIdOf(message: TaskActivityMessage): string {
+  return message.conversationId || message.runId
+}
+
+function isNoRunningStopFeedback(feedback: ChatOperationFeedbackData | null): boolean {
+  return feedback?.kind === 'error' && /no running codex chat/i.test(feedback.message)
+}
+
+function messageTimeOf(message: TaskActivityMessage): number {
+  return message.updatedAt ?? message.createdAt
+}
+
+function isFreshRunningMessage(message: TaskActivityMessage, now: number): boolean {
+  if (message.status !== 'running' && message.metadata?.runStatus !== 'running') return false
+  return now - messageTimeOf(message) <= RUNNING_ACTIVITY_STALE_MS
+}
+
+function settledIdsFromMessages(messages: TaskActivityMessage[]): { runIds: Set<string>; conversationIds: Set<string> } {
+  const runIds = new Set<string>()
+  const conversationIds = new Set<string>()
+  for (const message of messages) {
+    if (!isRunCompleteMessage(message)) continue
+    runIds.add(message.runId)
+    conversationIds.add(conversationIdOf(message))
+  }
+  return { runIds, conversationIds }
+}
 
 interface ActivityPopupParams {
   selectedTask: TaskEntity | null
@@ -146,7 +185,7 @@ interface ActivityPopupParams {
   runSelectedTaskWithCodex: () => Promise<void>
   planSelectedTaskWithCodex: () => Promise<void>
   sendCodexChatMessage: () => Promise<void>
-  stopCodexChat: () => Promise<void>
+  stopCodexChat: (conversationIdOverride?: string) => Promise<CodexStopResult>
   applySlashCommand: (command: SlashCommand) => Promise<void>
   addChatAttachments: (files: FileList | File[]) => Promise<void>
   onClose: () => void
@@ -220,15 +259,31 @@ export function useProjectActivityPopup({
   setChatDragDepth
 }: ActivityPopupParams): UseProjectActivityPopupResult {
   const keepActivityBottomRef = useRef(true)
+  const [stoppingConversationIds, setStoppingConversationIds] = useState<Set<string>>(() => new Set())
+  const [localSettledConversationIds, setLocalSettledConversationIds] = useState<Set<string>>(() => new Set())
 
   const isChatModalMounted = Boolean(selectedTask && isActivityModalOpen)
   const runningConversationIds = useMemo(() => {
     const ids = new Set<string>()
+    const now = Date.now()
+    const settled = settledIdsFromMessages(chatActivityMessages)
+    localSettledConversationIds.forEach((conversationId) => settled.conversationIds.add(conversationId))
+    if (selectedChatConversationId && isNoRunningStopFeedback(chatOperationFeedback)) {
+      settled.conversationIds.add(selectedChatConversationId)
+    }
     for (const conversation of chatConversations) {
-      if (conversation.status === 'running') ids.add(conversation.id)
+      if (conversation.status === 'running' && !settled.conversationIds.has(conversation.id)) {
+        const hasFreshRunningEvent = chatActivityMessages.some((message) => conversationIdOf(message) === conversation.id && isFreshRunningMessage(message, now))
+        if (hasFreshRunningEvent) ids.add(conversation.id)
+      }
+    }
+    for (const message of chatActivityMessages) {
+      const conversationId = conversationIdOf(message)
+      const settledRun = settled.runIds.has(message.runId) || settled.conversationIds.has(conversationId)
+      if (isFreshRunningMessage(message, now) && !settledRun) ids.add(conversationId)
     }
     return ids
-  }, [chatConversations])
+  }, [chatActivityMessages, chatConversations, chatOperationFeedback, localSettledConversationIds, selectedChatConversationId])
 
   const sidebarConversations = useMemo(() => {
     if (chatConversations.length <= 30) return chatConversations
@@ -248,27 +303,31 @@ export function useProjectActivityPopup({
     if (!selectedChatConversationId) return []
     const messages = chatActivityMessages.filter((message) => (message.conversationId || message.runId) === selectedChatConversationId)
     const sorted = [...messages].sort((a, b) => a.createdAt - b.createdAt)
-    const settledRuns = new Set<string>()
-    for (const message of sorted) {
-      if (message.role !== 'user' && (message.status === 'completed' || message.status === 'failed')) settledRuns.add(message.runId)
-    }
-    return sorted.filter((message) => !(message.role === 'thinking' && message.status === 'running' && settledRuns.has(message.runId)))
-  }, [chatActivityMessages, isStartingNewChat, selectedChatConversationId])
+    const settled = settledIdsFromMessages(sorted)
+    localSettledConversationIds.forEach((conversationId) => settled.conversationIds.add(conversationId))
+    if (isNoRunningStopFeedback(chatOperationFeedback)) settled.conversationIds.add(selectedChatConversationId)
+    return sorted.filter((message) => !(message.role === 'thinking' && message.status === 'running' && (
+      settled.runIds.has(message.runId) || settled.conversationIds.has(conversationIdOf(message))
+    )))
+  }, [chatActivityMessages, chatOperationFeedback, isStartingNewChat, localSettledConversationIds, selectedChatConversationId])
 
-  const renderedChatMessages = useMemo(
-    () => (visibleChatMessages.length > 40
-      ? visibleChatMessages.slice(visibleChatMessages.length - 40)
-      : visibleChatMessages
-    ),
-    [visibleChatMessages]
-  )
-
-  const hiddenMessageCount = Math.max(0, visibleChatMessages.length - renderedChatMessages.length)
-
-  const selectedChatSummary = selectedChatSummaryFromState
+  const selectedChatSummary = isStartingNewChat
+    ? null
+    : selectedChatSummaryFromState
     ?? chatConversations.find((conversation) => conversation.id === selectedChatConversationId) ?? null
 
   const selectedChatIsRunning = Boolean(selectedChatSummary && runningConversationIds.has(selectedChatSummary.id))
+
+  const renderLimit = selectedChatIsRunning ? 20 : 40
+  const renderedChatMessages = useMemo(
+    () => (visibleChatMessages.length > renderLimit
+      ? visibleChatMessages.slice(visibleChatMessages.length - renderLimit)
+      : visibleChatMessages
+    ),
+    [renderLimit, visibleChatMessages]
+  )
+
+  const hiddenMessageCount = Math.max(0, visibleChatMessages.length - renderedChatMessages.length)
 
   const selectedChatUsage = useMemo(() => {
     for (const message of [...visibleChatMessages].reverse()) {
@@ -279,11 +338,8 @@ export function useProjectActivityPopup({
   }, [visibleChatMessages])
 
   const selectedChatCanStopComputed = useMemo(() => {
-    if (selectedChatCanStop) return true
-    return visibleChatMessages.some((message) => ((
-      message.source === 'codex-chat' || (message.source === 'codex-plan' && Boolean(message.conversationId))
-    ) && message.status === 'running'))
-  }, [selectedChatCanStop, visibleChatMessages])
+    return Boolean(selectedChatSummary && runningConversationIds.has(selectedChatSummary.id) && (selectedChatCanStop || selectedChatSummary.source === 'codex-chat' || selectedChatSummary.source === 'codex-plan'))
+  }, [runningConversationIds, selectedChatCanStop, selectedChatSummary])
 
   const localChatStatusMessage = useMemo<TaskActivityMessage | null>(() => {
     if (!chatOperationFeedback || !isChatModalMounted) return null
@@ -317,7 +373,7 @@ export function useProjectActivityPopup({
   useEffect(() => {
     if (!isChatModalMounted) return
     setSlashCommandIndex(0)
-  }, [isChatModalMounted, slashQuery, slashMenuOpen, setSlashCommandIndex])
+  }, [isChatModalMounted, slashQuery, slashMenuOpen])
 
   useEffect(() => {
     const textarea = chatDraftTextareaRef.current
@@ -330,12 +386,14 @@ export function useProjectActivityPopup({
 
   useEffect(() => {
     if (!isChatModalMounted) return
-    setChatVisibleLimit(40)
-  }, [isChatModalMounted, selectedChatConversationId, selectedTask?.id, setChatVisibleLimit])
+    setChatVisibleLimit((value) => value === 40 ? value : 40)
+  }, [isChatModalMounted, selectedChatConversationId, selectedTask?.id])
 
   useEffect(() => {
     setIsStartingNewChat(false)
-  }, [selectedTask?.id, setIsStartingNewChat])
+    setLocalSettledConversationIds(new Set())
+    setStoppingConversationIds(new Set())
+  }, [selectedTask?.id])
 
   useEffect(() => {
     if (!isActivityModalOpen) return
@@ -356,7 +414,7 @@ export function useProjectActivityPopup({
     if (!chatConversations.some((conversation) => conversation.id === selectedChatConversationId)) {
       setSelectedChatConversationId(chatConversations[0].id)
     }
-  }, [chatConversations, isChatModalMounted, isStartingNewChat, selectedChatConversationId, setSelectedChatConversationId])
+  }, [chatConversations, isChatModalMounted, isStartingNewChat, selectedChatConversationId])
 
   const onActivityScroll = () => {
     const feed = activityFeedRef.current
@@ -398,6 +456,7 @@ export function useProjectActivityPopup({
     selectedConversationId: selectedChatConversationId,
     isStartingNewChat,
     runningConversationIds,
+    stoppingConversationIds,
     chatHistoryCount,
     chatSettingsOpen,
     selectedChatCanStop: selectedChatCanStopComputed,
@@ -454,7 +513,24 @@ export function useProjectActivityPopup({
     },
     onSettingsToggle: () => setChatSettingsOpen((value) => !value),
     onSettingsClose: () => setChatSettingsOpen(false),
-    onStopChat: () => void stopCodexChat(),
+    onStopChat: (conversationId) => {
+      const targetConversationId = conversationId || selectedChatSummary?.id || selectedChatConversationId
+      if (!targetConversationId) return
+      setStoppingConversationIds((current) => new Set(current).add(targetConversationId))
+      void stopCodexChat(targetConversationId)
+        .then((result) => {
+          if (result.notFound) {
+            setLocalSettledConversationIds((current) => new Set(current).add(targetConversationId))
+          }
+        })
+        .finally(() => {
+          setStoppingConversationIds((current) => {
+            const next = new Set(current)
+            next.delete(targetConversationId)
+            return next
+          })
+        })
+    },
     onPlan: () => void planSelectedTaskWithCodex(),
     onRun: () => void runSelectedTaskWithCodex(),
     onLoadEarlier: () => setChatVisibleLimit((value) => value + CHAT_MESSAGE_LOAD_STEP),

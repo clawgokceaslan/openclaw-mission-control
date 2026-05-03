@@ -13,6 +13,7 @@ interface ProjectDetailHeaderProps {
   onQuickCreate: () => void
   onOpenCreateTask: () => void
   onOpenProjectPrompts: () => void
+  onOpenAnalytics: () => void
   onOpenStatusSettings: () => void
   onSyncProject: () => void
   syncDisabled?: boolean
@@ -28,6 +29,7 @@ export function ProjectDetailHeader({
   onQuickCreate,
   onOpenCreateTask,
   onOpenProjectPrompts,
+  onOpenAnalytics,
   onOpenStatusSettings,
   onSyncProject,
   syncDisabled,
@@ -66,7 +68,7 @@ export function ProjectDetailHeader({
           >
             <LuMessageSquare size={16} />
           </button>
-          <button type="button" className={styles.iconBtn}><LuSignal size={16} /></button>
+          <button type="button" className={styles.iconBtn} onClick={onOpenAnalytics} aria-label="Open project analytics" title="Analytics"><LuSignal size={16} /></button>
           <button type="button" className={styles.iconBtn} onClick={onOpenStatusSettings} aria-label="Project status settings"><LuSettings2 size={16} /></button>
         </div>
       </div>
