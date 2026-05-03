@@ -80,4 +80,32 @@ describe('buildProjectAnalyticsModel', () => {
     expect(model.dueBuckets.find((row) => row.key === 'overdue')?.count).toBe(1)
     expect(model.dueBuckets.find((row) => row.key === 'next_7')?.count).toBe(2)
   })
+
+  it('builds checklist, activity, priority, and health metrics', () => {
+    const now = Date.UTC(2026, 0, 15)
+    const model = buildProjectAnalyticsModel([
+      task({
+        id: 'a',
+        status: 'review',
+        customFieldValues: { Priority: 'P1' },
+        comments: [{ id: 'comment-1', authorName: 'Codex', body: 'Needs review', createdAt: now }],
+        checklistItems: [
+          { id: 'check-1', title: 'Done', checked: true, createdAt: now, updatedAt: now },
+          { id: 'check-2', title: 'Open', checked: false, createdAt: now, updatedAt: now }
+        ],
+        subtasks: [
+          { id: 's1', taskId: 'a', title: 'Late', status: 'doing', sortOrder: 0, dueAt: Date.UTC(2026, 0, 10), createdAt: now, updatedAt: now }
+        ],
+        updatedAt: now
+      })
+    ], statuses, agents, now)
+
+    expect(model.totalComments).toBe(1)
+    expect(model.tasksWithComments).toBe(1)
+    expect(model.checklistCompletionRate).toBe(50)
+    expect(model.priorityBuckets[0]).toMatchObject({ key: 'high', count: 1 })
+    expect(model.healthBuckets.find((row) => row.key === 'review')?.count).toBe(1)
+    expect(model.healthBuckets.find((row) => row.key === 'overdue')?.count).toBe(1)
+    expect(model.timeline.at(-1)?.comments).toBe(1)
+  })
 })
