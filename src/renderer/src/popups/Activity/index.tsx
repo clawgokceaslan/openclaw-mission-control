@@ -16,6 +16,7 @@ interface ActivityPopupLegacyProps {
   selectedConversationId: string
   isStartingNewChat: boolean
   runningConversationIds: Set<string>
+  stoppingConversationIds: Set<string>
   chatHistoryCount: number
   chatSettingsOpen: boolean
   selectedChatCanStop: boolean
@@ -60,7 +61,7 @@ interface ActivityPopupLegacyProps {
   onConversationSelect: (conversationId: string) => void
   onSettingsToggle: () => void
   onSettingsClose: () => void
-  onStopChat: () => void
+  onStopChat: (conversationId?: string) => void
   onPlan: () => void
   onRun: () => void
   onLoadEarlier: () => void
@@ -191,6 +192,7 @@ export function ActivityPopup({
     selectedConversationId,
     isStartingNewChat,
     runningConversationIds,
+    stoppingConversationIds,
     chatHistoryCount,
     chatSettingsOpen,
     selectedChatCanStop,
@@ -258,6 +260,11 @@ export function ActivityPopup({
   } = handlers
 
   const isChatStopping = chatStopping
+  const conversationStatusLabel = (conversation: ChatConversationSummary) => (
+    runningConversationIds.has(conversation.id)
+      ? <em className={styles.chatSidebarLoader} aria-label="Codex chat is running"><i /><i /><i /></em>
+      : conversation.status === 'running' ? 'completed' : conversation.status
+  )
 
   return (
     <>
@@ -285,8 +292,29 @@ export function ActivityPopup({
               <span>
                 {conversation.title}
                 <b className={`${styles.chatStatusBadge} ${styles[`chatStatus_${conversation.status}`] ?? ''}`}>
-                  {runningConversationIds.has(conversation.id) ? <em className={styles.chatSidebarLoader} aria-label="Codex chat is running"><i /><i /><i /></em> : conversation.status}
+                  {conversationStatusLabel(conversation)}
                 </b>
+                {runningConversationIds.has(conversation.id) ? (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    className={styles.chatSidebarStopButton}
+                    aria-label={`Stop ${conversation.title}`}
+                    title="Stop"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onStopChat(conversation.id)
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return
+                      event.preventDefault()
+                      event.stopPropagation()
+                      onStopChat(conversation.id)
+                    }}
+                  >
+                    {stoppingConversationIds.has(conversation.id) ? <em className={styles.chatSidebarLoader} aria-label="Stopping"><i /><i /><i /></em> : <LuCircleStop size={13} />}
+                  </span>
+                ) : null}
               </span>
               <small>{conversation.count} messages · {formatChatTime(conversation.at)}</small>
               {conversation.model ? <small>{conversation.model}</small> : null}
