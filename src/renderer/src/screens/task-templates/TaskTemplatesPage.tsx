@@ -2,7 +2,8 @@ import { type CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } f
 import { useLocation, useNavigate } from 'react-router-dom'
 import { LuBot, LuFilter, LuListChecks, LuListTodo, LuPaperclip, LuPencil, LuPlus, LuSearch, LuSettings2, LuSlidersHorizontal, LuSparkles, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
-import type { Agent, CodexCliGatewayConfig, CodexCliModel, CustomField, Gateway, OutputFormat, Skill, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskJsonImportResult, TaskTemplate, TaskTemplatePayload } from '@shared/types/entities'
+import { APP_ROUTES } from '@shared/constants/ui-routes'
+import type { Agent, CodexCliGatewayConfig, CodexCliModel, CustomField, Gateway, OutputFormat, Project, ProjectStatus, Skill, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskJsonImportResult, TaskTemplate, TaskTemplatePayload } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { MarkdownDescriptionEditor, prefixDataFormatTokens, type DescriptionDataFormat } from '@renderer/components/markdown/MarkdownDescriptionEditor'
 import { AttachmentTable, storedAttachmentRows } from '@renderer/components/attachments/AttachmentTable'
@@ -14,10 +15,12 @@ import { AgentAssignmentPanel, SkillsAssignmentPanel } from '@renderer/component
 import { TaskDetailPopup } from '@renderer/popups/TaskDetail'
 import { TaskDetailContent } from '@renderer/components/projects/detail/TaskDetailContent'
 import { TaskJsonImportPopup } from '@renderer/popups/TaskJsonImport'
+import { CreateTaskPopup } from '@renderer/popups/CreateTask'
 import { parseTaskJsonImportPreview } from '../projects/detail/taskJsonImport'
-import { PROJECT_STATUS_COLUMNS, resolveProjectStatusColumn } from '../projects/detail/status'
+import { PROJECT_STATUS_COLUMNS, columnsFromProjectStatuses, resolveProjectStatusColumn } from '../projects/detail/status'
 import detailStyles from '../projects/ProjectDetailPage.module.scss'
 import styles from './TaskTemplatesPage.module.scss'
+import { createTaskWithTemplate, type CreateTaskInput } from '../projects/detail/createTaskWithTemplate'
 
 type SaveState = 'saved' | 'dirty' | 'saving' | 'failed'
 type BuilderTab = 'subtasks' | 'customFields' | 'checklist' | 'attachments' | 'agent' | 'skills' | 'model'
@@ -258,6 +261,7 @@ export function TaskTemplatesPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const [items, setItems] = useState<TaskTemplate[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [gateways, setGateways] = useState<Gateway[]>([])
   const [tags, setTags] = useState<Tag[]>([])
@@ -321,6 +325,12 @@ export function TaskTemplatesPage() {
   const [isJsonImporting, setIsJsonImporting] = useState(false)
   const [codexModelLoading, setCodexModelLoading] = useState(false)
   const [codexModelError, setCodexModelError] = useState<string | null>(null)
+  const [isApplyTemplateOpen, setIsApplyTemplateOpen] = useState(false)
+  const [applyTemplate, setApplyTemplate] = useState<TaskTemplate | null>(null)
+  const [applyProjectId, setApplyProjectId] = useState('')
+  const [applyStatusColumns, setApplyStatusColumns] = useState(PROJECT_STATUS_COLUMNS)
+  const [isApplyTemplateLoading, setIsApplyTemplateLoading] = useState(false)
+  const [applyTemplateError, setApplyTemplateError] = useState<string | null>(null)
 
   const templateBodyRef = useRef<HTMLDivElement | null>(null)
   const subtaskClickTimerRef = useRef<number | null>(null)
@@ -337,14 +347,15 @@ export function TaskTemplatesPage() {
 
   const refresh = async () => {
     setLoading(true)
-    const [templatesResponse, agentsResponse, gatewaysResponse, tagsResponse, skillsResponse, customFieldsResponse, outputFormatsResponse] = await Promise.all([
+    const [templatesResponse, agentsResponse, gatewaysResponse, tagsResponse, skillsResponse, customFieldsResponse, outputFormatsResponse, projectsResponse] = await Promise.all([
       loadList<TaskTemplate[]>(IPC_CHANNELS.taskTemplates.list, token),
       loadList<Agent[]>(IPC_CHANNELS.agents.list, token),
       loadList<Gateway[]>(IPC_CHANNELS.gateways.list, token),
       loadList<Tag[]>(IPC_CHANNELS.customFields.tagsList, token),
       loadList<Skill[]>(IPC_CHANNELS.skills.list, token),
       loadList<CustomField[]>(IPC_CHANNELS.customFields.list, token),
-      loadList<OutputFormat[]>(IPC_CHANNELS.outputFormats.list, token)
+      loadList<OutputFormat[]>(IPC_CHANNELS.outputFormats.list, token),
+      loadList<Project>(IPC_CHANNELS.projects.list, token)
     ])
     setLoading(false)
     if (!templatesResponse.ok) {
@@ -359,6 +370,7 @@ export function TaskTemplatesPage() {
     setSkills(Array.isArray(skillsResponse.data) ? skillsResponse.data : [])
     setCustomFields(Array.isArray(customFieldsResponse.data) ? customFieldsResponse.data : [])
     setOutputFormats(Array.isArray(outputFormatsResponse.data) ? outputFormatsResponse.data : [])
+    setProjects(Array.isArray(projectsResponse.data) ? projectsResponse.data : [])
     setError(!agentsResponse.ok
       ? agentsResponse.error?.message ?? 'Unable to load agents'
       : !tagsResponse.ok
@@ -369,7 +381,9 @@ export function TaskTemplatesPage() {
             ? customFieldsResponse.error?.message ?? 'Unable to load custom fields'
             : !outputFormatsResponse.ok
               ? outputFormatsResponse.error?.message ?? 'Unable to load data formats'
-              : null)
+              : !projectsResponse.ok
+                ? projectsResponse.error?.message ?? 'Unable to load projects'
+                : null)
   }
 
   useEffect(() => {
@@ -489,6 +503,26 @@ export function TaskTemplatesPage() {
     setSubtaskCommentDraft('')
     setEditingSubtaskCommentId(null)
   }, [selectedSubtaskId])
+
+  useEffect(() => {
+    if (!isApplyTemplateOpen) return
+    if (!applyProjectId) {
+      setApplyStatusColumns(PROJECT_STATUS_COLUMNS)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const response = await invokeBridge<ProjectStatus[]>(IPC_CHANNELS.statuses.getProjectStatuses, {
+        actorToken: token,
+        projectId: applyProjectId
+      })
+      if (cancelled) return
+      setApplyStatusColumns(response.ok && Array.isArray(response.data) ? columnsFromProjectStatuses(response.data) : PROJECT_STATUS_COLUMNS)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [applyProjectId, isApplyTemplateOpen, token])
 
   const selectedAgentObject = templateDraft.agentId ? agents.find((agent) => agent.id === templateDraft.agentId) ?? null : null
   const selectedTags = tagOptions.filter((option) => (templateDraft.tagIds ?? []).includes(option.value))
@@ -924,6 +958,59 @@ export function TaskTemplatesPage() {
     }
     setDeleteTarget(null)
     await refresh()
+  }
+
+  const openApplyTemplate = (template: TaskTemplate) => {
+    if (projects.length === 0) {
+      setError('No projects found to apply this template.')
+      return
+    }
+    setApplyTemplate(template)
+    setApplyProjectId(projects[0]?.id ?? '')
+    setApplyStatusColumns(PROJECT_STATUS_COLUMNS)
+    setApplyTemplateError(null)
+    setIsApplyTemplateOpen(true)
+  }
+
+  const handleApplyTemplate = async (input: CreateTaskInput) => {
+    if (!input.projectId?.trim()) {
+      setApplyTemplateError('Please choose a project.')
+      return
+    }
+    if (!input.templateId?.trim()) {
+      setApplyTemplateError('Please choose a template.')
+      return
+    }
+    setIsApplyTemplateLoading(true)
+    setApplyTemplateError(null)
+    try {
+      const result = await createTaskWithTemplate({
+        actorToken: token,
+        userName: user?.name,
+        input,
+        templates: items,
+        statusColumns: applyStatusColumns,
+        defaultStatus: applyStatusColumns[0]?.status ?? PROJECT_STATUS_COLUMNS[0].status,
+        outputFormats
+      })
+      if (result.warnings.length > 0) {
+        setError(result.warnings.join(' '))
+      }
+      setApplyTemplateError(null)
+      setIsApplyTemplateOpen(false)
+      setApplyTemplate(null)
+      setApplyProjectId('')
+      setApplyStatusColumns(PROJECT_STATUS_COLUMNS)
+      navigate(`${APP_ROUTES.PROJECTS}/${input.projectId}`, {
+        state: {
+          openTaskId: result.task.id
+        }
+      })
+    } catch (applyError) {
+      setApplyTemplateError(applyError instanceof Error ? applyError.message : 'Unable to apply template')
+    } finally {
+      setIsApplyTemplateLoading(false)
+    }
   }
 
   const addCustomFieldValue = (isSubtask = false) => {
@@ -1488,6 +1575,7 @@ export function TaskTemplatesPage() {
             <span className={styles.mutedCell}>{new Date(item.updatedAt).toLocaleDateString()}</span>
             <span className={styles.actionsCell}>
               <button type="button" className={styles.iconButton} onClick={() => openBuilder(item)} aria-label={`Edit ${item.name}`}><LuPencil size={15} /></button>
+              <button type="button" className={styles.iconButton} onClick={() => openApplyTemplate(item)} aria-label={`Apply ${item.name} to project`}><LuUpload size={15} /></button>
               <button type="button" className={styles.iconButton} onClick={() => setDeleteTarget(item)} aria-label={`Delete ${item.name}`}><LuTrash2 size={15} /></button>
             </span>
           </div>
@@ -1551,6 +1639,7 @@ export function TaskTemplatesPage() {
         <TaskDetailPopup
           taskId={editing.id}
           onClose={() => void closeBuilder()}
+          hideTaskActions
           onOpenActivity={() => undefined}
           onEditTitle={() => undefined}
           onDeleteTask={() => setDeleteTarget(editing)}
@@ -2093,6 +2182,31 @@ export function TaskTemplatesPage() {
         ) : null}
         </>
       ) : null}
+
+      <CreateTaskPopup
+        open={isApplyTemplateOpen && Boolean(applyTemplate)}
+        project={projects.find((item) => item.id === applyProjectId) ?? null}
+        projects={projects}
+        selectedProjectId={applyProjectId}
+        tags={tags}
+        agents={agents}
+        templates={applyTemplate ? [applyTemplate] : []}
+        statusColumns={applyStatusColumns}
+        defaultStatus={applyStatusColumns[0]?.status ?? PROJECT_STATUS_COLUMNS[0].status}
+        initialTitle={applyTemplate?.template.title ?? applyTemplate?.name ?? ''}
+        initialTemplateId={applyTemplate?.id ?? null}
+        busy={isApplyTemplateLoading}
+        error={applyTemplateError}
+        onClose={() => {
+          setIsApplyTemplateOpen(false)
+          setApplyTemplate(null)
+          setApplyProjectId('')
+          setApplyStatusColumns(PROJECT_STATUS_COLUMNS)
+          setApplyTemplateError(null)
+        }}
+        onProjectChange={setApplyProjectId}
+        onCreate={(input) => void handleApplyTemplate(input)}
+      />
 
       {isSubtaskModalOpen ? (
         <>

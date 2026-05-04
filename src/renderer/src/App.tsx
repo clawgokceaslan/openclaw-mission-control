@@ -2,7 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from
 import { useEffect, type ReactNode, useState } from 'react'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
-import type { AppNavigateEvent } from '@shared/contracts/ipc'
+import type { AppNavigateEvent, AppNavigateState } from '@shared/contracts/ipc'
 import { Provider } from 'react-redux'
 import { AuthProvider, useAuth } from '@renderer/providers/auth/auth-state'
 import { ThemeProvider } from '@renderer/providers/theme/theme-state'
@@ -121,7 +121,7 @@ function AppRouter() {
     const onCompanionNavigate = (...args: unknown[]) => {
       const payload = (args[1] ?? args[0]) as AppNavigateEvent | undefined
       if (!payload || typeof payload.path !== 'string' || !payload.path.startsWith('/')) return
-      const state = payload.state as { openCreateTask?: boolean; title?: string; projectId?: string; templateId?: string | null } | undefined
+      const state = payload.state as AppNavigateState | undefined
       if (state?.openCreateTask) {
         setTaskCreateInitial({
           title: state.title,

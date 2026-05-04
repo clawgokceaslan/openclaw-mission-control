@@ -207,12 +207,27 @@ export interface BridgeResponse<T = unknown> {
 
 export interface AppNavigateRequest {
   path?: string
-  state?: unknown
+  state?: AppNavigateState
 }
+
+export interface AppNavigateOpenCreateState {
+  openCreateTask?: boolean
+  title?: string
+  projectId?: string
+  templateId?: string | null
+}
+
+export interface AppNavigateOpenTaskChatState {
+  openTaskId?: string
+  openTaskConversationId?: string
+  openTaskChat?: boolean
+}
+
+export interface AppNavigateState extends AppNavigateOpenCreateState, AppNavigateOpenTaskChatState {}
 
 export interface AppNavigateEvent {
   path: string
-  state?: unknown
+  state?: AppNavigateState
 }
 
 export interface SetTaskTagsRequest {

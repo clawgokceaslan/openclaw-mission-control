@@ -4,7 +4,7 @@ import {
   LuMessageSquare,
   LuPlus
 } from 'react-icons/lu'
-import { IPC_CHANNELS } from '@shared/contracts/ipc'
+import { IPC_CHANNELS, type AppNavigateState } from '@shared/contracts/ipc'
 import { invokeBridge } from '@renderer/utils/api'
 import { Agent, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, CustomField } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
@@ -1230,9 +1230,15 @@ export function ProjectDetailPage() {
   }
 
   useEffect(() => {
-    const state = location.state as { openCreateTask?: boolean; openTaskId?: string; title?: string; templateId?: string | null } | null
-    if (state?.openTaskId) {
+    const state = location.state as AppNavigateState | null
+    if (state?.openTaskId && state.openTaskChat) {
       openTask(state.openTaskId)
+      if (state.openTaskConversationId) {
+        setPendingChatOpen({
+          taskId: state.openTaskId,
+          conversationId: state.openTaskConversationId
+        })
+      }
       navigate(location.pathname, { replace: true, state: null })
       return
     }

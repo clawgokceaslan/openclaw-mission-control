@@ -39,6 +39,7 @@ import { WorkspaceRepository } from '../../db/repositories/workspace-repo.js'
 import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
 import { TaskJsonImportNormalizer } from './task-json-import.js'
 import { safeConsole } from '../utils/safe-output.js'
+import { showCodexChatCompletionNotification } from '../utils/codex-notifications.js'
 import { formatUsageSummary, parseCodexEvents, type CodexNormalizedEvent, type CodexUsageSummary } from '../../shared/utils/codex-events.js'
 
 const execFileAsync = promisify(execFile)
@@ -2636,6 +2637,25 @@ export class TaskService {
             status: 'failed',
             body: finalMessage.trim() || `Codex chat exited with code ${code ?? 'unknown'}.`,
             metadata: { code, signal, eventsPath, finalMessagePath, usage, rawTail: eventSummary.rawTail }
+          })
+          showCodexChatCompletionNotification({
+            taskTitle: access.data.task.title,
+            projectId: project.id,
+            taskId,
+            conversationId,
+            mode,
+            success: false,
+            exitCode: code
+          })
+        }
+        if (code === 0) {
+          showCodexChatCompletionNotification({
+            taskTitle: access.data.task.title,
+            projectId: project.id,
+            taskId,
+            conversationId,
+            mode,
+            success: true
           })
         }
       })()

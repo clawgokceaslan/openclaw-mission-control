@@ -6,6 +6,7 @@ const require = createRequire(import.meta.url)
 type ElectronRuntimeModule = {
   app?: Electron.App
   BrowserWindow?: typeof Electron.BrowserWindow
+  Notification?: typeof Electron.Notification
   Tray?: typeof Electron.Tray
   nativeImage?: typeof Electron.nativeImage
   dialog?: typeof Electron.dialog
