@@ -1,7 +1,8 @@
 .page {
-  display: grid;
-  gap: 18px;
-  align-content: start;
+  --skills-content-max: 1480px;
+
+  display: block;
+  min-width: 0;
 }
 
 .header {
@@ -9,6 +10,10 @@
   padding: 28px 30px;
   border-bottom: 1px solid var(--omc-border);
   background: var(--omc-surface);
+}
+
+.headerInner {
+  width: min(100%, var(--skills-content-max));
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -27,6 +32,14 @@
     color: var(--omc-text-muted);
     font-size: 0.98rem;
   }
+}
+
+.contentShell {
+  width: min(100%, var(--skills-content-max));
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  min-width: 0;
 }
 
 .primaryButton {
@@ -57,11 +70,14 @@
 
 .filterBar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 180px;
+  grid-template-columns: minmax(260px, 1fr) minmax(180px, 220px);
   gap: 10px;
   align-items: center;
+  min-width: 0;
 
   input {
+    width: 100%;
+    min-width: 0;
     min-height: 40px;
     border: 1px solid var(--omc-input-border);
     border-radius: 10px;
@@ -82,13 +98,15 @@
   border-radius: 14px;
   background: var(--omc-surface);
   box-shadow: var(--omc-shadow-soft);
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .tableHead,
 .tableRow {
+  min-width: 1080px;
   display: grid;
-  grid-template-columns: minmax(200px, 1fr) minmax(280px, 1.55fr) 110px 170px 86px 132px;
+  grid-template-columns: minmax(180px, 1fr) minmax(260px, 1.4fr) 110px 190px 86px 132px;
   gap: 16px;
   align-items: center;
 }
@@ -217,13 +235,16 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 14px;
   color: var(--omc-text-muted);
   font-weight: 700;
+  min-width: 0;
 
   div {
     display: inline-flex;
     align-items: center;
     gap: 10px;
+    min-width: 0;
   }
 
   :global(.app-select-container) {
@@ -490,7 +511,7 @@
 }
 
 @media (width <= 1000px) {
-  .header {
+  .headerInner {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -498,13 +519,16 @@
   .filterBar {
     grid-template-columns: 1fr;
   }
+}
 
-  .tableCard {
-    overflow-x: auto;
+@media (width <= 720px) {
+  .pagination {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
-  .tableHead,
-  .tableRow {
-    min-width: 980px;
+  .pagination div {
+    width: 100%;
+    flex-wrap: wrap;
   }
 }

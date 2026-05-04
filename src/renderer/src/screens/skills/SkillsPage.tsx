@@ -198,105 +198,109 @@ export function SkillsPage() {
   return (
     <section className={styles.page}>
       <header className={styles.header}>
-        <div>
-          <h1>Skills</h1>
-          <p>{total} skills configured.</p>
+        <div className={styles.headerInner}>
+          <div>
+            <h1>Skills</h1>
+            <p>{total} skills configured.</p>
+          </div>
+          <button type="button" className={styles.primaryButton} onClick={openCreate} disabled={loading}>
+            <LuPlus size={16} />
+            Add skill
+          </button>
         </div>
-        <button type="button" className={styles.primaryButton} onClick={openCreate} disabled={loading}>
-          <LuPlus size={16} />
-          Add skill
-        </button>
       </header>
 
-      {error ? <p className={styles.error}>{error}</p> : null}
+      <div className={styles.contentShell}>
+        {error ? <p className={styles.error}>{error}</p> : null}
 
-      <section className={styles.filterBar}>
-        <input
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value)
-            setPage(1)
-          }}
-          placeholder="Search skills..."
-        />
-        <AppSelect
-          mode="single"
-          value={status}
-          options={STATUS_OPTIONS}
-          onChange={(value) => {
-            setStatus(value ?? STATUS_OPTIONS[0])
-            setPage(1)
-          }}
-        />
-      </section>
-
-      <section className={styles.tableCard}>
-        <div className={styles.tableHead}>
-          <span>Skill</span>
-          <span>Description</span>
-          <span>Status</span>
-          <span>Updated</span>
-          <span>Preview</span>
-          <span />
-        </div>
-        {rows.length > 0 ? rows.map((skill) => (
-          <div key={skill.id} className={styles.tableRow}>
-            <span className={styles.skillName}>{skill.name}</span>
-            <span className={styles.descriptionCell}>{markdownSnippet(skill.descriptionMarkdown)}</span>
-            <span>
-              <span className={skill.status === 'active' ? styles.enabledPill : styles.disabledPill}>
-                {skill.status === 'active' ? 'Active' : 'Inactive'}
-              </span>
-            </span>
-            <span>{skill.updatedAt ? new Date(skill.updatedAt).toLocaleString() : '-'}</span>
-            <span className={styles.previewCell}>
-              <button
-                type="button"
-                onClick={() => setPreviewTarget(skill)}
-                disabled={!skill.descriptionMarkdown?.trim()}
-                aria-label={`Preview ${skill.name}`}
-              >
-                <LuEye size={15} />
-              </button>
-            </span>
-            <span className={styles.actionCell}>
-              <button type="button" onClick={() => downloadSkill(skill)} aria-label={`Download ${skill.name} SKILL.md`}>
-                <LuDownload size={15} />
-              </button>
-              <button type="button" onClick={() => openEdit(skill)} aria-label={`Edit ${skill.name}`}>
-                <LuPencil size={15} />
-              </button>
-              <button type="button" onClick={() => setDeleteTarget(skill)} aria-label={`Delete ${skill.name}`}>
-                <LuTrash2 size={15} />
-              </button>
-            </span>
-          </div>
-        )) : (
-          <div className={styles.emptyRow}>{loading ? 'Loading skills...' : 'No skills found.'}</div>
-        )}
-      </section>
-
-      <footer className={styles.pagination}>
-        <span>{start}-{end} of {total}</span>
-        <div>
+        <section className={styles.filterBar}>
+          <input
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value)
+              setPage(1)
+            }}
+            placeholder="Search skills..."
+          />
           <AppSelect
             mode="single"
-            value={PAGE_SIZE_OPTIONS.find((option) => option.value === String(pageSize)) ?? PAGE_SIZE_OPTIONS[1]}
-            options={PAGE_SIZE_OPTIONS}
+            value={status}
+            options={STATUS_OPTIONS}
             onChange={(value) => {
-              setPageSize(Number(value?.value ?? 20))
+              setStatus(value ?? STATUS_OPTIONS[0])
               setPage(1)
             }}
           />
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page <= 1 || loading}>
-            Previous
-          </button>
-          <span>Page {page} / {totalPages}</span>
-          <button type="button" onClick={() => setPage((value) => Math.min(totalPages, value + 1))} disabled={page >= totalPages || loading}>
-            Next
-          </button>
-        </div>
-      </footer>
+        </section>
+
+        <section className={styles.tableCard}>
+          <div className={styles.tableHead}>
+            <span>Skill</span>
+            <span>Description</span>
+            <span>Status</span>
+            <span>Updated</span>
+            <span>Preview</span>
+            <span />
+          </div>
+          {rows.length > 0 ? rows.map((skill) => (
+            <div key={skill.id} className={styles.tableRow}>
+              <span className={styles.skillName}>{skill.name}</span>
+              <span className={styles.descriptionCell}>{markdownSnippet(skill.descriptionMarkdown)}</span>
+              <span>
+                <span className={skill.status === 'active' ? styles.enabledPill : styles.disabledPill}>
+                  {skill.status === 'active' ? 'Active' : 'Inactive'}
+                </span>
+              </span>
+              <span>{skill.updatedAt ? new Date(skill.updatedAt).toLocaleString() : '-'}</span>
+              <span className={styles.previewCell}>
+                <button
+                  type="button"
+                  onClick={() => setPreviewTarget(skill)}
+                  disabled={!skill.descriptionMarkdown?.trim()}
+                  aria-label={`Preview ${skill.name}`}
+                >
+                  <LuEye size={15} />
+                </button>
+              </span>
+              <span className={styles.actionCell}>
+                <button type="button" onClick={() => downloadSkill(skill)} aria-label={`Download ${skill.name} SKILL.md`}>
+                  <LuDownload size={15} />
+                </button>
+                <button type="button" onClick={() => openEdit(skill)} aria-label={`Edit ${skill.name}`}>
+                  <LuPencil size={15} />
+                </button>
+                <button type="button" onClick={() => setDeleteTarget(skill)} aria-label={`Delete ${skill.name}`}>
+                  <LuTrash2 size={15} />
+                </button>
+              </span>
+            </div>
+          )) : (
+            <div className={styles.emptyRow}>{loading ? 'Loading skills...' : 'No skills found.'}</div>
+          )}
+        </section>
+
+        <footer className={styles.pagination}>
+          <span>{start}-{end} of {total}</span>
+          <div>
+            <AppSelect
+              mode="single"
+              value={PAGE_SIZE_OPTIONS.find((option) => option.value === String(pageSize)) ?? PAGE_SIZE_OPTIONS[1]}
+              options={PAGE_SIZE_OPTIONS}
+              onChange={(value) => {
+                setPageSize(Number(value?.value ?? 20))
+                setPage(1)
+              }}
+            />
+            <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page <= 1 || loading}>
+              Previous
+            </button>
+            <span>Page {page} / {totalPages}</span>
+            <button type="button" onClick={() => setPage((value) => Math.min(totalPages, value + 1))} disabled={page >= totalPages || loading}>
+              Next
+            </button>
+          </div>
+        </footer>
+      </div>
 
       {modalMode ? (
         <>
