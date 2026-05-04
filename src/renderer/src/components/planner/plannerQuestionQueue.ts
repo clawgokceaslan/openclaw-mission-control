@@ -1,6 +1,6 @@
 import type { Project, TaskEntity } from '@shared/types/entities'
 import type { TaskActivityMessage } from '@renderer/screens/projects/detail/types'
-import { conversationIdOf, plannerQuestionPromptFromMessages, type PlannerQuestionPrompt } from '@renderer/screens/projects/detail/chat/chatUtils'
+import { asRecord, conversationIdOf, plannerQuestionPromptFromMessages, type PlannerQuestionPrompt } from '@renderer/screens/projects/detail/chat/chatUtils'
 import { projectCodexSettings } from '@renderer/screens/projects/detail/projectDetailUtils'
 
 export type PlannerQuestionQueueItem = {
@@ -29,6 +29,35 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function activityMessagesFromTaskPayload(task: TaskEntity): TaskActivityMessage[] {
+  const messages = task.payload?.activityMessages
+  if (!Array.isArray(messages)) return []
+  return messages.filter((message): message is TaskActivityMessage => {
+    const record = asRecord(message)
+    return Boolean(
+      record
+      && typeof record.id === 'string'
+      && typeof record.runId === 'string'
+      && typeof record.source === 'string'
+      && typeof record.role === 'string'
+      && typeof record.body === 'string'
+      && typeof record.createdAt === 'number'
+    )
+  })
+}
+
+function isPlannerQuestionMessage(message: TaskActivityMessage): boolean {
+  const metadata = asRecord(message.metadata)
+  return message.source === 'codex-plan' && message.role === 'assistant' && metadata?.codexBlock === 'planner-question'
+}
+
+function isClarificationAnswerFor(message: TaskActivityMessage, conversationId: string, after: number): boolean {
+  if (message.createdAt <= after) return false
+  if (message.role !== 'user') return false
+  if (conversationIdOf(message) !== conversationId) return false
+  return asRecord(message.metadata)?.clarification === true
 }
 
 export function plannerQuestionItemFromActivity(event: PlannerQuestionActivityEvent): PlannerQuestionQueueItem | null {
@@ -60,6 +89,28 @@ export function plannerQuestionItemFromActivity(event: PlannerQuestionActivityEv
 export function enqueuePlannerQuestion(queue: PlannerQuestionQueueItem[], item: PlannerQuestionQueueItem): PlannerQuestionQueueItem[] {
   if (queue.some((current) => current.id === item.id)) return queue
   return [...queue, item].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+}
+
+export function unansweredPlannerQuestionsFromTasks(tasks: TaskEntity[]): PlannerQuestionQueueItem[] {
+  return tasks
+    .flatMap((task) => {
+      const messages = activityMessagesFromTaskPayload(task)
+      return messages.flatMap((message): PlannerQuestionQueueItem[] => {
+        if (!isPlannerQuestionMessage(message)) return []
+        const conversationId = conversationIdOf(message)
+        if (!conversationId) return []
+        if (messages.some((candidate) => isClarificationAnswerFor(candidate, conversationId, message.createdAt))) return []
+        const item = plannerQuestionItemFromActivity({ projectId: task.projectId, taskId: task.id, message })
+        if (!item) return []
+        return [{
+          ...item,
+          projectId: item.projectId || task.projectId,
+          taskId: item.taskId || task.id,
+          taskTitle: item.taskTitle && item.taskTitle !== 'Task' ? item.taskTitle : task.title || 'Task'
+        }]
+      })
+    })
+    .reduce<PlannerQuestionQueueItem[]>((queue, item) => enqueuePlannerQuestion(queue, item), [])
 }
 
 export function removeAnsweredPlannerQuestions(queue: PlannerQuestionQueueItem[], message: TaskActivityMessage): PlannerQuestionQueueItem[] {

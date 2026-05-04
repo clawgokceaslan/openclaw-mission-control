@@ -81,10 +81,17 @@ export function ProfilePage() {
 
       <div className={styles.profileGrid}>
         <aside className={styles.summaryPanel}>
-          <div className={styles.avatar}>{initials}</div>
-          <h2>{fullName}</h2>
-          <p>{email || user?.email || 'owner@mission.local'}</p>
-          <span className={styles.roleBadge}>{role}</span>
+          <div className={styles.avatarWrap}>
+            <div className={styles.avatar}>{initials}</div>
+          </div>
+          <div className={styles.summaryIdentity}>
+            <h2>{fullName}</h2>
+            <p>{email || user?.email || 'owner@mission.local'}</p>
+          </div>
+          <div className={styles.summaryMeta}>
+            <span className={styles.roleBadge}>{role}</span>
+            <span>Kullanıcı profili</span>
+          </div>
         </aside>
 
         <div className={styles.profileMain}>
@@ -97,8 +104,13 @@ export function ProfilePage() {
             </div>
 
             <div className={styles.appearanceGrid}>
-              <div>
-                <span className={styles.settingLabel}>Mode</span>
+              <div className={styles.settingBlock}>
+                <div className={styles.settingCopy}>
+                  <span className={styles.settingLabel}>Mode</span>
+                  <p className={styles.settingHint}>
+                    {mode === 'system' ? `Using system: ${resolvedMode}` : `Using ${resolvedMode} mode`}
+                  </p>
+                </div>
                 <div className={styles.modeSegment}>
                   {modeOptions.map((option) => {
                     const Icon = option.icon
@@ -115,13 +127,13 @@ export function ProfilePage() {
                     )
                   })}
                 </div>
-                <p className={styles.settingHint}>
-                  {mode === 'system' ? `Using system: ${resolvedMode}` : `Using ${resolvedMode} mode`}
-                </p>
               </div>
 
-              <div>
-                <span className={styles.settingLabel}>Palette</span>
+              <div className={styles.settingBlock}>
+                <div className={styles.settingCopy}>
+                  <span className={styles.settingLabel}>Palette</span>
+                  <p>Accent color used across controls.</p>
+                </div>
                 <div className={styles.paletteRow}>
                   {palettes.map((palette) => (
                     <button
@@ -139,8 +151,11 @@ export function ProfilePage() {
                 </div>
               </div>
 
-              <div>
-                <span className={styles.settingLabel}>Background</span>
+              <div className={styles.settingBlock}>
+                <div className={styles.settingCopy}>
+                  <span className={styles.settingLabel}>Background</span>
+                  <p>Canvas treatment for this device.</p>
+                </div>
                 <div className={styles.backgroundRow}>
                   {backgrounds.map((background) => (
                     <button
@@ -185,35 +200,43 @@ export function ProfilePage() {
                 <span>Title</span>
                 <select value={role} onChange={(event) => setRole(event.target.value as User['role'])}>
                   {TITLE_OPTIONS.map((option) => (
-                    <option key={option} value={option}>{option}</option>
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
                   ))}
                 </select>
               </label>
             </div>
 
-            <div className={styles.readonlyGrid}>
-              <div className={styles.infoRow}>
-                <LuMail size={16} />
-                <div>
-                  <span>E-posta</span>
-                  <strong>{email || user?.email || 'owner@mission.local'}</strong>
+            <section className={styles.readonlySection} aria-label="Read-only account details">
+              <div className={styles.readonlyHeader}>
+                <h3>Account Details</h3>
+                <p>Reference information shown by the application.</p>
+              </div>
+              <div className={styles.readonlyGrid}>
+                <div className={styles.infoRow}>
+                  <LuMail size={16} />
+                  <div>
+                    <span>E-posta</span>
+                    <strong>{email || user?.email || 'owner@mission.local'}</strong>
+                  </div>
+                </div>
+                <div className={styles.infoRow}>
+                  <LuBadgeCheck size={16} />
+                  <div>
+                    <span>Title</span>
+                    <strong>{role}</strong>
+                  </div>
+                </div>
+                <div className={styles.infoRow}>
+                  <LuUserRound size={16} />
+                  <div>
+                    <span>Kullanıcı ID</span>
+                    <strong>{user?.id ?? '-'}</strong>
+                  </div>
                 </div>
               </div>
-              <div className={styles.infoRow}>
-                <LuBadgeCheck size={16} />
-                <div>
-                  <span>Title</span>
-                  <strong>{role}</strong>
-                </div>
-              </div>
-              <div className={styles.infoRow}>
-                <LuUserRound size={16} />
-                <div>
-                  <span>Kullanıcı ID</span>
-                  <strong>{user?.id ?? '-'}</strong>
-                </div>
-              </div>
-            </div>
+            </section>
 
             {error ? <p className={styles.error}>{error}</p> : null}
             {status ? <p className={styles.success}>{status}</p> : null}

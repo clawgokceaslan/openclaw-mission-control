@@ -5,7 +5,8 @@ import {
   enqueuePlannerQuestion,
   plannerQuestionItemFromActivity,
   removeAnsweredPlannerQuestions,
-  resolvePlannerQuestionConfig
+  resolvePlannerQuestionConfig,
+  unansweredPlannerQuestionsFromTasks
 } from './plannerQuestionQueue'
 
 function message(overrides: Partial<TaskActivityMessage>): TaskActivityMessage {
@@ -20,6 +21,22 @@ function message(overrides: Partial<TaskActivityMessage>): TaskActivityMessage {
     metadata: overrides.metadata,
     createdAt: overrides.createdAt ?? 1,
     updatedAt: overrides.updatedAt
+  }
+}
+
+function task(overrides: Partial<TaskEntity> & { messages?: TaskActivityMessage[] }): TaskEntity {
+  return {
+    id: overrides.id ?? 'task-1',
+    projectId: overrides.projectId ?? 'project-1',
+    title: overrides.title ?? 'Task',
+    status: overrides.status ?? 'status-1',
+    payload: {
+      ...(overrides.payload ?? {}),
+      activityMessages: overrides.messages ?? (overrides.payload?.activityMessages as TaskActivityMessage[] | undefined) ?? []
+    },
+    result: overrides.result ?? {},
+    createdAt: overrides.createdAt ?? 1,
+    updatedAt: overrides.updatedAt ?? 1
   }
 }
 
@@ -126,5 +143,99 @@ describe('planner question queue', () => {
       reasoningEffort: 'high',
       taskTitle: 'Task title'
     })
+  })
+
+  it('bootstraps unanswered planner questions across tasks', () => {
+    const items = unansweredPlannerQuestionsFromTasks([
+      task({
+        id: 'task-a',
+        projectId: 'project-a',
+        title: 'Task A',
+        messages: [
+          message({
+            id: 'question-a',
+            conversationId: 'conversation-a',
+            createdAt: 20,
+            metadata: { codexBlock: 'planner-question', questions: [{ id: 'q', question: 'A?' }] }
+          })
+        ]
+      }),
+      task({
+        id: 'task-b',
+        projectId: 'project-b',
+        title: 'Task B',
+        messages: [
+          message({
+            id: 'question-b',
+            conversationId: 'conversation-b',
+            createdAt: 10,
+            metadata: { codexBlock: 'planner-question', questions: [{ id: 'q', question: 'B?' }] }
+          })
+        ]
+      })
+    ])
+
+    expect(items.map((item) => item.id)).toEqual(['question-b', 'question-a'])
+    expect(items.map((item) => item.taskTitle)).toEqual(['Task B', 'Task A'])
+  })
+
+  it('excludes planner questions that already have later clarification answers', () => {
+    const items = unansweredPlannerQuestionsFromTasks([
+      task({
+        messages: [
+          message({
+            id: 'question',
+            conversationId: 'conversation-answered',
+            createdAt: 10,
+            metadata: { codexBlock: 'planner-question', questions: [{ id: 'q', question: 'Question?' }] }
+          }),
+          message({
+            id: 'answer',
+            conversationId: 'conversation-answered',
+            role: 'user',
+            createdAt: 11,
+            metadata: { clarification: true }
+          })
+        ]
+      })
+    ])
+
+    expect(items).toEqual([])
+  })
+
+  it('deduplicates bootstrap and live planner question items by message id', () => {
+    const bootstrapped = unansweredPlannerQuestionsFromTasks([
+      task({
+        messages: [
+          message({
+            id: 'question',
+            createdAt: 10,
+            metadata: { codexBlock: 'planner-question', questions: [{ id: 'q', question: 'Question?' }] }
+          })
+        ]
+      })
+    ])
+    const live = plannerQuestionItemFromActivity({
+      projectId: 'project-1',
+      taskId: 'task-1',
+      message: message({ id: 'question', createdAt: 10, metadata: { codexBlock: 'planner-question', questions: [{ id: 'q', question: 'Question?' }] } })
+    })!
+
+    expect(enqueuePlannerQuestion(bootstrapped, live)).toHaveLength(1)
+  })
+
+  it('derives warning state when queued question metadata lacks required model config', () => {
+    const items = unansweredPlannerQuestionsFromTasks([
+      task({
+        messages: [
+          message({
+            id: 'question',
+            metadata: { codexBlock: 'planner-question', questions: [{ id: 'q', question: 'Question?' }] }
+          })
+        ]
+      })
+    ])
+
+    expect(items.some((item) => !item.gatewayId || !item.model)).toBe(true)
   })
 })

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
-import { LuArrowRight, LuSend, LuSparkles } from 'react-icons/lu'
+import { LuArrowRight, LuMinus, LuSend, LuSparkles } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { Project, TaskEntity } from '@shared/types/entities'
@@ -14,6 +14,7 @@ import {
   plannerQuestionItemFromActivity,
   removeAnsweredPlannerQuestions,
   resolvePlannerQuestionConfig,
+  unansweredPlannerQuestionsFromTasks,
   type PlannerQuestionActivityEvent,
   type PlannerQuestionQueueItem
 } from './plannerQuestionQueue'
@@ -25,17 +26,105 @@ type ResolvedQuestionContext = {
   project: Project | null
 }
 
-export function PlannerQuestionHost() {
-  const { token } = useAuth()
-  const navigate = useNavigate()
-  const [queue, setQueue] = useState<PlannerQuestionQueueItem[]>([])
-  const [selectedOptionIds, setSelectedOptionIds] = useState<Record<string, string>>({})
-  const [notes, setNotes] = useState<Record<string, string>>({})
-  const [submitting, setSubmitting] = useState(false)
-  const [resolveError, setResolveError] = useState<string | null>(null)
-  const [resolved, setResolved] = useState<ResolvedQuestionContext | null>(null)
+type PlannerQuestionContextValue = {
+  queue: PlannerQuestionQueueItem[]
+  active: PlannerQuestionQueueItem | null
+  isModalOpen: boolean
+  hasConfigurationWarning: boolean
+  openFirstQuestion: () => void
+  openQuestion: (questionId: string) => void
+  closeQuestionModal: () => void
+  removeQuestion: (questionId: string) => void
+}
 
-  const active = queue[0] ?? null
+const PlannerQuestionContext = createContext<PlannerQuestionContextValue | null>(null)
+const EMPTY_PLANNER_QUESTION_CONTEXT: PlannerQuestionContextValue = {
+  queue: [],
+  active: null,
+  isModalOpen: false,
+  hasConfigurationWarning: false,
+  openFirstQuestion: () => {},
+  openQuestion: () => {},
+  closeQuestionModal: () => {},
+  removeQuestion: () => {}
+}
+
+export function usePlannerQuestions(): PlannerQuestionContextValue {
+  const value = useContext(PlannerQuestionContext)
+  return value ?? EMPTY_PLANNER_QUESTION_CONTEXT
+}
+
+export function PlannerQuestionProvider({ children }: { children: ReactNode }) {
+  const { token } = useAuth()
+  const [queue, setQueue] = useState<PlannerQuestionQueueItem[]>([])
+  const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+
+  const openQuestion = useCallback((questionId: string) => {
+    setActiveQuestionId(questionId)
+    setIsModalOpen(true)
+  }, [])
+
+  const openFirstQuestion = useCallback(() => {
+    setQueue((current) => {
+      if (current[0]) {
+        setActiveQuestionId(current[0].id)
+        setIsModalOpen(true)
+      }
+      return current
+    })
+  }, [])
+
+  const closeQuestionModal = useCallback(() => {
+    setIsModalOpen(false)
+  }, [])
+
+  const removeQuestion = useCallback((questionId: string) => {
+    setQueue((current) => current.filter((item) => item.id !== questionId))
+    setActiveQuestionId((current) => current === questionId ? null : current)
+  }, [])
+
+  const enqueueAndOpen = useCallback((item: PlannerQuestionQueueItem) => {
+    setQueue((current) => {
+      const existed = current.some((queued) => queued.id === item.id)
+      const next = enqueuePlannerQuestion(current, item)
+      if (!existed) {
+        const first = next[0] ?? item
+        setActiveQuestionId((currentActive) => currentActive && next.some((queued) => queued.id === currentActive) ? currentActive : first.id)
+        setIsModalOpen(true)
+      }
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!token) {
+      setQueue([])
+      setActiveQuestionId(null)
+      setIsModalOpen(false)
+      return
+    }
+    let cancelled = false
+
+    const bootstrapQuestions = async () => {
+      const response = await invokeBridge<TaskEntity[]>(IPC_CHANNELS.tasks.list, { actorToken: token })
+      if (cancelled || !response.ok || !Array.isArray(response.data)) return
+      const questions = unansweredPlannerQuestionsFromTasks(response.data)
+      setQueue((current) => {
+        const next = questions.reduce((items, item) => enqueuePlannerQuestion(items, item), current)
+        if (next.length > 0) {
+          setActiveQuestionId((currentActive) => currentActive && next.some((item) => item.id === currentActive) ? currentActive : next[0].id)
+          setIsModalOpen((currentOpen) => currentOpen || current.length === 0)
+        }
+        return next
+      })
+    }
+
+    void bootstrapQuestions()
+    return () => {
+      cancelled = true
+    }
+  }, [token])
 
   useEffect(() => {
     const onTaskActivity = (...args: unknown[]) => {
@@ -44,7 +133,7 @@ export function PlannerQuestionHost() {
       if (!payload || !message) return
       const item = plannerQuestionItemFromActivity({ ...payload, message })
       if (item) {
-        setQueue((current) => enqueuePlannerQuestion(current, item))
+        enqueueAndOpen(item)
         return
       }
       setQueue((current) => removeAnsweredPlannerQuestions(current, message))
@@ -52,7 +141,41 @@ export function PlannerQuestionHost() {
 
     subscribeToChannel(IPC_CHANNELS.events.taskActivity, onTaskActivity)
     return () => unsubscribeFromChannel(IPC_CHANNELS.events.taskActivity, onTaskActivity)
-  }, [])
+  }, [enqueueAndOpen])
+
+  useEffect(() => {
+    if (!activeQuestionId || queue.some((item) => item.id === activeQuestionId)) return
+    setActiveQuestionId(queue[0]?.id ?? null)
+  }, [activeQuestionId, queue])
+
+  const active = queue.find((item) => item.id === activeQuestionId) ?? queue[0] ?? null
+  const value = useMemo<PlannerQuestionContextValue>(() => ({
+    queue,
+    active,
+    isModalOpen,
+    hasConfigurationWarning: queue.some((item) => !item.gatewayId || !item.model),
+    openFirstQuestion,
+    openQuestion,
+    closeQuestionModal,
+    removeQuestion
+  }), [active, closeQuestionModal, isModalOpen, openFirstQuestion, openQuestion, queue, removeQuestion])
+
+  return (
+    <PlannerQuestionContext.Provider value={value}>
+      {children}
+    </PlannerQuestionContext.Provider>
+  )
+}
+
+export function PlannerQuestionHost() {
+  const { token } = useAuth()
+  const navigate = useNavigate()
+  const { active, isModalOpen, queue, closeQuestionModal, removeQuestion } = usePlannerQuestions()
+  const [selectedOptionIds, setSelectedOptionIds] = useState<Record<string, string>>({})
+  const [notes, setNotes] = useState<Record<string, string>>({})
+  const [submitting, setSubmitting] = useState(false)
+  const [resolveError, setResolveError] = useState<string | null>(null)
+  const [resolved, setResolved] = useState<ResolvedQuestionContext | null>(null)
 
   useEffect(() => {
     setSelectedOptionIds({})
@@ -137,10 +260,10 @@ export function PlannerQuestionHost() {
       setResolveError(response.error?.message ?? 'Unable to send planner clarification.')
       return
     }
-    setQueue((current) => current.filter((item) => item.id !== active.id))
+    removeQuestion(active.id)
   }
 
-  if (!active) return null
+  if (!active || !isModalOpen) return null
 
   const displayTaskTitle = resolved?.task?.title || active.taskTitle
   const displayProjectName = resolved?.project?.name || active.projectId
@@ -156,6 +279,9 @@ export function PlannerQuestionHost() {
             <h2>Codex needs input before planning</h2>
             <p>{displayProjectName} / {displayTaskTitle}</p>
           </div>
+          <button type="button" className={styles.minimizeButton} onClick={closeQuestionModal} aria-label="Minimize planner questions">
+            <LuMinus size={18} />
+          </button>
         </header>
 
         <div className={styles.summary}>

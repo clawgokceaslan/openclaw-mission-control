@@ -24,7 +24,7 @@
 
 .header {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 16px;
   align-items: center;
   padding: 22px 24px;
@@ -60,6 +60,23 @@
   border-radius: 14px;
   background: rgba(57, 102, 232, 0.18);
   color: #a9bdff;
+}
+
+.minimizeButton {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(139, 162, 205, 0.2);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.045);
+  color: #b9c8df;
+}
+
+.minimizeButton:hover {
+  border-color: rgba(169, 189, 255, 0.4);
+  background: rgba(255, 255, 255, 0.075);
+  color: #edf3ff;
 }
 
 .summary {
