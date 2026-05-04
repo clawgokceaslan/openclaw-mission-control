@@ -36,6 +36,8 @@ Use this guide when planning or revising tasks. Read every available task field 
 - Start from the current task data. Preserve existing useful details.
 - Make the task implementation-ready for Codex Run.
 - Prefer clear, verifiable scope over broad or vague instructions.
+- Refactor the entire subtasks array during planning. Treat existing subtasks, including completed/done/closed ones, as input context that can be rewritten into a clearer execution plan.
+- Use extreme subtask decomposition: split every meaningful operation, file/module group, UI state, backend/data-flow change, migration, verification step, and edge-case handling area into its own subtask.
 - Keep subtasks ordered by execution dependency.
 - Fill Acceptance Criteria when it is missing or incomplete.
 - Do not remove user-provided constraints from the description or comments.
@@ -96,7 +98,10 @@ When producing planned task JSON:
 - Update description with concise implementation context.
 - Set agenticInputs.acceptanceCriteria with measurable completion checks.
 - Add or revise checklist items for concrete verification steps.
-- Add subtasks only when they reduce ambiguity or split independent work.
+- Subtasks are the primary execution plan. Produce detailed subtasks even for short tasks when they clarify implementation.
+- Every subtask must include a markdown description with Objective, Task context, Exact work, Files/areas, and Done when sections.
+- Every subtask must include unchecked checklist items that are specific to that subtask.
+- Do not write generic subtasks or checklist items such as "Test yap", "Run tests", "Fix bugs", "Implement feature", "Implement UI", or "Check everything".
 - Keep tags as names or ids.
 - Keep customFields as { name, value } entries.
 
@@ -112,7 +117,7 @@ Write acceptance criteria as a short checklist:
 
 ## Status handling
 
-- Keep completed/done/closed subtasks untouched unless the user explicitly asks.
+- During planning, completed/done/closed subtasks may be rewritten as part of the full planned subtask list.
 - Prefer active/in-progress status only when the task is ready for execution.
 - Do not mark the task complete during planning.
 `

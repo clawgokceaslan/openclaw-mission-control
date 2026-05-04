@@ -15,6 +15,11 @@ type CodexChatNotificationInput = {
   exitCode?: number | null
 }
 
+type CodexChatCompletionNotificationInput = CodexChatNotificationInput & {
+  executionMode: 'exec' | 'terminal'
+  stopped?: boolean
+}
+
 const NOTIFICATION_TITLE_LIMIT = 82
 const NOTIFICATION_BODY_LIMIT = 200
 
@@ -29,16 +34,16 @@ function modeLabel(mode: CodexChatMode): string {
   return mode === 'plan' ? 'plan' : 'chat'
 }
 
-function getMainWindowForNotification() {
-  const BrowserWindow = electronRuntime.BrowserWindow
+function getMainWindowForNotification(runtime = electronRuntime) {
+  const BrowserWindow = runtime.BrowserWindow
   if (!BrowserWindow) return null
   const candidates = BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed())
   if (candidates.length === 0) return null
   return candidates.find((win) => !win.getTitle().toLowerCase().includes('companion')) ?? candidates[0]
 }
 
-function openProjectTaskChat(projectId: string, state: AppNavigateOpenTaskChatState): void {
-  const mainWindow = getMainWindowForNotification()
+function openProjectTaskChat(projectId: string, state: AppNavigateOpenTaskChatState, runtime = electronRuntime): void {
+  const mainWindow = getMainWindowForNotification(runtime)
   if (!mainWindow) return
 
   const send = () => {
@@ -60,8 +65,12 @@ function openProjectTaskChat(projectId: string, state: AppNavigateOpenTaskChatSt
   send()
 }
 
-export function showCodexChatCompletionNotification(input: CodexChatNotificationInput): void {
-  const Notification = electronRuntime.Notification
+export function shouldShowCodexChatCompletionNotification(input: Pick<CodexChatCompletionNotificationInput, 'executionMode' | 'stopped'>): boolean {
+  return input.executionMode === 'exec' && input.stopped !== true
+}
+
+export function showCodexChatCompletionNotification(input: CodexChatNotificationInput, runtime = electronRuntime): void {
+  const Notification = runtime.Notification
   if (!Notification || !Notification.isSupported()) return
 
   const title = safeText(input.taskTitle, NOTIFICATION_TITLE_LIMIT)
@@ -76,7 +85,9 @@ export function showCodexChatCompletionNotification(input: CodexChatNotification
     const notification = new Notification({
       title: `Codex ${mode}: ${title}`,
       body,
-      silent: false
+      silent: false,
+      timeoutType: 'default',
+      urgency: 'normal'
     })
 
     const state: AppNavigateOpenTaskChatState = {
@@ -86,11 +97,16 @@ export function showCodexChatCompletionNotification(input: CodexChatNotification
     }
 
     notification.once('click', () => {
-      openProjectTaskChat(input.projectId, state)
+      openProjectTaskChat(input.projectId, state, runtime)
     })
 
     notification.show()
   } catch (error) {
     safeConsole.warn('[main] Notification failed', error)
   }
+}
+
+export function maybeShowCodexChatCompletionNotification(input: CodexChatCompletionNotificationInput, runtime = electronRuntime): void {
+  if (!shouldShowCodexChatCompletionNotification(input)) return
+  showCodexChatCompletionNotification(input, runtime)
 }

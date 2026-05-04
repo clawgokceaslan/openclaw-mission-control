@@ -12,6 +12,7 @@ import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
 import type {
   AddTaskCommentRequest,
+  CodexChatResolveRequest,
   CodexChatStopRequest,
   CodexChatSendRequest,
   ExportTaskSnapshotRequest,
@@ -35,11 +36,13 @@ import { CustomFieldRepository, TagRepository } from '../../db/repositories/cust
 import { SkillRepository } from '../../db/repositories/skill-repo.js'
 import { AgentRepository } from '../../db/repositories/agent-repo.js'
 import { StatusRepository } from '../../db/repositories/status-repo.js'
-import { WorkspaceRepository } from '../../db/repositories/workspace-repo.js'
+import { AppSettingsRepository, WorkspaceRepository } from '../../db/repositories/workspace-repo.js'
 import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
+import { DEFAULT_AGENT_KEY } from './app-settings.service.js'
 import { TaskJsonImportNormalizer } from './task-json-import.js'
+import type { NormalizedTaskJsonImport } from './task-json-import.js'
 import { safeConsole } from '../utils/safe-output.js'
-import { showCodexChatCompletionNotification } from '../utils/codex-notifications.js'
+import { maybeShowCodexChatCompletionNotification } from '../utils/codex-notifications.js'
 import { formatUsageSummary, parseCodexEvents, type CodexNormalizedEvent, type CodexUsageSummary } from '../../shared/utils/codex-events.js'
 
 const execFileAsync = promisify(execFile)
@@ -59,6 +62,9 @@ type PlannerBridgeContext = {
   terminalTitle?: string
   workspaceRunPath?: string
   runId?: string
+  conversationId?: string
+  gatewayId?: string
+  model?: string
   mode?: 'plan' | 'execute'
   exportWorkspacePath?: string
   runtimeWorkspacePath?: string
@@ -73,6 +79,7 @@ type PlannerLaunchResult = {
   bridgeUrl: string
   executionMode?: 'terminal' | 'exec'
   runId?: string
+  conversationId?: string
   pid?: number
   eventsPath?: string
   finalMessagePath?: string
@@ -97,6 +104,17 @@ type ProjectPromptSnapshot = {
   planGuide: string
   defaultOutput: string
   rules: string
+}
+
+export type PlannerQuestionItem = {
+  id: string
+  question: string
+  why?: string
+}
+
+export type PlannerQuestionPayload = {
+  summary: string
+  questions: PlannerQuestionItem[]
 }
 
 type CodexExecutionMode = 'terminal' | 'exec'
@@ -384,7 +402,51 @@ function initialCodexPrompt(exportWorkspacePath: string, runtimeWorkspacePath: s
   ].join(' ')
 }
 
-function initialPlannerPrompt(projectId: string, taskId: string, helperPath: string, contextPath: string, plannedTaskPath: string): string {
+export const PLANNER_GENERIC_TEXT_REJECT_LIST = [
+  'Test yap',
+  'Run tests',
+  'Fix bugs',
+  'Fix issue',
+  'Implement feature',
+  'Implement UI',
+  'Check everything'
+]
+
+const PLANNED_SUBTASK_REQUIRED_DESCRIPTION_SECTIONS = [
+  'Objective',
+  'Task context',
+  'Exact work',
+  'Files/areas',
+  'Done when'
+]
+
+function plannerJsonGuidance() {
+  return {
+    planningPolicy: {
+      subtaskRewrite: 'Refactor the entire subtasks array on every planning update, including completed/done/closed subtasks. Treat current subtasks as input context, not immutable history.',
+      granularity: 'extreme',
+      primaryExecutionPlan: 'Subtasks are the primary execution plan that will later be exported into Task.md for Codex Run.',
+      noGenericWork: 'No generic tasks or checklist items such as Test yap, Run tests, Fix bugs, Implement feature, Implement UI, or Check everything.'
+    },
+    subtaskPolicy: [
+      'Create one subtask per meaningful operation, file/module group, UI state, backend/data-flow change, migration, verification step, and edge-case handling area.',
+      'Every subtask must include a detailed markdown description with Objective, Task context, Exact work, Files/areas, and Done when sections.',
+      'Every subtask must include unchecked checklist items that are specific to that subtask.',
+      'Checklist verification items must name concrete commands, screens, behaviors, or file areas.'
+    ],
+    plannedSubtaskTemplate: {
+      title: 'Specific action-oriented subtask title',
+      description: '## Objective\n...\n\n## Task context\n...\n\n## Exact work\n...\n\n## Files/areas\n...\n\n## Done when\n...',
+      checklist: [
+        { title: 'Specific implementation or verification item for this subtask', checked: false }
+      ]
+    },
+    genericTextRejectList: PLANNER_GENERIC_TEXT_REJECT_LIST
+  }
+}
+
+export function initialPlannerPrompt(projectId: string, taskId: string, helperPath: string, contextPath: string, plannedTaskPath: string): string {
+  const questionsPath = plannedTaskPath.replace(/planned-task\.json$/i, 'questions.json')
   return [
     'You are planning an Open Mission Control task inside Codex TUI.',
     'Do not use MCP for this flow. Use the local helper CLI in this workspace.',
@@ -392,7 +454,14 @@ function initialPlannerPrompt(projectId: string, taskId: string, helperPath: str
     `The project id is ${projectId} and the source task id is ${taskId}.`,
     'Plan the current task from its task-detail data: title, description, custom fields, checklist, comments, tags, and subtasks.',
     'Apply the project context, prompt, Plan Guide, default output, and Project Rules from the context JSON before producing the planned task.',
+    `If critical details are missing and guessing would weaken the plan, write ${questionsPath} with { "summary": "...", "questions": [{ "id": "...", "question": "...", "why": "..." }] } and run: node ${helperPath} ask ${questionsPath}`,
+    'The AI must produce the clarification questions itself. After ask succeeds, do not write planned-task.json, do not validate, and do not update the task.',
+    'Refactor the entire subtasks array. Completed, done, and closed subtasks are input context and may be rewritten in the planned task JSON.',
+    'Use extreme decomposition: split every meaningful operation, file/module group, UI state, backend/data-flow change, migration, verification step, and edge-case handling area into its own subtask.',
+    'No generic test tasks or generic checklist items. Do not write vague items like Test yap, Run tests, Fix bugs, Implement feature, Implement UI, or Check everything.',
     'For every subtask, consider its title, description, custom fields, checklist, comments, tags, status, and due date.',
+    'Every planned subtask description must include Objective, Task context, Exact work, Files/areas, and Done when sections.',
+    'Every planned subtask must include concrete unchecked checklist items. Verification checklist items must name exact commands, screens, behaviors, or file areas.',
     `Use ${contextPath} currentTaskJson as the starting JSON shape and revise it into the planned task JSON.`,
     `Write the planned JSON to ${plannedTaskPath}.`,
     `After writing, run: node ${helperPath} validate ${plannedTaskPath}`,
@@ -403,7 +472,153 @@ function initialPlannerPrompt(projectId: string, taskId: string, helperPath: str
   ].join(' ')
 }
 
-function codexChatPrompt(input: {
+function plannerClarificationPrompt(input: {
+  conversationId: string
+  clarificationMessage?: string
+  transcript: TaskActivityMessage[]
+}): string {
+  if (!input.clarificationMessage?.trim() && input.transcript.length === 0) return ''
+  const transcript = input.transcript
+    .slice(-32)
+    .map((item) => `${item.role.toUpperCase()}: ${item.body}`)
+    .join('\n\n')
+  return [
+    `This planning run continues plan conversation ${input.conversationId}.`,
+    input.clarificationMessage?.trim()
+      ? `User clarification answer:\n${input.clarificationMessage.trim()}`
+      : '',
+    transcript ? `Recent plan conversation transcript:\n${transcript}` : '',
+    'Use the user clarification as the highest-priority answer to the planner questions, then re-run context and continue planning.'
+  ].filter(Boolean).join('\n\n')
+}
+
+type PromptComment = {
+  authorName: string
+  body: string
+  createdAt: number
+}
+
+function promptCommentsFromUnknown(value: unknown): PromptComment[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((raw): PromptComment[] => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
+    const comment = raw as Record<string, unknown>
+    const body = typeof comment.body === 'string' ? comment.body.trim() : ''
+    if (!body) return []
+    return [{
+      authorName: typeof comment.authorName === 'string' && comment.authorName.trim() ? comment.authorName.trim() : 'Operator',
+      body,
+      createdAt: typeof comment.createdAt === 'number' && Number.isFinite(comment.createdAt) ? comment.createdAt : 0
+    }]
+  })
+}
+
+function formatPromptComment(comment: PromptComment): string {
+  const date = new Date(comment.createdAt)
+  const dateLabel = Number.isNaN(date.getTime()) ? 'unknown date' : date.toISOString()
+  return `- ${comment.authorName}, ${dateLabel}: ${comment.body}`
+}
+
+function subtaskCommentSectionsFromUnknown(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((raw): string[] => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
+    const subtask = raw as Record<string, unknown>
+    const title = typeof subtask.title === 'string' && subtask.title.trim() ? subtask.title.trim() : 'Untitled subtask'
+    const payload = asPayload(subtask.payload)
+    const comments = promptCommentsFromUnknown(Array.isArray(subtask.comments) ? subtask.comments : payload.comments)
+    if (comments.length === 0) return []
+    return [`Subtask: ${title}\n${comments.map(formatPromptComment).join('\n')}`]
+  })
+}
+
+function importantTaskCommentsSection(task: TaskEntity, context?: unknown): string {
+  const sections: string[] = []
+  const contextRecord = asPayload(context)
+  const currentTaskJson = asPayload(contextRecord.currentTaskJson)
+  const taskCommentsSource = Array.isArray(currentTaskJson.comments) ? currentTaskJson.comments : task.comments
+  const taskComments = promptCommentsFromUnknown(taskCommentsSource)
+  if (taskComments.length > 0) {
+    sections.push(`Task comments:\n${taskComments.map(formatPromptComment).join('\n')}`)
+  }
+
+  const subtaskSource = Array.isArray(currentTaskJson.subtasks) ? currentTaskJson.subtasks : task.subtasks
+  const subtaskSections = subtaskCommentSectionsFromUnknown(subtaskSource)
+  if (subtaskSections.length > 0) {
+    sections.push(`Subtask comments:\n${subtaskSections.join('\n\n')}`)
+  }
+
+  return sections.length > 0 ? `Important task comments:\n${sections.join('\n\n')}` : ''
+}
+
+function compactPlannerText(value: string): string {
+  return value
+    .trim()
+    .toLocaleLowerCase('tr')
+    .replace(/[^\p{L}\p{N}\s/.-]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+}
+
+function isGenericPlannerText(value: string): boolean {
+  const text = compactPlannerText(value)
+  if (!text) return true
+  const words = text.split(' ').filter(Boolean)
+  const generic = PLANNER_GENERIC_TEXT_REJECT_LIST.map(compactPlannerText)
+  if (generic.includes(text)) return true
+  if (words.length <= 2 && ['test', 'verify', 'validate', 'check', 'fix', 'implement', 'update', 'review'].some((word) => text.includes(word))) return true
+  if (words.length <= 4 && [
+    'test yap',
+    'run tests',
+    'fix bugs',
+    'fix issue',
+    'implement feature',
+    'implement ui',
+    'check everything',
+    'edge cases',
+    'handle edge cases',
+    'make changes',
+    'update code'
+  ].includes(text)) return true
+  return false
+}
+
+function hasPlannerDescriptionSection(description: string, section: string): boolean {
+  const escaped = section.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('/', '\\s*/\\s*')
+  return new RegExp(`(^|\\n)\\s{0,3}(#{1,6}\\s*)?${escaped}\\s*:?`, 'iu').test(description)
+}
+
+export function validatePlannerTaskJsonQuality(normalized: NormalizedTaskJsonImport): string[] {
+  const issues: string[] = []
+  if (!normalized.description.trim()) issues.push('Task description is required for planner updates.')
+  if (!normalized.agenticInputs.acceptanceCriteria?.trim()) issues.push('agenticInputs.acceptanceCriteria is required for planner updates.')
+  if (normalized.subtasks.length === 0) issues.push('At least one planned subtask is required.')
+
+  normalized.subtasks.forEach((subtask, index) => {
+    const label = `subtasks[${index}]`
+    if (!subtask.title.trim()) issues.push(`${label}.title is required.`)
+    if (isGenericPlannerText(subtask.title)) issues.push(`${label}.title is too generic.`)
+    if (!subtask.description.trim()) {
+      issues.push(`${label}.description is required.`)
+    } else {
+      for (const section of PLANNED_SUBTASK_REQUIRED_DESCRIPTION_SECTIONS) {
+        if (!hasPlannerDescriptionSection(subtask.description, section)) issues.push(`${label}.description must include a "${section}" section.`)
+      }
+    }
+    if (subtask.checklistItems.length === 0) {
+      issues.push(`${label}.checklist must include concrete unchecked items.`)
+    }
+    subtask.checklistItems.forEach((item, itemIndex) => {
+      const itemLabel = `${label}.checklist[${itemIndex}]`
+      if (!item.title.trim()) issues.push(`${itemLabel}.title is required.`)
+      if (isGenericPlannerText(item.title)) issues.push(`${itemLabel}.title is too generic.`)
+      if (item.checked) issues.push(`${itemLabel}.checked must be false for planned work.`)
+    })
+  })
+
+  return issues
+}
+
+export function codexChatPrompt(input: {
   task: TaskEntity
   message: string
   transcript: TaskActivityMessage[]
@@ -418,8 +633,8 @@ function codexChatPrompt(input: {
   const modeInstruction = input.mode === 'plan'
     ? 'The user invoked /plan. Stay in planning mode: reason about the work, propose a clear plan, and do not make code or file changes unless the user explicitly asks.'
     : input.mode === 'steer'
-      ? 'The user is steering an existing Codex conversation. Treat this as a correction or direction for the current task context and continue from the recent transcript.'
-      : 'Continue the task chat normally.'
+      ? 'The user is steering an existing Codex conversation. Treat the user steer instruction and task comments as high-signal guidance for continuing the existing conversation.'
+      : 'Continue the task chat normally. Primary instruction is the user follow-up prompt; use task details as supporting context.'
   const attachments = input.attachments?.length
     ? `Attached files for this message:\n${input.attachments.map((item) => `- ${item.name}: ${item.path}`).join('\n')}`
     : ''
@@ -427,9 +642,17 @@ function codexChatPrompt(input: {
   const projectRecord = contextRecord.project && typeof contextRecord.project === 'object' && !Array.isArray(contextRecord.project) ? contextRecord.project as Record<string, unknown> : {}
   const projectRules = typeof projectRecord.rules === 'string' && projectRecord.rules.trim() ? `Project Rules:\n${projectRecord.rules.trim()}` : ''
   const projectPlanGuide = typeof projectRecord.planGuide === 'string' && projectRecord.planGuide.trim() ? `Project Plan Guide:\n${projectRecord.planGuide.trim()}` : ''
+  const userPromptLabel = input.mode === 'steer'
+    ? 'User steer instruction'
+    : input.mode === 'plan'
+      ? 'User prompt'
+      : 'User follow-up'
+  const importantComments = importantTaskCommentsSection(input.task, input.context)
   return [
     'You are continuing an Open Mission Control task chat.',
     modeInstruction,
+    `${userPromptLabel}:\n${input.message}`,
+    importantComments,
     `Task id: ${input.task.id}`,
     `Task title: ${input.task.title}`,
     input.task.description ? `Task description:\n${input.task.description}` : '',
@@ -438,7 +661,6 @@ function codexChatPrompt(input: {
     projectRules,
     transcript ? `Recent chat transcript:\n${transcript}` : '',
     attachments,
-    `User follow-up:\n${input.message}`,
     'Respond with concrete next steps or implementation notes. If you make changes, summarize files and checks.',
     'Do not use MCP in this flow.'
   ].filter(Boolean).join('\n\n')
@@ -728,6 +950,72 @@ function parseGitNumstat(value: string): { files: number; insertions: number; de
   }, { files: 0, insertions: 0, deletions: 0, fileStats: [] as Array<{ path: string; insertions: number; deletions: number }> })
 }
 
+function parsePatchPath(chunk: string): string | null {
+  const plusLine = chunk.split(/\r?\n/).find((line) => line.startsWith('+++ '))
+  if (plusLine) return plusLine.replace(/^\+\+\+\s+b\//, '').replace(/^\+\+\+\s+/, '').trim()
+  const diffLine = chunk.split(/\r?\n/).find((line) => line.startsWith('diff --git '))
+  const match = diffLine?.match(/\sb\/(.+)$/)
+  return match?.[1]?.trim() || null
+}
+
+function parseGitPatchStats(value: string): {
+  files: number
+  blocks: number
+  fileStats: Array<{ path: string; insertions: number; deletions: number; blocks: number }>
+} {
+  const chunks = value.split(/(?=^diff --git\s)/m).map((chunk) => chunk.trim()).filter(Boolean)
+  const fileStats = chunks.map((chunk) => {
+    const lines = chunk.split(/\r?\n/)
+    const path = parsePatchPath(chunk) || `change-${chunks.indexOf(chunk) + 1}`
+    const insertions = lines.filter((line) => line.startsWith('+') && !line.startsWith('+++')).length
+    const deletions = lines.filter((line) => line.startsWith('-') && !line.startsWith('---')).length
+    const blocks = lines.filter((line) => line.startsWith('@@ ')).length
+    return { path, insertions, deletions, blocks }
+  })
+  return {
+    files: fileStats.length,
+    blocks: fileStats.reduce((total, entry) => total + entry.blocks, 0),
+    fileStats
+  }
+}
+
+function mergeChangeFileStats(
+  numstatStats: { files: number; insertions: number; deletions: number; fileStats: Array<{ path: string; insertions: number; deletions: number }> },
+  patchStats: { files: number; blocks: number; fileStats: Array<{ path: string; insertions: number; deletions: number; blocks: number }> }
+): {
+  files: number
+  insertions: number
+  deletions: number
+  blocks: number
+  fileStats: Array<{ path: string; insertions: number; deletions: number; blocks: number }>
+} {
+  const pathMap = new Map<string, { path: string; insertions: number; deletions: number; blocks: number }>()
+  for (const item of numstatStats.fileStats) {
+    pathMap.set(item.path, {
+      path: item.path,
+      insertions: item.insertions,
+      deletions: item.deletions,
+      blocks: 0
+    })
+  }
+  for (const item of patchStats.fileStats) {
+    const current = pathMap.get(item.path)
+    if (!current) {
+      pathMap.set(item.path, item)
+      continue
+    }
+    current.blocks = Math.max(current.blocks, item.blocks)
+  }
+  const merged = Array.from(pathMap.values())
+  return {
+    files: Math.max(numstatStats.files, patchStats.files, merged.length),
+    insertions: merged.reduce((sum, item) => sum + item.insertions, 0),
+    deletions: merged.reduce((sum, item) => sum + item.deletions, 0),
+    blocks: Math.max(patchStats.blocks, merged.reduce((sum, item) => sum + item.blocks, 0)),
+    fileStats: merged
+  }
+}
+
 async function codexWorkspaceChanges(runtimeWorkspacePath: string, changesPath?: string): Promise<{
   body: string
   truncated: boolean
@@ -756,10 +1044,26 @@ async function codexWorkspaceChanges(runtimeWorkspacePath: string, changesPath?:
     const stat = String(statResult.stdout).trim()
     const numstat = String(numstatResult.stdout).trim()
     const patch = String(patchResult.stdout).trim()
-    if (!status && !stat && !patch) return { body: 'No workspace changes detected.', truncated: false }
+    if (!status && !stat && !patch) return {
+      body: 'No workspace changes detected.',
+      truncated: false,
+      metadata: {
+        changeHasNoChanges: true,
+        changeStatus: status,
+        changeStat: stat,
+        changeFiles: 0,
+        changeInsertions: 0,
+        changeDeletions: 0,
+        changeFileStats: [],
+        changeBlocks: 0,
+        patchPreviewLanguage: 'text'
+      }
+    }
     if (changesPath && patch) await writeFile(changesPath, patch, 'utf8').catch(() => undefined)
     const truncatedPatch = truncateCodexText(patch, CODEX_DIFF_PATCH_LIMIT)
-    const changeSummary = parseGitNumstat(numstat)
+    const numstatSummary = parseGitNumstat(numstat)
+    const patchSummary = parseGitPatchStats(patch)
+    const mergedSummary = mergeChangeFileStats(numstatSummary, patchSummary)
     return {
       body: [
         'Changes',
@@ -773,10 +1077,12 @@ async function codexWorkspaceChanges(runtimeWorkspacePath: string, changesPath?:
       metadata: {
         changeStatus: status,
         changeStat: stat,
-        changeFiles: changeSummary.files,
-        changeInsertions: changeSummary.insertions,
-        changeDeletions: changeSummary.deletions,
-        changeFileStats: changeSummary.fileStats,
+        changeFiles: mergedSummary.files,
+        changeInsertions: mergedSummary.insertions,
+        changeDeletions: mergedSummary.deletions,
+        changeBlocks: mergedSummary.blocks,
+        changeFileStats: mergedSummary.fileStats,
+        changeHasNoChanges: mergedSummary.files === 0 && mergedSummary.blocks === 0,
         patchPreviewLanguage: 'diff'
       }
     }
@@ -927,6 +1233,44 @@ function logPlannerApiBridgeEvent(event: string, data: Record<string, unknown>):
   safeConsole.info(`[omc-cli-bridge] ${event}`, sanitizeOmcLogValue(data))
 }
 
+export function normalizePlannerQuestionPayload(value: unknown): ServiceResponse<PlannerQuestionPayload> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return errorResponse(ErrorCodes.Validation, 'Planner question payload must be an object')
+  }
+  const record = value as Record<string, unknown>
+  const summary = typeof record.summary === 'string' && record.summary.trim()
+    ? record.summary.trim()
+    : 'Planner needs clarification before updating this task.'
+  const questions = Array.isArray(record.questions)
+    ? record.questions.flatMap((raw, index): PlannerQuestionItem[] => {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
+        const questionRecord = raw as Record<string, unknown>
+        const question = typeof questionRecord.question === 'string' ? questionRecord.question.trim() : ''
+        if (!question) return []
+        const rawId = typeof questionRecord.id === 'string' ? questionRecord.id.trim() : ''
+        const why = typeof questionRecord.why === 'string' && questionRecord.why.trim() ? questionRecord.why.trim() : undefined
+        return [{ id: rawId || `question-${index + 1}`, question, why }]
+      })
+    : []
+  if (questions.length === 0) return errorResponse(ErrorCodes.Validation, 'Planner ask requires at least one question')
+  return okResponse({ summary, questions })
+}
+
+function plannerQuestionBody(payload: PlannerQuestionPayload): string {
+  return [
+    'Planner paused for clarification.',
+    '',
+    payload.summary,
+    '',
+    'Questions:',
+    ...payload.questions.flatMap((item, index) => {
+      const lines = [`${index + 1}. ${item.question}`]
+      if (item.why) lines.push(`   Why: ${item.why}`)
+      return lines
+    })
+  ].join('\n')
+}
+
 function omcTaskPlannerClientScript(): string {
   return `#!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
@@ -988,6 +1332,8 @@ try {
     print(await callApi('/create-task', 'POST', { json: await readInputJson() }));
   } else if (command === 'update') {
     print(await callApi('/update-task', 'POST', { json: await readInputJson() }));
+  } else if (command === 'ask') {
+    print(await callApi('/planner-question', 'POST', await readInputJson()));
   } else if (command === 'ready-for-review') {
     print(await callApi('/ready-for-review', 'POST', {}));
   } else if (command === 'finish') {
@@ -1001,6 +1347,7 @@ try {
         'node ' + runBase + '/omc-task-client.mjs validate ' + runBase + '/planned-task.json',
         'node ' + runBase + '/omc-task-client.mjs create ' + runBase + '/planned-task.json',
         'node ' + runBase + '/omc-task-client.mjs update ' + runBase + '/planned-task.json',
+        'node ' + runBase + '/omc-task-client.mjs ask ' + runBase + '/questions.json',
         'node ' + runBase + '/omc-task-client.mjs ready-for-review',
         'node ' + runBase + '/omc-task-client.mjs finish'
       ]
@@ -1021,7 +1368,7 @@ function plannerRunRelativePath(runId: string, fileName: string): string {
   return `.omc/runs/${runId}/${fileName}`
 }
 
-function omcCliInstructions(context: {
+export function omcCliInstructions(context: {
   mode: 'plan' | 'execute'
   projectId: string
   taskId: string
@@ -1033,6 +1380,7 @@ function omcCliInstructions(context: {
   runtimeWorkspacePath: string
 }): string {
   const helper = context.helperRelativePath
+  const questionsRelativePath = plannerRunRelativePath(context.runId, 'questions.json')
   const lines = [
     '# Open Mission Control CLI',
     '',
@@ -1051,6 +1399,7 @@ function omcCliInstructions(context: {
     `- Validate task JSON: \`node ${helper} validate ${context.plannedTaskRelativePath}\``,
     `- Create task from JSON: \`node ${helper} create ${context.plannedTaskRelativePath}\``,
     `- Update scoped task from JSON: \`node ${helper} update ${context.plannedTaskRelativePath}\``,
+    `- Ask user clarification questions: \`node ${helper} ask ${questionsRelativePath}\``,
     `- Move task to review: \`node ${helper} ready-for-review\``,
     `- Finish without status change: \`node ${helper} finish\``,
     '',
@@ -1059,6 +1408,12 @@ function omcCliInstructions(context: {
     '- Run context before planning or when you need project/task metadata.',
     '- Run validate before create or update.',
     '- Planning runs should write planned-task.json, validate it, update the scoped task, then finish.',
+    '- If missing information would materially reduce plan quality, do not guess. Write questions.json with { summary, questions: [{ id, question, why }] } and run ask instead.',
+    '- After running ask, do not write planned-task.json, do not validate, and do not update the task. Stop and wait for the user answer in chat.',
+    '- Planning runs must refactor the entire subtasks array, including completed/done/closed subtasks. Existing subtasks are context, not protected history.',
+    '- Planning granularity is extreme: split each operation, file/module group, UI state, backend/data-flow change, migration, verification step, and edge-case handling area into its own subtask.',
+    '- No generic test tasks or generic checklist items. Avoid Test yap, Run tests, Fix bugs, Implement feature, Implement UI, and Check everything.',
+    '- Every planned subtask needs Objective, Task context, Exact work, Files/areas, and Done when sections plus concrete unchecked checklist items.',
     '- Execution runs should edit project files first, run appropriate checks, then use ready-for-review only when the implementation is complete.',
     '- The helper is scoped to this project and task through session.json; do not edit session.json.'
   ]
@@ -1103,6 +1458,7 @@ async function cleanupOldPlannerRuns(runtimeWorkspacePath: string, maxAgeMs = 24
 export class TaskService {
   private readonly codexTerminalRuns = new Map<string, CodexTerminalRun>()
   private readonly activeCodexChatRuns = new Map<string, ActiveCodexChatRun>()
+  private readonly pausedPlannerRunIds = new Set<string>()
 
   constructor(
     private readonly auth: AuthService,
@@ -1118,6 +1474,7 @@ export class TaskService {
     private readonly statuses: StatusRepository,
     private readonly workspaces: WorkspaceRepository,
     private readonly gateways: GatewayRepository,
+    private readonly appSettings: AppSettingsRepository,
     private readonly eventBus?: EventEmitter
   ) { }
 
@@ -1128,6 +1485,66 @@ export class TaskService {
 
   private emitTaskUpdated(projectId: string, taskId: string, action: string): void {
     this.eventBus?.emit(IPC_CHANNELS.events.taskUpdated, { projectId, taskId, action, updatedAt: Date.now() })
+  }
+
+  private async setTaskCodexPlanState(taskId: string, codexPlanState: Record<string, unknown>): Promise<void> {
+    const task = await this.repo.get(taskId)
+    if (!task) return
+    const payload = asPayload(task.payload)
+    await this.repo.update(task.id, { payload: { ...payload, codexPlanState } })
+    this.emitTaskUpdated(task.projectId, task.id, 'codex_plan_state')
+  }
+
+  private async finishPlannerBridgeRuntime(context: PlannerBridgeContext): Promise<void> {
+    if (context.finishFilePath) await writeFile(context.finishFilePath, `finished ${new Date().toISOString()}\n`, 'utf8').catch(() => undefined)
+    if (context.workspaceRunPath) {
+      setTimeout(() => {
+        void rm(context.workspaceRunPath ?? '', { recursive: true, force: true })
+      }, 2_000).unref?.()
+    }
+    if (context.terminalTitle) {
+      setTimeout(() => {
+        void closeTerminalWindowByTitle(context.terminalTitle ?? '')
+      }, 1_500).unref?.()
+    }
+  }
+
+  private async appendPlannerQuestionActivity(
+    context: PlannerBridgeContext,
+    payload: PlannerQuestionPayload
+  ): Promise<ServiceResponse<{ conversationId: string; questionCount: number }>> {
+    const access = await this.ensureTaskAccess(context.actorToken, context.taskId)
+    if (!access.ok || !access.data) return access as ServiceResponse<{ conversationId: string; questionCount: number }>
+    if (context.projectId && context.projectId !== access.data.task.projectId) return errorResponse(ErrorCodes.Validation, 'Project id does not match task')
+    const runId = context.runId ?? plannerRunId(context.taskId)
+    const conversationId = context.conversationId?.trim() || runId
+    if (context.runId) this.pausedPlannerRunIds.add(context.runId)
+    await this.setTaskCodexPlanState(context.taskId, {
+      state: 'needs-clarification',
+      askedAt: Date.now(),
+      conversationId,
+      runId,
+      model: context.model ?? null
+    })
+    await this.appendTaskActivityMessage(context.taskId, {
+      runId,
+      conversationId,
+      source: 'codex-plan',
+      role: 'assistant',
+      status: 'completed',
+      body: plannerQuestionBody(payload),
+      metadata: { codexBlock: 'planner-question', summary: payload.summary, questions: payload.questions }
+    })
+    await this.appendTaskActivityMessage(context.taskId, {
+      runId,
+      conversationId,
+      source: 'codex-plan',
+      role: 'system',
+      status: 'completed',
+      body: 'Planner paused for clarification.',
+      metadata: { codexBlock: 'run-complete', plannerPaused: true, questionCount: payload.questions.length }
+    })
+    return okResponse({ conversationId, questionCount: payload.questions.length })
   }
 
   private async appendTaskActivityMessage(
@@ -1405,6 +1822,10 @@ export class TaskService {
     if (!project || project.id !== access.data.task.projectId) return errorResponse(ErrorCodes.NotFound, 'Project not found')
     if (project.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
     const [task] = await this.enrichTasks([access.data.task])
+    const defaultAgentId = await this.appSettings.get<string | null>(access.data.actorOrgId, DEFAULT_AGENT_KEY)
+    const defaultAgent = defaultAgentId ? await this.agents.get(defaultAgentId) : undefined
+    const effectiveDefaultAgent = defaultAgent?.organizationId === access.data.actorOrgId ? defaultAgent : undefined
+    const taskForContext = !task.agentId && effectiveDefaultAgent ? { ...task, agentId: effectiveDefaultAgent.id } : task
     const [tags, skills, customFields, statuses] = await Promise.all([
       this.tags.list(access.data.actorOrgId),
       this.skills.list(access.data.actorOrgId),
@@ -1423,8 +1844,13 @@ export class TaskService {
         planGuide: projectPromptSnapshot(project).planGuide,
         rules: projectPromptSnapshot(project).rules
       },
-      task,
-      currentTaskJson: taskPlannerJson(task, customFields),
+      task: taskForContext,
+      effectiveAgent: effectiveDefaultAgent ? {
+        id: effectiveDefaultAgent.id,
+        name: effectiveDefaultAgent.name,
+        inherited: !task.agentId
+      } : null,
+      currentTaskJson: taskPlannerJson(taskForContext, customFields),
       allowed: {
         tags: tags.map((tag) => ({ id: tag.id, name: tag.name })),
         skills: skills.map((skill) => ({ id: skill.id, name: skill.name, slug: skill.slug })),
@@ -1434,7 +1860,8 @@ export class TaskService {
       jsonFormat: {
         root: ['title', 'description', 'status', 'tags', 'agenticInputs', 'checklist', 'comments', 'customFields', 'subtasks'],
         subtask: ['title', 'description', 'status', 'tags', 'checklist', 'comments', 'customFields', 'dueAt'],
-        note: 'Use tag names or ids. agenticInputs accepts { acceptanceCriteria }. customFields is an array of { name, value }. checklist is an array of { title, checked }. comments is an array of { body, authorName }. omc_update_task_from_json updates the scoped source task.'
+        note: 'Use tag names or ids. agenticInputs accepts { acceptanceCriteria }. customFields is an array of { name, value }. checklist is an array of { title, checked }. comments is an array of { body, authorName }. omc_update_task_from_json updates the scoped source task.',
+        ...plannerJsonGuidance()
       }
     })
   }
@@ -1448,6 +1875,10 @@ export class TaskService {
     if (!projectOrg || projectOrg !== actor.user.organizationId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
     try {
       const normalized = await new TaskJsonImportNormalizer(actor.user.organizationId, this.agents, this.tags, this.skills, this.customFields).normalize(payload.json)
+      const qualityIssues = validatePlannerTaskJsonQuality(normalized)
+      if (qualityIssues.length > 0) {
+        return errorResponse(ErrorCodes.Validation, `Planner JSON quality check failed: ${qualityIssues[0]}`, { issues: qualityIssues })
+      }
       return okResponse({
         valid: true,
         normalized: {
@@ -1472,6 +1903,8 @@ export class TaskService {
 
   async plannerUpdateFromJson(payload: TaskPlannerJsonRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<TaskJsonImportResult>> {
     if (!payload?.taskId) return errorResponse(ErrorCodes.Validation, 'Task id required')
+    const validation = await this.plannerValidateJson(payload)
+    if (!validation.ok) return validation as ServiceResponse<TaskJsonImportResult>
     return this.importJson({ actorToken: payload.actorToken, taskId: payload.taskId, json: payload.json })
   }
 
@@ -1971,6 +2404,7 @@ export class TaskService {
               omc: {
                 mode: context.mode ?? 'plan',
                 runId: context.runId ?? null,
+                conversationId: context.conversationId ?? context.runId ?? null,
                 runtimeWorkspacePath: context.runtimeWorkspacePath ?? null,
                 exportWorkspacePath: context.exportWorkspacePath ?? null,
                 workspaceRunPath: context.workspaceRunPath ?? null
@@ -1986,6 +2420,27 @@ export class TaskService {
         } else if (request.method === 'POST' && path === '/update-task') {
           const body = await readRequestBody(request) as Record<string, unknown>
           result = await this.plannerUpdateFromJson({ actorToken: context.actorToken, projectId: context.projectId, taskId: context.taskId, json: body.json })
+          if (result.ok && (context.mode ?? 'plan') === 'plan') {
+            await this.setTaskCodexPlanState(context.taskId, {
+              state: 'planned',
+              plannedAt: Date.now(),
+              conversationId: context.conversationId ?? context.runId ?? null,
+              runId: context.runId ?? null,
+              model: context.model ?? null
+            })
+          }
+        } else if (request.method === 'POST' && path === '/planner-question') {
+          const body = await readRequestBody(request)
+          const normalized = normalizePlannerQuestionPayload(body)
+          if (!normalized.ok || !normalized.data) {
+            result = normalized
+          } else {
+            result = await this.appendPlannerQuestionActivity(context, normalized.data)
+            if (result.ok) {
+              await this.finishPlannerBridgeRuntime(context)
+              closeBridgeAfterResponse = true
+            }
+          }
         } else if (request.method === 'POST' && path === '/ready-for-review') {
           result = await this.markTaskReadyForReview({ actorToken: context.actorToken, projectId: context.projectId, taskId: context.taskId })
           if (result.ok && context.workspaceRunPath) {
@@ -1995,17 +2450,7 @@ export class TaskService {
           }
           closeBridgeAfterResponse = true
         } else if (request.method === 'POST' && path === '/finish') {
-          if (context.finishFilePath) await writeFile(context.finishFilePath, `finished ${new Date().toISOString()}\n`, 'utf8').catch(() => undefined)
-          if (context.workspaceRunPath) {
-            setTimeout(() => {
-              void rm(context.workspaceRunPath ?? '', { recursive: true, force: true })
-            }, 2_000).unref?.()
-          }
-          if (context.terminalTitle) {
-            setTimeout(() => {
-              void closeTerminalWindowByTitle(context.terminalTitle ?? '')
-            }, 1_500).unref?.()
-          }
+          await this.finishPlannerBridgeRuntime(context)
           result = okResponse({ closed: true })
           closeBridgeAfterResponse = true
         } else {
@@ -2094,6 +2539,9 @@ export class TaskService {
       const finishFilePath = join(runFolderPath, 'planner-finished.signal')
       const runTerminalTitle = terminalTitle(`OMC Planner ${access.data.task.id}`)
       const runId = plannerRunId(access.data.task.id)
+      const conversationId = payload.conversationId?.trim() || runId
+      const clarificationMessage = payload.clarificationMessage?.trim() ?? ''
+      const model = payload.model.trim()
       const helperRelativePath = plannerRunRelativePath(runId, 'omc-task-client.mjs')
       const sessionRelativePath = plannerRunRelativePath(runId, 'session.json')
       const contextRelativePath = plannerRunRelativePath(runId, 'context.json')
@@ -2109,6 +2557,9 @@ export class TaskService {
         terminalTitle: runTerminalTitle,
         workspaceRunPath,
         runId,
+        conversationId,
+        gatewayId: gateway.id,
+        model,
         mode: 'plan',
         runtimeWorkspacePath
       }, bridgeToken)
@@ -2120,11 +2571,12 @@ export class TaskService {
       await chmod(clientScriptPath, 0o700)
       await writeFile(sessionPath, JSON.stringify({
         runId,
+        conversationId,
         mode: 'plan',
         projectId: project.id,
         taskId: access.data.task.id,
         gatewayId: gateway.id,
-        model: payload.model,
+        model,
         runtimeWorkspacePath,
         workspaceRunPath,
         projectPrompt,
@@ -2144,11 +2596,13 @@ export class TaskService {
       }), 'utf8')
 
       const { codexPath, executionMode } = codexCliConfig(gateway.template)
-      const model = payload.model.trim()
       const taskId = access.data.task.id
+      const transcript = taskActivityMessagesFromPayload(access.data.task.payload)
+        .filter((item) => (item.conversationId || item.runId) === conversationId)
       const prompt = [
         `Read ${instructionsRelativePath} first.`,
-        initialPlannerPrompt(project.id, access.data.task.id, helperRelativePath, contextRelativePath, plannedTaskRelativePath)
+        initialPlannerPrompt(project.id, access.data.task.id, helperRelativePath, contextRelativePath, plannedTaskRelativePath),
+        plannerClarificationPrompt({ conversationId, clarificationMessage, transcript })
       ].join(' ')
       const codexCommand = [
         shellQuote(codexPath),
@@ -2213,6 +2667,7 @@ export class TaskService {
         codexPath,
         runFolderPath,
         runId,
+        conversationId,
         runtimeWorkspaceId,
         runtimeWorkspacePath,
         workspaceRunPath,
@@ -2240,6 +2695,7 @@ export class TaskService {
       if (executionMode === 'exec') {
         await this.appendTaskActivityMessage(taskId, {
           runId,
+          conversationId,
           source: 'codex-plan',
           role: 'system',
           status: 'running',
@@ -2248,14 +2704,16 @@ export class TaskService {
         })
         await this.appendTaskActivityMessage(taskId, {
           runId,
+          conversationId,
           source: 'codex-plan',
           role: 'user',
           status: 'running',
-          body: prompt,
-          metadata: { command: execCommand }
+          body: clarificationMessage || prompt,
+          metadata: { command: execCommand, clarification: Boolean(clarificationMessage) }
         })
         await this.appendTaskActivityMessage(taskId, {
           runId,
+          conversationId,
           source: 'codex-plan',
           role: 'thinking',
           status: 'running',
@@ -2271,6 +2729,7 @@ export class TaskService {
         const streamer = createCodexActivityStreamer({
           taskId,
           runId,
+          conversationId,
           source: 'codex-plan',
           eventsPath: execEventsPath
         }, (message) => this.appendTaskActivityMessage(taskId, message))
@@ -2281,6 +2740,7 @@ export class TaskService {
         child.on('error', (error) => {
           void this.appendTaskActivityMessage(taskId, {
             runId,
+            conversationId,
             source: 'codex-plan',
             role: 'error',
             status: 'failed',
@@ -2292,6 +2752,15 @@ export class TaskService {
         child.on('close', (code, signal) => {
           void (async () => {
             await streamer.flush()
+            if (this.pausedPlannerRunIds.delete(runId)) {
+              await bridge?.close()
+              if (workspaceRunPathForCleanup) {
+                setTimeout(() => {
+                  void rm(workspaceRunPathForCleanup ?? '', { recursive: true, force: true })
+                }, 2_000).unref?.()
+              }
+              return
+            }
             const finalMessage = await readFile(execFinalMessagePath, 'utf8').catch(() => '')
             const eventRaw = await readFile(execEventsPath, 'utf8').catch(() => '')
             const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
@@ -2299,6 +2768,7 @@ export class TaskService {
             const changes = await codexWorkspaceChanges(runtimeWorkspacePath, join(runFolderPath, 'changes.diff'))
             await this.appendTaskActivityMessage(taskId, {
               runId,
+              conversationId,
               source: 'codex-plan',
               role: 'tool',
               status: changes.unavailable ? 'failed' : 'completed',
@@ -2307,6 +2777,7 @@ export class TaskService {
             })
             await this.appendTaskActivityMessage(taskId, {
               runId,
+              conversationId,
               source: 'codex-plan',
               role: 'system',
               status: code === 0 ? 'completed' : 'failed',
@@ -2317,6 +2788,7 @@ export class TaskService {
               if (!streamer.hasAssistantMessage()) {
                 await this.appendTaskActivityMessage(taskId, {
                   runId,
+                  conversationId,
                   source: 'codex-plan',
                   role: 'assistant',
                   status: 'completed',
@@ -2327,6 +2799,7 @@ export class TaskService {
             } else {
               await this.appendTaskActivityMessage(taskId, {
                 runId,
+                conversationId,
                 source: 'codex-plan',
                 role: 'error',
                 status: 'failed',
@@ -2352,6 +2825,7 @@ export class TaskService {
           bridgeUrl: bridge.url,
           executionMode,
           runId,
+          conversationId,
           pid: child.pid,
           eventsPath: execEventsPath,
           finalMessagePath: execFinalMessagePath
@@ -2361,6 +2835,7 @@ export class TaskService {
       if (process.platform !== 'darwin') return errorResponse(ErrorCodes.Validation, 'Codex task planning currently requires macOS Terminal.app.')
       await this.appendTaskActivityMessage(taskId, {
         runId,
+        conversationId,
         source: 'codex-plan',
         role: 'system',
         status: 'running',
@@ -2369,14 +2844,16 @@ export class TaskService {
       })
       await this.appendTaskActivityMessage(taskId, {
         runId,
+        conversationId,
         source: 'codex-plan',
         role: 'user',
         status: 'running',
-        body: prompt,
-        metadata: { command: codexCommand }
+        body: clarificationMessage || prompt,
+        metadata: { command: codexCommand, clarification: Boolean(clarificationMessage) }
       })
       await this.appendTaskActivityMessage(taskId, {
         runId,
+        conversationId,
         source: 'codex-plan',
         role: 'thinking',
         status: 'running',
@@ -2408,7 +2885,8 @@ export class TaskService {
         command: codexCommand,
         bridgeUrl: bridge.url,
         executionMode,
-        runId
+        runId,
+        conversationId
       })
     } catch (error) {
       await bridge?.close()
@@ -2440,8 +2918,12 @@ export class TaskService {
     if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
 
     const taskId = access.data.task.id
+    const taskTitle = access.data.task.title
     const runId = plannerRunId(taskId)
     const requestedMode = payload.mode === 'plan' ? 'plan' : payload.mode === 'steer' ? 'steer' : 'chat'
+    if (requestedMode === 'steer' && !payload.conversationId?.trim()) {
+      return errorResponse(ErrorCodes.Validation, 'Conversation id is required for steer messages')
+    }
     const hasPlanPrefix = message.toLowerCase().startsWith('/plan')
     const normalizedMessage = hasPlanPrefix
       ? message.replace(/^\/plan\s*/i, '').trim()
@@ -2638,26 +3120,17 @@ export class TaskService {
             body: finalMessage.trim() || `Codex chat exited with code ${code ?? 'unknown'}.`,
             metadata: { code, signal, eventsPath, finalMessagePath, usage, rawTail: eventSummary.rawTail }
           })
-          showCodexChatCompletionNotification({
-            taskTitle: access.data.task.title,
-            projectId: project.id,
-            taskId,
-            conversationId,
-            mode,
-            success: false,
-            exitCode: code
-          })
         }
-        if (code === 0) {
-          showCodexChatCompletionNotification({
-            taskTitle: access.data.task.title,
-            projectId: project.id,
-            taskId,
-            conversationId,
-            mode,
-            success: true
-          })
-        }
+        maybeShowCodexChatCompletionNotification({
+          taskTitle,
+          projectId: project.id,
+          taskId,
+          conversationId,
+          mode,
+          executionMode,
+          success: code === 0,
+          exitCode: code
+        })
       })()
     })
 
@@ -2689,6 +3162,54 @@ export class TaskService {
       })
     }
     return okResponse({ stopped: matches.length })
+  }
+
+  async codexChatResolve(payload: CodexChatResolveRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ resolved: true; resolution: 'stopped' | 'completed' | 'failed' }>> {
+    if (!payload?.taskId) return errorResponse(ErrorCodes.Validation, 'Task id is required')
+    const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
+    if (!access.ok || !access.data) return errorResponse(access.error?.code ?? ErrorCodes.Forbidden, access.error?.message ?? 'Access denied', access.error?.details)
+    const conversationId = payload.conversationId?.trim()
+    if (!conversationId) return errorResponse(ErrorCodes.Validation, 'Conversation id is required')
+    const resolution = payload.resolution
+    if (resolution !== 'stopped' && resolution !== 'completed' && resolution !== 'failed') {
+      return errorResponse(ErrorCodes.Validation, 'Resolution must be stopped, completed, or failed')
+    }
+
+    const activeMatches = Array.from(this.activeCodexChatRuns.values()).filter((run) => (
+      run.taskId === access.data?.task.id && run.conversationId === conversationId
+    ))
+    for (const run of activeMatches) {
+      run.stopRequested = true
+      run.child.kill('SIGTERM')
+    }
+
+    const conversationMessages = taskActivityMessagesFromPayload(asPayload(access.data.task.payload))
+      .filter((message) => message.conversationId === conversationId || message.runId === conversationId)
+      .sort((a, b) => a.createdAt - b.createdAt)
+    const lastSource = [...conversationMessages].reverse().find((message) => message.source.startsWith('codex-'))?.source ?? 'codex-chat'
+    const status = resolution === 'failed' ? 'failed' : 'completed'
+    const body = resolution === 'stopped'
+      ? 'Codex chat manually marked as stopped.'
+      : resolution === 'failed'
+        ? 'Codex chat manually marked as failed.'
+        : 'Codex chat manually marked as completed.'
+
+    await this.appendTaskActivityMessage(access.data.task.id, {
+      runId: conversationId,
+      conversationId,
+      source: lastSource,
+      role: resolution === 'failed' ? 'error' : 'system',
+      status,
+      body,
+      metadata: {
+        codexBlock: 'run-complete',
+        manuallyResolved: true,
+        resolution,
+        stopped: resolution === 'stopped'
+      }
+    })
+
+    return okResponse({ resolved: true, resolution })
   }
 
   async update(

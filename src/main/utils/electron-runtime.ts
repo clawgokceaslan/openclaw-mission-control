@@ -9,6 +9,7 @@ type ElectronRuntimeModule = {
   Notification?: typeof Electron.Notification
   Tray?: typeof Electron.Tray
   nativeImage?: typeof Electron.nativeImage
+  powerMonitor?: typeof Electron.powerMonitor
   dialog?: typeof Electron.dialog
   ipcMain?: Electron.IpcMain
 }

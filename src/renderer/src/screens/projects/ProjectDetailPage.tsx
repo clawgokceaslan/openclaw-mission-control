@@ -6,6 +6,7 @@ import {
 } from 'react-icons/lu'
 import { IPC_CHANNELS, type AppNavigateState } from '@shared/contracts/ipc'
 import { invokeBridge } from '@renderer/utils/api'
+import { clearRendererDiagnosticContext, setRendererDiagnosticContext } from '@renderer/utils/rendererResilience'
 import { Agent, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, CustomField } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
@@ -31,7 +32,8 @@ import {
 } from './detail/chat/chatUtils'
 import {
   activityMessagesFromTask,
-  formatChatTime
+  formatChatTime,
+  userMessageCount
 } from './detail/chat/chatUtils'
 import {
   DEFAULT_TABLE_COLUMNS,
@@ -39,18 +41,18 @@ import {
   codexPayloadOverride,
   createLocalId,
   customFieldValueToDraft,
-  getLegacyTableOrder,
-  getStatusOrder,
   getTableViewConfig,
-  getTaskNewestTime,
-  statusOrderPayload,
+  orderedTasksForStatus,
   readTaskCodexOverride,
+  reorderTasksForDrop,
   taskCodexGatewayId,
-  taskCodexRunModel
+  taskCodexRunModel,
+  type TaskDropPosition
 } from './detail/projectDetailUtils'
 import {
   getSubtaskAgentId,
   getSubtaskAttachments,
+  getSubtaskChecklistItems,
   getSubtaskComments,
   getSubtaskCustomFieldValues,
   getSubtaskDescription,
@@ -105,7 +107,7 @@ type ProjectRecentChatRow = {
 function projectRecentChatSourceLabel(source: TaskActivityMessage['source']): string {
   if (source === 'codex-plan') return 'Plan'
   if (source === 'codex-run') return 'Run'
-  return 'Chat'
+  return 'Follow-up'
 }
 
 function projectRecentChatStatusLabel(status: ProjectRecentChatRow['status']): string {
@@ -424,6 +426,7 @@ export function ProjectDetailPage() {
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false)
   const [isRecentChatsView, setIsRecentChatsView] = useState(false)
   const [pendingChatOpen, setPendingChatOpen] = useState<{ taskId: string; conversationId: string } | null>(null)
+  const [defaultAgentId, setDefaultAgentId] = useState<string>('')
   const {
     refresh,
     projectLoadError
@@ -448,6 +451,25 @@ export function ProjectDetailPage() {
     },
     tasks
   })
+
+  useEffect(() => {
+    let cancelled = false
+    if (!token) {
+      setDefaultAgentId('')
+      return
+    }
+    void invokeBridge<{ agentId: string | null }>(IPC_CHANNELS.appSettings.getDefaultAgent, { actorToken: token })
+      .then((response) => {
+        if (cancelled) return
+        setDefaultAgentId(response.ok && response.data?.agentId ? response.data.agentId : '')
+      })
+      .catch(() => {
+        if (!cancelled) setDefaultAgentId('')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [token])
 
   const {
     hydratedTasks,
@@ -475,6 +497,36 @@ export function ProjectDetailPage() {
     selectedChatConversationId,
     isStartingNewChat
   })
+
+  useEffect(() => {
+    setRendererDiagnosticContext({
+      area: 'project-detail',
+      projectId: projectId ?? null,
+      projectLoaded: Boolean(project),
+      taskCount: tasks.length,
+      selectedTaskId: selectedTaskId ?? null,
+      selectedSubtaskId: selectedSubtaskId ?? null,
+      viewMode,
+      detailViewMode,
+      detailTab,
+      activityModalOpen: isActivityModalOpen,
+      selectedChatConversationId: selectedChatConversationId || null,
+      isStartingNewChat
+    })
+    return () => clearRendererDiagnosticContext('project-detail')
+  }, [
+    projectId,
+    project,
+    tasks.length,
+    selectedTaskId,
+    selectedSubtaskId,
+    viewMode,
+    detailViewMode,
+    detailTab,
+    isActivityModalOpen,
+    selectedChatConversationId,
+    isStartingNewChat
+  ])
 
   const {
     state: {
@@ -622,6 +674,29 @@ export function ProjectDetailPage() {
   }, [selectedTask?.id])
 
   useEffect(() => {
+    if (!selectedTask) return
+    if (!isTitleEditing) setTitleDraft(selectedTask.title)
+    if (!isDescriptionEditing || detailViewMode !== 'task') {
+      setDescriptionDraft(prefixDataFormatTokens(
+        selectedTask.description ?? '',
+        getTaskInputFormatId(selectedTask),
+        getTaskOutputFormatId(selectedTask),
+        outputFormats
+      ))
+    }
+  }, [
+    selectedTask?.id,
+    selectedTask?.title,
+    selectedTask?.description,
+    selectedTask?.updatedAt,
+    selectedTask?.payload,
+    outputFormats,
+    isTitleEditing,
+    isDescriptionEditing,
+    detailViewMode
+  ])
+
+  useEffect(() => {
     if (!selectedSubtask) {
       setSubtaskDescriptionDraft('')
       setSubtaskCommentDraft('')
@@ -650,6 +725,23 @@ export function ProjectDetailPage() {
       }).then(() => refresh())
     }
   }, [selectedSubtask?.id])
+
+  useEffect(() => {
+    if (!selectedSubtask || isDescriptionEditing || detailViewMode !== 'subtask') return
+    setSubtaskDescriptionDraft(prefixDataFormatTokens(
+      getSubtaskDescription(selectedSubtask),
+      getSubtaskInputFormatId(selectedSubtask),
+      getSubtaskOutputFormatId(selectedSubtask),
+      outputFormats
+    ))
+  }, [
+    selectedSubtask?.id,
+    selectedSubtask?.updatedAt,
+    selectedSubtask?.payload,
+    outputFormats,
+    isDescriptionEditing,
+    detailViewMode
+  ])
 
   useEffect(() => {
     if (!selectedTask?.id) {
@@ -739,22 +831,6 @@ export function ProjectDetailPage() {
     return () => document.removeEventListener('pointerdown', closeOnOutsidePointer)
   }, [subtaskStatusMenu])
 
-  const orderedTasksForStatus = (rows: TaskEntity[]) => {
-    const newestFirstIndex = new Map(
-      [...rows]
-        .sort((a, b) => getTaskNewestTime(b) - getTaskNewestTime(a))
-        .map((task, index) => [task.id, index])
-    )
-    return rows
-      .map((task, index) => ({
-        task,
-        index,
-        order: getStatusOrder(task, task.status) ?? getLegacyTableOrder(task) ?? newestFirstIndex.get(task.id) ?? index
-      }))
-      .sort((a, b) => a.order - b.order || a.index - b.index)
-      .map((item) => item.task)
-  }
-
   const availableTableColumns = useMemo<TableColumnConfig[]>(() => {
     const customColumns = customFields
       .slice()
@@ -822,10 +898,17 @@ export function ProjectDetailPage() {
 
   const outputFormatById = useMemo(() => new Map(outputFormats.map((format) => [format.id, format])), [outputFormats])
 
+  const defaultAgent = useMemo(() => {
+    if (!defaultAgentId) return null
+    return agents.find((item) => item.id === defaultAgentId) ?? null
+  }, [agents, defaultAgentId])
+
+  const selectedTaskAgentIsDefault = Boolean(selectedTask && !selectedTask.agentId && defaultAgent)
+
   const selectedTaskAgent = useMemo(() => {
-    if (!selectedTask?.agentId) return null
-    return agents.find((item) => item.id === selectedTask.agentId) ?? null
-  }, [agents, selectedTask])
+    if (selectedTask?.agentId) return agents.find((item) => item.id === selectedTask.agentId) ?? null
+    return defaultAgent
+  }, [agents, defaultAgent, selectedTask])
 
   const selectedTaskOutputFormatOption: AppSelectOption | null = useMemo(() => {
     const outputFormatId = getTaskOutputFormatId(selectedTask)
@@ -965,7 +1048,7 @@ export function ProjectDetailPage() {
           source: last.source,
           status: last.status ?? 'event',
           at: last.updatedAt ?? last.createdAt,
-          count: ordered.length,
+          count: userMessageCount(ordered),
           model: typeof last.metadata?.model === 'string' ? last.metadata.model : undefined,
           preview: projectRecentChatPreview(last.body)
         })
@@ -977,14 +1060,24 @@ export function ProjectDetailPage() {
 
   const selectedTaskExportContext = useMemo(() => {
     if (!selectedTask) return null
-    return { task: selectedTask, project, projectGroup: projectGroupForExport, agents, skills, tags, customFields, projectStatuses }
-  }, [agents, customFields, project, projectGroupForExport, projectStatuses, selectedTask, skills, tags])
+    const effectiveTask = selectedTask.agentId || !defaultAgent
+      ? selectedTask
+      : { ...selectedTask, agentId: defaultAgent.id }
+    return { task: effectiveTask, project, projectGroup: projectGroupForExport, agents, skills, tags, customFields, projectStatuses }
+  }, [agents, customFields, defaultAgent, project, projectGroupForExport, projectStatuses, selectedTask, skills, tags])
   const selectedTaskAgentMarkdown = selectedTaskExportContext ? buildAgentMarkdown(selectedTaskExportContext) : ''
   const selectedTaskSkillsMarkdown = selectedTaskExportContext ? buildSkillsMarkdown(selectedTaskExportContext) : ''
 
   const openRecentChat = (row: ProjectRecentChatRow) => {
     setPendingChatOpen({ taskId: row.taskId, conversationId: row.conversationId })
     setSelectedTaskId(row.taskId)
+    setDetailViewMode('task')
+    setSelectedSubtaskId(null)
+  }
+
+  const openTaskChatConversation = (taskId: string, conversationId: string) => {
+    setPendingChatOpen({ taskId, conversationId })
+    setSelectedTaskId(taskId)
     setDetailViewMode('task')
     setSelectedSubtaskId(null)
   }
@@ -1131,20 +1224,33 @@ export function ProjectDetailPage() {
     void workspaceSyncProjectWorkspace()
   }
 
+  const saveReorderedTasks = async (sourceTaskId: string, status: TaskEntity['status'], targetTaskId?: string, position: TaskDropPosition = 'after') => {
+    const result = reorderTasksForDrop(tasks, sourceTaskId, status, targetTaskId, position)
+    if (result.updates.length === 0) return
+    setTasks(result.tasks)
+    const responses = await Promise.all(result.updates.map((update) => invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
+      actorToken: token,
+      id: update.task.id,
+      status: update.status,
+      payload: update.task.payload ?? {}
+    })))
+    const failed = responses.find((response) => !response.ok)
+    if (failed) {
+      setError(failed.error?.message ?? 'Unable to save task order')
+      await refresh()
+    }
+  }
+
   const updateTaskStatus = async (taskId: string, status: TaskEntity['status']) => {
-    const movingTask = tasks.find((task) => task.id === taskId)
-    const targetRows = tasks.filter((task) => task.id !== taskId && task.status === status)
-    const nextOrder = targetRows.length
+    const sourceTask = tasks.find((task) => task.id === taskId)
+    if (!sourceTask) return
+    const result = reorderTasksForDrop(tasks, taskId, status)
+    const movedTask = result.tasks.find((task) => task.id === taskId)
     const response = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
       actorToken: token,
       id: taskId,
       status,
-      payload: {
-        ...(movingTask?.payload ?? {}),
-        statusOrder: {
-          ...(movingTask ? statusOrderPayload(movingTask, status, nextOrder) : { [status]: nextOrder })
-        }
-      }
+      payload: movedTask?.payload ?? sourceTask.payload ?? {}
     })
     if (!response.ok) {
       setError(response.error?.message ?? 'Unable to move task')
@@ -1153,55 +1259,18 @@ export function ProjectDetailPage() {
     await refresh()
   }
 
-  const reorderTableTasks = async (sourceTaskId: string, targetTaskId: string) => {
+  const reorderTableTasks = async (sourceTaskId: string, targetTaskId: string, position: TaskDropPosition) => {
     if (sourceTaskId === targetTaskId) return
-    const sourceTask = tasks.find((task) => task.id === sourceTaskId)
     const targetTask = tasks.find((task) => task.id === targetTaskId)
-    if (!sourceTask || !targetTask) return
-    const status = targetTask.status
-    if (sourceTask.status !== status) {
-      await updateTaskStatus(sourceTaskId, status)
-      return
-    }
-    const orderedTasks = tasks.filter((task) => task.status === status)
-    const statusTasks = orderedTasksForStatus(orderedTasks)
-    const sourceIndex = statusTasks.findIndex((task) => task.id === sourceTaskId)
-    const targetIndex = statusTasks.findIndex((task) => task.id === targetTaskId)
-    if (sourceIndex < 0 || targetIndex < 0) return
-
-    const nextTasks = statusTasks.filter((task) => task.id !== sourceTaskId)
-    const adjustedTargetIndex = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
-    nextTasks.splice(adjustedTargetIndex, 0, sourceTask)
-
-    setTasks((current) => current.map((task) => {
-      const nextIndex = nextTasks.findIndex((item) => item.id === task.id)
-      return nextIndex >= 0 ? { ...task, payload: { ...(task.payload ?? {}), statusOrder: statusOrderPayload(task, status, nextIndex) } } : task
-    }))
-
-    const responses = await Promise.all(nextTasks.map((task, index) => invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
-      actorToken: token,
-      id: task.id,
-      payload: {
-        ...(task.payload ?? {}),
-        statusOrder: {
-          ...statusOrderPayload(task, status, index)
-        }
-      }
-    })))
-    const failed = responses.find((response) => !response.ok)
-    if (failed) {
-      setError(failed.error?.message ?? 'Unable to save table order')
-      await refresh()
-    }
+    if (!targetTask) return
+    await saveReorderedTasks(sourceTaskId, targetTask.status, targetTaskId, position)
   }
 
   const onDropColumn = async (event: DragEvent<HTMLElement>, status: TaskEntity['status']) => {
     event.preventDefault()
     const taskId = event.dataTransfer.getData('text/plain')
     if (!taskId) return
-    const task = tasks.find((item) => item.id === taskId)
-    if (!task || task.status === status) return
-    await updateTaskStatus(taskId, status)
+    await saveReorderedTasks(taskId, status)
   }
 
   const handleQuickCreate = async () => {
@@ -2069,6 +2138,23 @@ export function ProjectDetailPage() {
     await refresh()
   }
 
+  const saveSubtaskChecklistItems = async (items: TaskChecklistItem[]) => {
+    if (!selectedSubtask) return
+    const response = await invokeBridge<TaskSubtask>(IPC_CHANNELS.tasks.subtasksUpdate, {
+      actorToken: token,
+      id: selectedSubtask.id,
+      payload: {
+        ...getSubtaskPayload(selectedSubtask),
+        checklistItems: items
+      }
+    })
+    if (!response.ok) {
+      setError(response.error?.message ?? 'Unable to update subtask checklist')
+      return
+    }
+    await refresh()
+  }
+
   const addChecklistItem = async () => {
     if (!selectedTask || !checklistDraft.trim()) return
     const now = Date.now()
@@ -2091,20 +2177,28 @@ export function ProjectDetailPage() {
   }
 
   const addChecklistItems = async () => {
-    if (!selectedTask) return
+    if (!selectedTask && !selectedSubtask) return
     const titles = checklistRows.map((row) => row.title.trim()).filter(Boolean)
     if (titles.length === 0) return
     const now = Date.now()
-    await saveChecklistItems([
-      ...(selectedTask.checklistItems ?? []),
-      ...titles.map((title) => ({
-        id: createLocalId(),
-        title,
-        checked: false,
-        createdAt: now,
-        updatedAt: now
-      }))
-    ])
+    const createdItems = titles.map((title) => ({
+      id: createLocalId(),
+      title,
+      checked: false,
+      createdAt: now,
+      updatedAt: now
+    }))
+    if (detailViewMode === 'subtask' && selectedSubtask) {
+      await saveSubtaskChecklistItems([
+        ...getSubtaskChecklistItems(selectedSubtask),
+        ...createdItems
+      ])
+    } else if (selectedTask) {
+      await saveChecklistItems([
+        ...(selectedTask.checklistItems ?? []),
+        ...createdItems
+      ])
+    }
     setChecklistRows([{ id: createLocalId(), title: '' }])
     setIsChecklistModalOpen(false)
   }
@@ -2120,6 +2214,19 @@ export function ProjectDetailPage() {
   const removeChecklistItem = async (itemId: string) => {
     if (!selectedTask) return
     await saveChecklistItems((selectedTask.checklistItems ?? []).filter((item) => item.id !== itemId))
+  }
+
+  const toggleSubtaskChecklistItem = async (itemId: string) => {
+    if (!selectedSubtask) return
+    const now = Date.now()
+    await saveSubtaskChecklistItems(getSubtaskChecklistItems(selectedSubtask).map((item) => (
+      item.id === itemId ? { ...item, checked: !item.checked, updatedAt: now } : item
+    )))
+  }
+
+  const removeSubtaskChecklistItem = async (itemId: string) => {
+    if (!selectedSubtask) return
+    await saveSubtaskChecklistItems(getSubtaskChecklistItems(selectedSubtask).filter((item) => item.id !== itemId))
   }
 
   const saveTitle = async () => {
@@ -2666,8 +2773,8 @@ export function ProjectDetailPage() {
             <div className={styles.projectRecentChatList}>
               {projectRecentChats.map((row) => (
                 <button type="button" key={row.id} className={styles.projectRecentChatRow} onClick={() => openRecentChat(row)}>
-                  <span className={styles.projectRecentChatTopline}>
-                    <strong>{projectRecentChatSourceLabel(row.source)}</strong>
+                  <span className={styles.projectRecentChatBadges}>
+                    <b className={styles.projectRecentChatSourceBadge}>{projectRecentChatSourceLabel(row.source)}</b>
                     <b className={`${styles.chatStatusBadge} ${styles[`chatStatus_${row.status}`] ?? ''}`}>{projectRecentChatStatusLabel(row.status)}</b>
                   </span>
                   <span className={styles.projectRecentChatTask}>{row.taskTitle}</span>
@@ -2689,8 +2796,9 @@ export function ProjectDetailPage() {
           onDropStatus={(event, status) => {
             void onDropColumn(event, status)
           }}
-          onReorder={(sourceTaskId, targetTaskId) => void reorderTableTasks(sourceTaskId, targetTaskId)}
+          onReorder={(sourceTaskId, targetTaskId, position) => void reorderTableTasks(sourceTaskId, targetTaskId, position)}
           onOpenTask={setSelectedTaskId}
+          onOpenTaskChat={openTaskChatConversation}
           onOpenCreateTask={openCreateTask}
           onStatusChange={(taskId, status) => void updateTaskStatus(taskId, status)}
           onToggleStatus={toggleStatusGroup}
@@ -2898,6 +3006,7 @@ export function ProjectDetailPage() {
               removeTaskAttachment,
               setError,
               selectedTaskAgent,
+              selectedTaskAgentIsDefault,
               agents,
               setTaskAgent,
               selectedTaskSkillOptions,
@@ -2990,6 +3099,9 @@ export function ProjectDetailPage() {
                 setCustomFieldDraft,
                 saveCustomFieldValue,
                 removeCustomFieldValue,
+                openChecklistModal,
+                toggleSubtaskChecklistItem,
+                removeSubtaskChecklistItem,
                 subtaskAttachmentRows,
                 isAttachmentUploading,
                 uploadSubtaskAttachments,

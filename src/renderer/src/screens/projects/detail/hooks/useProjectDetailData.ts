@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type {
   Agent,
@@ -16,6 +16,7 @@ import type {
   Workspace
 } from '@shared/types/entities'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
+import { createSerializedAsyncRunner } from '@renderer/utils/serializedAsync'
 import { projectCodexSettings, withTaskMeta } from '../projectDetailUtils'
 import type { ProjectDetailStateBindings } from './state/projectDetailState'
 
@@ -80,7 +81,7 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
 
   const projectLoadError = projectId ? null : 'Project id not found.'
 
-  const refresh = useCallback(async () => {
+  const rawRefresh = useCallback(async () => {
     if (!projectId) return
 
     const [
@@ -163,6 +164,18 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
     setStatusTemplates,
     setProjectGroups
   ])
+
+  const rawRefreshRef = useRef(rawRefresh)
+  useEffect(() => {
+    rawRefreshRef.current = rawRefresh
+  }, [rawRefresh])
+
+  const serializedRefresh = useMemo(
+    () => createSerializedAsyncRunner(() => rawRefreshRef.current()),
+    []
+  )
+
+  const refresh = useCallback(() => serializedRefresh(), [serializedRefresh])
 
   useEffect(() => {
     void refresh()

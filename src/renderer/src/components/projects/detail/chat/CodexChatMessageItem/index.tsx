@@ -14,7 +14,10 @@ import type { TaskActivityMessage } from '@renderer/screens/projects/detail/type
 import {
   formatChatTime,
   formatCodexToolBody,
+  codexChangesSummary,
   formatJsonMetadata,
+  parseNumberMetadata,
+  thinkingDurationLabel as resolveThinkingDurationLabel,
   roleLabel,
   usageFromMetadata
 } from '@renderer/screens/projects/detail/chat/chatUtils'
@@ -64,15 +67,7 @@ type DiffFileSection = {
   patch: string
   insertions: number
   deletions: number
-}
-
-function parseDurationMs(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number(value)
-    return Number.isFinite(parsed) ? parsed : undefined
-  }
-  return undefined
+  blocks: number
 }
 
 function escapeHtml(value: string): string {
@@ -226,18 +221,6 @@ function metadataPathEntries(metadata: Record<string, unknown> | undefined): Arr
     .filter((entry): entry is { key: string; value: string } => typeof entry.value === 'string' && entry.value.length > 0)
 }
 
-function parseNumberMetadata(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0
-}
-
-function formatDurationMs(value: number | undefined): string {
-  if (!Number.isFinite(value) || !value) return ''
-  const seconds = Math.max(0, Math.round(value / 1000))
-  const minutes = Math.floor(seconds / 60)
-  const remainingSeconds = seconds % 60
-  return minutes > 0 ? `${minutes}m ${remainingSeconds}s` : `${seconds}s`
-}
-
 function changesSections(body: string): { status: string; stat: string; patch: string } {
   const sections = { status: '', stat: '', patch: '' }
   let pendingHeading = ''
@@ -257,16 +240,17 @@ function changesSections(body: string): { status: string; stat: string; patch: s
   return sections
 }
 
-function metadataFileStats(metadata: Record<string, unknown> | undefined): Map<string, { insertions: number; deletions: number }> {
+function metadataFileStats(metadata: Record<string, unknown> | undefined): Map<string, { insertions: number; deletions: number; blocks: number }> {
   const entries = Array.isArray(metadata?.changeFileStats) ? metadata.changeFileStats : []
-  const stats = new Map<string, { insertions: number; deletions: number }>()
+  const stats = new Map<string, { insertions: number; deletions: number; blocks: number }>()
   entries.forEach((entry) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return
     const record = entry as Record<string, unknown>
     if (typeof record.path !== 'string') return
     stats.set(record.path, {
       insertions: parseNumberMetadata(record.insertions),
-      deletions: parseNumberMetadata(record.deletions)
+      deletions: parseNumberMetadata(record.deletions),
+      blocks: parseNumberMetadata(record.blocks)
     })
   })
   return stats
@@ -287,39 +271,48 @@ function splitDiffByFile(patch: string, metadata: Record<string, unknown> | unde
   return chunks.map((chunk, index) => {
     const path = patchFilePath(chunk) || `change-${index + 1}`
     const fileStats = stats.get(path)
-    const fallbackInsertions = chunk.split(/\r?\n/).filter((line) => line.startsWith('+') && !line.startsWith('+++')).length
-    const fallbackDeletions = chunk.split(/\r?\n/).filter((line) => line.startsWith('-') && !line.startsWith('---')).length
+    const lines = chunk.split(/\r?\n/)
+    const fallbackInsertions = lines.filter((line) => line.startsWith('+') && !line.startsWith('+++')).length
+    const fallbackDeletions = lines.filter((line) => line.startsWith('-') && !line.startsWith('---')).length
+    const fallbackBlocks = lines.filter((line) => line.startsWith('@@')).length
     return {
       path,
       patch: chunk,
       insertions: fileStats?.insertions ?? fallbackInsertions,
-      deletions: fileStats?.deletions ?? fallbackDeletions
+      deletions: fileStats?.deletions ?? fallbackDeletions,
+      blocks: fileStats?.blocks ?? fallbackBlocks
     }
   })
 }
 
 function renderChangesCard(message: TaskActivityMessage, pathEntries: Array<{ key: string; value: string }>) {
+  const changesSummary = codexChangesSummary(message)
   const metadata = message.metadata ?? {}
-  const files = parseNumberMetadata(metadata.changeFiles)
-  const insertions = parseNumberMetadata(metadata.changeInsertions)
-  const deletions = parseNumberMetadata(metadata.changeDeletions)
   const sections = changesSections(message.body)
   const fileSections = splitDiffByFile(sections.patch, metadata)
+  const totalBlocks = Math.max(changesSummary.blocks, fileSections.reduce((count, section) => count + section.blocks, 0))
+  const fileCount = changesSummary.files || fileSections.length
+  const insertions = changesSummary.insertions
+  const deletions = changesSummary.deletions
   const hasStructuredChanges = Boolean(sections.status || sections.stat || sections.patch)
-  const editedLabel = files === 1 ? 'Edited file' : `Edited ${files || fileSections.length} files`
+  const editedLabel = fileCount === 1 ? '1 file changed' : `${fileCount} files changed`
+  const fileSummary = fileCount === 1 ? '1 file' : `${fileCount} files`
+  const blockSummary = totalBlocks === 1 ? '1 block' : `${totalBlocks} blocks`
 
   if (!hasStructuredChanges && !metadata.unavailable) return renderMarkdownLite(message.body)
+  if (!changesSummary.canRenderCard) return renderMarkdownLite(message.body)
 
   return (
     <div className={styles.codexChangesCard}>
       <div className={styles.codexChangesHeader}>
         <div>
           <span className={styles.codexChangesEyebrow}>{editedLabel}</span>
-          <strong>{files || fileSections.length} files changed</strong>
+          <strong>{fileSummary}{totalBlocks > 0 ? `, ${blockSummary}` : ''}</strong>
         </div>
         <div className={styles.codexChangesStats}>
           <span className={styles.codexChangesAdded}>+{insertions}</span>
           <span className={styles.codexChangesRemoved}>-{deletions}</span>
+          <span>{blockSummary}</span>
           {metadata.truncated ? <span>truncated</span> : null}
           {metadata.unavailable ? <span>unavailable</span> : null}
         </div>
@@ -337,9 +330,12 @@ function renderChangesCard(message: TaskActivityMessage, pathEntries: Array<{ ke
         </section>
       ))}
       {fileSections.length > 4 ? <p className={styles.codexProgressLine}>{fileSections.length - 4} more files hidden from preview.</p> : null}
-      {!sections.status && !sections.stat && !sections.patch ? <div>{renderMarkdownLite(message.body)}</div> : null}
       <div className={styles.codexChangesSummaryBar}>
-        <span>{files || fileSections.length} files changed <b>+{insertions}</b> <i>-{deletions}</i></span>
+        <span>
+          {fileSummary}
+          {blockSummary ? <b> · {blockSummary}</b> : ''}
+          <span> <b>+{insertions}</b> <i>-{deletions}</i></span>
+        </span>
         <button type="button">Review changes <LuExternalLink size={13} /></button>
       </div>
       {pathEntries.length > 0 ? (
@@ -359,16 +355,6 @@ type CodexChatMessageItemProps = {
   message: TaskActivityMessage
 }
 
-function thinkingDurationLabel(message: TaskActivityMessage): string {
-  const metadata = message.metadata ?? {}
-  const explicitDurationMs = parseDurationMs(metadata.thinkingDurationMs) ?? parseDurationMs(metadata.durationMs)
-  const startedAt = parseDurationMs(metadata.thinkingStartedAt) ?? parseDurationMs(metadata.thinkingStartAt)
-  const endedAt = parseDurationMs(metadata.thinkingEndedAt) ?? parseDurationMs(metadata.thinkingEndAt) ?? message.createdAt
-  const fallbackDurationMs = explicitDurationMs ?? (startedAt !== undefined && endedAt !== undefined ? Math.max(0, endedAt - startedAt) : undefined)
-  const duration = formatDurationMs(fallbackDurationMs)
-  return duration ? `Working for ${duration}` : ''
-}
-
 function renderCodexTranscriptMessage(params: {
   message: TaskActivityMessage
   codexBlock: string
@@ -379,23 +365,44 @@ function renderCodexTranscriptMessage(params: {
   toolBodyRendered: ReturnType<typeof renderMarkdownLite>
   pathEntries: Array<{ key: string; value: string }>
   toolTitle: string
+  changesSummary: ReturnType<typeof codexChangesSummary>
 }) {
-  const { message, codexBlock, thinkingLabel, thinkingText, thinkingBody, messageBody, toolBodyRendered, pathEntries, toolTitle } = params
+  const {
+    message,
+    codexBlock,
+    thinkingLabel,
+    thinkingText,
+    thinkingBody,
+    messageBody,
+    toolBodyRendered,
+    pathEntries,
+    toolTitle,
+    changesSummary
+  } = params
 
   if (message.role === 'thinking') {
+    const summaryLabel = [`Thinking`, thinkingLabel].filter(Boolean).join(' · ')
     return (
       <article className={`${styles.chatMessage} ${styles.codexTranscriptRow} ${styles.codexTranscriptThinking}`}>
-        <div className={styles.codexTranscriptTime}>
-          {message.status === 'running' ? (
-            <>Working <span className={styles.thinkingDots}><i /><i /><i /></span></>
-          ) : thinkingLabel || 'Working'}
-        </div>
-        {thinkingText ? <div className={styles.codexTranscriptText}>{thinkingBody}</div> : null}
+        <details className={styles.codexThinkingDetails}>
+          <summary className={styles.codexTranscriptTime}>
+            {summaryLabel}
+            {message.status === 'running' ? <span className={styles.thinkingDots}><i /><i /><i /></span> : null}
+          </summary>
+          {thinkingText ? <div className={styles.codexTranscriptText}>{thinkingBody}</div> : null}
+        </details>
       </article>
     )
   }
 
   if (message.role === 'tool' && codexBlock === 'changes') {
+    if (!changesSummary.canRenderCard) {
+      return (
+        <article className={`${styles.chatMessage} ${styles.codexTranscriptRow}`}>
+          {changesSummary.hasNoChanges ? <div className={styles.codexProgressLine}><LuCircleCheck size={14} /> No workspace changes detected.</div> : renderMarkdownLite(message.body)}
+        </article>
+      )
+    }
     return (
       <article className={`${styles.chatMessage} ${styles.codexTranscriptRow}`}>
         {renderChangesCard(message, pathEntries)}
@@ -441,6 +448,7 @@ function renderCodexTranscriptMessage(params: {
 export const CodexChatMessageItem = memo(function CodexChatMessageItem({ message }: CodexChatMessageItemProps) {
   const usage = usageFromMetadata(message.metadata)
   const codexBlock = typeof message.metadata?.codexBlock === 'string' ? message.metadata.codexBlock : ''
+  const changesSummary = codexChangesSummary(message)
   const toolTitle = codexBlock === 'changes'
     ? 'Changes'
     : codexBlock === 'command'
@@ -453,7 +461,7 @@ export const CodexChatMessageItem = memo(function CodexChatMessageItem({ message
   const statusLabel = message.metadata?.runStatus === 'running' && codexBlock !== 'run-complete'
     ? 'running'
     : message.status
-  const thinkingLabel = thinkingDurationLabel(message)
+  const thinkingLabel = resolveThinkingDurationLabel(message, Date.now())
   const thinkingText = message.body.trim() || (message.status === 'running'
     ? 'Codex is working...'
     : '')
@@ -478,7 +486,8 @@ export const CodexChatMessageItem = memo(function CodexChatMessageItem({ message
       messageBody,
       toolBodyRendered,
       pathEntries,
-      toolTitle
+      toolTitle,
+      changesSummary
     })
   }
 

@@ -354,13 +354,13 @@
 .modalBackdrop {
   position: fixed;
   inset: 0;
-  z-index: 120;
+  z-index: 210;
   background: var(--omc-modal-backdrop);
 }
 
 .modal {
   position: fixed;
-  z-index: 121;
+  z-index: 211;
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
@@ -387,6 +387,25 @@
     margin: 0;
     color: var(--omc-text-strong);
     font-size: 1rem;
+    font-weight: 850;
+  }
+}
+
+.createTaskHeaderActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+
+  button:not(.modalClose) {
+    min-height: 32px;
+    border: 1px solid var(--omc-input-border);
+    border-radius: 10px;
+    background: var(--omc-surface);
+    color: var(--omc-text-strong);
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 10px;
     font-weight: 850;
   }
 }

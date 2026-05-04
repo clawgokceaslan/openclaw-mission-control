@@ -1,34 +1,32 @@
-import { type CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { LuBot, LuFilter, LuListChecks, LuListTodo, LuPaperclip, LuPencil, LuPlus, LuSearch, LuSettings2, LuSlidersHorizontal, LuSparkles, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
+import { LuFilter, LuPencil, LuPlus, LuSearch, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import type { Agent, CodexCliGatewayConfig, CodexCliModel, CustomField, Gateway, OutputFormat, Project, ProjectStatus, Skill, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskJsonImportResult, TaskTemplate, TaskTemplatePayload } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
-import { MarkdownDescriptionEditor, prefixDataFormatTokens, type DescriptionDataFormat } from '@renderer/components/markdown/MarkdownDescriptionEditor'
-import { AttachmentTable, storedAttachmentRows } from '@renderer/components/attachments/AttachmentTable'
+import { prefixDataFormatTokens, type DescriptionDataFormat } from '@renderer/components/markdown/MarkdownDescriptionEditor'
+import { storedAttachmentRows } from '@renderer/components/attachments/AttachmentTable'
 import { AttachmentRow, attachmentRowsFromDescription, normalizeAttachments, removeAttachmentFromMarkdown, uploadTaskAttachment } from '@renderer/components/attachments/attachments'
 import { invokeBridge, loadList } from '@renderer/utils/api'
 import { useAuth } from '@renderer/providers/auth/auth-state'
-import { Stack } from 'react-bootstrap'
-import { AgentAssignmentPanel, SkillsAssignmentPanel } from '@renderer/components/projects/detail/AssignmentPanels'
-import { TaskDetailPopup } from '@renderer/popups/TaskDetail'
-import { TaskDetailContent } from '@renderer/components/projects/detail/TaskDetailContent'
 import { TaskJsonImportPopup } from '@renderer/popups/TaskJsonImport'
 import { CreateTaskPopup } from '@renderer/popups/CreateTask'
+import {
+  TaskTemplateDetailPopup,
+  type TaskTemplateBuilderTab as BuilderTab,
+  type TaskTemplateCustomFieldDraftRow as CustomFieldDraftRow,
+  type TaskTemplateDataFormatRole as DataFormatRole,
+  type TaskTemplateDraftSubtask as DraftSubtask,
+  type TaskTemplateSaveState as SaveState,
+  type TaskTemplateSubtaskDetailTab as TemplateSubtaskDetailTab,
+  type TaskTemplateTextDraftRow as TextDraftRow
+} from '@renderer/popups/TaskTemplateDetailPopup'
 import { parseTaskJsonImportPreview } from '../projects/detail/taskJsonImport'
-import { PROJECT_STATUS_COLUMNS, columnsFromProjectStatuses, resolveProjectStatusColumn } from '../projects/detail/status'
-import detailStyles from '../projects/ProjectDetailPage.module.scss'
+import { PROJECT_STATUS_COLUMNS, columnsFromProjectStatuses } from '../projects/detail/status'
 import styles from './TaskTemplatesPage.module.scss'
 import { createTaskWithTemplate, type CreateTaskInput } from '../projects/detail/createTaskWithTemplate'
 
-type SaveState = 'saved' | 'dirty' | 'saving' | 'failed'
-type BuilderTab = 'subtasks' | 'customFields' | 'checklist' | 'attachments' | 'agent' | 'skills' | 'model'
-type TemplateSubtaskDetailTab = 'agent' | 'skills' | 'customFields' | 'attachments'
-type DraftSubtask = NonNullable<TaskTemplatePayload['subtasks']>[number] & { uiId: string }
-type TextDraftRow = { id: string; title: string }
-type CustomFieldDraftRow = { id: string; field: AppSelectOption | null; value: string }
-type DataFormatRole = OutputFormat['formatRole']
 type CodexModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }
 
 const SAVE_DELAY_MS = 700
@@ -40,12 +38,6 @@ const PAGE_SIZE_OPTIONS: AppSelectOption[] = [
   { label: '20 / page', value: '20' },
   { label: '50 / page', value: '50' }
 ]
-const TEMPLATE_STATUS_OPTIONS = PROJECT_STATUS_COLUMNS.map((column) => ({
-  value: column.status,
-  label: column.title,
-  color: column.accent
-}))
-
 function resizeTitleTextarea(element: HTMLTextAreaElement | null) {
   if (!element) return
   element.style.height = 'auto'
@@ -151,19 +143,6 @@ function customFieldValueToDraft(field: CustomField, value: unknown): string {
   return value == null ? '' : String(value)
 }
 
-function customFieldValueLabel(field: CustomField, value: unknown): string {
-  if (value === undefined) return 'Empty'
-  if (field.type === 'boolean') return value ? 'True' : 'False'
-  if (field.type === 'json') {
-    try {
-      return JSON.stringify(value, null, 2)
-    } catch {
-      return 'Invalid JSON'
-    }
-  }
-  return String(value)
-}
-
 function parseCustomFieldValue(field: CustomField, draft: string): { ok: true; value: unknown } | { ok: false; error: string } {
   if (field.type === 'boolean') return { ok: true, value: draft === 'true' }
   if (field.type === 'number') {
@@ -220,11 +199,25 @@ function getSubtaskAttachments(subtask: DraftSubtask | null): TaskAttachment[] {
   return normalizeAttachments(getSubtaskPayload(subtask).attachments)
 }
 
-function getSubtaskAgentId(subtask: DraftSubtask | null) {
+function getSubtaskChecklistItems(subtask: DraftSubtask | null): TaskChecklistItem[] {
+  if (!subtask) return []
+  const value = getSubtaskPayload(subtask).checklistItems
+  return Array.isArray(value)
+    ? value.filter((item): item is TaskChecklistItem => {
+      if (!item || typeof item !== 'object') return false
+      const candidate = item as Partial<TaskChecklistItem>
+      return typeof candidate.id === 'string' && typeof candidate.title === 'string'
+    })
+    : []
+}
+
+function getSubtaskAgentId(subtask: DraftSubtask | null): string | undefined {
   if (!subtask) return undefined
   const payload = getSubtaskPayload(subtask)
-  if (typeof payload.agentId === 'string' && payload.agentId) return payload.agentId
-  return subtask.agentId ?? undefined
+  if (typeof payload.agentId === 'string' && payload.agentId.trim()) return payload.agentId
+  if (typeof payload.assigneeId === 'string' && payload.assigneeId.trim()) return payload.assigneeId
+  if (typeof subtask.agentId === 'string' && subtask.agentId.trim()) return subtask.agentId
+  return undefined
 }
 
 function getSubtaskSkillIds(subtask: DraftSubtask | null): string[] {
@@ -288,8 +281,6 @@ export function TaskTemplatesPage() {
   const [activeTab, setActiveTab] = useState<BuilderTab>('subtasks')
   const [subtaskDetailTab, setSubtaskDetailTab] = useState<TemplateSubtaskDetailTab>('agent')
   const [selectedSubtaskId, setSelectedSubtaskId] = useState<string | null>(null)
-  const [checklistDraft, setChecklistDraft] = useState('')
-  const [subtaskTitleDraft, setSubtaskTitleDraft] = useState('')
   const [customFieldDraft, setCustomFieldDraft] = useState('')
   const [selectedCustomField, setSelectedCustomField] = useState<AppSelectOption | null>(null)
   const [customFieldError, setCustomFieldError] = useState<string | null>(null)
@@ -307,6 +298,7 @@ export function TaskTemplatesPage() {
   const [isSubtaskModalOpen, setIsSubtaskModalOpen] = useState(false)
   const [subtaskRows, setSubtaskRows] = useState<TextDraftRow[]>([{ id: createLocalId(), title: '' }])
   const [isChecklistModalOpen, setIsChecklistModalOpen] = useState(false)
+  const [checklistTarget, setChecklistTarget] = useState<'template' | 'subtask'>('template')
   const [checklistRows, setChecklistRows] = useState<TextDraftRow[]>([{ id: createLocalId(), title: '' }])
   const [isCustomFieldModalOpen, setIsCustomFieldModalOpen] = useState(false)
   const [isCreateCustomFieldOpen, setIsCreateCustomFieldOpen] = useState(false)
@@ -334,7 +326,6 @@ export function TaskTemplatesPage() {
 
   const templateBodyRef = useRef<HTMLDivElement | null>(null)
   const subtaskClickTimerRef = useRef<number | null>(null)
-  const nextSubtaskRowFocusRef = useRef<string | null>(null)
   const timerRef = useRef<number | null>(null)
   const inFlightRef = useRef(false)
   const pendingRef = useRef(false)
@@ -417,14 +408,6 @@ export function TaskTemplatesPage() {
   }, [editing, nameDraft, descriptionDraft, templateDraft, draftSubtasks])
 
   useEffect(() => {
-    if (!nextSubtaskRowFocusRef.current) return
-    const input = document.querySelector<HTMLInputElement>(`[data-template-subtask-row-id="${nextSubtaskRowFocusRef.current}"]`)
-    if (!input) return
-    input.focus()
-    nextSubtaskRowFocusRef.current = null
-  }, [subtaskRows])
-
-  useEffect(() => {
     return () => {
       if (timerRef.current) window.clearTimeout(timerRef.current)
     }
@@ -474,8 +457,6 @@ export function TaskTemplatesPage() {
 
   const tagOptions = useMemo(() => tags.map((tag) => ({ label: tag.name, value: tag.id, color: tag.color })), [tags])
   const tagById = useMemo(() => new Map(tags.map((tag) => [tag.id, tag])), [tags])
-  const agentOptions = useMemo(() => agents.map((agent) => ({ label: agent.name, value: agent.id })), [agents])
-  const skillOptions = useMemo(() => skills.map((skill) => ({ label: skill.name, value: skill.id })), [skills])
   const customFieldOptions = useMemo(() => customFields.map((field) => ({ label: field.name, value: field.id })), [customFields])
   const inputFormatOptions = useMemo(() => outputFormats.filter((format) => format.formatRole === 'input').map((format) => ({ label: format.name, value: format.id })), [outputFormats])
   const outputFormatOptions = useMemo(() => outputFormats.filter((format) => format.formatRole !== 'input').map((format) => ({ label: format.name, value: format.id })), [outputFormats])
@@ -524,9 +505,7 @@ export function TaskTemplatesPage() {
     }
   }, [applyProjectId, isApplyTemplateOpen, token])
 
-  const selectedAgentObject = templateDraft.agentId ? agents.find((agent) => agent.id === templateDraft.agentId) ?? null : null
   const selectedTags = tagOptions.filter((option) => (templateDraft.tagIds ?? []).includes(option.value))
-  const selectedSkills = skillOptions.filter((option) => (templateDraft.skillIds ?? []).includes(option.value))
   const selectedSkillObjects = skills.filter((skill) => (templateDraft.skillIds ?? []).includes(skill.id))
   const selectedInputFormat = templateDraft.inputFormatId ? (() => {
     const format = outputFormatById.get(templateDraft.inputFormatId)
@@ -536,17 +515,16 @@ export function TaskTemplatesPage() {
     const format = outputFormatById.get(templateDraft.outputFormatId)
     return format ? { label: format.name, value: format.id } : null
   })() : null
-  const selectedSubtaskStatus = selectedSubtask?.status || PROJECT_STATUS_COLUMNS[0].status
-  const selectedSubtaskStatusColumn = resolveProjectStatusColumn(selectedSubtaskStatus, PROJECT_STATUS_COLUMNS)
   const selectedSubtaskTags = tagOptions.filter((option) => getSubtaskTagIds(selectedSubtask).includes(option.value))
-  const selectedSubtaskAgentObject = (() => {
-    const agentId = getSubtaskAgentId(selectedSubtask)
-    return agentId ? agents.find((agent) => agent.id === agentId) ?? null : null
-  })()
   const selectedSubtaskSkillObjects = (() => {
     const skillIds = new Set(getSubtaskSkillIds(selectedSubtask))
     return skills.filter((skill) => skillIds.has(skill.id))
   })()
+  const selectedSubtaskAgent = (() => {
+    const agentId = getSubtaskAgentId(selectedSubtask)
+    return agentId ? agents.find((agent) => agent.id === agentId) ?? null : null
+  })()
+  const selectedSubtaskChecklistItems = getSubtaskChecklistItems(selectedSubtask)
   const selectedSubtaskInputFormat = (() => {
     const id = getSubtaskInputFormatId(selectedSubtask)
     const format = id ? outputFormatById.get(id) : null
@@ -908,9 +886,8 @@ export function TaskTemplatesPage() {
     setTemplateDraft(nextTemplate)
     setDraftSubtasks(nextSubtasks)
     setActiveTab('subtasks')
+    setSubtaskDetailTab('agent')
     setSelectedSubtaskId(null)
-    setChecklistDraft('')
-    setSubtaskTitleDraft('')
     setCustomFieldDraft('')
     setSelectedCustomField(null)
     setCustomFieldError(null)
@@ -1174,15 +1151,6 @@ export function TaskTemplatesPage() {
     patchTemplate({ customFieldValues: values })
   }
 
-  const addSubtask = () => {
-    const title = subtaskTitleDraft.trim()
-    if (!title) return
-    const subtask: DraftSubtask = { uiId: createLocalId(), title, status: '', payload: {} }
-    patchSubtasks((current) => [...current, subtask])
-    setSubtaskTitleDraft('')
-    setIsSubtaskModalOpen(false)
-  }
-
   const addSubtaskRows = () => {
     const titles = subtaskRows.map((row) => row.title.trim()).filter(Boolean)
     if (titles.length === 0) return
@@ -1195,6 +1163,13 @@ export function TaskTemplatesPage() {
   }
 
   const openChecklistModal = () => {
+    setChecklistTarget('template')
+    setChecklistRows([{ id: createLocalId(), title: '' }])
+    setIsChecklistModalOpen(true)
+  }
+
+  const openSubtaskChecklistModal = () => {
+    setChecklistTarget('subtask')
     setChecklistRows([{ id: createLocalId(), title: '' }])
     setIsChecklistModalOpen(true)
   }
@@ -1202,7 +1177,16 @@ export function TaskTemplatesPage() {
   const addChecklistRows = () => {
     const titles = checklistRows.map((row) => row.title.trim()).filter(Boolean)
     if (titles.length === 0) return
-    patchTemplate({ checklistItems: [...(templateDraft.checklistItems ?? []), ...titles.map((title) => checklistItem(title))] })
+    if (checklistTarget === 'subtask' && selectedSubtask) {
+      updateSelectedSubtaskPayload({
+        checklistItems: [
+          ...getSubtaskChecklistItems(selectedSubtask),
+          ...titles.map((title) => checklistItem(title))
+        ]
+      })
+    } else {
+      patchTemplate({ checklistItems: [...(templateDraft.checklistItems ?? []), ...titles.map((title) => checklistItem(title))] })
+    }
     setChecklistRows([{ id: createLocalId(), title: '' }])
     setIsChecklistModalOpen(false)
   }
@@ -1251,53 +1235,30 @@ export function TaskTemplatesPage() {
     }))
   }
 
-  const renderDataFormatPanel = (scope: 'template' | 'subtask') => {
-    const inputValue = scope === 'template' ? selectedInputFormat : selectedSubtaskInputFormat
-    const outputValue = scope === 'template' ? selectedOutputFormat : selectedSubtaskOutputFormat
-    const updateFormat = (role: DataFormatRole, option: AppSelectOption | null) => {
-      const key = role === 'input' ? 'inputFormatId' : 'outputFormatId'
-      if (scope === 'template') {
-        patchTemplate({ [key]: option?.value ?? null })
-      } else {
-        updateSelectedSubtaskPayload({ [key]: option?.value ?? '' })
-      }
-    }
+  const setTemplateSubtaskAgent = (agentId: string | null) => {
+    const agent = agentId ? agents.find((item) => item.id === agentId) : null
+    updateSelectedSubtaskPayload({
+      agentId: agentId ?? '',
+      assigneeId: agentId ?? '',
+      assigneeName: agent?.name ?? ''
+    })
+  }
 
-    return (
-      <div className={detailStyles.dataFormatPanel}>
-        {([
-          { role: 'input' as const, title: 'Input data format', value: inputValue, options: inputFormatOptions, description: 'Incoming data shape' },
-          { role: 'output' as const, title: 'Output data format', value: outputValue, options: outputFormatOptions, description: 'Expected result shape' }
-        ]).map((item) => (
-          <div key={item.role} className={detailStyles.dataFormatCard}>
-            <div className={detailStyles.dataFormatHeader}>
-              <span className={`${detailStyles.dataFormatRoleBadge} ${item.role === 'input' ? detailStyles.inputFormatBadge : detailStyles.outputFormatBadge}`}>
-                {item.role === 'input' ? 'Input' : 'Output'}
-              </span>
-              <div>
-                <strong>{item.title}</strong>
-                <small>{item.value?.label ?? 'Not set'} · {item.description}</small>
-              </div>
-            </div>
-            <div className={detailStyles.dataFormatControls}>
-              <AppSelect
-                mode="single"
-                variant="borderless"
-                value={item.value}
-                options={item.options}
-                onChange={(option) => !Array.isArray(option) && updateFormat(item.role, option)}
-                placeholder={item.role === 'input' ? 'Choose input format...' : 'Choose output format...'}
-                isClearable
-              />
-              <button type="button" onClick={() => openDataFormatModal(item.role, scope)}>
-                <LuPlus size={14} />
-                New
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-    )
+  const toggleTemplateSubtaskChecklistItem = (itemId: string) => {
+    if (!selectedSubtask) return
+    const now = Date.now()
+    updateSelectedSubtaskPayload({
+      checklistItems: getSubtaskChecklistItems(selectedSubtask).map((item) => (
+        item.id === itemId ? { ...item, checked: !item.checked, updatedAt: now } : item
+      ))
+    })
+  }
+
+  const removeTemplateSubtaskChecklistItem = (itemId: string) => {
+    if (!selectedSubtask) return
+    updateSelectedSubtaskPayload({
+      checklistItems: getSubtaskChecklistItems(selectedSubtask).filter((item) => item.id !== itemId)
+    })
   }
 
   const submitComment = () => {
@@ -1388,113 +1349,6 @@ export function TaskTemplatesPage() {
     setEditingSubtaskCommentId(null)
     setSubtaskCommentDraft('')
   }
-
-  const renderCustomFields = (values: Record<string, unknown>, isSubtask = false) => (
-    <>
-      <div className={detailStyles.detailSectionHeader}>
-        <div>
-          <h4>Custom fields</h4>
-          <p>{Object.keys(values).length} assigned</p>
-        </div>
-      </div>
-      {!isSubtask ? (
-        <div className={detailStyles.tabCtaCard}>
-          <div>
-            <strong>Add custom field</strong>
-            <span>Attach a field value to this template.</span>
-          </div>
-          <button type="button" className={detailStyles.tabActionButton} onClick={openCustomFieldModal}>
-            <LuPlus size={15} />
-            Add custom field
-          </button>
-        </div>
-      ) : null}
-      <div className={detailStyles.customFieldPanel}>
-        {customFieldError ? <p className={detailStyles.customFieldError}>{customFieldError}</p> : null}
-        {isSubtask ? (
-          <div className={detailStyles.customFieldAddRow}>
-            <AppSelect
-              mode="single"
-              value={selectedCustomField}
-              options={customFieldOptions.filter((option) => !Object.prototype.hasOwnProperty.call(values, option.value))}
-              onChange={(option) => {
-                if (Array.isArray(option)) return
-                setSelectedCustomField(option)
-                setCustomFieldError(null)
-                const field = customFields.find((item) => item.id === option?.value)
-                setCustomFieldDraft(field ? customFieldValueToDraft(field, field.defaultValue) : '')
-              }}
-              placeholder="Add custom field..."
-            />
-          </div>
-        ) : null}
-        {isSubtask && selectedCustomField ? (() => {
-          const field = customFields.find((item) => item.id === selectedCustomField.value)
-          if (!field) return null
-          return (
-            <div className={detailStyles.customFieldEditor}>
-              <div className={detailStyles.customFieldEditorHead}>
-                <span>Add field value</span>
-                <span className={`${detailStyles.customFieldType} ${detailStyles[`customFieldType_${field.type}`]}`}>{field.type}</span>
-              </div>
-              {field.type === 'boolean' ? (
-                <select value={customFieldDraft || 'false'} onChange={(event) => setCustomFieldDraft(event.target.value)}>
-                  <option value="true">True</option>
-                  <option value="false">False</option>
-                </select>
-              ) : (
-                <textarea
-                  rows={field.type === 'json' ? 5 : 2}
-                  value={customFieldDraft}
-                  onChange={(event) => setCustomFieldDraft(event.target.value)}
-                  placeholder={field.type === 'json' ? '{ "value": true }' : 'Value'}
-                />
-              )}
-              <div className={detailStyles.customFieldEditorActions}>
-                <button type="button" onClick={() => addCustomFieldValue(isSubtask)}>Save</button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedCustomField(null)
-                    setCustomFieldDraft('')
-                    setCustomFieldError(null)
-                  }}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )
-        })() : null}
-        {Object.entries(values).length > 0 ? (
-          <div className={detailStyles.customFieldList}>
-            {Object.entries(values).map(([fieldId, value]) => {
-              const field = customFields.find((item) => item.id === fieldId)
-              return (
-                <div key={fieldId} className={detailStyles.customFieldRow}>
-                  <div className={detailStyles.customFieldInfo}>
-                    <div>
-                      <span className={detailStyles.customFieldName}>{field?.name ?? 'Missing custom field'}</span>
-                      {field?.description ? <p>{field.description}</p> : null}
-                    </div>
-                    <span className={`${detailStyles.customFieldType} ${field ? detailStyles[`customFieldType_${field.type}`] : ''}`}>{field?.type ?? 'missing'}</span>
-                  </div>
-                  <pre className={detailStyles.customFieldValue}>{field ? customFieldValueLabel(field, value) : String(value)}</pre>
-                  <div className={detailStyles.customFieldActions}>
-                    <button type="button" aria-label={`Remove ${field?.name ?? 'custom field'}`} onClick={() => removeCustomFieldValue(fieldId, isSubtask)}>
-                      <LuTrash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        ) : (
-          <p className={detailStyles.customFieldEmpty}>No custom fields on this {isSubtask ? 'subtask' : 'task'}.</p>
-        )}
-      </div>
-    </>
-  )
 
   return (
     <section className={styles.page}>
@@ -1607,7 +1461,7 @@ export function TaskTemplatesPage() {
           <section className={styles.modal} role="dialog" aria-modal="true" aria-label="Create task template">
             <header className={styles.modalHeader}>
               <h2>Create task template</h2>
-              <div className={detailStyles.createTaskHeaderActions}>
+              <div className={styles.createTaskHeaderActions}>
                 <button
                   type="button"
                   onClick={() => {
@@ -1635,552 +1489,162 @@ export function TaskTemplatesPage() {
       ) : null}
 
       {editing ? (
-        <>
-        <TaskDetailPopup
-          taskId={editing.id}
+        <TaskTemplateDetailPopup
+          template={editing}
+          nameDraft={nameDraft}
+          descriptionDraft={descriptionDraft}
+          templateDraft={templateDraft}
+          draftSubtasks={draftSubtasks}
+          selectedSubtask={selectedSubtask}
+          saveState={saveState}
+          saveError={saveError}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          subtaskDetailTab={subtaskDetailTab}
+          setSubtaskDetailTab={setSubtaskDetailTab}
+          bodyRef={templateBodyRef}
+          splitTemplate={splitTemplate}
+          onResizeStart={() => setIsResizingSplit(true)}
           onClose={() => void closeBuilder()}
-          hideTaskActions
-          onOpenActivity={() => undefined}
-          onEditTitle={() => undefined}
-          onDeleteTask={() => setDeleteTarget(editing)}
-          onFilesDrop={(files) => void uploadTemplateAttachments(files)}
           onImportJson={() => {
             setJsonImportTarget('edit')
             setIsJsonImportOpen(true)
           }}
-        >
-          <TaskDetailContent
-            bodyRef={templateBodyRef}
-            splitTemplate={splitTemplate}
-            onResizeStart={() => setIsResizingSplit(true)}
-            comments={templateDraft.comments ?? []}
-            commentDraft={commentDraft}
-            editingCommentId={editingCommentId}
-            commentPlaceholder={editingCommentId ? 'Edit template comment...' : 'Write a template comment...'}
-            onCommentDraftChange={setCommentDraft}
-            onSubmitComment={submitComment}
-            onEditComment={startEditComment}
-            onRemoveComment={(comment) => removeComment(comment.id)}
-            onCancelEditComment={() => {
-              setEditingCommentId(null)
-              setCommentDraft('')
-            }}
-          >
-            <div className={detailStyles.detailPane}>
-              <section className={detailStyles.breadcrumbRow}>
-                <button type="button" className={detailStyles.breadcrumbBtn} onClick={() => void closeBuilder()}>
-                  Task templates
-                </button>
-                <span className={detailStyles.breadcrumbSep}>&gt;</span>
-                <button type="button" className={detailStyles.breadcrumbBtnActive}>
-                  {nameDraft || 'Untitled template'}
-                </button>
-              </section>
-
-              {saveError ? <p className={styles.builderError}>{saveError}</p> : null}
-
-              <section className={detailStyles.detailTop}>
-                <div className={detailStyles.taskTypeRow}>
-                  <span className={detailStyles.taskTypePill}>Template</span>
-                  <span className={detailStyles.projectContext}>
-                    {saveState === 'saving' ? 'Saving...' : saveState === 'dirty' ? 'Unsaved changes' : saveState === 'failed' ? 'Failed' : 'Saved'}
-                  </span>
-                </div>
-                <textarea
-                  className={detailStyles.titleInput}
-                  value={nameDraft}
-                  ref={resizeTitleTextarea}
-                  rows={1}
-                  onInput={(event) => resizeTitleTextarea(event.currentTarget)}
-                  onChange={(event) => {
-                    setNameDraft(event.target.value)
-                    nameRef.current = event.target.value
-                    patchTemplate({ title: event.target.value })
-                    scheduleSave()
-                  }}
-                  placeholder="Task title from template"
-                />
-                <div className={detailStyles.aiHint}>Template description and task body are saved automatically</div>
-                <div className={detailStyles.topControlGrid}>
-                  <div
-                    className={`${detailStyles.topControlBlock} ${detailStyles.topControlCard} ${detailStyles.statusControlCard}`}
-                    style={{ '--status-accent': PROJECT_STATUS_COLUMNS[0].accent } as CSSProperties}
-                  >
-                    <span className={detailStyles.metaLabel}>Status</span>
-                    <span className={detailStyles.statusPreviewPill}>
-                      <span />
-                      Target project default
-                    </span>
-                  </div>
-                  <div className={`${detailStyles.topControlBlock} ${detailStyles.topControlCard}`}>
-                    <span className={detailStyles.metaLabel}>Tags (shared)</span>
-                    <AppSelect mode="multi" variant="borderless" className={detailStyles.tagInlineSelect} value={selectedTags} options={tagOptions} onChange={(value) => patchTemplate({ tagIds: Array.isArray(value) ? value.map((item) => item.value) : [] })} placeholder="Search tags..." />
-                  </div>
-                </div>
-              </section>
-
-              <section className={detailStyles.drawerSection}>
-                <h4>Description</h4>
-                <MarkdownDescriptionEditor
-                  className={detailStyles.descriptionField}
-                  value={descriptionDraft}
-                  minHeight={220}
-                  onChange={(nextValue) => {
-                    setDescriptionDraft(nextValue)
-                    descriptionRef.current = nextValue
-                    patchTemplate({ description: nextValue })
-                  }}
-                  onCommit={() => void persistNow()}
-                  placeholder="Add template description, instructions, checklists or code..."
-                  enableDataFormatCommands
-                  dataFormats={outputFormats}
-                  onCreateDataFormat={createDescriptionDataFormat}
-                />
-              </section>
-
-              <section className={detailStyles.drawerSection}>
-                <div className={detailStyles.tabRow}>
-                      <button type="button" className={activeTab === 'subtasks' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setActiveTab('subtasks')}><LuListTodo size={15} />Subtasks</button>
-                      <button type="button" className={activeTab === 'customFields' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setActiveTab('customFields')}><LuSlidersHorizontal size={15} />Custom fields</button>
-                      <button type="button" className={activeTab === 'checklist' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setActiveTab('checklist')}><LuListChecks size={15} />Checklist</button>
-                      <button type="button" className={activeTab === 'attachments' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setActiveTab('attachments')}><LuPaperclip size={15} />Attachments</button>
-                      <button type="button" className={activeTab === 'agent' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setActiveTab('agent')}><LuBot size={15} />Agent</button>
-                      <button type="button" className={activeTab === 'skills' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setActiveTab('skills')}><LuSparkles size={15} />Skills</button>
-                      <button type="button" className={activeTab === 'model' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setActiveTab('model')}><LuSettings2 size={15} />Model</button>
-                    </div>
-                    {activeTab === 'subtasks' ? (
-                      <>
-                        <div className={detailStyles.detailSectionHeader}>
-                          <div>
-                            <h4>Subtasks</h4>
-                            <p>{draftSubtasks.length} subtasks</p>
-                          </div>
-                        </div>
-                        <div className={detailStyles.tabCtaCard}>
-                          <div>
-                            <strong>Add subtask</strong>
-                            <span>Create a reusable child task for this template.</span>
-                          </div>
-                          <button
-                            type="button"
-                            className={detailStyles.tabActionButton}
-                            onClick={() => {
-                              setSubtaskTitleDraft('')
-                              setSubtaskRows([{ id: createLocalId(), title: '' }])
-                              setIsSubtaskModalOpen(true)
-                            }}
-                          >
-                            <LuPlus size={15} />
-                            Add subtask
-                          </button>
-                        </div>
-                        <Stack gap={2}>
-                          {draftSubtasks.map((subtask) => (
-                            <div key={subtask.uiId} className={detailStyles.subtaskRow}>
-                              <button type="button" className={detailStyles.subtaskStatusToggle} aria-label="Template subtask status" title="Template subtask status">
-                                <span />
-                                Default
-                              </button>
-                              <label>
-                                {editingTemplateSubtaskId === subtask.uiId ? (
-                                  <input
-                                    autoFocus
-                                    className={detailStyles.subtaskInlineInput}
-                                    value={templateSubtaskDraft}
-                                    onChange={(event) => setTemplateSubtaskDraft(event.target.value)}
-                                    onBlur={saveTemplateSubtaskRename}
-                                    onKeyDown={(event) => {
-                                      event.stopPropagation()
-                                      if (event.key === 'Enter') {
-                                        event.preventDefault()
-                                        saveTemplateSubtaskRename()
-                                      }
-                                      if (event.key === 'Escape') {
-                                        setEditingTemplateSubtaskId(null)
-                                        setTemplateSubtaskDraft('')
-                                      }
-                                    }}
-                                  />
-                                ) : (
-                                  <span
-                                    className={detailStyles.editableSubtaskTitle}
-                                    onClick={(event) => {
-                                      event.stopPropagation()
-                                      scheduleOpenSubtaskDetail(subtask.uiId)
-                                    }}
-                                    onDoubleClick={(event) => {
-                                      event.preventDefault()
-                                      event.stopPropagation()
-                                      startTemplateSubtaskRename(subtask)
-                                    }}
-                                  >
-                                    {subtask.title || 'Untitled subtask'}
-                                  </span>
-                                )}
-                              </label>
-                              <button type="button" className={detailStyles.subtaskRemoveBtn} onClick={() => patchSubtasks((current) => current.filter((item) => item.uiId !== subtask.uiId))} aria-label="Remove subtask" title="Remove subtask"><LuTrash2 size={14} /></button>
-                            </div>
-                          ))}
-                          {draftSubtasks.length === 0 ? <p className={detailStyles.customFieldEmpty}>No subtasks in this template.</p> : null}
-                        </Stack>
-                      </>
-                    ) : activeTab === 'customFields' ? renderCustomFields(templateDraft.customFieldValues ?? {}) : activeTab === 'checklist' ? (
-                      <>
-                        <div className={detailStyles.detailSectionHeader}>
-                          <div>
-                            <h4>Checklist</h4>
-                            <p>
-                              {(templateDraft.checklistItems ?? []).filter((item) => item.checked).length} checked /{' '}
-                              {(templateDraft.checklistItems ?? []).length} total
-                            </p>
-                          </div>
-                        </div>
-                        <div className={detailStyles.checklistPanel}>
-                          <div className={detailStyles.checklistProgress}>
-                            <span
-                              style={{
-                                width: `${(templateDraft.checklistItems ?? []).length > 0
-                                  ? Math.round((((templateDraft.checklistItems ?? []).filter((item) => item.checked).length) / (templateDraft.checklistItems ?? []).length) * 100)
-                                  : 0}%`
-                              }}
-                            />
-                          </div>
-                          <div className={detailStyles.tabCtaCard}>
-                            <div>
-                              <strong>Add checklist item</strong>
-                              <span>Add multiple checklist items in one flow.</span>
-                            </div>
-                            <button type="button" className={detailStyles.tabActionButton} onClick={openChecklistModal}>
-                              <LuPlus size={15} />
-                              Add checklist item
-                            </button>
-                          </div>
-                          {(templateDraft.checklistItems ?? []).length > 0 ? (
-                            <div className={detailStyles.checklistList}>
-                              {(templateDraft.checklistItems ?? []).map((item) => (
-                                <div key={item.id} className={detailStyles.checklistRow}>
-                                  <input type="checkbox" checked={item.checked} onChange={() => patchTemplate({ checklistItems: (templateDraft.checklistItems ?? []).map((entry) => entry.id === item.id ? { ...entry, checked: !entry.checked, updatedAt: Date.now() } : entry) })} />
-                                  <span className={item.checked ? detailStyles.checklistItemChecked : detailStyles.checklistItemTitle}>{item.title}</span>
-                                  <button type="button" onClick={() => patchTemplate({ checklistItems: (templateDraft.checklistItems ?? []).filter((entry) => entry.id !== item.id) })} aria-label={`Remove ${item.title}`}><LuTrash2 size={14} /></button>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className={detailStyles.customFieldEmpty}>No checklist items yet.</p>
-                          )}
-                        </div>
-                      </>
-                    ) : activeTab === 'attachments' ? (
-                      <>
-                        <div className={detailStyles.detailSectionHeader}>
-                          <div>
-                            <h4>Attachments</h4>
-                            <p>{templateAttachmentRows.length} files</p>
-                          </div>
-                        </div>
-                        <AttachmentTable
-                          rows={templateAttachmentRows}
-                          uploading={isAttachmentUploading}
-                          onUpload={(files) => void uploadTemplateAttachments(files)}
-                          onRemove={removeTemplateAttachment}
-                          onError={(message) => {
-                            setSaveState('failed')
-                            setSaveError(message)
-                          }}
-                        />
-                      </>
-                    ) : activeTab === 'agent' ? (
-                      <>
-                        <div className={detailStyles.detailSectionHeader}>
-                          <div>
-                            <h4>Agent</h4>
-                            <p>{selectedAgentObject?.name ?? 'Unassigned'}</p>
-                          </div>
-                        </div>
-                        <AgentAssignmentPanel
-                          agent={selectedAgentObject}
-                          agents={agents}
-                          ctaDescription="Choose the default agent for tasks created from this template."
-                          onChange={(agentId) => patchTemplate({ agentId })}
-                        />
-                      </>
-                    ) : activeTab === 'skills' ? (
-                      <>
-                        <div className={detailStyles.detailSectionHeader}>
-                          <div>
-                            <h4>Skills</h4>
-                              <p>{selectedSkills.length} selected</p>
-                            </div>
-                          </div>
-                        <SkillsAssignmentPanel
-                          selectedSkills={selectedSkillObjects}
-                          skills={skills}
-                          source="Template"
-                          ctaDescription="Select one or more default skills for this template."
-                          onChange={(skillIds) => patchTemplate({ skillIds })}
-                        />
-                      </>
-                    ) : activeTab === 'model' ? (
-                      <>
-                        <div className={detailStyles.detailSectionHeader}>
-                          <div>
-                            <h4>Model</h4>
-                            <p>{templateDraft.codex?.model || 'Project default'}</p>
-                          </div>
-                        </div>
-                        <div className={detailStyles.codexSummaryCard}>
-                          <div>
-                            <span>Gateway</span>
-                            <strong>{templateCodexGatewayId ? selectedTemplateGateway?.name ?? templateCodexGatewayId : 'Project default gateway'}</strong>
-                          </div>
-                          <div>
-                            <span>Model</span>
-                            <strong>{templateCodexModel || 'Project default model'}</strong>
-                          </div>
-                        </div>
-                        <div className={detailStyles.settingsFormGrid}>
-                          <label>
-                            <span>Template gateway</span>
-                            <AppSelect
-                              value={selectedTemplateGatewayOption}
-                              options={templateGatewayOptions}
-                              placeholder="Use project default gateway"
-                              isClearable
-                              onChange={(option) => {
-                                const nextGatewayId = option?.value ?? ''
-                                const nextGateway = nextGatewayId ? gateways.find((gateway) => gateway.id === nextGatewayId) : null
-                                const models = nextGateway ? codexConfigOf(nextGateway).models ?? [] : codexModelOptions
-                                const nextModel = templateCodexModel && models.some((model) => model.id === templateCodexModel) ? templateCodexModel : ''
-                                setCodexModelError(null)
-                                patchTemplate({ codex: codexOverride(nextGatewayId || null, nextModel || null) })
-                              }}
-                            />
-                          </label>
-                          <label>
-                            <span>Template model</span>
-                            <AppSelect
-                              value={selectedTemplateModelOption}
-                              options={templateModelOptions}
-                              placeholder={codexModelLoading ? 'Loading models...' : 'Use project default model'}
-                              isClearable
-                              isDisabled={templateModelOptions.length === 0}
-                              onChange={(option) => patchTemplate({ codex: codexOverride(templateCodexGatewayId || null, option?.value ?? null) })}
-                            />
-                          </label>
-                        </div>
-                        {codexModelLoading ? (
-                          <p className={detailStyles.customFieldEmpty}>Loading models from Codex CLI...</p>
-                        ) : codexModelError ? (
-                          <p className={detailStyles.customFieldEmpty}>{codexModelError}</p>
-                        ) : templateModelOptions.length === 0 ? (
-                          <p className={detailStyles.customFieldEmpty}>No cached Codex models yet. Refresh models from Gateways to populate explicit options.</p>
-                        ) : null}
-                      </>
-                    ) : null}
-              </section>
-            </div>
-          </TaskDetailContent>
-        </TaskDetailPopup>
-        {selectedSubtask ? (
-          <TaskDetailPopup
-            taskId={selectedSubtask.uiId}
-            title="Subtask detail"
-            nested
-            hideTaskActions
-            onClose={() => {
-              setSelectedSubtaskId(null)
-              setCustomFieldError(null)
-            }}
-            onOpenActivity={() => undefined}
-            onEditTitle={() => startTemplateSubtaskRename(selectedSubtask)}
-            onDeleteTask={() => patchSubtasks((current) => current.filter((item) => item.uiId !== selectedSubtask.uiId))}
-            onFilesDrop={(files) => void uploadTemplateSubtaskAttachments(files)}
-          >
-            <TaskDetailContent
-              bodyRef={templateBodyRef}
-              splitTemplate={splitTemplate}
-              onResizeStart={() => setIsResizingSplit(true)}
-              comments={getSubtaskComments(selectedSubtask)}
-              commentDraft={subtaskCommentDraft}
-              editingCommentId={editingSubtaskCommentId}
-              commentPlaceholder={editingSubtaskCommentId ? 'Edit subtask comment...' : 'Write a subtask comment...'}
-              onCommentDraftChange={setSubtaskCommentDraft}
-              onSubmitComment={submitSubtaskComment}
-              onEditComment={startEditSubtaskComment}
-              onRemoveComment={removeSubtaskComment}
-              onCancelEditComment={cancelEditSubtaskComment}
-            >
-            <div className={detailStyles.subtaskModalBody}>
-              <div className={detailStyles.detailPane}>
-                <section className={detailStyles.breadcrumbRow}>
-                  <button type="button" className={detailStyles.breadcrumbBtn} onClick={() => setSelectedSubtaskId(null)}>
-                    {templateDraft.title || nameDraft}
-                  </button>
-                  <span className={detailStyles.breadcrumbSep}>&gt;</span>
-                  <button type="button" className={detailStyles.breadcrumbBtnActive}>{selectedSubtask.title || 'Subtask detail'}</button>
-                </section>
-                <section className={detailStyles.detailTop}>
-                  <div className={detailStyles.taskTypeRow}>
-                    <span className={detailStyles.taskTypePill}>Subtask</span>
-                    <span className={detailStyles.projectContext}>in template</span>
-                  </div>
-                  {editingTemplateSubtaskId === selectedSubtask.uiId ? (
-                    <textarea
-                      autoFocus
-                      className={detailStyles.titleInput}
-                      value={templateSubtaskDraft}
-                      ref={resizeTitleTextarea}
-                      rows={1}
-                      onInput={(event) => resizeTitleTextarea(event.currentTarget)}
-                      onChange={(event) => setTemplateSubtaskDraft(event.target.value)}
-                      onBlur={saveTemplateSubtaskRename}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                          event.preventDefault()
-                          saveTemplateSubtaskRename()
-                        }
-                        if (event.key === 'Escape') {
-                          setEditingTemplateSubtaskId(null)
-                          setTemplateSubtaskDraft('')
-                        }
-                      }}
-                    />
-                  ) : (
-                    <h3
-                      className={detailStyles.detailTitle}
-                      onClick={() => startTemplateSubtaskRename(selectedSubtask)}
-                    >
-                      {selectedSubtask.title || 'Untitled subtask'}
-                    </h3>
-                  )}
-                  <div className={detailStyles.topControlGrid}>
-                    <div
-                      className={`${detailStyles.topControlBlock} ${detailStyles.topControlCard} ${detailStyles.statusControlCard}`}
-                      style={{ '--status-accent': selectedSubtaskStatusColumn.accent } as CSSProperties}
-                    >
-                      <span className={detailStyles.metaLabel}>Status</span>
-                      <AppSelect
-                        mode="single"
-                        variant="borderless"
-                        className={detailStyles.statusInlineSelect}
-                        value={{
-                          value: selectedSubtaskStatusColumn.status,
-                          label: selectedSubtaskStatusColumn.title,
-                          color: selectedSubtaskStatusColumn.accent
-                        }}
-                        options={TEMPLATE_STATUS_OPTIONS}
-                        onChange={(option) => {
-                          if (!Array.isArray(option) && option?.value) updateSelectedSubtask({ status: option.value })
-                        }}
-                      />
-                    </div>
-                    <div className={`${detailStyles.topControlBlock} ${detailStyles.topControlCard}`}>
-                      <span className={detailStyles.metaLabel}>Tags</span>
-                      <AppSelect
-                        mode="multi"
-                        variant="borderless"
-                        className={detailStyles.tagInlineSelect}
-                        value={selectedSubtaskTags}
-                        options={tagOptions}
-                        onChange={(value) => updateSelectedSubtaskPayload({ tagIds: Array.isArray(value) ? value.map((item) => item.value) : [] })}
-                        placeholder="Search tags..."
-                      />
-                    </div>
-                  </div>
-                </section>
-                <section className={detailStyles.drawerSection}>
-                  <div className={detailStyles.detailSectionHeader}>
-                    <div>
-                      <h4>Description</h4>
-                      <p>{saveState === 'saving' ? 'Saving...' : saveState === 'dirty' ? 'Editing' : 'Ready'}</p>
-                    </div>
-                  </div>
-                  <MarkdownDescriptionEditor
-                    value={getSubtaskDescription(selectedSubtask)}
-                    className={detailStyles.descriptionField}
-                    minHeight={220}
-                    placeholder="Add subtask description, notes, checklists or code..."
-                    enableDataFormatCommands
-                    dataFormats={outputFormats}
-                    onCreateDataFormat={createDescriptionDataFormat}
-                    onChange={(nextValue) => updateSelectedSubtaskPayload({ description: nextValue, inputFormatId: '', outputFormatId: '' })}
-                    onCommit={() => void persistNow()}
-                  />
-                </section>
-                <section className={detailStyles.drawerSection}>
-                  <div className={detailStyles.tabRow}>
-                    <button type="button" className={subtaskDetailTab === 'agent' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setSubtaskDetailTab('agent')}><LuBot size={15} />Agent</button>
-                    <button type="button" className={subtaskDetailTab === 'skills' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setSubtaskDetailTab('skills')}><LuSparkles size={15} />Skills</button>
-                    <button type="button" className={subtaskDetailTab === 'customFields' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setSubtaskDetailTab('customFields')}><LuSlidersHorizontal size={15} />Custom fields</button>
-                    <button type="button" className={subtaskDetailTab === 'attachments' ? detailStyles.tabActive : detailStyles.tabBtn} onClick={() => setSubtaskDetailTab('attachments')}><LuPaperclip size={15} />Attachments</button>
-                  </div>
-                  {subtaskDetailTab === 'agent' ? (
-                    <>
-                      <div className={detailStyles.detailSectionHeader}>
-                        <div>
-                          <h4>Agent</h4>
-                          <p>{selectedSubtaskAgentObject?.name ?? 'Unassigned'}</p>
-                        </div>
-                      </div>
-                      <AgentAssignmentPanel
-                        agent={selectedSubtaskAgentObject}
-                        agents={agents}
-                        ctaDescription="Choose the default agent for this template subtask."
-                        onChange={(agentId) => {
-                          const agent = agentId ? agents.find((item) => item.id === agentId) : null
-                          updateSelectedSubtaskPayload({
-                            agentId: agentId ?? '',
-                            assigneeId: agentId ?? '',
-                            assigneeName: agent?.name ?? ''
-                          })
-                        }}
-                      />
-                    </>
-                  ) : subtaskDetailTab === 'skills' ? (
-                    <>
-                      <div className={detailStyles.detailSectionHeader}>
-                        <div>
-                          <h4>Skills</h4>
-                          <p>{selectedSubtaskSkillObjects.length} selected</p>
-                        </div>
-                      </div>
-                      <SkillsAssignmentPanel
-                        selectedSkills={selectedSubtaskSkillObjects}
-                        skills={skills}
-                        source="Subtask"
-                        ctaDescription="Select one or more default skills for this template subtask."
-                        onChange={(skillIds) => updateSelectedSubtaskPayload({ skillIds })}
-                      />
-                    </>
-                  ) : subtaskDetailTab === 'customFields' ? (
-                    renderCustomFields(getSubtaskCustomFields(selectedSubtask), true)
-                  ) : subtaskDetailTab === 'attachments' ? (
-                    <>
-                      <div className={detailStyles.detailSectionHeader}>
-                        <div>
-                          <h4>Attachments</h4>
-                          <p>{subtaskAttachmentRows.length} files</p>
-                        </div>
-                      </div>
-                      <AttachmentTable
-                        rows={subtaskAttachmentRows}
-                        uploading={isAttachmentUploading}
-                        onUpload={(files) => void uploadTemplateSubtaskAttachments(files)}
-                        onRemove={removeTemplateSubtaskAttachment}
-                        onError={(message) => {
-                          setSaveState('failed')
-                          setSaveError(message)
-                        }}
-                      />
-                    </>
-                  ) : null}
-                </section>
-              </div>
-            </div>
-            </TaskDetailContent>
-          </TaskDetailPopup>
-        ) : null}
-        </>
+          onDeleteTemplate={() => setDeleteTarget(editing)}
+          onCloseSubtaskDetail={() => {
+            setSelectedSubtaskId(null)
+            setCustomFieldError(null)
+          }}
+          onFilesDrop={(files) => void uploadTemplateAttachments(files)}
+          onSubtaskFilesDrop={(files) => void uploadTemplateSubtaskAttachments(files)}
+          resizeTitleTextarea={resizeTitleTextarea}
+          onNameChange={(value) => {
+            setNameDraft(value)
+            nameRef.current = value
+            patchTemplate({ title: value })
+            scheduleSave()
+          }}
+          onDescriptionChange={(nextValue) => {
+            setDescriptionDraft(nextValue)
+            descriptionRef.current = nextValue
+            patchTemplate({ description: nextValue })
+          }}
+          onPatchTemplate={patchTemplate}
+          onPatchSubtasks={patchSubtasks}
+          onUpdateSelectedSubtask={updateSelectedSubtask}
+          onUpdateSelectedSubtaskPayload={updateSelectedSubtaskPayload}
+          onPersistNow={persistNow}
+          onCreateDescriptionDataFormat={createDescriptionDataFormat}
+          tagOptions={tagOptions}
+          selectedTags={selectedTags}
+          selectedSkillObjects={selectedSkillObjects}
+          selectedSubtaskTags={selectedSubtaskTags}
+          selectedSubtaskAgent={selectedSubtaskAgent}
+          selectedSubtaskSkillObjects={selectedSubtaskSkillObjects}
+          selectedSubtaskChecklistItems={selectedSubtaskChecklistItems}
+          agents={agents}
+          skills={skills}
+          customFields={customFields}
+          outputFormats={outputFormats}
+          templateAttachmentRows={templateAttachmentRows}
+          subtaskAttachmentRows={subtaskAttachmentRows}
+          isAttachmentUploading={isAttachmentUploading}
+          onUploadTemplateAttachments={uploadTemplateAttachments}
+          onUploadSubtaskAttachments={uploadTemplateSubtaskAttachments}
+          onRemoveTemplateAttachment={removeTemplateAttachment}
+          onRemoveSubtaskAttachment={removeTemplateSubtaskAttachment}
+          onAttachmentError={(message) => {
+            setSaveState('failed')
+            setSaveError(message)
+          }}
+          commentDraft={commentDraft}
+          setCommentDraft={setCommentDraft}
+          editingCommentId={editingCommentId}
+          onSubmitComment={submitComment}
+          onStartEditComment={startEditComment}
+          onRemoveComment={removeComment}
+          onCancelEditComment={() => {
+            setEditingCommentId(null)
+            setCommentDraft('')
+          }}
+          subtaskCommentDraft={subtaskCommentDraft}
+          setSubtaskCommentDraft={setSubtaskCommentDraft}
+          editingSubtaskCommentId={editingSubtaskCommentId}
+          onSubmitSubtaskComment={submitSubtaskComment}
+          onStartEditSubtaskComment={startEditSubtaskComment}
+          onRemoveSubtaskComment={removeSubtaskComment}
+          onCancelEditSubtaskComment={cancelEditSubtaskComment}
+          editingTemplateSubtaskId={editingTemplateSubtaskId}
+          setEditingTemplateSubtaskId={setEditingTemplateSubtaskId}
+          templateSubtaskDraft={templateSubtaskDraft}
+          setTemplateSubtaskDraft={setTemplateSubtaskDraft}
+          onScheduleOpenSubtaskDetail={scheduleOpenSubtaskDetail}
+          onStartTemplateSubtaskRename={startTemplateSubtaskRename}
+          onSaveTemplateSubtaskRename={saveTemplateSubtaskRename}
+          isSubtaskModalOpen={isSubtaskModalOpen}
+          setIsSubtaskModalOpen={setIsSubtaskModalOpen}
+          subtaskRows={subtaskRows}
+          setSubtaskRows={setSubtaskRows}
+          onAddSubtaskRows={addSubtaskRows}
+          isChecklistModalOpen={isChecklistModalOpen}
+          setIsChecklistModalOpen={setIsChecklistModalOpen}
+          checklistRows={checklistRows}
+          setChecklistRows={setChecklistRows}
+          onOpenChecklistModal={openChecklistModal}
+          onOpenSubtaskChecklistModal={openSubtaskChecklistModal}
+          onAddChecklistRows={addChecklistRows}
+          onSetSubtaskAgent={setTemplateSubtaskAgent}
+          onToggleSubtaskChecklistItem={toggleTemplateSubtaskChecklistItem}
+          onRemoveSubtaskChecklistItem={removeTemplateSubtaskChecklistItem}
+          customFieldOptions={customFieldOptions}
+          customFieldError={customFieldError}
+          selectedCustomField={selectedCustomField}
+          setSelectedCustomField={setSelectedCustomField}
+          customFieldDraft={customFieldDraft}
+          setCustomFieldDraft={setCustomFieldDraft}
+          isCustomFieldModalOpen={isCustomFieldModalOpen}
+          setIsCustomFieldModalOpen={setIsCustomFieldModalOpen}
+          isCreateCustomFieldOpen={isCreateCustomFieldOpen}
+          setIsCreateCustomFieldOpen={setIsCreateCustomFieldOpen}
+          customFieldRows={customFieldRows}
+          setCustomFieldRows={setCustomFieldRows}
+          quickFieldName={quickFieldName}
+          setQuickFieldName={setQuickFieldName}
+          quickFieldType={quickFieldType}
+          setQuickFieldType={setQuickFieldType}
+          onOpenCustomFieldModal={openCustomFieldModal}
+          onAddCustomFieldRows={addCustomFieldRows}
+          onAddCustomFieldValue={addCustomFieldValue}
+          onCreateCustomFieldFromModal={createCustomFieldFromModal}
+          onRemoveCustomFieldValue={removeCustomFieldValue}
+          inputFormatOptions={inputFormatOptions}
+          outputFormatOptions={outputFormatOptions}
+          isOutputFormatModalOpen={isOutputFormatModalOpen}
+          setIsOutputFormatModalOpen={setIsOutputFormatModalOpen}
+          isCreateOutputFormatOpen={isCreateOutputFormatOpen}
+          setIsCreateOutputFormatOpen={setIsCreateOutputFormatOpen}
+          outputFormatDraftOption={outputFormatDraftOption}
+          setOutputFormatDraftOption={setOutputFormatDraftOption}
+          dataFormatRoleDraft={dataFormatRoleDraft}
+          onSaveOutputFormatFromModal={saveOutputFormatFromModal}
+          quickOutputFormatName={quickOutputFormatName}
+          setQuickOutputFormatName={setQuickOutputFormatName}
+          quickOutputFormatDescription={quickOutputFormatDescription}
+          setQuickOutputFormatDescription={setQuickOutputFormatDescription}
+          onCreateOutputFormatFromModal={createOutputFormatFromModal}
+          gateways={gateways}
+          templateCodexGatewayId={templateCodexGatewayId}
+          templateCodexModel={templateCodexModel}
+          selectedTemplateGateway={selectedTemplateGateway}
+          templateGatewayOptions={templateGatewayOptions}
+          selectedTemplateGatewayOption={selectedTemplateGatewayOption}
+          templateModelOptions={templateModelOptions}
+          selectedTemplateModelOption={selectedTemplateModelOption}
+          codexModelOptions={codexModelOptions}
+          codexModelLoading={codexModelLoading}
+          codexModelError={codexModelError}
+          createLocalId={createLocalId}
+        />
       ) : null}
 
       <CreateTaskPopup
@@ -2207,333 +1671,6 @@ export function TaskTemplatesPage() {
         onProjectChange={setApplyProjectId}
         onCreate={(input) => void handleApplyTemplate(input)}
       />
-
-      {isSubtaskModalOpen ? (
-        <>
-          <div className={detailStyles.createTaskBackdrop} onClick={() => setIsSubtaskModalOpen(false)} />
-          <section className={`${detailStyles.createTaskModal} ${detailStyles.fieldFlowModal}`} role="dialog" aria-modal="true" aria-label="Add subtask">
-            <header className={detailStyles.createTaskHeader}>
-              <div className={detailStyles.createTaskTabs}><span className={detailStyles.createTaskTabActive}>Subtask</span></div>
-              <button type="button" onClick={() => setIsSubtaskModalOpen(false)} aria-label="Close add subtask modal"><LuX size={17} /></button>
-            </header>
-            <form className={detailStyles.createTaskBody} onSubmit={(event) => {
-              event.preventDefault()
-              addSubtaskRows()
-            }}>
-              <div className={detailStyles.multiAddList}>
-                {subtaskRows.map((row, index) => (
-                  <div key={row.id} className={detailStyles.multiAddRow}>
-                    <span>{index + 1}</span>
-                    <input
-                      autoFocus={index === 0}
-                      data-template-subtask-row-id={row.id}
-                      value={row.title}
-                      onChange={(event) => setSubtaskRows((current) => current.map((entry) => entry.id === row.id ? { ...entry, title: event.target.value } : entry))}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          event.preventDefault()
-                          const nextRow = { id: createLocalId(), title: '' }
-                          nextSubtaskRowFocusRef.current = nextRow.id
-                          setSubtaskRows((current) => [...current, nextRow])
-                        }
-                        if (event.key === 'Escape') {
-                          event.preventDefault()
-                          setIsSubtaskModalOpen(false)
-                        }
-                      }}
-                      placeholder="Subtask name"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setSubtaskRows((current) => current.length > 1 ? current.filter((entry) => entry.id !== row.id) : [{ id: createLocalId(), title: '' }])}
-                      aria-label="Remove subtask row"
-                    >
-                      <LuTrash2 size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <button
-                type="button"
-                className={detailStyles.modalAddRowButton}
-                onClick={() => {
-                  const nextRow = { id: createLocalId(), title: '' }
-                  nextSubtaskRowFocusRef.current = nextRow.id
-                  setSubtaskRows((current) => [...current, nextRow])
-                }}
-              >
-                <LuPlus size={15} />
-                Add row
-              </button>
-              <footer className={detailStyles.createTaskFooter}>
-                <span>Enter adds another row.</span>
-                <button type="submit" disabled={!subtaskRows.some((row) => row.title.trim())}>Save all</button>
-              </footer>
-            </form>
-          </section>
-        </>
-      ) : null}
-
-      {isCustomFieldModalOpen ? (
-        <>
-          <div className={detailStyles.createTaskBackdrop} onClick={() => setIsCustomFieldModalOpen(false)} />
-          <section className={`${detailStyles.createTaskModal} ${detailStyles.fieldFlowModal}`} role="dialog" aria-modal="true" aria-label="Add custom field">
-            <header className={detailStyles.createTaskHeader}>
-              <div className={detailStyles.createTaskTabs}><span className={detailStyles.createTaskTabActive}>Custom field</span></div>
-              <button type="button" onClick={() => setIsCustomFieldModalOpen(false)} aria-label="Close custom field modal"><LuX size={17} /></button>
-            </header>
-            <div className={detailStyles.createTaskBody}>
-              {customFieldError ? <p className={detailStyles.customFieldError}>{customFieldError}</p> : null}
-              <div className={detailStyles.multiAddList}>
-                {customFieldRows.map((row, index) => {
-                  const field = customFields.find((item) => item.id === row.field?.value)
-                  const assignedIds = new Set(Object.keys(templateDraft.customFieldValues ?? {}))
-                  const selectedOtherIds = new Set(customFieldRows.filter((entry) => entry.id !== row.id && entry.field).map((entry) => entry.field?.value ?? ''))
-                  const rowOptions = customFields
-                    .filter((item) => !assignedIds.has(item.id) && !selectedOtherIds.has(item.id))
-                    .map((item) => ({ value: item.id, label: item.name }))
-                  return (
-                    <div key={row.id} className={detailStyles.multiCustomFieldRow}>
-                      <span>{index + 1}</span>
-                      <div className={detailStyles.multiCustomFieldMain}>
-                        <label className={detailStyles.multiCustomFieldControl}>
-                          <span>Field</span>
-                          <AppSelect
-                            mode="single"
-                            value={row.field}
-                            options={rowOptions}
-                            onChange={(option) => {
-                              if (Array.isArray(option)) return
-                              const nextField = customFields.find((item) => item.id === option?.value)
-                              setCustomFieldRows((current) => current.map((entry) => entry.id === row.id
-                                ? { ...entry, field: option, value: nextField ? customFieldValueToDraft(nextField, nextField.defaultValue) : '' }
-                                : entry))
-                              setCustomFieldError(null)
-                            }}
-                            placeholder="Choose field..."
-                          />
-                        </label>
-                        <label className={detailStyles.multiCustomFieldControl}>
-                          <span>
-                            Value
-                            {field ? <em>{field.type}</em> : null}
-                          </span>
-                          {field?.type === 'boolean' ? (
-                            <select value={row.value || 'false'} onChange={(event) => setCustomFieldRows((current) => current.map((entry) => entry.id === row.id ? { ...entry, value: event.target.value } : entry))}>
-                              <option value="true">True</option>
-                              <option value="false">False</option>
-                            </select>
-                          ) : (
-                            <textarea
-                              rows={field?.type === 'json' ? 4 : 1}
-                              value={row.value}
-                              onChange={(event) => setCustomFieldRows((current) => current.map((entry) => entry.id === row.id ? { ...entry, value: event.target.value } : entry))}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter' && !event.shiftKey && field?.type !== 'json') {
-                                  event.preventDefault()
-                                  setCustomFieldRows((current) => [...current, { id: createLocalId(), field: null, value: '' }])
-                                }
-                              }}
-                              placeholder={field?.type === 'json' ? '{ "value": true }' : 'Value'}
-                            />
-                          )}
-                        </label>
-                      </div>
-                      <button type="button" onClick={() => setCustomFieldRows((current) => current.length > 1 ? current.filter((entry) => entry.id !== row.id) : [{ id: createLocalId(), field: null, value: '' }])} aria-label="Remove custom field row">
-                        <LuTrash2 size={14} />
-                      </button>
-                    </div>
-                  )
-                })}
-              </div>
-              <div className={detailStyles.modalInlineActions}>
-                <button type="button" className={detailStyles.modalAddRowButton} onClick={() => setCustomFieldRows((current) => [...current, { id: createLocalId(), field: null, value: '' }])}>
-                  <LuPlus size={15} />
-                  Add row
-                </button>
-                <button
-                  type="button"
-                  className={detailStyles.modalAddRowButton}
-                  onClick={() => {
-                    setQuickFieldName('')
-                    setQuickFieldType('text')
-                    setIsCreateCustomFieldOpen(true)
-                  }}
-                >
-                  <LuPlus size={15} />
-                  Add new custom field
-                </button>
-              </div>
-              <footer className={detailStyles.modalFooterActions}>
-                <button type="button" onClick={() => setIsCustomFieldModalOpen(false)}>Cancel</button>
-                <button type="button" className={detailStyles.primaryModalAction} onClick={addCustomFieldRows}>Save all</button>
-              </footer>
-              {isCreateCustomFieldOpen ? (
-                <>
-                  <div className={detailStyles.nestedCreateBackdrop} onClick={() => setIsCreateCustomFieldOpen(false)} />
-                  <section className={detailStyles.nestedCreateDialog} role="dialog" aria-modal="true" aria-label="Add new custom field">
-                    <header>
-                      <h4>Add new custom field</h4>
-                      <button type="button" onClick={() => setIsCreateCustomFieldOpen(false)} aria-label="Close custom field create popup"><LuX size={15} /></button>
-                    </header>
-                    <div className={detailStyles.nestedCreateBody}>
-                      <input
-                        autoFocus
-                        value={quickFieldName}
-                        onChange={(event) => setQuickFieldName(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') {
-                            event.preventDefault()
-                            void createCustomFieldFromModal()
-                          }
-                        }}
-                        placeholder="Field name"
-                      />
-                      <select value={quickFieldType} onChange={(event) => setQuickFieldType(event.target.value as CustomField['type'])}>
-                        <option value="text">Text</option>
-                        <option value="number">Number</option>
-                        <option value="boolean">Boolean</option>
-                        <option value="json">JSON</option>
-                      </select>
-                    </div>
-                    <footer>
-                      <button type="button" onClick={() => setIsCreateCustomFieldOpen(false)}>Cancel</button>
-                      <button type="button" onClick={() => void createCustomFieldFromModal()} disabled={!quickFieldName.trim()}>Create</button>
-                    </footer>
-                  </section>
-                </>
-              ) : null}
-            </div>
-          </section>
-        </>
-      ) : null}
-
-      {isChecklistModalOpen ? (
-        <>
-          <div className={detailStyles.createTaskBackdrop} onClick={() => setIsChecklistModalOpen(false)} />
-          <section className={`${detailStyles.createTaskModal} ${detailStyles.fieldFlowModal}`} role="dialog" aria-modal="true" aria-label="Add checklist items">
-            <header className={detailStyles.createTaskHeader}>
-              <div className={detailStyles.createTaskTabs}><span className={detailStyles.createTaskTabActive}>Checklist</span></div>
-              <button type="button" onClick={() => setIsChecklistModalOpen(false)} aria-label="Close checklist modal"><LuX size={17} /></button>
-            </header>
-            <form className={detailStyles.createTaskBody} onSubmit={(event) => {
-              event.preventDefault()
-              addChecklistRows()
-            }}>
-              <div className={detailStyles.multiAddList}>
-                {checklistRows.map((row, index) => (
-                  <div key={row.id} className={detailStyles.multiAddRow}>
-                    <span>{index + 1}</span>
-                    <input
-                      autoFocus={index === 0}
-                      value={row.title}
-                      onChange={(event) => setChecklistRows((current) => current.map((entry) => entry.id === row.id ? { ...entry, title: event.target.value } : entry))}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          event.preventDefault()
-                          setChecklistRows((current) => [...current, { id: createLocalId(), title: '' }])
-                        }
-                        if (event.key === 'Escape') {
-                          event.preventDefault()
-                          setIsChecklistModalOpen(false)
-                        }
-                      }}
-                      placeholder="Checklist item title"
-                    />
-                    <button type="button" onClick={() => setChecklistRows((current) => current.length > 1 ? current.filter((entry) => entry.id !== row.id) : [{ id: createLocalId(), title: '' }])} aria-label="Remove checklist row">
-                      <LuTrash2 size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <button type="button" className={detailStyles.modalAddRowButton} onClick={() => setChecklistRows((current) => [...current, { id: createLocalId(), title: '' }])}>
-                <LuPlus size={15} />
-                Add row
-              </button>
-              <footer className={detailStyles.createTaskFooter}>
-                <span>Enter adds another row.</span>
-                <button type="submit" disabled={!checklistRows.some((row) => row.title.trim())}>Save all</button>
-              </footer>
-            </form>
-          </section>
-        </>
-      ) : null}
-
-      {isOutputFormatModalOpen ? (
-        <>
-          <div className={detailStyles.createTaskBackdrop} onClick={() => setIsOutputFormatModalOpen(false)} />
-          <section className={`${detailStyles.createTaskModal} ${detailStyles.fieldFlowModal}`} role="dialog" aria-modal="true" aria-label="Set data format">
-            <header className={detailStyles.createTaskHeader}>
-              <div className={detailStyles.createTaskTabs}><span className={detailStyles.createTaskTabActive}>{dataFormatRoleDraft === 'input' ? 'Input data format' : 'Output data format'}</span></div>
-              <button type="button" onClick={() => setIsOutputFormatModalOpen(false)} aria-label="Close data format modal"><LuX size={17} /></button>
-            </header>
-            <div className={detailStyles.createTaskBody}>
-              <div className={detailStyles.modalField}>
-                <span>Select data format</span>
-                <AppSelect
-                  mode="single"
-                  value={outputFormatDraftOption}
-                  options={dataFormatRoleDraft === 'input' ? inputFormatOptions : outputFormatOptions}
-                  onChange={(option) => {
-                    if (Array.isArray(option)) return
-                    setOutputFormatDraftOption(option)
-                  }}
-                  placeholder="No data format"
-                  isClearable
-                />
-              </div>
-              <div className={detailStyles.modalInlineActions}>
-                <button
-                  type="button"
-                  className={detailStyles.modalAddRowButton}
-                  onClick={() => {
-                    setQuickOutputFormatName('')
-                    setQuickOutputFormatDescription('')
-                    setIsCreateOutputFormatOpen(true)
-                  }}
-                >
-                  <LuPlus size={15} />
-                  Add new data format
-                </button>
-              </div>
-              <footer className={detailStyles.modalFooterActions}>
-                <button type="button" onClick={() => setIsOutputFormatModalOpen(false)}>Cancel</button>
-                <button type="button" className={detailStyles.primaryModalAction} onClick={saveOutputFormatFromModal}>Save</button>
-              </footer>
-              {isCreateOutputFormatOpen ? (
-                <>
-                  <div className={detailStyles.nestedCreateBackdrop} onClick={() => setIsCreateOutputFormatOpen(false)} />
-                  <section className={detailStyles.nestedCreateDialog} role="dialog" aria-modal="true" aria-label="Add new data format">
-                    <header>
-                      <h4>Add new data format</h4>
-                      <button type="button" onClick={() => setIsCreateOutputFormatOpen(false)} aria-label="Close data format create popup"><LuX size={15} /></button>
-                    </header>
-                    <div className={detailStyles.nestedCreateBody}>
-                      <input
-                        autoFocus
-                        value={quickOutputFormatName}
-                        onChange={(event) => setQuickOutputFormatName(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') {
-                            event.preventDefault()
-                            void createOutputFormatFromModal()
-                          }
-                        }}
-                        placeholder="Format name"
-                      />
-                      <input value={quickOutputFormatDescription} onChange={(event) => setQuickOutputFormatDescription(event.target.value)} placeholder="Description (optional)" />
-                    </div>
-                    <footer>
-                      <button type="button" onClick={() => setIsCreateOutputFormatOpen(false)}>Cancel</button>
-                      <button type="button" onClick={() => void createOutputFormatFromModal()} disabled={!quickOutputFormatName.trim()}>Create</button>
-                    </footer>
-                  </section>
-                </>
-              ) : null}
-            </div>
-          </section>
-        </>
-      ) : null}
 
       <TaskJsonImportPopup
         open={isJsonImportOpen}

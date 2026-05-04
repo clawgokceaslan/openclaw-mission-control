@@ -1,6 +1,7 @@
 export const IPC_CHANNELS = {
   app: {
-    navigateFromCompanion: 'app:navigate-from-companion'
+    navigateFromCompanion: 'app:navigate-from-companion',
+    rendererHealth: 'app:renderer-health'
   },
   auth: {
     login: 'auth:login',
@@ -27,7 +28,9 @@ export const IPC_CHANNELS = {
   },
   appSettings: {
     getActiveGateway: 'app-settings:get-active-gateway',
-    setActiveGateway: 'app-settings:set-active-gateway'
+    setActiveGateway: 'app-settings:set-active-gateway',
+    getDefaultAgent: 'app-settings:get-default-agent',
+    setDefaultAgent: 'app-settings:set-default-agent'
   },
   statuses: {
     list: 'statuses:list',
@@ -59,6 +62,7 @@ export const IPC_CHANNELS = {
     planWithCodex: 'tasks:plan-with-codex',
     codexChatSend: 'tasks:codex-chat:send',
     codexChatStop: 'tasks:codex-chat:stop',
+    codexChatResolve: 'tasks:codex-chat:resolve',
     plannerContext: 'tasks:planner-context',
     plannerValidateJson: 'tasks:planner-validate-json',
     plannerCreateFromJson: 'tasks:planner-create-from-json',
@@ -255,6 +259,8 @@ export interface PlanTaskCodexRequest {
   taskId?: string
   gatewayId?: string
   model?: string
+  conversationId?: string
+  clarificationMessage?: string
   generalContext?: string
   generalPrompt?: string
   defaultOutput?: string
@@ -434,6 +440,13 @@ export interface CodexChatStopRequest {
   conversationId?: string
 }
 
+export interface CodexChatResolveRequest {
+  actorToken?: string
+  taskId?: string
+  conversationId?: string
+  resolution?: 'stopped' | 'completed' | 'failed'
+}
+
 export interface UpsertGatewayRequest {
   actorToken?: string
   id?: string
@@ -479,9 +492,9 @@ export const SERVICE_MAP = {
   auth: ['login', 'logout', 'me', 'inviteValidate', 'updateProfile'],
   projects: ['list', 'get', 'create', 'update', 'moveWorkspace', 'exportWorkspace', 'remove'],
   workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
-  appSettings: ['getActiveGateway', 'setActiveGateway'],
+  appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent'],
   statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
-  tasks: ['list', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runCodex', 'planWithCodex', 'codexChatSend', 'codexChatStop', 'plannerContext', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
+  tasks: ['list', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runCodex', 'planWithCodex', 'codexChatSend', 'codexChatStop', 'codexChatResolve', 'plannerContext', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
   taskTemplates: ['list', 'create', 'update', 'remove', 'importJson'],
   projectInstructionTemplates: ['list', 'create', 'update', 'remove'],
   attachments: ['upload'],
@@ -639,6 +652,20 @@ export const SERVICE_ROUTING: {
       action: 'setActiveGateway',
       method: 'setActiveGateway',
       channel: IPC_CHANNELS.appSettings.setActiveGateway,
+      requiresAuth: true
+    },
+    getDefaultAgent: {
+      domain: 'appSettings',
+      action: 'getDefaultAgent',
+      method: 'getDefaultAgent',
+      channel: IPC_CHANNELS.appSettings.getDefaultAgent,
+      requiresAuth: true
+    },
+    setDefaultAgent: {
+      domain: 'appSettings',
+      action: 'setDefaultAgent',
+      method: 'setDefaultAgent',
+      channel: IPC_CHANNELS.appSettings.setDefaultAgent,
       requiresAuth: true
     }
   },
@@ -832,6 +859,13 @@ export const SERVICE_ROUTING: {
       action: 'codexChatStop',
       method: 'codexChatStop',
       channel: IPC_CHANNELS.tasks.codexChatStop,
+      requiresAuth: true
+    },
+    codexChatResolve: {
+      domain: 'tasks',
+      action: 'codexChatResolve',
+      method: 'codexChatResolve',
+      channel: IPC_CHANNELS.tasks.codexChatResolve,
       requiresAuth: true
     },
     plannerContext: {

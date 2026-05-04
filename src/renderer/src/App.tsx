@@ -42,6 +42,7 @@ import { OnboardingPage } from '@renderer/screens/OnboardingPage'
 import { CompanionPage } from '@renderer/screens/CompanionPage'
 import { GlobalCreateTaskModal } from '@renderer/components/navigation/GlobalCreateTaskModal'
 import type { GlobalTaskCreateInitial } from '@renderer/components/navigation/UniversalCommand'
+import { RendererHealthReporter } from '@renderer/utils/rendererResilience'
 import styles from './App.module.scss'
 
 interface RouteConfig {
@@ -208,6 +209,7 @@ export function App() {
   return (
     <Provider store={store}>
       <BrowserRouter>
+        <RendererHealthReporter />
         <ThemeProvider>
           <AuthProvider>
             <AppRouter />

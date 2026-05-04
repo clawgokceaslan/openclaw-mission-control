@@ -26,6 +26,7 @@ interface CodexPlanResponse {
   bridgeUrl?: string
   executionMode?: 'terminal' | 'exec'
   runId?: string
+  conversationId?: string
 }
 
 interface CodexChatResponse {
@@ -278,7 +279,7 @@ export function useProjectCodexFlow({
         setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex' })
         return
       }
-      if (response.data?.runId) setSelectedChatConversationId(response.data.runId)
+      if (response.data?.conversationId || response.data?.runId) setSelectedChatConversationId(response.data.conversationId ?? response.data.runId ?? '')
       setCodexRunFeedback({
         kind: 'success',
         message: response.data.executionMode === 'exec'
@@ -379,9 +380,10 @@ export function useProjectCodexFlow({
     if (!selectedTask || !project) return
     if (!chatDraft.trim() && chatAttachments.length === 0) return
     const effectiveSelectedChatSummary = isStartingNewChat ? null : selectedChatSummary
-    const sendAsPlanRevision = !isStartingNewChat && effectiveSelectedChatSummary?.source === 'codex-plan'
-    const effectiveChatMode = sendAsPlanRevision ? 'plan' : chatMode
-    const resolvedChatModel = effectiveChatMode === 'plan'
+    const sendAsPlanRevision = chatMode !== 'steer' && !isStartingNewChat && effectiveSelectedChatSummary?.source === 'codex-plan'
+    const effectiveChatMode = chatMode === 'steer' ? 'steer' : sendAsPlanRevision ? 'plan' : chatMode
+    const sendAsPlannerClarification = !isStartingNewChat && effectiveSelectedChatSummary?.source === 'codex-plan'
+    const resolvedChatModel = sendAsPlannerClarification || effectiveChatMode === 'plan'
       ? (chatPlanModel || chatModel)
       : (chatRunModel || chatModel)
     if (!chatGatewayId || !resolvedChatModel) {
@@ -398,6 +400,33 @@ export function useProjectCodexFlow({
     setCodexRunFeedback(null)
 
     try {
+      if (sendAsPlannerClarification) {
+        if (chatAttachments.length > 0) {
+          setCodexRunFeedback({ kind: 'error', message: 'Planner clarification does not support attachments. Remove attachments and send the answer as text.' })
+          return
+        }
+        const response = await invokeBridge<CodexPlanResponse>(IPC_CHANNELS.tasks.planWithCodex, {
+          actorToken: token,
+          taskId: selectedTask.id,
+          projectId: project.id,
+          gatewayId: chatGatewayId,
+          model: resolvedChatModel,
+          conversationId: selectedChatConversationId,
+          clarificationMessage: chatDraft.trim()
+        })
+        if (!response.ok || !response.data) {
+          setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to send planner clarification.' })
+          return
+        }
+        setSelectedChatConversationId(response.data.conversationId ?? selectedChatConversationId)
+        setIsStartingNewChat(false)
+        setChatAttachments([])
+        setCodexRunFeedback(response.data.executionMode === 'terminal'
+          ? { kind: 'success', message: 'Codex planner launched with your clarification.' }
+          : null)
+        return
+      }
+
       const response = await invokeBridge<CodexChatResponse>(IPC_CHANNELS.tasks.codexChatSend, {
         actorToken: token,
         taskId: selectedTask.id,
@@ -416,7 +445,6 @@ export function useProjectCodexFlow({
       }
       setSelectedChatConversationId(response.data.conversationId)
       setIsStartingNewChat(false)
-      setChatDraft('')
       setChatAttachments([])
       if (response.data.executionMode === 'terminal') {
         setCodexRunFeedback({ kind: 'success', message: 'Codex terminal chat launched.' })

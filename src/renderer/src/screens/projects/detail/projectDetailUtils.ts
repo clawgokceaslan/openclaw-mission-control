@@ -6,7 +6,8 @@ import type {
   TaskEntity,
   Workspace
 } from '@shared/types/entities'
-import type { ProjectTableViewConfig, TableColumnConfig } from './types'
+import type { ProjectTableViewConfig, TableColumnConfig, TaskActivityMessage } from './types'
+import type { ProjectStatusColumn } from './status'
 
 export function projectCodexSettings(project: Project | null): ProjectCodexSettings {
   const value = project?.metrics?.codex
@@ -118,6 +119,78 @@ export function withTaskMeta(task: TaskEntity): TaskEntity {
   }
 }
 
+export type TaskCodexPlanBadge = {
+  state: 'planned' | 'needs-clarification'
+  label: 'Planned' | 'Needs info'
+  conversationId?: string
+}
+
+export type TaskCodexActionChip = {
+  source: 'codex-plan' | 'codex-run'
+  label: 'Plan' | 'Run'
+  conversationId: string
+  status: TaskActivityMessage['status'] | 'event'
+  at: number
+}
+
+function taskActivityMessages(task: TaskEntity): TaskActivityMessage[] {
+  const messages = task.payload?.activityMessages
+  if (!Array.isArray(messages)) return []
+  return messages.filter((item): item is TaskActivityMessage => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return false
+    const record = item as Partial<TaskActivityMessage>
+    return typeof record.runId === 'string'
+      && typeof record.source === 'string'
+      && typeof record.role === 'string'
+      && typeof record.body === 'string'
+      && typeof record.createdAt === 'number'
+  })
+}
+
+export function taskCodexPlanBadge(task: TaskEntity): TaskCodexPlanBadge | null {
+  const value = task.payload?.codexPlanState
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  if (record.state === 'planned') {
+    return {
+      state: 'planned',
+      label: 'Planned',
+      conversationId: typeof record.conversationId === 'string' ? record.conversationId : undefined
+    }
+  }
+  if (record.state === 'needs-clarification') {
+    return {
+      state: 'needs-clarification',
+      label: 'Needs info',
+      conversationId: typeof record.conversationId === 'string' ? record.conversationId : undefined
+    }
+  }
+  return null
+}
+
+export function taskCodexActionChips(task: TaskEntity): TaskCodexActionChip[] {
+  const latest = new Map<'codex-plan' | 'codex-run', TaskCodexActionChip>()
+  for (const message of taskActivityMessages(task)) {
+    if (message.source !== 'codex-plan' && message.source !== 'codex-run') continue
+    const conversationId = message.conversationId || message.runId
+    if (!conversationId) continue
+    const at = message.updatedAt ?? message.createdAt
+    const current = latest.get(message.source)
+    if (current && current.at >= at) continue
+    latest.set(message.source, {
+      source: message.source,
+      label: message.source === 'codex-plan' ? 'Plan' : 'Run',
+      conversationId,
+      status: message.status ?? 'event',
+      at
+    })
+  }
+  return (['codex-plan', 'codex-run'] as const).flatMap((source) => {
+    const chip = latest.get(source)
+    return chip ? [chip] : []
+  })
+}
+
 export const DEFAULT_TABLE_COLUMNS: TableColumnConfig[] = [
   { id: 'index', kind: 'index', label: '#', width: 42, required: true },
   { id: 'name', kind: 'name', label: 'Name', width: 300, required: true },
@@ -183,6 +256,103 @@ export function normalizeTableColumns(project: Project | null, customFields: Cus
 export function getLegacyTableOrder(task: TaskEntity) {
   const value = task.payload?.tableOrder
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+export type TaskDropPosition = 'before' | 'after'
+
+export type ReorderedTaskUpdate = {
+  task: TaskEntity
+  status: TaskEntity['status']
+  order: number
+}
+
+export function orderedTasksForStatus(rows: TaskEntity[]): TaskEntity[] {
+  const newestFirstIndex = new Map(
+    [...rows]
+      .sort((a, b) => getTaskNewestTime(b) - getTaskNewestTime(a))
+      .map((task, index) => [task.id, index])
+  )
+  return rows
+    .map((task, index) => ({
+      task,
+      index,
+      order: getStatusOrder(task, task.status) ?? getLegacyTableOrder(task) ?? newestFirstIndex.get(task.id) ?? index
+    }))
+    .sort((a, b) => a.order - b.order || a.index - b.index)
+    .map((item) => item.task)
+}
+
+export function orderTasksByStatusGroups(tasks: TaskEntity[], statusColumns: ProjectStatusColumn[]): TaskEntity[] {
+  const statusIndex = new Map(statusColumns.map((column, index) => [column.status, index]))
+  return [...tasks]
+    .map((task, index) => ({
+      task,
+      index,
+      statusIndex: statusIndex.get(task.status) ?? statusColumns.length,
+      order: getStatusOrder(task, task.status),
+      legacyOrder: getLegacyTableOrder(task),
+      newest: getTaskNewestTime(task)
+    }))
+    .sort((a, b) => {
+      if (a.statusIndex !== b.statusIndex) return a.statusIndex - b.statusIndex
+      if (a.order !== null && b.order !== null) return a.order - b.order
+      if (a.order !== null) return -1
+      if (b.order !== null) return 1
+      if (a.legacyOrder !== null && b.legacyOrder !== null) return a.legacyOrder - b.legacyOrder
+      if (a.legacyOrder !== null) return -1
+      if (b.legacyOrder !== null) return 1
+      if (a.newest !== b.newest) return b.newest - a.newest
+      return a.index - b.index
+    })
+    .map((item) => item.task)
+}
+
+export function reorderTasksForDrop(
+  tasks: TaskEntity[],
+  sourceTaskId: string,
+  targetStatus: TaskEntity['status'],
+  targetTaskId?: string,
+  position: TaskDropPosition = 'after'
+): { tasks: TaskEntity[]; updates: ReorderedTaskUpdate[] } {
+  const sourceTask = tasks.find((task) => task.id === sourceTaskId)
+  if (!sourceTask) return { tasks, updates: [] }
+
+  const sourceStatus = sourceTask.status
+  const targetRows = orderedTasksForStatus(tasks.filter((task) => task.id !== sourceTaskId && task.status === targetStatus))
+  const targetIndex = targetTaskId ? targetRows.findIndex((task) => task.id === targetTaskId) : -1
+  const insertIndex = targetIndex >= 0
+    ? position === 'before' ? targetIndex : targetIndex + 1
+    : targetRows.length
+  const movedTask = { ...sourceTask, status: targetStatus }
+  const nextTargetRows = [...targetRows]
+  nextTargetRows.splice(Math.max(0, Math.min(insertIndex, nextTargetRows.length)), 0, movedTask)
+
+  const nextRowsById = new Map<string, TaskEntity>()
+  const updates: ReorderedTaskUpdate[] = []
+  const addRows = (rows: TaskEntity[], status: TaskEntity['status']) => {
+    rows.forEach((task, order) => {
+      const nextTask = {
+        ...task,
+        status,
+        payload: {
+          ...(task.payload ?? {}),
+          statusOrder: statusOrderPayload(task, status, order)
+        }
+      }
+      nextRowsById.set(nextTask.id, nextTask)
+      updates.push({ task: nextTask, status, order })
+    })
+  }
+
+  addRows(nextTargetRows, targetStatus)
+  if (sourceStatus !== targetStatus) {
+    addRows(orderedTasksForStatus(tasks.filter((task) => task.id !== sourceTaskId && task.status === sourceStatus)), sourceStatus)
+  }
+
+  return {
+    tasks: tasks.map((task) => nextRowsById.get(task.id) ?? task),
+    updates
+  }
 }
 
 export function customFieldValueToDraft(field: CustomField, value: unknown): string {

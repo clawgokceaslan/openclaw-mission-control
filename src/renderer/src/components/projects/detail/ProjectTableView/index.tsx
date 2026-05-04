@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { LuCheck, LuChevronDown, LuGripVertical, LuPlus } from 'react-icons/lu'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent } from 'react'
+import { LuCheck, LuChevronDown, LuFileText, LuGripVertical, LuPlay, LuPlus } from 'react-icons/lu'
 import type { Agent, CustomField, TaskEntity } from '@shared/types/entities'
 import { TagPill } from '@renderer/components/tags/TagPill'
 import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
 import { formatTaskDate, resolveProjectStatusColumn } from '@renderer/screens/projects/detail/status'
+import { taskCodexActionChips, taskCodexPlanBadge, type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
 interface ProjectTableViewProps {
@@ -13,11 +14,17 @@ interface ProjectTableViewProps {
   customFields: CustomField[]
   agents: Agent[]
   onOpenTask: (taskId: string) => void
+  onOpenTaskChat: (taskId: string, conversationId: string) => void
   onOpenCreateTask: () => void
   onStatusChange: (taskId: string, status: TaskEntity['status']) => void
-  onReorder: (sourceTaskId: string, targetTaskId: string) => void
+  onReorder: (sourceTaskId: string, targetTaskId: string, position: TaskDropPosition) => void
   onOpenColumnPicker: () => void
   onColumnWidthChange: (columnId: string, width: number) => void
+}
+
+function eventDropPosition(event: DragEvent<HTMLElement>): TaskDropPosition {
+  const rect = event.currentTarget.getBoundingClientRect()
+  return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 }
 
 function StatusPill({ status, columns }: { status: TaskEntity['status']; columns: ProjectStatusColumn[] }) {
@@ -30,11 +37,33 @@ function StatusPill({ status, columns }: { status: TaskEntity['status']; columns
   )
 }
 
-export function ProjectTableView({ tasks, columns, tableColumns, customFields, agents, onOpenTask, onOpenCreateTask, onStatusChange, onReorder, onOpenColumnPicker, onColumnWidthChange }: ProjectTableViewProps) {
+function TaskCodexStrip({ task, onOpenTaskChat }: { task: TaskEntity; onOpenTaskChat: (taskId: string, conversationId: string) => void }) {
+  const planBadge = taskCodexPlanBadge(task)
+  const actions = taskCodexActionChips(task)
+  if (!planBadge && actions.length === 0) return null
+  const openChat = (event: MouseEvent<HTMLButtonElement>, conversationId: string) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onOpenTaskChat(task.id, conversationId)
+  }
+  return (
+    <span className={styles.taskCodexStrip}>
+      {planBadge ? <span className={`${styles.taskCodexStateBadge} ${planBadge.state === 'needs-clarification' ? styles.taskCodexNeedsInfo : styles.taskCodexPlanned}`}>{planBadge.label}</span> : null}
+      {actions.map((action) => (
+        <button key={action.source} type="button" className={`${styles.taskCodexActionChip} ${action.source === 'codex-plan' ? styles.taskCodexActionPlan : styles.taskCodexActionRun}`} onClick={(event) => openChat(event, action.conversationId)} title={`Open ${action.label} chat`}>
+          {action.source === 'codex-plan' ? <LuFileText size={12} /> : <LuPlay size={12} />}
+          {action.label}
+        </button>
+      ))}
+    </span>
+  )
+}
+
+export function ProjectTableView({ tasks, columns, tableColumns, customFields, agents, onOpenTask, onOpenTaskChat, onOpenCreateTask, onStatusChange, onReorder, onOpenColumnPicker, onColumnWidthChange }: ProjectTableViewProps) {
   const agentName = (task: TaskEntity) => agents.find((agent) => agent.id === task.agentId)?.name ?? 'Unassigned'
   const [statusMenu, setStatusMenu] = useState<{ taskId: string; left: number; top: number } | null>(null)
   const [dragTaskId, setDragTaskId] = useState<string | null>(null)
-  const [dropTaskId, setDropTaskId] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<{ taskId: string; position: TaskDropPosition } | null>(null)
   const resizeRef = useRef<{ columnId: string; startX: number; startWidth: number } | null>(null)
   const statusMenuRef = useRef<HTMLDivElement | null>(null)
   const gridTemplate = useMemo(() => tableColumns.map((column) => `${Math.max(42, column.width)}px`).join(' '), [tableColumns])
@@ -70,7 +99,7 @@ export function ProjectTableView({ tasks, columns, tableColumns, customFields, a
   const renderCell = (task: TaskEntity, tableColumn: ProjectTableViewProps['tableColumns'][number], index: number) => {
     const column = resolveProjectStatusColumn(task.status, columns)
     if (tableColumn.kind === 'index') return <span className={styles.tableIndexCell}>{index + 1}</span>
-    if (tableColumn.kind === 'name') return <span className={styles.tableNameCell}><span className={styles.tableTaskDot} style={{ background: column.accent }} /><span>{task.title}</span></span>
+    if (tableColumn.kind === 'name') return <span className={styles.tableNameCell}><span className={styles.tableTaskDot} style={{ background: column.accent }} /><span><b>{task.title}</b><TaskCodexStrip task={task} onOpenTaskChat={onOpenTaskChat} /></span></span>
     if (tableColumn.kind === 'assignee') return <span className={styles.tableMutedCell}>{agentName(task)}</span>
     if (tableColumn.kind === 'status') {
       return (
@@ -174,7 +203,7 @@ export function ProjectTableView({ tasks, columns, tableColumns, customFields, a
               key={task.id}
               role="button"
               tabIndex={0}
-              className={`${styles.tableRow} ${dragTaskId === task.id ? styles.tableRowDragging : ''} ${dropTaskId === task.id && dragTaskId !== task.id ? styles.tableRowDropTarget : ''}`}
+              className={`${styles.tableRow} ${dragTaskId === task.id ? styles.tableRowDragging : ''} ${dropTarget?.taskId === task.id && dragTaskId !== task.id ? dropTarget.position === 'before' ? styles.tableRowDropBefore : styles.tableRowDropAfter : ''}`}
               draggable
               onDragStart={(event) => {
                 setDragTaskId(task.id)
@@ -184,21 +213,22 @@ export function ProjectTableView({ tasks, columns, tableColumns, customFields, a
               onDragOver={(event) => {
                 event.preventDefault()
                 event.dataTransfer.dropEffect = 'move'
-                setDropTaskId(task.id)
+                setDropTarget({ taskId: task.id, position: eventDropPosition(event) })
               }}
               onDragLeave={() => {
-                setDropTaskId((current) => current === task.id ? null : current)
+                setDropTarget((current) => current?.taskId === task.id ? null : current)
               }}
               onDrop={(event) => {
                 event.preventDefault()
                 const sourceTaskId = event.dataTransfer.getData('text/plain')
+                const position = eventDropPosition(event)
                 setDragTaskId(null)
-                setDropTaskId(null)
-                if (sourceTaskId) onReorder(sourceTaskId, task.id)
+                setDropTarget(null)
+                if (sourceTaskId && sourceTaskId !== task.id) onReorder(sourceTaskId, task.id, position)
               }}
               onDragEnd={() => {
                 setDragTaskId(null)
-                setDropTaskId(null)
+                setDropTarget(null)
               }}
               onClick={() => onOpenTask(task.id)}
               onKeyDown={(event) => {

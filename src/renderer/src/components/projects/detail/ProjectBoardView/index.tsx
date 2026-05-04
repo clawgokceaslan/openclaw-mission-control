@@ -1,10 +1,11 @@
-import { useRef, type CSSProperties, type DragEvent, type PointerEvent } from 'react'
+import { useRef, useState, type CSSProperties, type DragEvent, type MouseEvent, type PointerEvent } from 'react'
 import { Card } from 'react-bootstrap'
-import { LuCalendarPlus, LuMessageSquare, LuPlus, LuUserPlus } from 'react-icons/lu'
+import { LuCalendarPlus, LuFileText, LuMessageSquare, LuPlay, LuPlus, LuUserPlus } from 'react-icons/lu'
 import type { Agent, Tag, TaskEntity } from '@shared/types/entities'
 import { TagPill } from '@renderer/components/tags/TagPill'
 import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
 import { formatTaskDate } from '@renderer/screens/projects/detail/status'
+import { taskCodexActionChips, taskCodexPlanBadge, type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
 interface ProjectBoardViewProps {
@@ -12,8 +13,9 @@ interface ProjectBoardViewProps {
   tasksByStatus: Record<TaskEntity['status'], TaskEntity[]>
   agents: Agent[]
   onDropStatus: (event: DragEvent<HTMLElement>, status: TaskEntity['status']) => void
-  onReorder: (sourceTaskId: string, targetTaskId: string) => void
+  onReorder: (sourceTaskId: string, targetTaskId: string, position: TaskDropPosition) => void
   onOpenTask: (taskId: string) => void
+  onOpenTaskChat: (taskId: string, conversationId: string) => void
   onOpenCreateTask: (status: TaskEntity['status']) => void
 }
 
@@ -28,10 +30,48 @@ function renderTags(tags: Tag[] | undefined) {
   )
 }
 
-export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus, onReorder, onOpenTask, onOpenCreateTask }: ProjectBoardViewProps) {
+function eventDropPosition(event: DragEvent<HTMLElement>): TaskDropPosition {
+  const rect = event.currentTarget.getBoundingClientRect()
+  return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+}
+
+function TaskCodexStrip({ task, onOpenTaskChat }: { task: TaskEntity; onOpenTaskChat: (taskId: string, conversationId: string) => void }) {
+  const planBadge = taskCodexPlanBadge(task)
+  const actions = taskCodexActionChips(task)
+  if (!planBadge && actions.length === 0) return null
+  const openChat = (event: MouseEvent<HTMLButtonElement>, conversationId: string) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onOpenTaskChat(task.id, conversationId)
+  }
+  return (
+    <div className={styles.taskCodexStrip}>
+      {planBadge ? (
+        <span className={`${styles.taskCodexStateBadge} ${planBadge.state === 'needs-clarification' ? styles.taskCodexNeedsInfo : styles.taskCodexPlanned}`}>
+          {planBadge.label}
+        </span>
+      ) : null}
+      {actions.map((action) => (
+        <button
+          key={action.source}
+          type="button"
+          className={`${styles.taskCodexActionChip} ${action.source === 'codex-plan' ? styles.taskCodexActionPlan : styles.taskCodexActionRun}`}
+          onClick={(event) => openChat(event, action.conversationId)}
+          title={`Open ${action.label} chat`}
+        >
+          {action.source === 'codex-plan' ? <LuFileText size={12} /> : <LuPlay size={12} />}
+          {action.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus, onReorder, onOpenTask, onOpenTaskChat, onOpenCreateTask }: ProjectBoardViewProps) {
   const agentName = (task: TaskEntity) => agents.find((agent) => agent.id === task.agentId)?.name ?? 'Unassigned'
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const panRef = useRef({ active: false, startX: 0, scrollLeft: 0 })
+  const [dropTarget, setDropTarget] = useState<{ taskId: string; position: TaskDropPosition } | null>(null)
 
   const canStartPan = (event: PointerEvent<HTMLElement>) => {
     const target = event.target as HTMLElement
@@ -98,19 +138,28 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
               {rows.map((task) => (
                 <Card
                   key={task.id}
-                  className={styles.taskCard}
+                  className={`${styles.taskCard} ${dropTarget?.taskId === task.id ? dropTarget.position === 'before' ? styles.taskCardDropBefore : styles.taskCardDropAfter : ''}`}
                   draggable
                   onDragStart={(event) => event.dataTransfer.setData('text/plain', task.id)}
                   onDragOver={(event) => {
                     event.preventDefault()
                     event.stopPropagation()
                     event.dataTransfer.dropEffect = 'move'
+                    setDropTarget({ taskId: task.id, position: eventDropPosition(event) })
+                  }}
+                  onDragLeave={() => {
+                    setDropTarget((current) => current?.taskId === task.id ? null : current)
                   }}
                   onDrop={(event) => {
                     event.preventDefault()
                     event.stopPropagation()
                     const sourceTaskId = event.dataTransfer.getData('text/plain')
-                    if (sourceTaskId && sourceTaskId !== task.id) onReorder(sourceTaskId, task.id)
+                    const position = eventDropPosition(event)
+                    setDropTarget(null)
+                    if (sourceTaskId && sourceTaskId !== task.id) onReorder(sourceTaskId, task.id, position)
+                  }}
+                  onDragEnd={() => {
+                    setDropTarget(null)
                   }}
                   onClick={() => onOpenTask(task.id)}
                 >
@@ -118,6 +167,7 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
                     <div className={styles.taskTop}>
                       <h3>{task.title}</h3>
                     </div>
+                    <TaskCodexStrip task={task} onOpenTaskChat={onOpenTaskChat} />
                     <div className={styles.projectTaskMeta}>
                       <span><LuUserPlus size={14} /> {agentName(task)}</span>
                       <span><LuCalendarPlus size={14} /> {formatTaskDate(task.updatedAt)}</span>

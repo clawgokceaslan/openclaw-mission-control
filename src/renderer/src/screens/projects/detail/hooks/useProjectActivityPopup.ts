@@ -264,28 +264,8 @@ export function useProjectActivityPopup({
   setChatDragDepth
 }: ActivityPopupParams): UseProjectActivityPopupResult {
   const keepActivityBottomRef = useRef(true)
-  const focusRequestRef = useRef<number | null>(null)
   const [stoppingConversationIds, setStoppingConversationIds] = useState<Set<string>>(() => new Set())
   const [localSettledConversationIds, setLocalSettledConversationIds] = useState<Set<string>>(() => new Set())
-
-  const cancelScheduledComposerFocus = () => {
-    if (focusRequestRef.current == null) return
-    cancelAnimationFrame(focusRequestRef.current)
-    focusRequestRef.current = null
-  }
-
-  const scheduleComposerFocus = () => {
-    cancelScheduledComposerFocus()
-    const firstFrame = requestAnimationFrame(() => {
-      const secondFrame = requestAnimationFrame(() => {
-        const textarea = chatDraftTextareaRef.current
-        if (textarea) textarea.focus({ preventScroll: true })
-        focusRequestRef.current = null
-      })
-      focusRequestRef.current = secondFrame
-    })
-    focusRequestRef.current = firstFrame
-  }
 
   const isChatModalMounted = Boolean(selectedTask && isActivityModalOpen)
   const settledConversationState = useMemo(() => {
@@ -322,14 +302,6 @@ export function useProjectActivityPopup({
     }
     return ids
   }, [chatConversations, settledConversationState])
-
-  useEffect(() => {
-    if (!isActivityModalOpen) return
-    scheduleComposerFocus()
-    return cancelScheduledComposerFocus
-  }, [isActivityModalOpen])
-
-  useEffect(() => cancelScheduledComposerFocus, [])
 
   const sidebarConversations = useMemo(() => {
     if (chatConversations.length <= 30) return chatConversations
@@ -586,7 +558,6 @@ export function useProjectActivityPopup({
       setSelectedChatConversationId('')
       setChatComposerMode('chat')
       setCodexRunFeedback(null)
-      scheduleComposerFocus()
     },
     onConversationSelect: (conversationId) => {
       setIsStartingNewChat(false)

@@ -82,22 +82,30 @@
   }
 }
 
-.projectRecentChatTopline {
+.projectRecentChatBadges {
   min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+}
 
-  strong {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--omc-text-strong);
-    font-size: 0.9rem;
-    font-weight: 900;
-  }
+.projectRecentChatSourceBadge {
+  min-width: 0;
+  max-width: 140px;
+  height: 22px;
+  border: 1px solid color-mix(in srgb, var(--omc-primary) 28%, var(--omc-border-subtle));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--omc-primary) 9%, transparent);
+  color: var(--omc-text-strong);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  font-weight: 900;
 }
 
 .projectRecentChatTask,
@@ -109,10 +117,10 @@
 }
 
 .projectRecentChatTask {
-  color: var(--omc-text-muted);
+  color: var(--omc-text-strong);
   white-space: nowrap;
-  font-size: 0.8rem;
-  font-weight: 760;
+  font-size: 0.92rem;
+  font-weight: 900;
 }
 
 .projectRecentChatMeta {
@@ -778,6 +786,14 @@
   }
 }
 
+.taskCardDropBefore {
+  box-shadow: inset 0 2px 0 var(--omc-primary) !important;
+}
+
+.taskCardDropAfter {
+  box-shadow: inset 0 -2px 0 var(--omc-primary) !important;
+}
+
 .taskTop {
   display: flex;
   align-items: flex-start;
@@ -793,6 +809,74 @@
     line-height: 1.3;
     font-weight: 750;
   }
+}
+
+.taskCodexStrip {
+  min-width: 0;
+  max-width: 100%;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  overflow: hidden;
+}
+
+.taskCodexStateBadge,
+.taskCodexActionChip {
+  height: 22px;
+  max-width: 116px;
+  border-radius: 999px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.taskCodexStateBadge {
+  border: 1px solid var(--omc-border-subtle);
+  background: var(--omc-surface-soft);
+  color: var(--omc-text-muted);
+  text-transform: uppercase;
+}
+
+.taskCodexPlanned {
+  border-color: color-mix(in srgb, var(--omc-primary) 34%, var(--omc-border));
+  background: var(--omc-active-bg);
+  color: var(--omc-primary-strong);
+}
+
+.taskCodexNeedsInfo {
+  border-color: color-mix(in srgb, #f59e0b 40%, var(--omc-border));
+  background: color-mix(in srgb, #f59e0b 12%, var(--omc-surface));
+  color: color-mix(in srgb, #f59e0b 72%, var(--omc-text-strong));
+}
+
+.taskCodexActionChip {
+  border: 1px solid var(--omc-border-subtle);
+  background: color-mix(in srgb, var(--omc-surface-muted) 58%, transparent);
+  color: var(--omc-text-strong);
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--omc-border-strong);
+    background: var(--omc-hover-bg);
+  }
+}
+
+.taskCodexActionPlan {
+  color: var(--omc-primary-strong);
+}
+
+.taskCodexActionRun {
+  color: var(--omc-success-strong, var(--omc-text-strong));
 }
 
 .priorityIcon {
@@ -1015,7 +1099,7 @@
 }
 
 .listRow {
-  min-height: 46px;
+  min-height: 62px;
   border: none;
   border-top: 1px solid var(--omc-border-subtle);
   background: transparent;
@@ -1027,6 +1111,14 @@
   &:hover {
     background: color-mix(in srgb, var(--omc-primary) 4%, transparent);
   }
+}
+
+.listRowDropBefore {
+  box-shadow: inset 0 2px 0 var(--omc-primary);
+}
+
+.listRowDropAfter {
+  box-shadow: inset 0 -2px 0 var(--omc-primary);
 }
 
 .listNameCell,
@@ -1044,9 +1136,21 @@
   font-weight: 700;
 
   span:last-child {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+  }
+
+  b {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .taskCodexStrip {
+    margin-top: 0;
+    flex-wrap: nowrap;
   }
 }
 
@@ -1192,7 +1296,7 @@
 }
 
 .tableRow {
-  min-height: 42px;
+  min-height: 58px;
   border: none;
   border-bottom: 1px solid var(--omc-border-subtle);
   background: var(--omc-surface);
@@ -1223,9 +1327,14 @@
   opacity: 0.46;
 }
 
-.tableRowDropTarget {
+.tableRowDropBefore {
   background: var(--omc-nav-hover-bg);
   box-shadow: inset 0 2px 0 var(--omc-primary);
+}
+
+.tableRowDropAfter {
+  background: var(--omc-nav-hover-bg);
+  box-shadow: inset 0 -2px 0 var(--omc-primary);
 }
 
 .tableIndexCell {
@@ -1248,11 +1357,22 @@
   color: var(--omc-text-strong);
   font-weight: 750;
 
-  span:last-child {
+  > span:last-child {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+  }
+
+  b {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .taskCodexStrip {
+    margin-top: 0;
+    flex-wrap: nowrap;
   }
 }
 
@@ -1894,23 +2014,30 @@
 .chatPillRow {
   width: 100%;
   min-width: 0;
+  height: 30px;
+  min-height: 30px;
+  max-height: 30px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  flex-wrap: nowrap;
+  gap: 5px;
+  overflow: hidden;
 
   span {
     min-width: 0;
-    max-width: min(260px, 100%);
-    min-height: 24px;
+    flex: 1 1 0;
+    max-width: 100%;
+    height: 28px;
+    min-height: 0;
     border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 72%, transparent);
     border-radius: 6px;
-    background: color-mix(in srgb, var(--omc-surface-muted) 42%, transparent);
+    background: color-mix(in srgb, var(--omc-surface-muted) 48%, transparent);
     color: var(--omc-text-muted);
     display: inline-grid;
     grid-template-columns: auto minmax(0, 1fr);
     gap: 5px;
-    align-items: baseline;
-    padding: 3px 7px;
+    align-items: center;
+    padding: 0 7px;
+    overflow: hidden;
   }
 
   small,
@@ -2005,7 +2132,8 @@
   min-width: 0;
   min-height: 0;
   height: 100%;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 18px clamp(14px, 2.6vw, 34px) 22px;
   scrollbar-gutter: stable;
 }
@@ -2013,6 +2141,8 @@
 .chatMessageList {
   width: var(--chat-content-width);
   max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -2040,6 +2170,9 @@
 .chatMessage {
   position: relative;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   border: 1px solid transparent;
   border-radius: 10px;
   padding: 0;
@@ -2150,6 +2283,8 @@
 
 .chatMessageHeader {
   min-height: 24px;
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -2182,19 +2317,29 @@
 }
 
 .chatMessageMeta {
+  min-width: 0;
+  max-width: 100%;
   color: var(--omc-text-muted) !important;
   font-weight: 750 !important;
+  overflow-wrap: anywhere;
   text-transform: none !important;
 }
 
 .chatMessageBody {
   min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   color: var(--omc-text-strong);
   font-size: 0.95rem;
   line-height: 1.58;
 
   p {
+    min-width: 0;
+    max-width: 100%;
     margin: 0 0 10px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 
     &:last-child {
       margin-bottom: 0;
@@ -2202,8 +2347,10 @@
   }
 
   pre {
+    min-width: 0;
     max-width: 100%;
     overflow: auto;
+    box-sizing: border-box;
     border: 1px solid var(--omc-border-subtle);
     border-radius: 12px;
     background: var(--omc-code-bg);
@@ -2211,6 +2358,9 @@
   }
 
   code {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
     color: var(--omc-text-strong);
   }
 }
@@ -2489,17 +2639,22 @@
 .chatComposerFrame {
   position: relative;
   width: var(--chat-content-width);
+  max-width: 100%;
+  min-width: 0;
   margin: 0 auto;
 }
 
 .chatAttachmentChips {
   width: var(--chat-content-width);
+  max-width: 100%;
+  min-width: 0;
   margin: 0 auto;
 }
 
 .chatComposerRail {
   width: var(--chat-content-width);
   max-width: 100%;
+  min-width: 0;
   margin: 0 auto;
   display: grid;
   gap: 4px;
@@ -3951,6 +4106,25 @@
   text-transform: capitalize;
 }
 
+.assignmentInlineBadge {
+  width: fit-content;
+  min-height: 20px;
+  border: 1px solid color-mix(in srgb, var(--omc-primary) 38%, var(--omc-border));
+  border-radius: 999px;
+  background: var(--omc-active-bg);
+  color: var(--omc-primary-strong) !important;
+  padding: 0 7px;
+  margin-left: 8px;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  font-size: 0.68rem !important;
+  font-weight: 900 !important;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
 .assignmentTableAction {
   min-height: 30px;
   border: 1px solid var(--omc-border);
@@ -4571,23 +4745,35 @@
   position: relative;
   display: grid;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
   margin-top: 8px;
   color: var(--omc-text-strong);
   font-size: 0.92rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 
   p {
+    min-width: 0;
+    max-width: 100%;
     margin: 0;
     line-height: 1.48;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 }
 
 .codexMarkdownLine {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .codexBullet {
   padding-left: 14px;
   text-indent: -10px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .codexTranscriptRow {
@@ -4606,7 +4792,11 @@
 }
 
 .codexTranscriptTime {
+  min-width: 0;
   color: var(--omc-text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   font-size: 0.93rem;
   font-weight: 850;
 }
@@ -4654,9 +4844,33 @@
   }
 }
 
+.codexThinkingDetails {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--omc-text-muted);
+
+  summary {
+    cursor: pointer;
+    list-style: none;
+    width: fit-content;
+    max-width: 100%;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+  }
+
+  &[open] summary {
+    margin-bottom: 8px;
+  }
+}
+
 .codexCodeBlockWrap {
   position: relative;
+  min-width: 0;
+  max-width: 100%;
   margin: 6px 0;
+  overflow: hidden;
 
   > button {
     position: absolute;
@@ -4686,8 +4900,11 @@
 }
 
 .codexCodeBlock {
+  min-width: 0;
   max-height: 320px;
+  max-width: 100%;
   overflow: auto;
+  box-sizing: border-box;
   border: 1px solid #2f3b52;
   border-radius: 10px;
   background: #1e1e1e;
@@ -4699,6 +4916,9 @@
   code {
     display: block;
     min-width: 100%;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
     font-family: "SFMono-Regular", "Cascadia Code", "Liberation Mono", Menlo, Consolas, monospace;
     line-height: 1.55;
   }
@@ -4785,6 +5005,7 @@
 }
 
 .codexPathChip {
+  min-width: 0;
   max-width: 100%;
   border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 72%, transparent);
   border-radius: 999px;
@@ -4811,9 +5032,12 @@
 .codexChangesCard {
   display: grid;
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .codexChangesHeader {
+  min-width: 0;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -4822,6 +5046,7 @@
 
   strong {
     display: block;
+    min-width: 0;
     color: var(--omc-text-strong);
     font-size: 0.95rem;
     font-weight: 900;
@@ -4866,6 +5091,8 @@
 }
 
 .codexChangesSection {
+  min-width: 0;
+  max-width: 100%;
   margin-top: 10px;
 
   > span {
@@ -4884,6 +5111,8 @@
 }
 
 .codexEditedFileCard {
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--omc-border) 86%, transparent);
   border-radius: 10px;
@@ -6673,10 +6902,7 @@
   }
 
   .chatPillRow {
-    span {
-      max-width: 100%;
-      flex: 1 1 148px;
-    }
+    gap: 4px;
   }
 
   .chatTopbarActions {

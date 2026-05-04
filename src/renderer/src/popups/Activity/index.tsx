@@ -294,12 +294,10 @@ export function ActivityPopup({
   const conversationStatusLabel = (conversation: ChatConversationSummary) => (
     runningConversationIds.has(conversation.id)
       ? <em className={styles.chatSidebarLoader} aria-label="Codex chat is running"><i /><i /><i /></em>
-      : conversation.status === 'running' ? 'completed' : conversation.status
+      : conversation.status
   )
   const conversationStatusClass = (conversation: ChatConversationSummary) => (
-    conversation.status === 'running' && !runningConversationIds.has(conversation.id)
-      ? styles.chatStatus_completed
-      : styles[`chatStatus_${conversation.status}`] ?? ''
+    styles[`chatStatus_${runningConversationIds.has(conversation.id) ? 'running' : conversation.status}`] ?? ''
   )
 
   return (

@@ -1,4 +1,4 @@
-import type { TaskAttachment, TaskComment, TaskEntity, TaskSubtask } from '@shared/types/entities'
+import type { TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskSubtask } from '@shared/types/entities'
 import { normalizeAttachments } from '@renderer/components/attachments/attachments'
 
 export function getSubtaskCustomFieldValues(subtask: TaskSubtask | null): Record<string, unknown> {
@@ -39,6 +39,18 @@ export function getSubtaskComments(subtask: TaskSubtask | null): TaskComment[] {
 export function getSubtaskAttachments(subtask: TaskSubtask | null): TaskAttachment[] {
   if (!subtask) return []
   return normalizeAttachments(getSubtaskPayload(subtask).attachments)
+}
+
+export function getSubtaskChecklistItems(subtask: TaskSubtask | null): TaskChecklistItem[] {
+  if (!subtask) return []
+  const value = getSubtaskPayload(subtask).checklistItems
+  return Array.isArray(value)
+    ? value.filter((item): item is TaskChecklistItem => {
+      if (!item || typeof item !== 'object') return false
+      const candidate = item as Partial<TaskChecklistItem>
+      return typeof candidate.id === 'string' && typeof candidate.title === 'string'
+    })
+    : []
 }
 
 export function getSubtaskAgentId(subtask: TaskSubtask | null): string | undefined {

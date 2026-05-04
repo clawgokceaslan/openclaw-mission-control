@@ -391,7 +391,23 @@ function buildAiExecutionFlow(context: ExportContext): string {
     diagram,
     '```',
     '',
-    'Execution rule: Follow this flow top-to-bottom. Process subtasks strictly in numeric order from the Subtasks Index. Bypass subtasks marked Done or Closed. Skip nodes that are absent from this file/package.'
+    'Execution rule: Follow this flow top-to-bottom. Treat subtasks as the primary execution plan. Process subtasks strictly in numeric order from the Subtasks Index, complete each subtask checklist before moving on, and bypass only subtasks whose status action says to bypass. Skip nodes that are absent from this file/package.'
+  ].join('\n')
+}
+
+function subtaskExecutionPlanMarkdown(context: ExportContext): string {
+  const subtasks = context.task.subtasks ?? []
+  if (!subtasks.length) return ''
+  const actionable = subtasks.filter((subtask) => !subtaskStatusAction(subtask, context.projectStatuses).shouldBypass).length
+  const checklistCount = subtasks.reduce((sum, subtask) => sum + getSubtaskChecklist(subtask).length, 0)
+  return [
+    'Subtasks are the authoritative execution plan for this task. Use the parent task details as context, then execute the numbered subtasks below in order.',
+    '',
+    `- Total subtasks: ${subtasks.length}`,
+    `- Actionable subtasks: ${actionable}`,
+    `- Subtask checklist items: ${checklistCount}`,
+    '- Complete each subtask checklist before moving to the next subtask.',
+    '- If a subtask is marked Done or Closed, follow its AI action in the index instead of redoing work.'
   ].join('\n')
 }
 
@@ -425,9 +441,9 @@ function buildSubtaskSection(subtask: TaskSubtask, index: number, context: Expor
   ], getSubtaskDescription(subtask), 4, 'Subtask Description / Prompt')
   const sections = [`## ${label} - Status: ${statusAction.label}\n<a id="${subtaskAnchor(subtask, index)}"></a>\n\n### Subtask Details\n${details}`]
   if (tagIds.length) pushSection(sections, 'Tags', tagDetailsMarkdown(tagIds, context.tags), 3)
+  pushSection(sections, 'Checklist', checklistMarkdown(getSubtaskChecklist(subtask)), 3)
   pushSection(sections, 'Comments', commentsMarkdown(getSubtaskComments(subtask)), 3)
   pushSection(sections, 'Custom Fields', customFieldsMarkdown(payload.customFields as Record<string, unknown> | undefined, context.customFields), 3)
-  pushSection(sections, 'Checklist', checklistMarkdown(getSubtaskChecklist(subtask)), 3)
   pushSection(sections, 'Attachments Manifest', attachmentsMarkdown(attachments, label, exportStatuses), 3)
   const subtaskAgentId = getSubtaskAgentId(subtask)
   if (subtaskAgentId) {
@@ -491,10 +507,13 @@ export function buildTaskMarkdown(context: ExportContext, exportStatuses: Attach
   pushSection(sections, 'Attachment Folder', attachmentFolderMarkdown(exportStatuses))
   pushSection(sections, 'Agent References', agentReferencesMarkdown(task, context.agents))
   pushSection(sections, 'Skill References', skillReferencesMarkdown(task, context.skills))
+  pushSection(sections, 'Subtasks as Primary Execution Plan', subtaskExecutionPlanMarkdown(context))
   if (subtasks.length) {
     pushSection(sections, 'Subtasks Index', subtasks.map((subtask, index) => {
       const statusAction = subtaskStatusAction(subtask, context.projectStatuses)
-      return `${index + 1}. [${subtaskLabel(subtask, index)}](#${subtaskAnchor(subtask, index)}) - Status: ${statusAction.label} - AI action: ${statusAction.action}`
+      const checklistCount = getSubtaskChecklist(subtask).length
+      const descriptionSignal = getSubtaskDescription(subtask).trim() ? 'description: present' : 'description: missing'
+      return `${index + 1}. [${subtaskLabel(subtask, index)}](#${subtaskAnchor(subtask, index)}) - Status: ${statusAction.label} - AI action: ${statusAction.action} - Checklist: ${checklistCount} - ${descriptionSignal}`
     }).join('\n'))
   }
   for (const [index, subtask] of subtasks.entries()) sections.push(buildSubtaskSection(subtask, index, context, subtaskExportStatuses[subtask.id] ?? []))

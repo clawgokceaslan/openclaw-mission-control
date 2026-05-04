@@ -96,12 +96,12 @@ export async function createAppContext(): Promise<AppContext> {
   const appSettingsRepo = new AppSettingsRepository(db)
 
   const auth = new AuthService(authRepo, eventBus)
-  const tasks = new TaskService(auth, taskRepo, taskSubtaskRepo, taskTagRepo, taskSkillRepo, projectRepo, tagRepo, skillRepo, customFieldRepo, agentRepo, statusRepo, workspaceRepo, gatewayRepo, eventBus)
+  const tasks = new TaskService(auth, taskRepo, taskSubtaskRepo, taskTagRepo, taskSkillRepo, projectRepo, tagRepo, skillRepo, customFieldRepo, agentRepo, statusRepo, workspaceRepo, gatewayRepo, appSettingsRepo, eventBus)
   const services: AppServices = {
     auth,
     projects: new ProjectService(auth, projectRepo, workspaceRepo, gatewayRepo, taskRepo, taskSubtaskRepo),
     workspaces: new WorkspaceService(auth, workspaceRepo),
-    appSettings: new AppSettingsService(auth, appSettingsRepo, gatewayRepo),
+    appSettings: new AppSettingsService(auth, appSettingsRepo, gatewayRepo, agentRepo),
     statuses: new StatusService(auth, statusRepo, projectRepo),
     tasks,
     taskTemplates: new TaskTemplateService(auth, taskTemplateRepo, agentRepo, tagRepo, skillRepo, customFieldRepo),

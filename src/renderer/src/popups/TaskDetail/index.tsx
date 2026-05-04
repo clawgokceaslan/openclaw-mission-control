@@ -20,11 +20,58 @@ function taskPayload(task: any): Record<string, unknown> {
   return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : {}
 }
 
+function subtaskPayload(subtask: any): Record<string, unknown> {
+  const payload = subtask?.payload
+  return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : {}
+}
+
+function subtaskChecklistItems(subtask: any): any[] {
+  const value = subtaskPayload(subtask).checklistItems
+  return Array.isArray(value) ? value : []
+}
+
 function acceptanceCriteriaOf(task: any): string {
   const agenticInputs = taskPayload(task).agenticInputs
   if (!agenticInputs || typeof agenticInputs !== 'object' || Array.isArray(agenticInputs)) return ''
   const value = (agenticInputs as Record<string, unknown>).acceptanceCriteria
   return typeof value === 'string' ? value : ''
+}
+
+function ChecklistPanel({
+  items,
+  emptyLabel,
+  onAdd,
+  onToggle,
+  onRemove
+}: {
+  items: any[]
+  emptyLabel: string
+  onAdd?: () => void
+  onToggle?: (itemId: string) => void
+  onRemove?: (itemId: string) => void
+}) {
+  const checkedCount = items.filter((item) => item.checked).length
+  const progress = items.length > 0 ? Math.round((checkedCount / items.length) * 100) : 0
+  return (
+    <div className={styles.checklistPanel}>
+      <div className={styles.checklistProgress}><span style={{ width: `${progress}%` }} /></div>
+      <div className={styles.tabCtaCard}>
+        <div><strong>Add checklist item</strong><span>Add multiple checklist items in one flow.</span></div>
+        <button type="button" className={styles.tabActionButton} onClick={onAdd}><LuPlus size={15} />Add checklist item</button>
+      </div>
+      {items.length > 0 ? (
+        <div className={styles.checklistList}>
+          {items.map((item) => (
+            <div key={item.id} className={styles.checklistRow}>
+              <input type="checkbox" checked={Boolean(item.checked)} onChange={() => void onToggle?.(item.id)} />
+              <span className={item.checked ? styles.checklistItemChecked : styles.checklistItemTitle}>{item.title}</span>
+              <button type="button" onClick={() => void onRemove?.(item.id)} aria-label={`Remove ${item.title}`}><LuTrash2 size={14} /></button>
+            </div>
+          ))}
+        </div>
+      ) : <p className={styles.customFieldEmpty}>{emptyLabel}</p>}
+    </div>
+  )
 }
 
 interface TaskDetailPopupProps {
@@ -208,6 +255,7 @@ function TaskDetailBody({ scope }: { scope: Record<string, any> }) {
   const resolveColumn = typeof scope.resolveColumnByStatus === 'function' ? scope.resolveColumnByStatus : fallbackStatusColumn
   const taskStatusColumn = resolveColumn(task.status)
   const selectedTaskAgent = scope.selectedTaskAgent
+  const selectedTaskAgentIsDefault = scope.selectedTaskAgentIsDefault === true
   const selectedTaskSkillOptions = scope.selectedTaskSkillOptions ?? []
   const selectTab = (tab: string) => {
     setDetailTab(tab)
@@ -276,11 +324,11 @@ function TaskDetailBody({ scope }: { scope: Record<string, any> }) {
           ) : detailTab === 'customFields' ? (
             <><div className={styles.detailSectionHeader}><div><h4>Custom fields</h4><p>{(scope.assignedCustomFieldValues ?? []).length} assigned</p></div></div><div className={styles.tabCtaCard}><div><strong>Add custom field</strong><span>Attach a field value to this task.</span></div><button type="button" className={styles.tabActionButton} onClick={scope.openCustomFieldModal}><LuPlus size={15} />Add custom field</button></div><CustomFieldsList scope={scope} values={scope.assignedCustomFieldValues ?? []} /></>
           ) : detailTab === 'checklist' ? (
-            <><div className={styles.detailSectionHeader}><div><h4>Checklist</h4><p>{(task.checklistItems ?? []).filter((item: any) => item.checked).length} checked / {(task.checklistItems ?? []).length} total</p></div></div><div className={styles.checklistPanel}><div className={styles.checklistProgress}><span style={{ width: `${(task.checklistItems ?? []).length > 0 ? Math.round(((task.checklistItems ?? []).filter((item: any) => item.checked).length / (task.checklistItems ?? []).length) * 100) : 0}%` }} /></div><div className={styles.tabCtaCard}><div><strong>Add checklist item</strong><span>Add multiple checklist items in one flow.</span></div><button type="button" className={styles.tabActionButton} onClick={() => scope.openChecklistModal?.()}><LuPlus size={15} />Add checklist item</button></div><div className={styles.checklistList}>{(task.checklistItems ?? []).map((item: any) => <div key={item.id} className={styles.checklistRow}><input type="checkbox" checked={item.checked} onChange={() => void scope.toggleChecklistItem?.(item.id)} /><span className={item.checked ? styles.checklistItemChecked : styles.checklistItemTitle}>{item.title}</span><button type="button" onClick={() => void scope.removeChecklistItem?.(item.id)}><LuTrash2 size={14} /></button></div>)}</div></div></>
+            <><div className={styles.detailSectionHeader}><div><h4>Checklist</h4><p>{(task.checklistItems ?? []).filter((item: any) => item.checked).length} checked / {(task.checklistItems ?? []).length} total</p></div></div><ChecklistPanel items={task.checklistItems ?? []} emptyLabel="No checklist items on this task." onAdd={() => scope.openChecklistModal?.()} onToggle={(itemId) => scope.toggleChecklistItem?.(itemId)} onRemove={(itemId) => scope.removeChecklistItem?.(itemId)} /></>
           ) : detailTab === 'attachments' ? (
             <><div className={styles.detailSectionHeader}><div><h4>Attachments</h4><p>{(scope.taskAttachmentRows ?? []).length} files</p></div></div><AttachmentTable rows={scope.taskAttachmentRows ?? []} uploading={scope.isAttachmentUploading} onUpload={(files) => void scope.uploadTaskAttachments(files)} onRemove={(row) => void scope.removeTaskAttachment(row)} onError={scope.setError} /></>
           ) : detailTab === 'agent' ? (
-            <><div className={styles.detailSectionHeader}><div><h4>Agent</h4><p>{selectedTaskAgent?.name ?? 'Unassigned'}</p></div></div><AgentAssignmentPanel agent={selectedTaskAgent} agents={scope.agents ?? []} ctaDescription="Choose the agent responsible for this task." onChange={scope.setTaskAgent} /></>
+            <><div className={styles.detailSectionHeader}><div><h4>Agent</h4><p>{selectedTaskAgent ? `${selectedTaskAgent.name}${selectedTaskAgentIsDefault ? ' (Default)' : ''}` : 'Unassigned'}</p></div></div><AgentAssignmentPanel agent={selectedTaskAgent} agents={scope.agents ?? []} ctaDescription="Choose the agent responsible for this task." onChange={scope.setTaskAgent} inheritedLabel={selectedTaskAgentIsDefault ? 'Default' : undefined} canClear={!selectedTaskAgentIsDefault} /></>
           ) : detailTab === 'skills' ? (
             <><div className={styles.detailSectionHeader}><div><h4>Skills</h4><p>{selectedTaskSkillOptions.length} selected</p></div></div><SkillsAssignmentPanel selectedSkills={task.skills ?? []} skills={scope.skills ?? []} source="Task" ctaDescription="Select one or more skills needed for this task." onChange={scope.setTaskSkills} /></>
           ) : detailTab === 'model' ? <ModelTab scope={scope} /> : null}
@@ -299,11 +347,12 @@ function CustomFieldsList({ scope, values }: { scope: Record<string, any>; value
 function SubtaskDetailBody({ scope }: { scope: Record<string, any> }) {
   const subtask = scope.selectedSubtask
   const task = scope.selectedTask
-  const [detailTab, setDetailTab] = useState(scope.detailTab === 'subtasks' || scope.detailTab === 'model' || scope.detailTab === 'checklist' ? 'agent' : scope.detailTab ?? 'agent')
-  useEffect(() => setDetailTab(scope.detailTab === 'subtasks' || scope.detailTab === 'model' || scope.detailTab === 'checklist' ? 'agent' : scope.detailTab ?? 'agent'), [subtask?.id])
+  const [detailTab, setDetailTab] = useState(scope.detailTab === 'subtasks' || scope.detailTab === 'model' ? 'agent' : scope.detailTab ?? 'agent')
+  useEffect(() => setDetailTab(scope.detailTab === 'subtasks' || scope.detailTab === 'model' ? 'agent' : scope.detailTab ?? 'agent'), [subtask?.id])
   if (!subtask || !task) return null
   const resolveColumn = typeof scope.resolveColumnByStatus === 'function' ? scope.resolveColumnByStatus : fallbackStatusColumn
   const subtaskStatusColumn = resolveColumn(subtask.status)
+  const checklistItems = subtaskChecklistItems(subtask)
   const selectTab = (tab: string) => {
     setDetailTab(tab)
     scope.setDetailTab?.(tab)
@@ -340,11 +389,12 @@ function SubtaskDetailBody({ scope }: { scope: Record<string, any> }) {
         </section>
         <section className={styles.drawerSection}>
           <div className={styles.tabRow}>
-            {[[ 'agent', LuBot, 'Agent' ], [ 'skills', LuSparkles, 'Skills' ], [ 'customFields', LuSlidersHorizontal, 'Custom fields' ], [ 'attachments', LuPaperclip, 'Attachments' ]].map(([tab, Icon, label]: any) => <button key={tab} type="button" className={detailTab === tab ? styles.tabActive : styles.tabBtn} onClick={() => selectTab(tab)}><Icon size={15} />{label}</button>)}
+            {[[ 'agent', LuBot, 'Agent' ], [ 'skills', LuSparkles, 'Skills' ], [ 'customFields', LuSlidersHorizontal, 'Custom fields' ], [ 'checklist', LuListChecks, 'Checklist' ], [ 'attachments', LuPaperclip, 'Attachments' ]].map(([tab, Icon, label]: any) => <button key={tab} type="button" className={detailTab === tab ? styles.tabActive : styles.tabBtn} onClick={() => selectTab(tab)}><Icon size={15} />{label}</button>)}
           </div>
           {detailTab === 'agent' ? <><div className={styles.detailSectionHeader}><div><h4>Agent</h4><p>{scope.selectedSubtaskAgent?.name ?? 'Unassigned'}</p></div></div><AgentAssignmentPanel agent={scope.selectedSubtaskAgent} agents={scope.agents ?? []} ctaDescription="Choose the agent responsible for this subtask." onChange={scope.setSubtaskAgent} /></> : null}
           {detailTab === 'skills' ? <><div className={styles.detailSectionHeader}><div><h4>Skills</h4><p>{(scope.selectedSubtaskSkillOptions ?? []).length} selected</p></div></div><SkillsAssignmentPanel selectedSkills={scope.selectedSubtaskSkills ?? []} skills={scope.skills ?? []} source="Subtask" ctaDescription="Select one or more skills needed for this subtask." onChange={scope.setSubtaskSkills} /></> : null}
           {detailTab === 'customFields' ? <><div className={styles.detailSectionHeader}><div><h4>Custom fields</h4><p>{(scope.assignedSubtaskCustomFieldValues ?? []).length} assigned</p></div></div><div className={styles.tabCtaCard}><div><strong>Add custom field</strong><span>Attach a field value to this subtask.</span></div><button type="button" className={styles.tabActionButton} onClick={scope.openCustomFieldModal}><LuPlus size={15} />Add custom field</button></div><CustomFieldsList scope={scope} values={scope.assignedSubtaskCustomFieldValues ?? []} /></> : null}
+          {detailTab === 'checklist' ? <><div className={styles.detailSectionHeader}><div><h4>Checklist</h4><p>{checklistItems.filter((item: any) => item.checked).length} checked / {checklistItems.length} total</p></div></div><ChecklistPanel items={checklistItems} emptyLabel="No checklist items on this subtask." onAdd={() => scope.openChecklistModal?.()} onToggle={(itemId) => scope.toggleSubtaskChecklistItem?.(itemId)} onRemove={(itemId) => scope.removeSubtaskChecklistItem?.(itemId)} /></> : null}
           {detailTab === 'attachments' ? <><div className={styles.detailSectionHeader}><div><h4>Attachments</h4><p>{(scope.subtaskAttachmentRows ?? []).length} files</p></div></div><AttachmentTable rows={scope.subtaskAttachmentRows ?? []} uploading={scope.isAttachmentUploading} onUpload={(files) => void scope.uploadSubtaskAttachments(files)} onRemove={(row) => void scope.removeSubtaskAttachment(row)} onError={scope.setError} /></> : null}
         </section>
       </div>

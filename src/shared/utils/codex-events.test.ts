@@ -61,4 +61,29 @@ describe('parseCodexEvents', () => {
     })
     expect(result.events.some((event) => event.kind === 'raw' && event.text.includes('custom.event'))).toBe(true)
   })
+
+  it('normalizes reasoning_summary with startedAt/endedAt variants and duration_sec', () => {
+    const result = parseCodexEvents([
+      JSON.stringify({
+        type: 'item.completed',
+        item: {
+          type: 'reasoning_summary',
+          summary: 'Completed the work.',
+          duration_sec: '5.2',
+          startedAt: '1700000000000',
+          endedAt: 1700000003000
+        }
+      }),
+      JSON.stringify({ type: 'item.completed', item: { type: 'reasoning_summary', summary: '', duration_ms: 1200 } })
+    ].join('\n'))
+
+    expect(result.messages).toHaveLength(1)
+    expect(result.messages[0]).toMatchObject({
+      role: 'thinking',
+      text: 'Completed the work.',
+      durationMs: 5200
+    })
+    expect(result.messages[0]?.startedAt).toBe(1700000000000)
+    expect(result.messages[0]?.endedAt).toBe(1700000003000)
+  })
 })

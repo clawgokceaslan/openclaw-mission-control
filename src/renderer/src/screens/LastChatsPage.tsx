@@ -3,9 +3,10 @@ import { LuRefreshCw } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList } from '@renderer/utils/api'
+import { createSerializedAsyncRunner } from '@renderer/utils/serializedAsync'
 import { ActivityPopup } from '@renderer/popups/Activity'
-import type { AppSelectOption } from '@renderer/components/select/AppSelect'
-import { activityMessagesFromTask, formatChatTime } from '@renderer/screens/projects/detail/chat/chatUtils'
+import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
+import { activityMessagesFromTask, buildChatConversationSummaries, formatChatTime } from '@renderer/screens/projects/detail/chat/chatUtils'
 import { codexConfigOf, createLocalId, projectCodexSettings, readTaskCodexOverride } from '@renderer/screens/projects/detail/projectDetailUtils'
 import type { ChatAttachmentDraft, ChatConversationSummary, ChatOperationFeedbackData, SlashCommand, TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 import { type Gateway, type Project, type Skill, type TaskEntity, type Workspace } from '@shared/types/entities'
@@ -38,8 +39,24 @@ type CodexChatResponse = {
   executionMode: 'terminal' | 'exec'
 }
 
+type CodexPlanResponse = {
+  runId?: string
+  conversationId?: string
+  executionMode?: 'terminal' | 'exec'
+  runtimeWorkspacePath: string
+  model: string
+  gatewayId: string
+}
+
 type CodexStopResponse = {
   stopped: number
+}
+
+type CodexResolveResolution = 'stopped' | 'completed' | 'failed'
+
+type CodexResolveResponse = {
+  resolved: true
+  resolution: CodexResolveResolution
 }
 
 type GroupConfig = {
@@ -56,7 +73,11 @@ const GROUPS: GroupConfig[] = [
 
 const EMPTY_SLASH_COMMANDS: SlashCommand[] = []
 const MESSAGE_RENDER_LIMIT = 80
-const RUNNING_ACTIVITY_STALE_MS = 15 * 60 * 1000
+const RESOLUTION_OPTIONS: AppSelectOption[] = [
+  { value: 'stopped', label: 'Stopped' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'failed', label: 'Failed' }
+]
 
 function resolveStatusRow(status: ConversationStatus): ConversationGroupKey {
   if (status === 'running' || status === 'queued') return 'ongoing'
@@ -86,6 +107,43 @@ function sourceLabel(source: TaskActivityMessage['source']): string {
   return 'Follow-up'
 }
 
+function isCodexResolveResolution(value: string): value is CodexResolveResolution {
+  return value === 'stopped' || value === 'completed' || value === 'failed'
+}
+
+function manualResolutionOf(conversation: ConversationRow): CodexResolveResolution | null {
+  for (const message of [...conversation.messages].reverse()) {
+    if (message.metadata?.manuallyResolved !== true) continue
+    const resolution = message.metadata.resolution
+    if (typeof resolution === 'string' && isCodexResolveResolution(resolution)) return resolution
+  }
+  return null
+}
+
+function statusResolutionOf(status: ConversationStatus): CodexResolveResolution | null {
+  if (status === 'completed') return 'completed'
+  if (status === 'failed') return 'failed'
+  return null
+}
+
+function resolutionOptionOf(resolution: CodexResolveResolution | null): AppSelectOption | null {
+  if (!resolution) return null
+  return RESOLUTION_OPTIONS.find((option) => option.value === resolution) ?? null
+}
+
+function displayedStatusLabel(conversation: ConversationRow, manualResolution: CodexResolveResolution | null): string {
+  if (manualResolution === 'stopped') return 'STOPPED'
+  if (manualResolution === 'completed') return 'COMPLETED'
+  if (manualResolution === 'failed') return 'FAILED'
+  return statusLabel(conversation.status)
+}
+
+function displayedStatusBadgeClass(conversation: ConversationRow, manualResolution: CodexResolveResolution | null): string {
+  if (manualResolution === 'failed') return projectStyles.chatStatus_failed
+  if (manualResolution === 'completed' || manualResolution === 'stopped') return projectStyles.chatStatus_completed
+  return statusBadgeClass(conversation.status)
+}
+
 function shortText(value: string, max: number) {
   const normalized = value.trim().replace(/\s+/g, ' ')
   if (!normalized) return 'No message'
@@ -96,36 +154,8 @@ function conversationIdOf(message: TaskActivityMessage): string | null {
   return message.conversationId || message.runId || null
 }
 
-function isRunCompleteMessage(message: TaskActivityMessage): boolean {
-  return message.metadata?.codexBlock === 'run-complete' || message.metadata?.stopped === true || message.role === 'error'
-}
-
-function isFreshRunningMessage(message: TaskActivityMessage, now: number): boolean {
-  if (message.status !== 'running' && message.metadata?.runStatus !== 'running') return false
-  const at = message.updatedAt ?? message.createdAt
-  return now - at <= RUNNING_ACTIVITY_STALE_MS
-}
-
 function buildTaskConversations(messages: TaskActivityMessage[]): ChatConversationSummary[] {
-  const grouped = new Map<string, ChatConversationSummary>()
-  for (const message of messages) {
-    const id = conversationIdOf(message)
-    if (!id) continue
-    const current = grouped.get(id)
-    const nextStatus = message.status ?? 'event'
-    const nextAt = message.updatedAt ?? message.createdAt
-    const isLatest = !current || nextAt >= current.at
-    grouped.set(id, {
-      id,
-      title: sourceLabel(message.source),
-      count: (current?.count ?? 0) + 1,
-      status: isLatest ? nextStatus : current?.status ?? nextStatus,
-      at: Math.max(current?.at ?? 0, nextAt),
-      source: message.source,
-      model: typeof message.metadata?.model === 'string' ? message.metadata.model : current?.model
-    })
-  }
-  return Array.from(grouped.values()).sort((a, b) => b.at - a.at)
+  return buildChatConversationSummaries(messages)
 }
 
 async function filesToAttachments(files: FileList | File[]): Promise<ChatAttachmentDraft[]> {
@@ -162,12 +192,14 @@ export function LastChatsPage() {
   const [chatFeedback, setChatFeedback] = useState<ChatOperationFeedbackData | null>(null)
   const [stoppingConversationIds, setStoppingConversationIds] = useState<Set<string>>(() => new Set())
   const [localSettledConversationIds, setLocalSettledConversationIds] = useState<Set<string>>(() => new Set())
+  const [resolvingConversationIds, setResolvingConversationIds] = useState<Set<string>>(() => new Set())
+  const [documentVisible, setDocumentVisible] = useState(() => typeof document === 'undefined' || document.visibilityState !== 'hidden')
   const activityFeedRef = useRef<HTMLDivElement | null>(null)
   const draftTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
-  const loadData = useCallback(async () => {
-    setStatus('Loading...')
+  const loadData = useCallback(async (options: { silent?: boolean } = {}) => {
+    if (!options.silent) setStatus('Loading...')
     const [taskResponse, projectResponse, gatewayResponse, workspaceResponse] = await Promise.all([
       loadList<TaskEntity[]>(IPC_CHANNELS.tasks.list, token),
       loadList<Project[]>(IPC_CHANNELS.projects.list, token),
@@ -198,9 +230,19 @@ export function LastChatsPage() {
     setStatus('Ready')
   }, [token])
 
+  const loadDataRef = useRef(loadData)
+  const refreshData = useMemo(
+    () => createSerializedAsyncRunner((options?: { silent?: boolean }) => loadDataRef.current(options ?? {})),
+    []
+  )
+
   useEffect(() => {
-    void loadData()
+    loadDataRef.current = loadData
   }, [loadData])
+
+  useEffect(() => {
+    void refreshData({ silent: false })
+  }, [refreshData])
 
   const projectNameById = useMemo(() => {
     const map = new Map<string, string>()
@@ -229,10 +271,10 @@ export function LastChatsPage() {
 
       byConversation.forEach((groupMessages, conversationId) => {
         const ordered = [...groupMessages].sort((a, b) => a.createdAt - b.createdAt)
+        const summary = buildChatConversationSummaries(ordered)[0]
         const last = ordered[ordered.length - 1]
         const latestAt = last?.updatedAt ?? last?.createdAt ?? 0
         const latestBody = last?.body ?? ''
-        const status = last?.status ?? 'event'
         rows.push({
           id: conversationId,
           taskId: task.id,
@@ -240,11 +282,11 @@ export function LastChatsPage() {
           taskStatus: task.status,
           projectId: task.projectId,
           projectName: projectNameById.get(task.projectId) ?? task.projectId,
-          status,
+          status: summary?.status ?? last?.status ?? 'event',
           at: latestAt,
-          source: last?.source ?? 'codex-chat',
-          count: ordered.length,
-          model: typeof last?.metadata?.model === 'string' ? last.metadata.model : undefined,
+          source: summary?.source ?? last?.source ?? 'codex-chat',
+          count: summary?.count ?? 0,
+          model: summary?.model ?? (typeof last?.metadata?.model === 'string' ? last.metadata.model : undefined),
           latestBody,
           messages: ordered
         })
@@ -347,19 +389,12 @@ export function LastChatsPage() {
 
   const runningConversationIds = useMemo(() => {
     const ids = new Set<string>()
-    const now = Date.now()
-    const settled = new Set<string>()
-    for (const message of selectedTaskMessages) {
-      const id = conversationIdOf(message)
-      if (id && isRunCompleteMessage(message)) settled.add(id)
-    }
     for (const conversation of chatConversations) {
-      if (settled.has(conversation.id) || localSettledConversationIds.has(conversation.id)) continue
-      const hasFreshRunningEvent = selectedTaskMessages.some((message) => conversationIdOf(message) === conversation.id && isFreshRunningMessage(message, now))
-      if (hasFreshRunningEvent) ids.add(conversation.id)
+      if (localSettledConversationIds.has(conversation.id)) continue
+      if (conversation.status === 'running' || conversation.status === 'queued') ids.add(conversation.id)
     }
     return ids
-  }, [chatConversations, localSettledConversationIds, selectedTaskMessages])
+  }, [chatConversations, localSettledConversationIds])
 
   const selectedChatIsRunning = Boolean(selectedChatSummary && runningConversationIds.has(selectedChatSummary.id))
   const selectedChatCanStop = selectedChatIsRunning
@@ -394,7 +429,6 @@ export function LastChatsPage() {
     setChatFeedback(null)
     setChatSettingsOpen(false)
     setChatAttachments([])
-    setChatDraft('')
   }, [projectCodex.defaultModel, projectCodex.gatewayId, projectCodex.planModel, projectCodex.runModel, selectedProject, selectedTask, taskCodex.gatewayId, taskCodex.legacyModel, taskCodex.planModel, taskCodex.runModel])
 
   useEffect(() => {
@@ -407,11 +441,22 @@ export function LastChatsPage() {
 
   useEffect(() => {
     if (!selectedTaskId) return
+    const intervalMs = !documentVisible ? 15_000 : selectedChatIsRunning ? 2_500 : 12_000
     const timer = window.setInterval(() => {
-      void loadData()
-    }, 2500)
+      void refreshData({ silent: true })
+    }, intervalMs)
     return () => window.clearInterval(timer)
-  }, [loadData, selectedTaskId])
+  }, [documentVisible, refreshData, selectedChatIsRunning, selectedTaskId])
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      const visible = document.visibilityState !== 'hidden'
+      setDocumentVisible(visible)
+      if (visible && selectedTaskId) void refreshData({ silent: true })
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [refreshData, selectedTaskId])
 
   useEffect(() => {
     const feed = activityFeedRef.current
@@ -487,6 +532,32 @@ export function LastChatsPage() {
     setChatSending(true)
     setChatFeedback({ state: 'running', title: 'Sending message', message: `Starting ${resolvedModel} for this chat thread.` })
     try {
+      if (sendAsPlanRevision) {
+        if (chatAttachments.length > 0) {
+          setChatFeedback({ state: 'error', title: 'Action needs attention', message: 'Planner clarification does not support attachments. Remove attachments and send the answer as text.' })
+          return
+        }
+        const response = await invokeBridge<CodexPlanResponse>(IPC_CHANNELS.tasks.planWithCodex, {
+          actorToken: token,
+          taskId: selectedTask.id,
+          projectId: selectedProject.id,
+          gatewayId: chatGatewayId,
+          model: resolvedModel,
+          conversationId: selectedConversationId || undefined,
+          clarificationMessage: chatDraft.trim()
+        })
+        if (!response.ok || !response.data) {
+          setChatFeedback({ state: 'error', title: 'Action needs attention', message: response.error?.message ?? 'Unable to send planner clarification.' })
+          return
+        }
+        setSelectedConversationId(response.data.conversationId ?? selectedConversationId)
+        setIsStartingNewChat(false)
+        setChatAttachments([])
+        setChatFeedback(null)
+        void refreshData({ silent: true })
+        return
+      }
+
       const response = await invokeBridge<CodexChatResponse>(IPC_CHANNELS.tasks.codexChatSend, {
         actorToken: token,
         taskId: selectedTask.id,
@@ -505,10 +576,9 @@ export function LastChatsPage() {
       }
       setSelectedConversationId(response.data.conversationId)
       setIsStartingNewChat(false)
-      setChatDraft('')
       setChatAttachments([])
       setChatFeedback(null)
-      void loadData()
+      void refreshData({ silent: true })
     } catch (sendError) {
       setChatFeedback({ state: 'error', title: 'Action needs attention', message: sendError instanceof Error ? sendError.message : 'Unable to send Codex chat message.' })
     } finally {
@@ -539,7 +609,7 @@ export function LastChatsPage() {
       }
       setLocalSettledConversationIds((current) => new Set(current).add(conversationId))
       setChatFeedback(null)
-      void loadData()
+      void refreshData({ silent: true })
     } catch (stopError) {
       setChatFeedback({ state: 'error', title: 'Action needs attention', message: stopError instanceof Error ? stopError.message : 'Unable to stop Codex chat.' })
     } finally {
@@ -547,6 +617,50 @@ export function LastChatsPage() {
       setStoppingConversationIds((current) => {
         const next = new Set(current)
         next.delete(conversationId)
+        return next
+      })
+    }
+  }
+
+  const isResolvingConversation = (conversation: ConversationRow) => RESOLUTION_OPTIONS.some((option) => (
+    resolvingConversationIds.has(`${conversation.taskId}:${conversation.id}:${option.value}`)
+  ))
+
+  const resolveCodexChat = async (conversation: ConversationRow, resolution: CodexResolveResolution) => {
+    const resolvingKey = `${conversation.taskId}:${conversation.id}:${resolution}`
+    setResolvingConversationIds((current) => new Set(current).add(resolvingKey))
+    setStatus(`Marking chat as ${resolution}...`)
+    try {
+      const response = await invokeBridge<CodexResolveResponse>(IPC_CHANNELS.tasks.codexChatResolve, {
+        actorToken: token,
+        taskId: conversation.taskId,
+        conversationId: conversation.id,
+        resolution
+      })
+      if (!response.ok) {
+        const message = response.error?.message ?? 'Unable to resolve Codex chat.'
+        setError(message)
+        if (selectedTaskId === conversation.taskId) {
+          setChatFeedback({ state: 'error', title: 'Action needs attention', message })
+        }
+        return
+      }
+      if (selectedTaskId === conversation.taskId && selectedConversationId === conversation.id) {
+        setLocalSettledConversationIds((current) => new Set(current).add(conversation.id))
+        setChatFeedback(null)
+      }
+      setError(null)
+      await refreshData({ silent: true })
+    } catch (resolveError) {
+      const message = resolveError instanceof Error ? resolveError.message : 'Unable to resolve Codex chat.'
+      setError(message)
+      if (selectedTaskId === conversation.taskId) {
+        setChatFeedback({ state: 'error', title: 'Action needs attention', message })
+      }
+    } finally {
+      setResolvingConversationIds((current) => {
+        const next = new Set(current)
+        next.delete(resolvingKey)
         return next
       })
     }
@@ -612,7 +726,6 @@ export function LastChatsPage() {
       setIsStartingNewChat(true)
       setSelectedConversationId('')
       setChatFeedback(null)
-      setTimeout(() => draftTextareaRef.current?.focus(), 0)
     },
     onConversationSelect: (conversationId: string) => {
       setIsStartingNewChat(false)
@@ -667,7 +780,7 @@ export function LastChatsPage() {
           <p className={styles.title}>Chats</p>
           <p className={styles.subtitle}>View the latest Codex conversations across tasks.</p>
         </div>
-        <button type="button" className={styles.refreshButton} onClick={() => void loadData()}>
+        <button type="button" className={styles.refreshButton} onClick={() => void refreshData({ silent: false })}>
           <LuRefreshCw size={16} />
           Refresh
         </button>
@@ -699,29 +812,54 @@ export function LastChatsPage() {
                   <div className={styles.rows}>
                     {rows.map((conversation) => {
                       const at = formatChatTime(conversation.at)
+                      const manualResolution = manualResolutionOf(conversation)
+                      const currentResolution = manualResolution ?? statusResolutionOf(conversation.status)
+                      const selectedResolutionOption = resolutionOptionOf(currentResolution)
+                      const isResolving = isResolvingConversation(conversation)
+                      const currentStatusBadgeClass = displayedStatusBadgeClass(conversation, manualResolution)
+                      const resolveSelectClassName = [
+                        styles.resolveSelect,
+                        currentStatusBadgeClass === projectStyles.chatStatus_completed ? styles.resolveSelectCompleted : '',
+                        currentStatusBadgeClass === projectStyles.chatStatus_failed ? styles.resolveSelectFailed : '',
+                        currentStatusBadgeClass === projectStyles.chatStatus_running ? styles.resolveSelectRunning : ''
+                      ].filter(Boolean).join(' ')
                       return (
-                        <button
+                        <div
                           key={conversation.id}
-                          type="button"
                           className={styles.row}
-                          onClick={() => onSelectConversation(conversation)}
-                          title={conversation.taskTitle}
                         >
-                          <div className={styles.rowHead}>
-                            <span className={styles.rowTitle}>
+                          <button
+                            type="button"
+                            className={styles.rowOpenButton}
+                            onClick={() => onSelectConversation(conversation)}
+                            title={conversation.taskTitle}
+                          >
+                            <div className={styles.rowTitleLine}>
+                              <b className={styles.rowSourceBadge}>{sourceLabel(conversation.source)}</b>
                               <b>{conversation.taskTitle}</b>
-                              <span>{conversation.projectName}</span>
-                            </span>
-                            <span className={`${projectStyles.chatStatusBadge} ${statusBadgeClass(conversation.status)}`}>
-                              {statusLabel(conversation.status)}
-                            </span>
+                            </div>
+                            <p className={styles.rowMessage}>{shortText(conversation.latestBody, 140)}</p>
+                            <div className={styles.rowMeta}>
+                              {conversation.projectName} · {conversation.count} messages{conversation.model ? ` · ${conversation.model}` : ''}
+                            </div>
+                          </button>
+                          <div className={styles.rowStatusRail}>
+                            <div className={styles.rowResolveSelect} aria-label="Update chat status">
+                              <AppSelect
+                                className={resolveSelectClassName}
+                                options={RESOLUTION_OPTIONS}
+                                value={isResolving ? null : selectedResolutionOption}
+                                placeholder={isResolving ? 'Updating...' : displayedStatusLabel(conversation, manualResolution)}
+                                isDisabled={isResolving}
+                                onChange={(option) => {
+                                  if (!option || !isCodexResolveResolution(option.value)) return
+                                  void resolveCodexChat(conversation, option.value)
+                                }}
+                              />
+                            </div>
+                            <span className={styles.rowTime}>{at}</span>
                           </div>
-                          <p className={styles.rowMessage}>{shortText(conversation.latestBody, 140)}</p>
-                          <div className={styles.rowMeta}>
-                            <span>{sourceLabel(conversation.source)} · {conversation.count} messages</span>
-                            <span>{at}</span>
-                          </div>
-                        </button>
+                        </div>
                       )
                     })}
                   </div>

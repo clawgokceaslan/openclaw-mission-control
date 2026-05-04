@@ -1,6 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { LuCheck, LuClipboard, LuFileText, LuPlay, LuTerminal } from 'react-icons/lu'
+import { LuBot, LuCheck, LuClipboard, LuFileText, LuPlay, LuTerminal } from 'react-icons/lu'
+import { IPC_CHANNELS } from '@shared/contracts/ipc'
+import type { Agent } from '@shared/types/entities'
+import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
+import { useAuth } from '@renderer/providers/auth/auth-state'
+import { invokeBridge, loadList } from '@renderer/utils/api'
 import styles from './SettingsPage.module.scss'
 
 const executionFlow = [
@@ -18,6 +23,7 @@ const planningFlow = [
   'Codex reads OMC_CLI.md before planning.',
   'Codex runs context to fetch the source task, project rules, allowed statuses, tags, skills, and custom fields.',
   'Codex writes planned-task.json into the run folder.',
+  'If critical details are missing, Codex writes questions.json and calls ask so the questions appear in chat.',
   'Codex validates planned-task.json through the local CLI.',
   'Codex updates the scoped source task from the validated JSON.',
   'Codex runs finish so the temporary bridge and run folder can close.'
@@ -28,6 +34,7 @@ const operations = [
   { name: 'validate', command: 'node .omc/runs/<run-id>/omc-task-client.mjs validate .omc/runs/<run-id>/planned-task.json', description: 'Validates and normalizes task JSON without writing changes.' },
   { name: 'create', command: 'node .omc/runs/<run-id>/omc-task-client.mjs create .omc/runs/<run-id>/planned-task.json', description: 'Creates a new task in the scoped project from task JSON.' },
   { name: 'update', command: 'node .omc/runs/<run-id>/omc-task-client.mjs update .omc/runs/<run-id>/planned-task.json', description: 'Updates the scoped source task from task JSON.' },
+  { name: 'ask', command: 'node .omc/runs/<run-id>/omc-task-client.mjs ask .omc/runs/<run-id>/questions.json', description: 'Pauses the planner and posts AI-generated clarification questions into the task chat.' },
   { name: 'ready-for-review', command: 'node .omc/runs/<run-id>/omc-task-client.mjs ready-for-review', description: 'Moves the task and subtasks to Review, or the nearest pre-Done status.' },
   { name: 'finish', command: 'node .omc/runs/<run-id>/omc-task-client.mjs finish', description: 'Signals completion and lets Open Mission Control clean up the run folder.' }
 ]
@@ -44,12 +51,70 @@ Use this local helper. Do not use MCP.
 `
 
 export function SettingsPage() {
+  const { token } = useAuth()
   const [copied, setCopied] = useState<string | null>(null)
+  const [agents, setAgents] = useState<Agent[]>([])
+  const [defaultAgentId, setDefaultAgentId] = useState('')
+  const [defaultAgentSaving, setDefaultAgentSaving] = useState(false)
+  const [defaultAgentMessage, setDefaultAgentMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    if (!token) {
+      setAgents([])
+      setDefaultAgentId('')
+      return
+    }
+    void Promise.all([
+      loadList<Agent[]>(IPC_CHANNELS.agents.list, token),
+      invokeBridge<{ agentId: string | null }>(IPC_CHANNELS.appSettings.getDefaultAgent, { actorToken: token })
+    ]).then(([agentResponse, defaultResponse]) => {
+      if (cancelled) return
+      setAgents(Array.isArray(agentResponse.data) ? agentResponse.data : [])
+      setDefaultAgentId(defaultResponse.ok && defaultResponse.data?.agentId ? defaultResponse.data.agentId : '')
+    }).catch(() => {
+      if (!cancelled) setDefaultAgentMessage('Unable to load default task agent.')
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [token])
+
+  const agentOptions = useMemo<AppSelectOption[]>(() => {
+    return [...agents]
+      .sort((a, b) => a.name.localeCompare(b.name, 'tr'))
+      .map((agent) => ({ value: agent.id, label: agent.name }))
+  }, [agents])
+
+  const selectedDefaultAgentOption = useMemo<AppSelectOption | null>(() => {
+    return agentOptions.find((option) => option.value === defaultAgentId) ?? null
+  }, [agentOptions, defaultAgentId])
 
   const copy = async (key: string, value: string) => {
     await navigator.clipboard.writeText(value)
     setCopied(key)
     window.setTimeout(() => setCopied((current) => current === key ? null : current), 1600)
+  }
+
+  const saveDefaultAgent = async (option: AppSelectOption | null) => {
+    setDefaultAgentSaving(true)
+    setDefaultAgentMessage(null)
+    try {
+      const response = await invokeBridge<{ agentId: string | null }>(IPC_CHANNELS.appSettings.setDefaultAgent, {
+        actorToken: token,
+        agentId: option?.value ?? null
+      })
+      if (!response.ok) {
+        setDefaultAgentMessage(response.error?.message ?? 'Unable to update default task agent.')
+        return
+      }
+      setDefaultAgentId(response.data?.agentId ?? '')
+      setDefaultAgentMessage(option ? 'Default task agent updated.' : 'Default task agent cleared.')
+    } catch (error) {
+      setDefaultAgentMessage(error instanceof Error ? error.message : 'Unable to update default task agent.')
+    } finally {
+      setDefaultAgentSaving(false)
+    }
   }
 
   return (
@@ -60,6 +125,31 @@ export function SettingsPage() {
           <p>CLI settings for Codex runs launched by Open Mission Control.</p>
         </div>
       </header>
+
+      <section className={styles.panel}>
+        <div className={styles.panelHeader}>
+          <span className={styles.panelIcon}><LuBot size={19} /></span>
+          <div>
+            <h2>Default task agent</h2>
+            <p>Tasks without their own agent inherit this selection in detail views and Codex exports.</p>
+          </div>
+        </div>
+        <div className={styles.defaultAgentRow}>
+          <AppSelect
+            mode="single"
+            value={selectedDefaultAgentOption}
+            options={agentOptions}
+            placeholder={agents.length > 0 ? 'Choose default agent' : 'No agents available'}
+            isClearable
+            isDisabled={defaultAgentSaving || agents.length === 0}
+            onChange={(option) => {
+              if (!Array.isArray(option)) void saveDefaultAgent(option)
+            }}
+          />
+          <span>{defaultAgentSaving ? 'Saving...' : selectedDefaultAgentOption ? `${selectedDefaultAgentOption.label} is inherited by unassigned tasks.` : 'No default agent selected.'}</span>
+        </div>
+        {defaultAgentMessage ? <p className={styles.settingMessage}>{defaultAgentMessage}</p> : null}
+      </section>
 
       <section className={styles.panel}>
         <div className={styles.panelHeader}>

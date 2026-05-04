@@ -6,6 +6,7 @@ import { createAppContext } from '../services/service-container.js'
 import { registerIpcRoutes } from '../ipc/router.js'
 import { JobScheduler } from '../services/scheduler/index.js'
 import { electronRuntime } from '../utils/electron-runtime.js'
+import { createRendererHealthMonitor, type RendererHealthMonitor, type RendererHealthPayload } from '../utils/renderer-health.js'
 import { safeConsole } from '../utils/safe-output.js'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 import type { AppNavigateRequest } from '../../shared/contracts/ipc.js'
@@ -18,6 +19,7 @@ const BrowserWindow = electronRuntime.BrowserWindow
 const Tray = electronRuntime.Tray
 const nativeImage = electronRuntime.nativeImage
 const ipcMain = electronRuntime.ipcMain
+const powerMonitor = electronRuntime.powerMonitor
 
 const isDev = process.env.ELECTRON_RENDERER_URL !== undefined || process.env.NODE_ENV === 'development' || app?.isPackaged === false
 
@@ -29,7 +31,7 @@ function resolveFromCandidates(candidates: string[]): string | undefined {
   return candidates.find(fileExists)
 }
 
-function resolveRendererSource(): string {
+export function resolveRendererSource(): string {
   if (!app) {
     return 'about:blank'
   }
@@ -89,6 +91,7 @@ export function createMainWindow(): Electron.BrowserWindow {
   webContents.on('did-fail-load', (_event, errorCode, errorDescription, failedUrl) => {
     safeConsole.error('[main] [window-fail-load]', { errorCode, errorDescription, failedUrl })
   })
+  attachMainWindowHealthMonitor(window)
   window.maximize()
   window.loadURL(url)
   return window
@@ -99,6 +102,7 @@ let companionWindowRef: Electron.BrowserWindow | null = null
 let trayRef: Electron.Tray | null = null
 let schedulerRef: JobScheduler | null = null
 let ipcRoutesRegistered = false
+const rendererHealthMonitors = new Map<number, RendererHealthMonitor>()
 
 function normalizeCompanionNavigationRequest(rawRequest: unknown): AppNavigateRequest {
   if (!rawRequest || typeof rawRequest !== 'object') return {}
@@ -141,6 +145,33 @@ function registerCompanionIpcRoutes(): void {
     companionWindowRef?.hide()
     return { ok: true, data: { path } }
   })
+
+  ipcMain.handle(IPC_CHANNELS.app.rendererHealth, (event, rawRequest) => {
+    const request = rawRequest && typeof rawRequest === 'object' ? rawRequest as Record<string, unknown> : {}
+    const payload = request.payload && typeof request.payload === 'object'
+      ? request.payload as RendererHealthPayload
+      : request as RendererHealthPayload
+    rendererHealthMonitors.get(event.sender.id)?.recordHealth(payload)
+    return { ok: true, data: { received: true } }
+  })
+}
+
+function attachMainWindowHealthMonitor(window: Electron.BrowserWindow): void {
+  const monitor = createRendererHealthMonitor(window, {
+    getRendererSource: resolveRendererSource,
+    logger: safeConsole
+  })
+  const webContentsId = window.webContents.id
+  rendererHealthMonitors.set(webContentsId, monitor)
+  window.on('closed', () => {
+    rendererHealthMonitors.delete(webContentsId)
+  })
+}
+
+function recoverMainWindowIfStale(reason: string): void {
+  const mainWindow = windowRef && !windowRef.isDestroyed() ? windowRef : null
+  if (!mainWindow) return
+  rendererHealthMonitors.get(mainWindow.webContents.id)?.recoverIfStale(reason)
 }
 
 function createTrayIcon(): Electron.NativeImage | undefined {
@@ -226,6 +257,8 @@ export async function bootstrapApp(): Promise<void> {
     throw new Error('Electron BrowserWindow API is unavailable in this runtime')
   }
 
+  app.setAppUserModelId?.('OpenMissionControl')
+
   const context = await createAppContext()
 
   app.on('window-all-closed', () => {
@@ -252,6 +285,12 @@ export async function bootstrapApp(): Promise<void> {
     schedulerRef = scheduler
     windowRef = createMainWindow()
     createCompanionTray()
+    powerMonitor?.on('resume', () => {
+      setTimeout(() => recoverMainWindowIfStale('power:resume'), 1500)
+    })
+    powerMonitor?.on('unlock-screen', () => {
+      setTimeout(() => recoverMainWindowIfStale('power:unlock-screen'), 1500)
+    })
   })
 
   app.on('before-quit', () => {

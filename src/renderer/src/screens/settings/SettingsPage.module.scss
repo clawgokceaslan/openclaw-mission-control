@@ -135,6 +135,30 @@
   }
 }
 
+.defaultAgentRow {
+  display: grid;
+  grid-template-columns: minmax(240px, 420px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+
+  > span {
+    min-width: 0;
+    color: var(--omc-text-muted);
+    font-size: 0.88rem;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.settingMessage {
+  margin: -4px 0 0;
+  color: var(--omc-text-muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
 .clientGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -250,6 +274,7 @@
   }
 
   .infoGrid,
+  .defaultAgentRow,
   .operationList article {
     grid-template-columns: 1fr;
   }

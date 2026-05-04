@@ -63,6 +63,21 @@ function finiteNumberFromString(value: unknown): number | undefined {
   return undefined
 }
 
+function parseTimestampValue(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 1_000_000_000_000 ? Math.trunc(value) : Math.trunc(value * 1_000)
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value.trim())
+    if (Number.isFinite(parsed)) {
+      return parsed > 1_000_000_000_000 ? Math.trunc(parsed) : Math.trunc(parsed * 1_000)
+    }
+    const asDate = Date.parse(value)
+    return Number.isFinite(asDate) ? asDate : undefined
+  }
+  return undefined
+}
+
 function asDurationMs(record: Record<string, unknown>, keys: string[]): number | undefined {
   for (const key of keys) {
     const direct = finiteNumber(record[key]) ?? finiteNumberFromString(record[key])
@@ -184,8 +199,10 @@ function normalizeEvent(rawEvent: Record<string, unknown>): CodexNormalizedEvent
   if ((itemType === 'reasoning' || itemType === 'reasoning_summary') && item) {
     const text = typeof item.text === 'string' ? item.text : typeof item.summary === 'string' ? item.summary : ''
     const durationMs = asDurationMs(item, ['duration_ms', 'durationMs', 'duration']) ?? asMsFromSeconds(item, ['duration_sec', 'durationSeconds', 'duration_second'])
-    const startedAt = asDurationMs(item, ['started_at', 'startedAt', 'start_time', 'startTime', 'event_started_at', 'eventStartedAt'])
-    const endedAt = asDurationMs(item, ['ended_at', 'endedAt', 'end_time', 'endTime', 'event_ended_at', 'eventEndedAt'])
+    const startedAt = parseTimestampValue(item.started_at) ?? parseTimestampValue(item.startedAt)
+      ?? parseTimestampValue(item.start_time) ?? parseTimestampValue(item.startTime) ?? parseTimestampValue(item.event_started_at) ?? parseTimestampValue(item.eventStartedAt)
+    const endedAt = parseTimestampValue(item.ended_at) ?? parseTimestampValue(item.endedAt)
+      ?? parseTimestampValue(item.end_time) ?? parseTimestampValue(item.endTime) ?? parseTimestampValue(item.event_ended_at) ?? parseTimestampValue(item.eventEndedAt)
     return text ? [{
       kind: 'message',
       role: 'thinking',

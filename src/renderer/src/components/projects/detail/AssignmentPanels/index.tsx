@@ -9,6 +9,8 @@ interface AgentAssignmentPanelProps {
   agent: Agent | null
   agents: Agent[]
   ctaDescription: string
+  inheritedLabel?: string
+  canClear?: boolean
   onChange: (agentId: string | null) => MaybePromise
 }
 
@@ -43,7 +45,7 @@ function formatReasoning(value?: Agent['reasoningLevel']): string {
   return value.replace(/_/g, ' ')
 }
 
-export function AgentAssignmentPanel({ agent, agents, ctaDescription, onChange }: AgentAssignmentPanelProps) {
+export function AgentAssignmentPanel({ agent, agents, ctaDescription, inheritedLabel, canClear = Boolean(agent), onChange }: AgentAssignmentPanelProps) {
   const [isPickerOpen, setIsPickerOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [savingAgentId, setSavingAgentId] = useState<string | null>(null)
@@ -75,7 +77,7 @@ export function AgentAssignmentPanel({ agent, agents, ctaDescription, onChange }
     <div className={styles.assignmentPanel}>
       <div className={styles.tabCtaCard}>
         <div>
-          <strong>{agent ? 'Change agent' : 'Assign agent'}</strong>
+          <strong>{agent ? 'Change agent' : 'Assign agent'}{inheritedLabel ? <span className={styles.assignmentInlineBadge}>{inheritedLabel}</span> : null}</strong>
           <span>{ctaDescription}</span>
         </div>
         <button type="button" className={styles.tabActionButton} onClick={() => setIsPickerOpen(true)}>
@@ -101,6 +103,7 @@ export function AgentAssignmentPanel({ agent, agents, ctaDescription, onChange }
               <tr>
                 <td>
                   <span className={styles.assignmentPrimary}>{agent.name}</span>
+                  {inheritedLabel ? <span className={styles.assignmentInlineBadge}>{inheritedLabel}</span> : null}
                   <span className={styles.assignmentSecondary}>{markdownSnippet(agent.trainingMarkdown)}</span>
                 </td>
                 <td><span className={styles.assignmentBadge}>{agent.status}</span></td>
@@ -147,7 +150,7 @@ export function AgentAssignmentPanel({ agent, agents, ctaDescription, onChange }
                   {filteredAgents.length > 0 ? filteredAgents.map((item) => (
                     <tr key={item.id}>
                       <td>
-                        <span className={styles.assignmentPrimary}>{item.name}</span>
+                        <span className={styles.assignmentPrimary}>{item.name}{inheritedLabel && item.id === agent?.id ? <span className={styles.assignmentInlineBadge}>{inheritedLabel}</span> : null}</span>
                         <span className={styles.assignmentSecondary}>{markdownSnippet(item.trainingMarkdown)}</span>
                       </td>
                       <td><span className={styles.assignmentBadge}>{item.status}</span></td>
@@ -157,10 +160,10 @@ export function AgentAssignmentPanel({ agent, agents, ctaDescription, onChange }
                         <button
                           type="button"
                           className={styles.assignmentTableAction}
-                          disabled={savingAgentId !== null || item.id === agent?.id}
+                          disabled={savingAgentId !== null || (item.id === agent?.id && !inheritedLabel)}
                           onClick={() => void selectAgent(item.id)}
                         >
-                          {item.id === agent?.id ? 'Selected' : 'Select'}
+                          {item.id === agent?.id && !inheritedLabel ? 'Selected' : 'Select'}
                         </button>
                       </td>
                     </tr>
@@ -174,7 +177,7 @@ export function AgentAssignmentPanel({ agent, agents, ctaDescription, onChange }
             </div>
             <footer>
               <button type="button" onClick={() => setIsPickerOpen(false)}>Cancel</button>
-              <button type="button" disabled={savingAgentId !== null || !agent} onClick={() => void selectAgent(null)}>Clear agent</button>
+              <button type="button" disabled={savingAgentId !== null || !canClear} onClick={() => void selectAgent(null)}>Clear agent</button>
             </footer>
           </section>
         </div>
