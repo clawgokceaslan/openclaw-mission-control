@@ -471,15 +471,16 @@ export function TaskDetailPopup({
       {!hideTaskActions ? (
         <>
           {onImportJson ? (
-            <button type="button" className={`${styles.iconButton} ${styles.importButton}`} onPointerDown={(event) => runHeaderAction(event, onImportJson)} aria-label="Import JSON">
+            <button type="button" className={`${styles.iconButton} ${styles.labeledActionButton} ${styles.importButton}`} onPointerDown={(event) => runHeaderAction(event, onImportJson)} aria-label="Import JSON">
               <LuUpload size={16} />
+              <span className={styles.actionButtonLabel}>Import</span>
             </button>
           ) : null}
           {hasDownloadActions ? (
             <div className={styles.menuWrap} ref={downloadMenuRef}>
               <button
                 type="button"
-                className={`${styles.iconButton} ${styles.downloadButton} ${isDownloadMenuOpen ? styles.iconButtonActive : ''}`}
+                className={`${styles.iconButton} ${styles.labeledActionButton} ${styles.downloadButton} ${isDownloadMenuOpen ? styles.iconButtonActive : ''}`}
                 onPointerDown={(event) => runHeaderAction(event, () => {
                   setIsMenuOpen(false)
                   setIsDownloadMenuOpen((value) => !value)
@@ -487,6 +488,7 @@ export function TaskDetailPopup({
                 aria-label="Download task"
               >
                 <LuDownload size={17} />
+                <span className={styles.actionButtonLabel}>Download</span>
               </button>
               {isDownloadMenuOpen ? (
                 <div className={styles.menu} role="menu">

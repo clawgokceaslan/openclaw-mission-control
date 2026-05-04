@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { LuPencil, LuPlus, LuTrash2, LuX } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { ProjectStatus, ProjectStatusCategory, StatusTemplate } from '@shared/types/entities'
@@ -181,7 +181,8 @@ export function StatusesPage() {
   const renderEditor = () => (
     <section className={styles.editor}>
       <header className={styles.editorHeader}>
-        <div>
+        <div className={styles.editorTitleWrap}>
+          <span className={styles.workflowBadge}>Selected workflow</span>
           <h2>{editor.name || 'Untitled workflow'}</h2>
           <p>Status templates are copied into projects and can be adjusted per project later.</p>
         </div>
@@ -191,8 +192,8 @@ export function StatusesPage() {
         </div>
       </header>
       <div className={styles.groups}>
-        <label>
-          Template name
+        <label className={styles.templateNameField}>
+          <span>Template name</span>
           <input className={styles.input} value={editor.name} onChange={(event) => setEditor((current) => ({ ...current, name: event.target.value }))} />
         </label>
         {CATEGORY_ORDER.map((category) => {
@@ -200,21 +201,31 @@ export function StatusesPage() {
           return (
             <section key={category} className={styles.group}>
               <header className={styles.groupHeader}>
-                <strong>{CATEGORY_LABELS[category]}</strong>
-                <span>{CATEGORY_HELP[category]}</span>
-              </header>
-              {rows.map((item) => (
-                <div key={item.id} className={styles.row}>
-                  <input className={styles.input} value={item.name} onChange={(event) => updateItem(item.id, { name: event.target.value })} />
-                  <label className={styles.swatch} title="Pick color">
-                    <input type="color" value={item.color} onChange={(event) => updateItem(item.id, { color: event.target.value })} />
-                  </label>
-                  <input className={styles.colorInput} value={item.color} onChange={(event) => updateItem(item.id, { color: event.target.value || colorFor(category, item.name) })} />
-                  <button type="button" className={styles.iconBtn} aria-label={`Remove ${item.name}`} onClick={() => removeItem(item.id)} disabled={category !== 'active'}>
-                    <LuTrash2 size={15} />
-                  </button>
+                <div>
+                  <strong>{CATEGORY_LABELS[category]}</strong>
+                  <span>{rows.length} {rows.length === 1 ? 'status' : 'statuses'}</span>
                 </div>
-              ))}
+                <p>{CATEGORY_HELP[category]}</p>
+              </header>
+              <div className={styles.groupBody}>
+                {rows.map((item) => (
+                  <div key={item.id} className={styles.row} style={{ '--status-color': item.color } as CSSProperties}>
+                    <div className={styles.rowMain}>
+                      <span className={styles.statusDot} aria-hidden="true" />
+                      <input className={styles.input} value={item.name} onChange={(event) => updateItem(item.id, { name: event.target.value })} />
+                    </div>
+                    <div className={styles.colorControls}>
+                      <label className={styles.swatch} title="Pick color">
+                        <input type="color" value={item.color} onChange={(event) => updateItem(item.id, { color: event.target.value })} />
+                      </label>
+                      <input className={styles.colorInput} value={item.color} onChange={(event) => updateItem(item.id, { color: event.target.value || colorFor(category, item.name) })} />
+                    </div>
+                    <button type="button" className={styles.iconBtn} aria-label={`Remove ${item.name}`} onClick={() => removeItem(item.id)} disabled={category !== 'active'}>
+                      <LuTrash2 size={15} />
+                    </button>
+                  </div>
+                ))}
+              </div>
               {category === 'active' ? <button type="button" className={styles.addBtn} onClick={addActiveStatus}><LuPlus size={15} /> Add active status</button> : null}
             </section>
           )
@@ -227,7 +238,8 @@ export function StatusesPage() {
   return (
     <section className={styles.page}>
       <header className={styles.header}>
-        <div>
+        <div className={styles.headerMeta}>
+          <span className={styles.headerKicker}>Status flow templates</span>
           <h1>Statuses</h1>
           <p>{templates.length} status templates configured.</p>
         </div>
@@ -238,21 +250,28 @@ export function StatusesPage() {
       </header>
       <main className={styles.content}>
         <aside className={styles.card}>
+          <header className={styles.templatePanelHeader}>
+            <div>
+              <strong>Templates</strong>
+              <span>Reusable status flows</span>
+            </div>
+            <span className={styles.templateCount}>{templates.length}</span>
+          </header>
           <div className={styles.templateList}>
             {templates.length === 0 ? <p className={styles.empty}>No status templates configured.</p> : null}
             {templates.map((template) => (
               <div key={template.id} className={`${styles.templateBtn} ${selectedTemplate?.id === template.id ? styles.templateBtnActive : ''}`}>
-                <button type="button" onClick={() => setSelectedId(template.id)}>
+                <button type="button" className={styles.templateMain} onClick={() => setSelectedId(template.id)}>
                   <strong>{template.name}</strong>
-                  <span>{template.items?.length ?? 0} statuses</span>
+                  <span className={styles.templateSummary}>{template.items?.length ?? 0} statuses</span>
                 </button>
-                <button type="button" aria-label={`Edit ${template.name}`} onClick={() => setSelectedId(template.id)}><LuPencil size={15} /></button>
-                <button type="button" aria-label={`Delete ${template.name}`} onClick={() => setDeleteTarget(template)}><LuTrash2 size={15} /></button>
+                <button type="button" className={styles.templateIconAction} aria-label={`Edit ${template.name}`} onClick={() => setSelectedId(template.id)}><LuPencil size={15} /></button>
+                <button type="button" className={styles.templateIconAction} aria-label={`Delete ${template.name}`} onClick={() => setDeleteTarget(template)}><LuTrash2 size={15} /></button>
               </div>
             ))}
           </div>
         </aside>
-        {selectedTemplate ? renderEditor() : <section className={styles.editor}><p className={styles.empty}>Create a template to start.</p></section>}
+        {selectedTemplate ? renderEditor() : <section className={`${styles.editor} ${styles.emptyEditor}`}><p className={styles.empty}>Create a template to start.</p></section>}
       </main>
 
       {isCreateOpen ? (
