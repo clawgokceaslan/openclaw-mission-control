@@ -154,6 +154,170 @@
           }
         }
 
+        .avatarEditor {
+          display: grid;
+          gap: 14px;
+
+          .avatarControls {
+            border: 1px solid var(--omc-border-subtle);
+            border-radius: 12px;
+            background: var(--omc-surface-soft);
+            padding: 14px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+
+            .avatarActions {
+              min-width: 0;
+              display: flex;
+              flex-wrap: wrap;
+              align-items: center;
+              gap: 8px;
+
+              input {
+                display: none;
+              }
+            }
+          }
+
+          button {
+            min-height: 36px;
+            border: none;
+            border-radius: 9px;
+            background: var(--omc-primary);
+            color: var(--omc-inverse-text);
+            padding: 0 13px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            font-weight: 850;
+
+            &:hover {
+              background: var(--omc-primary-strong);
+            }
+          }
+
+          .secondaryButton {
+            border: 1px solid var(--omc-border);
+            background: var(--omc-surface);
+            color: var(--omc-text-muted);
+
+            &:hover {
+              background: var(--omc-hover-bg);
+              color: var(--omc-text-strong);
+            }
+          }
+
+          .dangerButton {
+            border: 1px solid var(--omc-danger-border);
+            background: var(--omc-danger-bg);
+            color: var(--omc-danger-strong);
+
+            &:hover {
+              background: var(--omc-danger-bg);
+              color: var(--omc-danger-strong);
+            }
+          }
+
+          .cropGrid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(170px, 220px);
+            gap: 14px;
+            align-items: start;
+
+            .cropWorkspace {
+              border: 1px solid var(--omc-border-subtle);
+              border-radius: 12px;
+              background: var(--omc-surface-soft);
+              padding: 14px;
+              display: grid;
+              justify-items: start;
+              gap: 12px;
+
+              .cropBox {
+                width: 280px;
+                max-width: 100%;
+                aspect-ratio: 1;
+                position: relative;
+                overflow: hidden;
+                border: 1px solid var(--omc-border);
+                border-radius: 14px;
+                background: var(--omc-surface-muted);
+                cursor: grab;
+                touch-action: none;
+                user-select: none;
+
+                &:active {
+                  cursor: grabbing;
+                }
+
+                &:focus {
+                  outline: none;
+                  box-shadow: 0 0 0 0.16rem var(--omc-input-focus-ring);
+                }
+
+                &::after {
+                  content: '';
+                  position: absolute;
+                  inset: 0;
+                  border: 2px solid color-mix(in srgb, var(--omc-inverse-text) 88%, var(--omc-primary));
+                  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+                  pointer-events: none;
+                }
+
+                img {
+                  position: absolute;
+                  max-width: none;
+                  transform: translate(-50%, -50%);
+                  pointer-events: none;
+                }
+              }
+
+              .zoomControl {
+                width: min(280px, 100%);
+                display: grid;
+                gap: 8px;
+
+                span {
+                  color: var(--omc-text-muted);
+                  display: inline-flex;
+                  align-items: center;
+                  gap: 7px;
+                  font-size: 0.82rem;
+                  font-weight: 850;
+                }
+
+                input {
+                  width: 100%;
+                  accent-color: var(--omc-primary);
+                }
+              }
+            }
+
+            .cropPreviewPanel {
+              border: 1px solid var(--omc-border-subtle);
+              border-radius: 12px;
+              background: var(--omc-surface-soft);
+              padding: 14px;
+              display: grid;
+              justify-items: center;
+              gap: 12px;
+              text-align: center;
+
+              span {
+                color: var(--omc-text-muted);
+                font-size: 0.8rem;
+                font-weight: 850;
+              }
+
+              button {
+                width: 100%;
+              }
+            }
+          }
+        }
+
         .appearanceGrid {
           display: grid;
           gap: 0;
@@ -494,6 +658,24 @@
       .profileMain {
         .formPanel {
           padding: 14px;
+
+          .avatarEditor {
+            .avatarControls {
+              align-items: flex-start;
+              flex-direction: column;
+            }
+
+            .cropGrid {
+              grid-template-columns: 1fr;
+
+              .cropWorkspace {
+                .cropBox,
+                .zoomControl {
+                  width: 100%;
+                }
+              }
+            }
+          }
 
           .appearanceGrid {
             .settingBlock {

@@ -26,6 +26,14 @@ type ResolvedQuestionContext = {
   project: Project | null
 }
 
+function nextSelectedOptionIds(current: Record<string, string>, questionId: string, optionId: string): Record<string, string> {
+  if (current[questionId] === optionId) {
+    const { [questionId]: _removed, ...rest } = current
+    return rest
+  }
+  return { ...current, [questionId]: optionId }
+}
+
 type PlannerQuestionContextValue = {
   queue: PlannerQuestionQueueItem[]
   active: PlannerQuestionQueueItem | null
@@ -219,11 +227,7 @@ export function PlannerQuestionHost() {
     }
   }, [active, token])
 
-  const canSubmit = useMemo(() => Boolean(active && active.prompt.questions.every((question) => (
-    question.options.length > 0
-      ? Boolean(selectedOptionIds[question.id])
-      : Boolean(notes[question.id]?.trim())
-  ))), [active, notes, selectedOptionIds])
+  const canSubmit = useMemo(() => Boolean(active && !submitting && !resolveError), [active, resolveError, submitting])
 
   const openRelatedChat = () => {
     if (!active) return
@@ -308,10 +312,10 @@ export function PlannerQuestionHost() {
                   {question.options.map((option) => (
                     <label key={option.id} className={selectedOptionIds[question.id] === option.id ? styles.optionSelected : ''}>
                       <input
-                        type="radio"
+                        type="checkbox"
                         name={`global-planner-question-${active.id}-${question.id}`}
                         checked={selectedOptionIds[question.id] === option.id}
-                        onChange={() => setSelectedOptionIds((current) => ({ ...current, [question.id]: option.id }))}
+                        onChange={() => setSelectedOptionIds((current) => nextSelectedOptionIds(current, question.id, option.id))}
                       />
                       <span>
                         <b>{option.label}</b>
@@ -334,7 +338,7 @@ export function PlannerQuestionHost() {
         </div>
 
         <footer className={styles.footer}>
-          <span>{queue.length > 1 ? `${queue.length - 1} more planner question batch${queue.length - 1 === 1 ? '' : 'es'} waiting.` : 'Answer to continue the planner run.'}</span>
+          <span>{queue.length > 1 ? `${queue.length - 1} more planner question batch${queue.length - 1 === 1 ? '' : 'es'} waiting.` : 'You can leave choices blank and Codex will decide.'}</span>
           <button type="button" onClick={() => void submitAnswer()} disabled={!canSubmit || submitting || Boolean(resolveError)}>
             {submitting ? 'Sending...' : <><LuSend size={15} /> Send answer</>}
           </button>

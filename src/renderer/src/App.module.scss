@@ -303,7 +303,7 @@
 .topbarInner {
   min-height: 64px;
   display: grid;
-  grid-template-columns: minmax(260px, 340px) minmax(240px, 1fr) auto auto;
+  grid-template-columns: minmax(260px, 340px) minmax(240px, 1fr) auto;
   align-items: center;
   gap: 16px;
   padding: 0 18px;
@@ -358,6 +358,7 @@
 
 .universalSearchButton,
 .plannerQuestionButton,
+.userCluster,
 .userArea,
 .commandModal {
   -webkit-app-region: no-drag;
@@ -952,13 +953,21 @@
 .userArea {
   display: flex;
   align-items: center;
-  gap: 10px;
   border: 1px solid transparent;
-  border-radius: 12px;
-  padding: 5px 6px 5px 10px;
+  border-radius: 14px;
+  padding: 3px;
   color: inherit;
   text-decoration: none;
   transition: background-color 0.16s ease, border-color 0.16s ease;
+}
+
+.userCluster {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  gap: 8px;
+  min-width: 0;
 }
 
 .userArea:hover {
@@ -997,9 +1006,9 @@
 
 .plannerQuestionTopArea {
   position: relative;
-  display: flex;
-  justify-content: flex-end;
-  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
 }
 
 .plannerQuestionButton {
@@ -1007,38 +1016,40 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   border: 1px solid var(--omc-border);
-  border-radius: 12px;
-  background: var(--omc-surface-muted);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--omc-surface-muted) 82%, var(--omc-primary) 18%);
   color: var(--omc-primary);
-  transition: background-color 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
 }
 
 .plannerQuestionButton:hover {
-  border-color: var(--omc-primary);
+  border-color: color-mix(in srgb, var(--omc-primary) 55%, var(--omc-border));
   background: var(--omc-active-bg);
-  transform: translateY(-1px);
+  color: var(--omc-primary-strong);
 }
 
 .plannerQuestionButtonIdle {
   color: var(--omc-text-muted);
-  opacity: 0.72;
+  background: transparent;
+  opacity: 0.82;
 }
 
 .plannerQuestionButtonIdle:hover {
   border-color: var(--omc-border);
   background: var(--omc-surface-muted);
-  transform: none;
+  color: var(--omc-text);
 }
 
 .plannerQuestionButton > span {
   position: absolute;
-  top: -6px;
-  right: -6px;
-  min-width: 18px;
-  height: 18px;
+  top: -5px;
+  right: -5px;
+  min-width: 17px;
+  height: 17px;
   padding: 0 5px;
   border: 2px solid var(--omc-surface);
   border-radius: 999px;
@@ -1046,7 +1057,7 @@
   color: var(--omc-inverse-text);
   display: grid;
   place-items: center;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 900;
   line-height: 1;
 }
@@ -1104,6 +1115,32 @@
   max-height: 380px;
   overflow: auto;
   padding: 10px;
+}
+
+.plannerQuestionEmpty {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  padding: 24px 18px 22px;
+  color: var(--omc-text-muted);
+  text-align: center;
+}
+
+.plannerQuestionEmpty svg {
+  color: var(--omc-text-soft);
+}
+
+.plannerQuestionEmpty strong {
+  color: var(--omc-text-strong);
+  font-size: 0.86rem;
+  font-weight: 850;
+}
+
+.plannerQuestionEmpty span {
+  max-width: 270px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.45;
 }
 
 .plannerQuestionRow {
@@ -1266,7 +1303,7 @@
 
 @media (width <= 900px) {
   .topbarInner {
-    grid-template-columns: minmax(130px, 1fr) minmax(180px, 1.4fr) auto auto;
+    grid-template-columns: minmax(130px, 1fr) minmax(180px, 1.4fr) auto;
     gap: 10px;
   }
 
@@ -1281,17 +1318,16 @@
 
 @media (width <= 640px) {
   .topbarInner {
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: 1fr auto;
     grid-template-areas:
-      "brand questions user"
-      "search search search";
+      "brand user"
+      "search search";
     padding-top: 8px;
     padding-bottom: 8px;
   }
 
   .brandArea { grid-area: brand; }
-  .plannerQuestionTopArea { grid-area: questions; }
-  .userArea { grid-area: user; }
+  .userCluster { grid-area: user; }
   .universalSearchButton { grid-area: search; }
   .appFrame { grid-template-rows: auto 1fr; }
 }
@@ -1352,7 +1388,7 @@
 
 @media (width <= 1200px) {
   .topbarInner {
-    grid-template-columns: 300px 1fr auto auto;
+    grid-template-columns: 300px 1fr auto;
     padding: 0 12px;
   }
 
@@ -1380,18 +1416,17 @@
   }
 
   .topbarInner {
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: 1fr auto;
     grid-template-areas:
-      "brand questions user"
-      "search search search";
+      "brand user"
+      "search search";
     min-height: auto;
     padding: 12px;
     gap: 8px;
   }
 
   .brandArea { grid-area: brand; }
-  .plannerQuestionTopArea { grid-area: questions; }
-  .userArea { grid-area: user; }
+  .userCluster { grid-area: user; }
   .universalSearchButton { grid-area: search; }
 
   .shell {

@@ -295,6 +295,7 @@ export function formatPlannerClarificationAnswer(input: {
       const lines = [`${index + 1}. Question: ${question.question}`]
       if (selectedOption) lines.push(`Selected option: ${selectedOption.label}${selectedOption.description ? ` - ${selectedOption.description}` : ''}`)
       if (note) lines.push(selectedOption ? `Additional context: ${note}` : `Answer: ${note}`)
+      if (!selectedOption && !note) lines.push('No explicit answer provided; use your best judgment from the task context.')
       return lines
     })
   ].join('\n')

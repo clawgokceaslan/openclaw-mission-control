@@ -1,11 +1,40 @@
-import { FormEvent, useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { LuBadgeCheck, LuCheck, LuMail, LuMonitor, LuMoon, LuSave, LuSun, LuUserRound } from 'react-icons/lu'
+import {
+  FormEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent
+} from 'react'
+import {
+  LuBadgeCheck,
+  LuCamera,
+  LuCheck,
+  LuMail,
+  LuMonitor,
+  LuMoon,
+  LuRotateCcw,
+  LuSave,
+  LuSun,
+  LuTrash2,
+  LuUserRound,
+  LuX,
+  LuZoomIn
+} from 'react-icons/lu'
 import type { User } from '@shared/types/entities'
+import { useLocalAvatar } from '@renderer/components/avatar/localAvatar'
+import { UserAvatar } from '@renderer/components/avatar/UserAvatar'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { useTheme, type ThemeMode } from '@renderer/providers/theme/theme-state'
 import styles from './ProfilePage.module.scss'
 
 const TITLE_OPTIONS: User['role'][] = ['owner', 'admin', 'member']
+const CROP_BOX_SIZE = 280
+const AVATAR_OUTPUT_SIZE = 256
+const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
 
 function splitName(name: string | null | undefined) {
   const parts = (name ?? '').trim().split(/\s+/).filter(Boolean)
@@ -14,13 +43,77 @@ function splitName(name: string | null | undefined) {
   return { firstName: parts.slice(0, -1).join(' '), lastName: parts[parts.length - 1] }
 }
 
-function initialsFromName(name: string) {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('') || 'OC'
+interface ImageSize {
+  width: number
+  height: number
+}
+
+interface CropOffset {
+  x: number
+  y: number
+}
+
+function getBaseScale(imageSize: ImageSize): number {
+  return Math.max(CROP_BOX_SIZE / imageSize.width, CROP_BOX_SIZE / imageSize.height)
+}
+
+function boundOffset(offset: CropOffset, imageSize: ImageSize, zoom: number): CropOffset {
+  const scale = getBaseScale(imageSize) * zoom
+  const maxX = Math.max(0, (imageSize.width * scale - CROP_BOX_SIZE) / 2)
+  const maxY = Math.max(0, (imageSize.height * scale - CROP_BOX_SIZE) / 2)
+  return {
+    x: Math.min(maxX, Math.max(-maxX, offset.x)),
+    y: Math.min(maxY, Math.max(-maxY, offset.y))
+  }
+}
+
+function cropImageToDataUrl(image: HTMLImageElement, imageSize: ImageSize, zoom: number, offset: CropOffset): string {
+  const scale = getBaseScale(imageSize) * zoom
+  const sourceSize = CROP_BOX_SIZE / scale
+  const sourceX = (imageSize.width * scale - CROP_BOX_SIZE) / (2 * scale) - offset.x / scale
+  const sourceY = (imageSize.height * scale - CROP_BOX_SIZE) / (2 * scale) - offset.y / scale
+  const canvas = document.createElement('canvas')
+  canvas.width = AVATAR_OUTPUT_SIZE
+  canvas.height = AVATAR_OUTPUT_SIZE
+  const context = canvas.getContext('2d')
+
+  if (!context) {
+    throw new Error('Canvas is not available')
+  }
+
+  context.drawImage(
+    image,
+    Math.max(0, Math.min(imageSize.width - sourceSize, sourceX)),
+    Math.max(0, Math.min(imageSize.height - sourceSize, sourceY)),
+    sourceSize,
+    sourceSize,
+    0,
+    0,
+    AVATAR_OUTPUT_SIZE,
+    AVATAR_OUTPUT_SIZE
+  )
+
+  return canvas.toDataURL('image/png')
+}
+
+function loadImage(file: File): Promise<{ dataUrl: string; image: HTMLImageElement; size: ImageSize }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('The selected file could not be read.'))
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === 'string' ? reader.result : ''
+      if (!dataUrl) {
+        reject(new Error('The selected file could not be read.'))
+        return
+      }
+
+      const image = new Image()
+      image.onload = () => resolve({ dataUrl, image, size: { width: image.naturalWidth, height: image.naturalHeight } })
+      image.onerror = () => reject(new Error('The selected image could not be loaded.'))
+      image.src = dataUrl
+    }
+    reader.readAsDataURL(file)
+  })
 }
 
 export function ProfilePage() {
@@ -34,8 +127,28 @@ export function ProfilePage() {
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const cropImageRef = useRef<HTMLImageElement | null>(null)
+  const dragStartRef = useRef<{ pointerId: number; startX: number; startY: number; offset: CropOffset } | null>(null)
+  const { avatarUrl, saveAvatar, clearAvatar } = useLocalAvatar(user?.id)
+  const [avatarStatus, setAvatarStatus] = useState<string | null>(null)
+  const [avatarError, setAvatarError] = useState<string | null>(null)
+  const [cropImageUrl, setCropImageUrl] = useState<string | null>(null)
+  const [cropImageSize, setCropImageSize] = useState<ImageSize | null>(null)
+  const [cropOffset, setCropOffset] = useState<CropOffset>({ x: 0, y: 0 })
+  const [cropZoom, setCropZoom] = useState(1)
+  const [croppedPreview, setCroppedPreview] = useState<string | null>(null)
   const fullName = `${firstName} ${lastName}`.trim() || user?.name?.trim() || 'Mission Operator'
-  const initials = initialsFromName(fullName)
+  const activeAvatarUrl = avatarUrl ?? croppedPreview
+  const displayScale = cropImageSize ? getBaseScale(cropImageSize) * cropZoom : 1
+  const cropImageStyle = cropImageSize
+    ? ({
+        width: `${cropImageSize.width * displayScale}px`,
+        height: `${cropImageSize.height * displayScale}px`,
+        left: `calc(50% + ${cropOffset.x}px)`,
+        top: `calc(50% + ${cropOffset.y}px)`
+      } as CSSProperties)
+    : undefined
   const modeOptions: Array<{ value: ThemeMode; label: string; icon: typeof LuMonitor }> = [
     { value: 'system', label: 'System', icon: LuMonitor },
     { value: 'light', label: 'Light', icon: LuSun },
@@ -48,6 +161,19 @@ export function ProfilePage() {
     setEmail(user?.email ?? '')
     setRole(user?.role ?? 'member')
   }, [initialName.firstName, initialName.lastName, user?.email, user?.role])
+
+  useEffect(() => {
+    if (!cropImageRef.current || !cropImageSize) {
+      setCroppedPreview(null)
+      return
+    }
+
+    try {
+      setCroppedPreview(cropImageToDataUrl(cropImageRef.current, cropImageSize, cropZoom, cropOffset))
+    } catch (previewError) {
+      setAvatarError(previewError instanceof Error ? previewError.message : 'Preview could not be generated.')
+    }
+  }, [cropImageSize, cropOffset, cropZoom])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -70,6 +196,110 @@ export function ProfilePage() {
     setStatus('Profil bilgileri güncellendi.')
   }
 
+  const resetCrop = () => {
+    setCropImageUrl(null)
+    setCropImageSize(null)
+    setCropOffset({ x: 0, y: 0 })
+    setCropZoom(1)
+    setCroppedPreview(null)
+    cropImageRef.current = null
+    dragStartRef.current = null
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const onFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    setAvatarStatus(null)
+    setAvatarError(null)
+
+    if (!file) return
+
+    if (!SUPPORTED_IMAGE_TYPES.includes(file.type)) {
+      setAvatarError('Choose a PNG, JPG, WEBP, or GIF image.')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+
+    try {
+      const loaded = await loadImage(file)
+      cropImageRef.current = loaded.image
+      setCropImageUrl(loaded.dataUrl)
+      setCropImageSize(loaded.size)
+      setCropOffset({ x: 0, y: 0 })
+      setCropZoom(1)
+      setAvatarStatus('Image loaded. Drag the crop area and adjust zoom before saving.')
+    } catch (loadError) {
+      setAvatarError(loadError instanceof Error ? loadError.message : 'The selected image could not be loaded.')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const onCropPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!cropImageSize) return
+    event.currentTarget.setPointerCapture(event.pointerId)
+    dragStartRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      offset: cropOffset
+    }
+  }
+
+  const onCropPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const dragStart = dragStartRef.current
+    if (!dragStart || dragStart.pointerId !== event.pointerId || !cropImageSize) return
+    const nextOffset = {
+      x: dragStart.offset.x + event.clientX - dragStart.startX,
+      y: dragStart.offset.y + event.clientY - dragStart.startY
+    }
+    setCropOffset(boundOffset(nextOffset, cropImageSize, cropZoom))
+  }
+
+  const stopCropDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragStartRef.current?.pointerId === event.pointerId) dragStartRef.current = null
+  }
+
+  const onZoomChange = (nextZoom: number) => {
+    if (!cropImageSize) return
+    setCropZoom(nextZoom)
+    setCropOffset((current) => boundOffset(current, cropImageSize, nextZoom))
+  }
+
+  const onCropKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!cropImageSize) return
+    const movement = event.shiftKey ? 18 : 6
+    const keyOffsets: Record<string, CropOffset> = {
+      ArrowUp: { x: 0, y: movement },
+      ArrowDown: { x: 0, y: -movement },
+      ArrowLeft: { x: movement, y: 0 },
+      ArrowRight: { x: -movement, y: 0 }
+    }
+    const nextMovement = keyOffsets[event.key]
+    if (!nextMovement) return
+    event.preventDefault()
+    setCropOffset((current) =>
+      boundOffset({ x: current.x + nextMovement.x, y: current.y + nextMovement.y }, cropImageSize, cropZoom)
+    )
+  }
+
+  const saveCroppedAvatar = () => {
+    if (!croppedPreview) {
+      setAvatarError('Choose an image before saving.')
+      return
+    }
+    saveAvatar(croppedPreview)
+    resetCrop()
+    setAvatarStatus('Avatar updated on this device.')
+    setAvatarError(null)
+  }
+
+  const removeAvatar = () => {
+    clearAvatar()
+    resetCrop()
+    setAvatarStatus('Avatar removed. Initials are shown again.')
+    setAvatarError(null)
+  }
+
   return (
     <section className={styles.page}>
       <header className={styles.header}>
@@ -82,7 +312,7 @@ export function ProfilePage() {
       <div className={styles.profileGrid}>
         <aside className={styles.summaryPanel}>
           <div className={styles.avatarWrap}>
-            <div className={styles.avatar}>{initials}</div>
+            <UserAvatar name={fullName} imageUrl={activeAvatarUrl} alt={`${fullName} avatar`} size={56} radius={15} className={styles.avatar} />
           </div>
           <div className={styles.summaryIdentity}>
             <h2>{fullName}</h2>
@@ -95,6 +325,98 @@ export function ProfilePage() {
         </aside>
 
         <div className={styles.profileMain}>
+          <section className={styles.formPanel}>
+            <div className={styles.panelHeader}>
+              <div>
+                <h2>Avatar</h2>
+                <p>Saved locally on this device and shown in the header.</p>
+              </div>
+            </div>
+
+            <div className={styles.avatarEditor}>
+              <div className={styles.avatarControls}>
+                <UserAvatar name={fullName} imageUrl={activeAvatarUrl} alt={`${fullName} avatar preview`} size={84} radius={20} />
+                <div className={styles.avatarActions}>
+                  <input ref={fileInputRef} type="file" accept={SUPPORTED_IMAGE_TYPES.join(',')} onChange={onFileChange} />
+                  <button type="button" onClick={() => fileInputRef.current?.click()}>
+                    <LuCamera size={15} />
+                    {avatarUrl ? 'Replace image' : 'Choose image'}
+                  </button>
+                  {cropImageUrl ? (
+                    <button type="button" className={styles.secondaryButton} onClick={resetCrop}>
+                      <LuX size={15} />
+                      Cancel
+                    </button>
+                  ) : null}
+                  {avatarUrl ? (
+                    <button type="button" className={styles.dangerButton} onClick={removeAvatar}>
+                      <LuTrash2 size={15} />
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              {cropImageUrl && cropImageSize ? (
+                <div className={styles.cropGrid}>
+                  <div className={styles.cropWorkspace}>
+                    <div
+                      className={styles.cropBox}
+                      role="application"
+                      aria-label="Square avatar crop area. Drag to position the image."
+                      tabIndex={0}
+                      onKeyDown={onCropKeyDown}
+                      onPointerDown={onCropPointerDown}
+                      onPointerMove={onCropPointerMove}
+                      onPointerUp={stopCropDrag}
+                      onPointerCancel={stopCropDrag}
+                    >
+                      <img src={cropImageUrl} alt="" draggable={false} style={cropImageStyle} />
+                    </div>
+                    <label className={styles.zoomControl}>
+                      <span>
+                        <LuZoomIn size={15} />
+                        Zoom
+                      </span>
+                      <input
+                        type="range"
+                        min="1"
+                        max="3"
+                        step="0.01"
+                        value={cropZoom}
+                        onChange={(event) => onZoomChange(Number(event.target.value))}
+                        aria-label="Avatar crop zoom"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className={styles.secondaryButton}
+                      onClick={() => {
+                        setCropOffset({ x: 0, y: 0 })
+                        onZoomChange(1)
+                      }}
+                    >
+                      <LuRotateCcw size={15} />
+                      Reset crop
+                    </button>
+                  </div>
+
+                  <div className={styles.cropPreviewPanel}>
+                    <span>Preview</span>
+                    <UserAvatar name={fullName} imageUrl={croppedPreview} alt="Cropped avatar preview" size={96} radius={24} />
+                    <button type="button" onClick={saveCroppedAvatar}>
+                      <LuSave size={15} />
+                      Save avatar
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {avatarError ? <p className={styles.error}>{avatarError}</p> : null}
+              {avatarStatus ? <p className={styles.success}>{avatarStatus}</p> : null}
+            </div>
+          </section>
+
           <section className={styles.formPanel}>
             <div className={styles.panelHeader}>
               <div>

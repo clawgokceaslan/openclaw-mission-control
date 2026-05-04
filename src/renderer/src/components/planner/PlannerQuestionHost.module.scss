@@ -126,7 +126,8 @@
   gap: 14px;
   min-height: 0;
   overflow: auto;
-  padding: 18px 24px 22px;
+  padding: 18px 24px 32px;
+  overscroll-behavior: contain;
 }
 
 .questionCard {
@@ -183,10 +184,12 @@
   border-radius: 13px;
   background: rgba(255, 255, 255, 0.035);
   cursor: pointer;
+  user-select: none;
 }
 
 .options input {
   margin-top: 2px;
+  accent-color: #8ca9ff;
 }
 
 .options b {
@@ -211,6 +214,8 @@
   width: 100%;
   min-height: 84px;
   resize: vertical;
+  position: relative;
+  z-index: 1;
   padding: 12px;
   border: 1px solid rgba(139, 162, 205, 0.2);
   border-radius: 12px;
@@ -222,10 +227,14 @@
 
 .footer {
   display: flex;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
   gap: 14px;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 24px;
+  min-height: 76px;
+  padding: 18px 24px;
   border-top: 1px solid rgba(139, 162, 205, 0.16);
   background: rgba(8, 14, 26, 0.72);
 }

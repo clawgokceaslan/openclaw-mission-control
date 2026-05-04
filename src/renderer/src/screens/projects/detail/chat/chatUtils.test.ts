@@ -174,6 +174,33 @@ describe('planner question helpers', () => {
     expect(answer).toContain('Selected option: Chat only - Stay in chat surfaces.')
     expect(answer).toContain('Additional context: Also keep the popup blocking.')
   })
+
+  it('tells Codex to use judgment when no option or note is provided', () => {
+    const prompt = plannerQuestionPromptFromMessages([
+      message({
+        id: 'question-1',
+        source: 'codex-plan',
+        role: 'assistant',
+        createdAt: 10,
+        metadata: {
+          codexBlock: 'planner-question',
+          questions: [
+            { id: 'scope', question: 'Scope?', options: [{ id: 'chat', label: 'Chat only' }] },
+            { id: 'reset', question: 'Include reset?' }
+          ]
+        }
+      })
+    ])
+
+    expect(prompt).not.toBeNull()
+    const answer = formatPlannerClarificationAnswer({
+      prompt: prompt!,
+      selectedOptionIds: {},
+      notes: {}
+    })
+
+    expect(answer.match(/No explicit answer provided; use your best judgment from the task context\./g)).toHaveLength(2)
+  })
 })
 
 describe('chat utils helpers', () => {
