@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AppSelectOption } from '@renderer/components/select/AppSelect'
 import { AppSelect } from '@renderer/components/select/AppSelect'
+import { LuCircleCheck, LuTriangleAlert } from 'react-icons/lu'
 import type { Agent, Gateway, Project, ProjectCodexSettings, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Workspace } from '@shared/types/entities'
 import { CODEX_LANGUAGE_OPTIONS, CODEX_REASONING_EFFORT_OPTIONS, normalizeCodexLanguage, normalizeCodexReasoningEffort } from '@shared/utils/codex-language'
 import type { ProjectSettingsTab } from '@renderer/screens/projects/detail/types'
@@ -14,6 +15,23 @@ type ProjectSettingsOption = Pick<AppSelectOption, 'label' | 'value'>
 
 type WorkspaceLike = Pick<Workspace, 'id' | 'name' | 'rootPath'>
 
+function SettingsSaveToast({ variant, title, message }: { variant: 'success' | 'error'; title: string; message: string }) {
+  return (
+    <div
+      className={`${styles.settingsSaveToast} ${variant === 'error' ? styles.settingsSaveToastError : styles.settingsSaveToastSuccess}`}
+      role={variant === 'error' ? 'alert' : 'status'}
+      aria-live="polite"
+    >
+      <span className={styles.settingsSaveToastIcon} aria-hidden="true">
+        {variant === 'error' ? <LuTriangleAlert size={16} /> : <LuCircleCheck size={16} />}
+      </span>
+      <span className={styles.settingsSaveToastCopy}>
+        <strong>{title}</strong>
+        <span>{message}</span>
+      </span>
+    </div>
+  )
+}
 
 export interface ProjectDetailSettingsPopupProps {
   open: boolean
@@ -241,6 +259,17 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
         : !runModelDraft
           ? 'Select a run model.'
           : ''
+
+  const codexSaveFeedback = codexSaveError ? (
+    <SettingsSaveToast variant="error" title="Save failed" message={codexSaveError} />
+  ) : codexSaveMessage ? (
+    <SettingsSaveToast variant="success" title="Saved" message="Project Codex settings are up to date." />
+  ) : null
+  const defaultsSaveFeedback = defaultsSaveError ? (
+    <SettingsSaveToast variant="error" title="Save failed" message={defaultsSaveError} />
+  ) : defaultsSaveMessage ? (
+    <SettingsSaveToast variant="success" title="Saved" message="Project defaults are up to date." />
+  ) : null
 
   if (!open) return null
 
@@ -492,8 +521,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                   <strong>{selectedDefaultAgentOption?.label ?? 'None'}</strong>
                 </div>
               </div>
-              {defaultsSaveError ? <div className={styles.settingsEmptyState}>{defaultsSaveError}</div> : null}
-              {defaultsSaveMessage ? <div className={styles.settingsEmptyState}>{defaultsSaveMessage}</div> : null}
+              {defaultsSaveFeedback}
               {s.projectAgentRows.length > 0 ? (
                 <div className={styles.settingsMiniTable}>
                   <div>
@@ -547,8 +575,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                   <strong>{selectedDefaultSkillOptions.length} skill(s)</strong>
                 </div>
               </div>
-              {defaultsSaveError ? <div className={styles.settingsEmptyState}>{defaultsSaveError}</div> : null}
-              {defaultsSaveMessage ? <div className={styles.settingsEmptyState}>{defaultsSaveMessage}</div> : null}
+              {defaultsSaveFeedback}
             </div>
           ) : null}
 
@@ -575,8 +602,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                   />
                 </label>
               </div>
-              {codexSaveError ? <div className={styles.settingsEmptyState}>{codexSaveError}</div> : null}
-              {codexSaveMessage ? <div className={styles.settingsEmptyState}>{codexSaveMessage}</div> : null}
+              {codexSaveFeedback}
             </div>
           ) : null}
 
@@ -606,7 +632,11 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     value={localSelectedWorkspaceOption}
                     options={localWorkspaceOptions}
                     placeholder="Select workspace"
-                    onChange={(option) => setRuntimeWorkspaceIdDraft(option?.value ?? '')}
+                    onChange={(option) => {
+                      setRuntimeWorkspaceIdDraft(option?.value ?? '')
+                      setCodexSaveMessage(null)
+                      setCodexSaveError(null)
+                    }}
                   />
                 </label>
                 <label>
@@ -666,8 +696,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
               </div>
               {s.codexModelLoading ? <div className={styles.settingsEmptyState}>Loading models from Codex CLI...</div> : null}
               {s.codexModelError ? <div className={styles.settingsEmptyState}>{s.codexModelError}</div> : null}
-              {codexSaveError ? <div className={styles.settingsEmptyState}>{codexSaveError}</div> : null}
-              {codexSaveMessage ? <div className={styles.settingsEmptyState}>{codexSaveMessage}</div> : null}
+              {codexSaveFeedback}
             </div>
           ) : null}
         </div>

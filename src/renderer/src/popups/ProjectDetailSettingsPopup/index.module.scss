@@ -498,6 +498,75 @@
   font-weight: 800;
 }
 
+.settingsSaveToast {
+  width: 100%;
+  max-width: 100%;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 10px;
+  background: var(--omc-surface-muted);
+  color: var(--omc-text);
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--omc-surface) 72%, transparent);
+}
+
+.settingsSaveToastSuccess {
+  border-color: color-mix(in srgb, var(--omc-success-strong) 34%, var(--omc-border-subtle));
+  background: color-mix(in srgb, var(--omc-success-bg) 64%, var(--omc-surface));
+}
+
+.settingsSaveToastError {
+  border-color: color-mix(in srgb, var(--omc-danger) 36%, var(--omc-border-subtle));
+  background: color-mix(in srgb, var(--omc-danger-bg) 66%, var(--omc-surface));
+}
+
+.settingsSaveToastIcon {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--omc-surface) 66%, transparent);
+  color: var(--omc-text-muted);
+
+  .settingsSaveToastSuccess & {
+    color: var(--omc-success-strong);
+  }
+
+  .settingsSaveToastError & {
+    color: var(--omc-danger);
+  }
+}
+
+.settingsSaveToastCopy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+
+  strong,
+  span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  strong {
+    color: var(--omc-text-strong);
+    font-size: 0.82rem;
+    font-weight: 900;
+  }
+
+  span {
+    color: var(--omc-text-muted);
+    font-size: 0.8rem;
+    font-weight: 750;
+    line-height: 1.35;
+  }
+}
+
 .customFieldEmpty {
   margin: 0;
   border: 1px dashed var(--omc-border-strong);
