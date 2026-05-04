@@ -1,0 +1,121 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--omc-overlay-strong);
+  backdrop-filter: blur(8px);
+}
+
+.dialog {
+  width: min(460px, 100%);
+  overflow: hidden;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 16px;
+  background: var(--omc-surface);
+  color: var(--omc-text);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.34);
+}
+
+.header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 18px;
+  border-bottom: 1px solid var(--omc-border-subtle);
+
+  .icon {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 11px;
+    background: var(--omc-warning-bg);
+    color: var(--omc-warning);
+  }
+
+  .heading {
+    min-width: 0;
+    display: grid;
+    gap: 5px;
+
+    h3 {
+      margin: 0;
+      color: var(--omc-text-strong);
+      font-size: 1rem;
+      font-weight: 900;
+      line-height: 1.25;
+    }
+
+    p {
+      margin: 0;
+      color: var(--omc-text-muted);
+      font-size: 0.86rem;
+      font-weight: 650;
+      line-height: 1.45;
+    }
+  }
+
+  .closeButton {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 9px;
+    background: transparent;
+    color: var(--omc-text-muted);
+
+    &:hover {
+      background: var(--omc-surface-muted);
+      color: var(--omc-text-strong);
+    }
+  }
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 18px 18px;
+
+  .cancelButton,
+  .confirmButton {
+    min-height: 34px;
+    border: 1px solid var(--omc-border);
+    border-radius: 10px;
+    padding: 0 14px;
+    font-size: 0.84rem;
+    font-weight: 850;
+  }
+
+  .cancelButton {
+    background: var(--omc-surface-muted);
+    color: var(--omc-text-strong);
+
+    &:hover {
+      border-color: var(--omc-border-strong);
+      background: var(--omc-code-bg);
+    }
+  }
+
+  .confirmButton {
+    border-color: var(--omc-primary);
+    background: var(--omc-primary);
+    color: var(--omc-inverse-text);
+
+    &:hover {
+      border-color: var(--omc-primary-strong);
+      background: var(--omc-primary-strong);
+    }
+  }
+
+  .confirmButtonDanger {
+    border-color: var(--omc-danger-strong);
+    background: var(--omc-danger-strong);
+    color: var(--omc-inverse-text);
+  }
+}

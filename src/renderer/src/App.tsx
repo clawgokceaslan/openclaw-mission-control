@@ -7,6 +7,7 @@ import { Provider } from 'react-redux'
 import { AuthProvider, useAuth } from '@renderer/providers/auth/auth-state'
 import { ThemeProvider } from '@renderer/providers/theme/theme-state'
 import { store } from '@renderer/store'
+import { ConfirmationProvider } from '@renderer/components/confirmation'
 import { subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { ProtectedRoute } from '@renderer/components/routes/ProtectedRoute'
 import { AppShell } from '@renderer/layout/AppShell'
@@ -211,9 +212,11 @@ export function App() {
       <BrowserRouter>
         <RendererHealthReporter />
         <ThemeProvider>
-          <AuthProvider>
-            <AppRouter />
-          </AuthProvider>
+          <ConfirmationProvider>
+            <AuthProvider>
+              <AppRouter />
+            </AuthProvider>
+          </ConfirmationProvider>
         </ThemeProvider>
       </BrowserRouter>
     </Provider>

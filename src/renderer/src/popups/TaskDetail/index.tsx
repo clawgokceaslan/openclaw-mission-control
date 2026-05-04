@@ -4,6 +4,7 @@ import { LuBot, LuChevronDown, LuCopy, LuDownload, LuExternalLink, LuFileText, L
 import type { TaskComment } from '@shared/types/entities'
 import { AppSelect } from '@renderer/components/select/AppSelect'
 import { AttachmentTable } from '@renderer/components/attachments/AttachmentTable'
+import { useConfirmation } from '@renderer/components/confirmation'
 import { MarkdownDescriptionEditor } from '@renderer/components/markdown/MarkdownDescriptionEditor'
 import { AgentAssignmentPanel, SkillsAssignmentPanel } from '@renderer/components/projects/detail/AssignmentPanels'
 import { codexConfigOf, customFieldValueLabel, customFieldValueToDraft, readTaskCodexOverride } from '@renderer/screens/projects/detail/projectDetailUtils'
@@ -433,6 +434,7 @@ export function TaskDetailPopup({
   const menuRef = useRef<HTMLDivElement | null>(null)
   const downloadMenuRef = useRef<HTMLDivElement | null>(null)
   const dragDepthRef = useRef(0)
+  const confirm = useConfirmation()
   const hasDownloadActions = Boolean(onDownloadZip || onDownloadTaskMarkdown || onDownloadAgentMarkdown || onDownloadSkillsMarkdown)
 
   useEffect(() => {
@@ -450,13 +452,26 @@ export function TaskDetailPopup({
   const copyTaskId = () => { void navigator.clipboard?.writeText(taskId); setIsMenuOpen(false) }
   const copyTaskLink = () => { const url = new URL(window.location.href); url.searchParams.set('task', taskId); void navigator.clipboard?.writeText(url.toString()); setIsMenuOpen(false) }
   const runHeaderAction = (event: PointerEvent<HTMLButtonElement>, action: () => void) => { event.preventDefault(); event.stopPropagation(); action() }
+  const confirmRunCodex = async () => {
+    if (!onRunCodex || isRunCodexBusy || isRunCodexDisabled) return
+    setIsMenuOpen(false)
+    setIsDownloadMenuOpen(false)
+    const confirmed = await confirm({
+      title: 'Run this task?',
+      message: 'Codex will start executing this task with the current task context and selected run model.',
+      confirmLabel: 'Run',
+      cancelLabel: 'Cancel',
+      tone: 'primary'
+    })
+    if (confirmed) onRunCodex()
+  }
 
   const actions = (
     <>
       {!hideTaskActions ? (
         <>
           {onImportJson ? (
-            <button type="button" className={styles.iconButton} onPointerDown={(event) => runHeaderAction(event, onImportJson)} aria-label="Import JSON">
+            <button type="button" className={`${styles.iconButton} ${styles.importButton}`} onPointerDown={(event) => runHeaderAction(event, onImportJson)} aria-label="Import JSON">
               <LuUpload size={16} />
             </button>
           ) : null}
@@ -464,7 +479,7 @@ export function TaskDetailPopup({
             <div className={styles.menuWrap} ref={downloadMenuRef}>
               <button
                 type="button"
-                className={`${styles.iconButton} ${isDownloadMenuOpen ? styles.iconButtonActive : ''}`}
+                className={`${styles.iconButton} ${styles.downloadButton} ${isDownloadMenuOpen ? styles.iconButtonActive : ''}`}
                 onPointerDown={(event) => runHeaderAction(event, () => {
                   setIsMenuOpen(false)
                   setIsDownloadMenuOpen((value) => !value)
@@ -491,7 +506,7 @@ export function TaskDetailPopup({
               </button>
             ) : null}
             {onRunCodex ? (
-              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.runButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isRunCodexBusy && !isRunCodexDisabled) onRunCodex() })} disabled={isRunCodexBusy || isRunCodexDisabled} aria-label="Run task with Codex" title={isRunCodexDisabled ? 'Configure Codex gateway and model before running this task.' : 'Run task with Codex'}>
+              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.runButton}`} onPointerDown={(event) => runHeaderAction(event, () => { void confirmRunCodex() })} disabled={isRunCodexBusy || isRunCodexDisabled} aria-label="Run task with Codex" title={isRunCodexDisabled ? 'Configure Codex gateway and model before running this task.' : 'Run task with Codex'}>
                 <LuPlay size={16} />
                 <span className={styles.primaryActionLabel}>Run</span>
               </button>
@@ -504,7 +519,7 @@ export function TaskDetailPopup({
           <div className={styles.menuWrap} ref={menuRef}>
             <button
               type="button"
-              className={`${styles.iconButton} ${isMenuOpen ? styles.iconButtonActive : ''}`}
+              className={`${styles.iconButton} ${styles.optionsButton} ${isMenuOpen ? styles.iconButtonActive : ''}`}
               onPointerDown={(event) => runHeaderAction(event, () => {
                 setIsDownloadMenuOpen(false)
                 setIsMenuOpen((value) => !value)
