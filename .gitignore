@@ -4,4 +4,4 @@ electron/dist/
 electron/electron-dist/
 .omc/
 .npm-cache/
-data/mission-control.sqlite
+*.sqlite
