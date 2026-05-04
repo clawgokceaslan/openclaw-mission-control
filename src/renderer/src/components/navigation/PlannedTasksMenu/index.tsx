@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LuClipboardList, LuRefreshCw, LuSettings2, LuPlay, LuChevronLeft, LuChevronRight } from 'react-icons/lu'
 import { IPC_CHANNELS, type PaginatedResponse, type PlannedCodexTaskRow } from '@shared/contracts/ipc'
 import { useAuth } from '@renderer/providers/auth/auth-state'
@@ -18,6 +18,7 @@ function missingLabel(row: PlannedCodexTaskRow): string {
 export function PlannedTasksMenu() {
   const { token } = useAuth()
   const { launchPlannedTaskRun, openProjectCodexSettings, busy: globalBusy } = useGlobalCodexChat()
+  const containerRef = useRef<HTMLDivElement | null>(null)
   const [open, setOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [rows, setRows] = useState<PlannedCodexTaskRow[]>([])
@@ -29,13 +30,14 @@ export function PlannedTasksMenu() {
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total])
   const hasRows = rows.length > 0
 
-  const loadPage = useCallback(async (nextPage = page) => {
+  const loadPage = useCallback(async (nextPage: number) => {
     if (!token) return
+    const requestedPage = Math.max(1, nextPage)
     setLoading(true)
     setError(null)
     const response = await invokeBridge<PaginatedResponse<PlannedCodexTaskRow>>(IPC_CHANNELS.tasks.listPlannedCodex, {
       actorToken: token,
-      page: nextPage,
+      page: requestedPage,
       pageSize: PAGE_SIZE
     })
     setLoading(false)
@@ -43,15 +45,33 @@ export function PlannedTasksMenu() {
       setError(response.error?.message ?? 'Unable to load planned tasks')
       return
     }
+    const nextTotal = Number(response.data.total ?? 0)
+    const nextTotalPages = Math.max(1, Math.ceil(nextTotal / PAGE_SIZE))
+    if (requestedPage > nextTotalPages) {
+      void loadPage(nextTotalPages)
+      return
+    }
     setRows(Array.isArray(response.data.rows) ? response.data.rows : [])
-    setTotal(Number(response.data.total ?? 0))
-    setPage(response.data.page || nextPage)
-  }, [page, token])
+    setTotal(nextTotal)
+    setPage(response.data.page || requestedPage)
+  }, [token])
 
   useEffect(() => {
     if (!open) return
     void loadPage(1)
   }, [loadPage, open])
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (containerRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open])
 
   const selectRow = async (row: PlannedCodexTaskRow) => {
     if (!row.runnable) {
@@ -69,7 +89,7 @@ export function PlannedTasksMenu() {
   }
 
   return (
-    <div className={styles.plannedTasksTopArea}>
+    <div ref={containerRef} className={styles.plannedTasksTopArea}>
       <button
         type="button"
         className={`${styles.plannedTasksButton} ${total === 0 ? styles.plannedTasksButtonIdle : ''}`}

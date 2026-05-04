@@ -65,9 +65,24 @@ export class TaskRepository extends BaseRepository<TaskEntity> {
     const limit = Math.max(1, Math.min(100, Math.floor(pageSize)))
     const offset = Math.max(0, Math.floor((page - 1) * limit))
     const params = { orgId, limit, offset }
-    const where = "p.organization_id = @orgId AND json_extract(t.payload_json, '$.codexPlanState.state') = 'planned'"
+    const where = `
+      p.organization_id = @orgId
+      AND json_extract(t.payload_json, '$.codexPlanState.state') = 'planned'
+      AND COALESCE(ps.category, lower(t.status)) NOT IN ('done', 'closed')
+      AND NOT EXISTS (
+        SELECT 1
+        FROM json_each(t.payload_json, '$.activityMessages') AS activity
+        WHERE json_extract(activity.value, '$.source') = 'codex-run'
+      )
+    `
     const totalRow = await this.db
-      .prepare(`SELECT COUNT(*) AS total FROM tasks t JOIN projects p ON t.project_id = p.id WHERE ${where}`)
+      .prepare(`
+        SELECT COUNT(*) AS total
+        FROM tasks t
+        JOIN projects p ON t.project_id = p.id
+        LEFT JOIN project_statuses ps ON ps.id = t.status AND ps.project_id = t.project_id
+        WHERE ${where}
+      `)
       .get<{ total: number }>({ orgId })
     const rows = await this.db
       .prepare(
@@ -79,6 +94,7 @@ export class TaskRepository extends BaseRepository<TaskEntity> {
            p.metrics_json AS project_metrics_json
          FROM tasks t
          JOIN projects p ON t.project_id = p.id
+         LEFT JOIN project_statuses ps ON ps.id = t.status AND ps.project_id = t.project_id
          WHERE ${where}
          ORDER BY t.updated_at DESC
          LIMIT @limit OFFSET @offset`

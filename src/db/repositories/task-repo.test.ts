@@ -34,6 +34,18 @@ async function createDb() {
       updated_at INTEGER NOT NULL,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE project_statuses (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL,
+      project_id TEXT,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      color TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      is_default INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `)
   return db
 }
@@ -50,6 +62,20 @@ async function insertTask(db: SqliteAdapter, id: string, projectId: string, titl
     INSERT INTO tasks (id, project_id, title, status, agent_id, payload_json, result_json, updated_at, created_at)
     VALUES (@id, @projectId, @title, 'active', NULL, @payload, '{}', @updatedAt, 1)
   `).run({ id, projectId, title, payload: JSON.stringify(payload), updatedAt })
+}
+
+async function insertTaskWithStatus(db: SqliteAdapter, id: string, projectId: string, title: string, status: string, updatedAt: number, payload: Record<string, unknown>) {
+  await db.prepare(`
+    INSERT INTO tasks (id, project_id, title, status, agent_id, payload_json, result_json, updated_at, created_at)
+    VALUES (@id, @projectId, @title, @status, NULL, @payload, '{}', @updatedAt, 1)
+  `).run({ id, projectId, title, status, payload: JSON.stringify(payload), updatedAt })
+}
+
+async function insertStatus(db: SqliteAdapter, id: string, projectId: string, orgId: string, category: string, sortOrder: number) {
+  await db.prepare(`
+    INSERT INTO project_statuses (id, organization_id, project_id, name, category, color, sort_order, is_default, created_at, updated_at)
+    VALUES (@id, @orgId, @projectId, @category, @category, '#8A99B4', @sortOrder, 0, 1, 1)
+  `).run({ id, orgId, projectId, category, sortOrder })
 }
 
 afterEach(async () => {
@@ -77,6 +103,33 @@ describe('TaskRepository.listPlannedCodex', () => {
     expect(firstPage.rows[0].project.name).toBe('Beta')
     expect(secondPage.rows[0].task.id).toBe('task-1')
     expect(secondPage.rows[0].project.metrics?.codex).toEqual({ gatewayId: 'gw-1', runModel: 'gpt-5.5' })
+
+    await db.close()
+  })
+
+  it('excludes done, closed, and already-run planned Codex tasks', async () => {
+    const db = await createDb()
+    const repo = new TaskRepository(db)
+    await insertProject(db, 'project-a', 'org-1', 'Alpha')
+    await insertStatus(db, 'todo-status', 'project-a', 'org-1', 'not_started', 0)
+    await insertStatus(db, 'done-status', 'project-a', 'org-1', 'done', 3)
+    await insertStatus(db, 'closed-status', 'project-a', 'org-1', 'closed', 4)
+    await insertTaskWithStatus(db, 'task-ready', 'project-a', 'Ready planned', 'todo-status', 50, { codexPlanState: { state: 'planned' } })
+    await insertTaskWithStatus(db, 'task-done', 'project-a', 'Done planned', 'done-status', 40, { codexPlanState: { state: 'planned' } })
+    await insertTaskWithStatus(db, 'task-closed', 'project-a', 'Closed planned', 'closed-status', 30, { codexPlanState: { state: 'planned' } })
+    await insertTaskWithStatus(db, 'task-started', 'project-a', 'Started planned', 'todo-status', 20, {
+      codexPlanState: { state: 'planned' },
+      activityMessages: [{ source: 'codex-run', status: 'running' }]
+    })
+    await insertTaskWithStatus(db, 'task-finished', 'project-a', 'Finished planned', 'todo-status', 10, {
+      codexPlanState: { state: 'planned' },
+      activityMessages: [{ source: 'codex-run', status: 'completed', metadata: { codexBlock: 'run-complete' } }]
+    })
+
+    const page = await repo.listPlannedCodex('org-1', 1, 10)
+
+    expect(page.total).toBe(1)
+    expect(page.rows.map((row) => row.task.id)).toEqual(['task-ready'])
 
     await db.close()
   })
