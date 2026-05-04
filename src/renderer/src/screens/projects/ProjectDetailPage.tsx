@@ -20,7 +20,7 @@ import { ActiveProjectView } from '@renderer/components/projects/detail/ActivePr
 import { TaskModals } from '@renderer/components/projects/detail/TaskModals'
 import { createTaskWithTemplate, type CreateTaskInput } from './detail/createTaskWithTemplate'
 import { useProjectDetailData } from './detail/hooks/useProjectDetailData'
-import { useProjectActivityPopup } from './detail/hooks/useProjectActivityPopup'
+import { useProjectChatPopup } from './detail/hooks/useProjectChatPopup'
 import { useProjectCodexFlow } from './detail/hooks/useProjectCodexFlow'
 import { useProjectSelection } from './detail/hooks/useProjectSelection'
 import { useProjectDerivedState } from './detail/hooks/useProjectDerivedState'
@@ -86,7 +86,7 @@ import type {
   TextDraftRow,
   ThreadEntry
 } from './detail/types'
-import { ActivityPopup } from '@renderer/popups/Activity'
+import { ChatPopup } from '@renderer/popups/ChatPopup'
 import { TaskDetailPopup } from '@renderer/popups/TaskDetail'
 import { PlanChoiceModal } from '@renderer/popups/PlanChoiceModal'
 import styles from './ProjectDetailPage.module.scss'
@@ -324,8 +324,8 @@ export function ProjectDetailPage() {
     setBusy,
     selectedTaskId,
     setSelectedTaskId,
-    isActivityModalOpen,
-    setIsActivityModalOpen,
+    isChatPopupOpen,
+    setIsChatPopupOpen,
     isTitleEditing,
     setIsTitleEditing,
     titleDraft,
@@ -414,8 +414,8 @@ export function ProjectDetailPage() {
     setSubtaskStatusMenu,
     history,
     setHistory,
-    localActivityEntries,
-    setLocalActivityEntries,
+    localChatEntries,
+    setLocalChatEntries,
     detailRatio,
     setDetailRatio,
     isResizingSplit,
@@ -425,7 +425,7 @@ export function ProjectDetailPage() {
   } = projectDetailState
 
   const modalBodyRef = useRef<HTMLDivElement | null>(null)
-  const activityFeedRef = useRef<HTMLDivElement | null>(null)
+  const chatFeedRef = useRef<HTMLDivElement | null>(null)
   const chatFileInputRef = useRef<HTMLInputElement | null>(null)
   const chatDraftTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const subtaskStatusMenuRef = useRef<HTMLDivElement | null>(null)
@@ -528,7 +528,7 @@ export function ProjectDetailPage() {
       viewMode,
       detailViewMode,
       detailTab,
-      activityModalOpen: isActivityModalOpen,
+      chatPopupOpen: isChatPopupOpen,
       selectedChatConversationId: selectedChatConversationId || null,
       isStartingNewChat
     })
@@ -542,7 +542,7 @@ export function ProjectDetailPage() {
     viewMode,
     detailViewMode,
     detailTab,
-    isActivityModalOpen,
+    isChatPopupOpen,
     selectedChatConversationId,
     isStartingNewChat
   ])
@@ -681,8 +681,8 @@ export function ProjectDetailPage() {
     setDetailViewMode('task')
     setSelectedSubtaskId(null)
     setSubtaskDescriptionDraft('')
-    setIsActivityModalOpen(false)
-    setLocalActivityEntries([])
+    setIsChatPopupOpen(false)
+    setLocalChatEntries([])
     if (selectedTask && nextDescription !== (selectedTask.description ?? '')) {
       void invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
         actorToken: token,
@@ -796,8 +796,8 @@ export function ProjectDetailPage() {
         return
       }
       if (event.key === 'Escape') {
-        if (isActivityModalOpen) {
-          setIsActivityModalOpen(false)
+        if (isChatPopupOpen) {
+          setIsChatPopupOpen(false)
           return
         }
         if (detailViewMode === 'subtask') {
@@ -811,7 +811,7 @@ export function ProjectDetailPage() {
     }
     window.addEventListener('keydown', onEsc)
     return () => window.removeEventListener('keydown', onEsc)
-  }, [selectedTask, isActivityModalOpen, detailViewMode])
+  }, [selectedTask, isChatPopupOpen, detailViewMode])
 
   useEffect(() => {
     if (!isResizingSplit) return
@@ -1134,7 +1134,7 @@ export function ProjectDetailPage() {
     if (selectedTask?.id !== pendingChatOpen.taskId) return
     setIsStartingNewChat(false)
     setSelectedChatConversationId(pendingChatOpen.conversationId)
-    setIsActivityModalOpen(true)
+    setIsChatPopupOpen(true)
     setPendingChatOpen(null)
   }, [pendingChatOpen, selectedTask?.id])
 
@@ -1182,7 +1182,7 @@ export function ProjectDetailPage() {
       setChatSending,
       setChatStopping,
       setChatSettingsOpen,
-      setIsActivityModalOpen,
+      setIsChatPopupOpen,
       setIsStartingNewChat,
       setSelectedChatConversationId,
       setCodexModelLoading,
@@ -1227,11 +1227,11 @@ export function ProjectDetailPage() {
     void planSelectedTaskWithCodex()
   }
 
-  const { chatState, chatHandlers } = useProjectActivityPopup({
+  const { chatState, chatHandlers } = useProjectChatPopup({
     selectedTask,
-    isActivityModalOpen,
+    isChatPopupOpen,
     selectedChatSummary: derivedSelectedChatSummary,
-    activityFeedRef,
+    chatFeedRef,
     chatDraftTextareaRef,
     chatFileInputRef,
     chatDragDepth,
@@ -1270,7 +1270,7 @@ export function ProjectDetailPage() {
     chatConversations,
     chatActivityMessages,
     history,
-    localActivityEntries,
+    localChatEntries,
     chatStopping,
     selectedTaskAgent,
     taskContextSkills,
@@ -1294,7 +1294,7 @@ export function ProjectDetailPage() {
     stopCodexChat,
     applySlashCommand,
     addChatAttachments,
-    onClose: () => setIsActivityModalOpen(false),
+    onClose: () => setIsChatPopupOpen(false),
     setChatDragDepth
   })
 
@@ -2467,7 +2467,7 @@ export function ProjectDetailPage() {
         setError(response.error?.message ?? 'Unable to update comment')
         return
       }
-      setLocalActivityEntries((prev) => ([
+      setLocalChatEntries((prev) => ([
         ...prev,
         {
           id: `comment-update-${Date.now()}-${editingCommentId}`,
@@ -2495,7 +2495,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to add comment')
       return
     }
-    setLocalActivityEntries((prev) => ([
+    setLocalChatEntries((prev) => ([
       ...prev,
       {
         id: `comment-add-${Date.now()}`,
@@ -2532,7 +2532,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to remove comment')
       return
     }
-    setLocalActivityEntries((prev) => ([
+    setLocalChatEntries((prev) => ([
       ...prev,
       {
         id: `comment-remove-${Date.now()}-${comment.id}`,
@@ -2820,9 +2820,9 @@ export function ProjectDetailPage() {
       {isAnalyticsOpen ? (
         <Suspense fallback={
           <>
-            <div className={styles.activityBackdrop} />
+            <div className={styles.chatBackdrop} />
             <section
-              className={styles.activityModalShell}
+              className={styles.chatPopupShell}
               role="dialog"
               aria-modal="true"
               aria-label="Loading project analytics"
@@ -3005,12 +3005,12 @@ export function ProjectDetailPage() {
         scope={projectSettingsModalScope}
       ></ProjectDetailSettingsPopup>
 
-      {selectedTask && !isActivityModalOpen ? (
+      {selectedTask && !isChatPopupOpen ? (
         <>
           <TaskDetailPopup
             taskId={selectedTask.id}
             onClose={closeSelectedTaskDetail}
-            onOpenActivity={() => setIsActivityModalOpen(true)}
+            onOpenChat={() => setIsChatPopupOpen(true)}
             onEditTitle={() => {
               setDetailViewMode('task')
               setSelectedSubtaskId(null)
@@ -3135,7 +3135,7 @@ export function ProjectDetailPage() {
                 setDetailTab('subtasks')
                 setCustomFieldError(null)
               }}
-              onOpenActivity={() => undefined}
+              onOpenChat={() => undefined}
               onEditTitle={() => {
                 setEditingSubtaskId(selectedSubtask.id)
                 setSubtaskDraft(selectedSubtask.title)
@@ -3216,7 +3216,7 @@ export function ProjectDetailPage() {
         </>
       ) : null}
 
-        {isActivityModalOpen ? <ActivityPopup chatState={chatState} chatHandlers={chatHandlers} /> : null}
+        {isChatPopupOpen ? <ChatPopup chatState={chatState} chatHandlers={chatHandlers} /> : null}
         <PlanChoiceModal
           open={planChoiceOpen}
           loading={codexPlanLaunching}

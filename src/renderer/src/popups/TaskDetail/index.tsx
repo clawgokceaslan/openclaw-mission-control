@@ -82,7 +82,7 @@ interface TaskDetailPopupProps {
   onClose: () => void
   onDeleteTask: () => void
   onEditTitle: () => void
-  onOpenActivity: () => void
+  onOpenChat: () => void
   title?: string
   nested?: boolean
   hideTaskActions?: boolean
@@ -411,7 +411,7 @@ export function TaskDetailPopup({
   onClose,
   onDeleteTask,
   onEditTitle,
-  onOpenActivity,
+  onOpenChat,
   title = 'Task detail',
   nested = false,
   hideTaskActions = false,
@@ -513,7 +513,7 @@ export function TaskDetailPopup({
                 <span className={styles.primaryActionLabel}>Run</span>
               </button>
             ) : null}
-            <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.taskDetailOpenChatButton}`} onPointerDown={(event) => runHeaderAction(event, onOpenActivity)} aria-label="Open chat">
+            <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.taskDetailOpenChatButton}`} onPointerDown={(event) => runHeaderAction(event, onOpenChat)} aria-label="Open chat">
               <LuMessageSquare size={16} />
               <span className={styles.primaryActionLabel}>Chats</span>
             </button>
@@ -535,7 +535,7 @@ export function TaskDetailPopup({
                 <button type="button" onClick={copyTaskLink}><LuExternalLink size={15} /> Copy link</button>
                 <button type="button" onClick={copyTaskId}><LuCopy size={15} /> Copy task ID</button>
                 <button type="button" onClick={() => { setIsMenuOpen(false); onEditTitle() }}><LuPencil size={15} /> Edit title</button>
-                <button type="button" onClick={() => { setIsMenuOpen(false); onOpenActivity() }}><LuMessageSquare size={15} /> Open chat</button>
+                <button type="button" onClick={() => { setIsMenuOpen(false); onOpenChat() }}><LuMessageSquare size={15} /> Open chat</button>
                 <button type="button" className={styles.dangerAction} onClick={() => { setIsMenuOpen(false); onDeleteTask() }}><LuTrash2 size={15} /> Delete task</button>
               </div>
             ) : null}

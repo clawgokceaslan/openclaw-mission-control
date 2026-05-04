@@ -21,7 +21,7 @@ interface Setter<T> {
   (value: T | ((previous: T) => T)): void
 }
 
-export interface ActivityPopupState {
+export interface ChatPopupState {
   task: TaskEntity | null
   chatDragDepth: number
   conversations: ChatConversationSummary[]
@@ -42,7 +42,7 @@ export interface ActivityPopupState {
   renderedMessages: TaskActivityMessage[]
   hiddenMessageCount: number
   localStatusMessage: TaskActivityMessage | null
-  activityFeedRef: RefObject<HTMLDivElement | null>
+  chatFeedRef: RefObject<HTMLDivElement | null>
   chatGateway: Gateway | null
   chatGatewayOption: AppSelectOption | null
   chatGatewayOptions: AppSelectOption[]
@@ -73,7 +73,7 @@ export interface ActivityPopupState {
   taskContextSkills: Skill[]
 }
 
-interface ActivityPopupHandlers {
+interface ChatPopupHandlers {
   onClose: () => void
   onDragEnter: (event: DragEvent<HTMLElement>) => void
   onDragOver: (event: DragEvent<HTMLElement>) => void
@@ -89,7 +89,7 @@ interface ActivityPopupHandlers {
   onPlanChoiceSelect: (clarificationMode: PlannerClarificationMode) => void
   onRun: () => void
   onLoadEarlier: () => void
-  onActivityScroll: () => void
+  onChatScroll: () => void
   onGatewayChange: (option: AppSelectOption | null) => void
   onModelChange: (option: AppSelectOption | null) => void
   onPlanModelChange: (option: AppSelectOption | null) => void
@@ -134,11 +134,11 @@ function settledIdsFromMessages(messages: TaskActivityMessage[]): { runIds: Set<
   return { runIds, conversationIds }
 }
 
-interface ActivityPopupParams {
+interface ChatPopupParams {
   selectedTask: TaskEntity | null
-  isActivityModalOpen: boolean
+  isChatPopupOpen: boolean
   selectedChatSummary?: ChatConversationSummary | null
-  activityFeedRef: RefObject<HTMLDivElement | null>
+  chatFeedRef: RefObject<HTMLDivElement | null>
   chatDraftTextareaRef: RefObject<HTMLTextAreaElement | null>
   chatFileInputRef: RefObject<HTMLInputElement | null>
   chatDragDepth: number
@@ -176,7 +176,7 @@ interface ActivityPopupParams {
   chatConversations: ChatConversationSummary[]
   chatActivityMessages: TaskActivityMessage[]
   history: TaskHistoryItem[]
-  localActivityEntries: ThreadEntry[]
+  localChatEntries: ThreadEntry[]
   chatStopping: boolean
   selectedTaskAgent: Agent | null
   taskContextSkills: Skill[]
@@ -206,17 +206,17 @@ interface ActivityPopupParams {
   setChatDragDepth: Setter<number>
 }
 
-export interface UseProjectActivityPopupResult {
-  chatState: ActivityPopupState
-  chatHandlers: ActivityPopupHandlers
+export interface UseProjectChatPopupResult {
+  chatState: ChatPopupState
+  chatHandlers: ChatPopupHandlers
   selectedChatSummary: ChatConversationSummary | null
 }
 
-export function useProjectActivityPopup({
+export function useProjectChatPopup({
   selectedTask,
-  isActivityModalOpen,
+  isChatPopupOpen,
     selectedChatSummary: selectedChatSummaryFromState,
-  activityFeedRef,
+  chatFeedRef,
   chatDraftTextareaRef,
   chatFileInputRef,
   chatDragDepth,
@@ -256,7 +256,7 @@ export function useProjectActivityPopup({
   chatConversations,
   chatActivityMessages,
   history,
-  localActivityEntries,
+  localChatEntries,
   chatStopping,
   selectedTaskAgent,
   taskContextSkills,
@@ -283,14 +283,14 @@ export function useProjectActivityPopup({
   addChatAttachments,
   onClose,
   setChatDragDepth
-}: ActivityPopupParams): UseProjectActivityPopupResult {
-  const keepActivityBottomRef = useRef(true)
+}: ChatPopupParams): UseProjectChatPopupResult {
+  const keepChatBottomRef = useRef(true)
   const lazyLoadAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
   const lazyLoadPendingRef = useRef(false)
   const [stoppingConversationIds, setStoppingConversationIds] = useState<Set<string>>(() => new Set())
   const [localSettledConversationIds, setLocalSettledConversationIds] = useState<Set<string>>(() => new Set())
 
-  const isChatModalMounted = Boolean(selectedTask && isActivityModalOpen)
+  const isChatModalMounted = Boolean(selectedTask && isChatPopupOpen)
   const settledConversationState = useMemo(() => {
     const now = Date.now()
     const settled = settledIdsFromMessages(chatActivityMessages)
@@ -336,7 +336,7 @@ export function useProjectActivityPopup({
   }, [chatConversations, selectedChatConversationId])
 
   const chatHistoryCount = isChatModalMounted
-    ? (selectedTask?.comments?.length ?? 0) + history.length + localActivityEntries.length
+    ? (selectedTask?.comments?.length ?? 0) + history.length + localChatEntries.length
     : 0
 
   const visibleChatMessages = useMemo(() => {
@@ -447,8 +447,8 @@ export function useProjectActivityPopup({
   }, [selectedTask?.id])
 
   useEffect(() => {
-    if (!isActivityModalOpen) return
-    const feed = activityFeedRef.current
+    if (!isChatPopupOpen) return
+    const feed = chatFeedRef.current
     if (!feed) return
     const lazyAnchor = lazyLoadAnchorRef.current
     if (lazyAnchor) {
@@ -460,7 +460,7 @@ export function useProjectActivityPopup({
       return () => cancelAnimationFrame(frame)
     }
     const distanceToBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight
-    const shouldStickToBottom = keepActivityBottomRef.current || distanceToBottom < CHAT_BOTTOM_STICKY_THRESHOLD
+    const shouldStickToBottom = keepChatBottomRef.current || distanceToBottom < CHAT_BOTTOM_STICKY_THRESHOLD
     if (!shouldStickToBottom) return
     let secondFrame = 0
     const firstFrame = requestAnimationFrame(() => {
@@ -473,10 +473,10 @@ export function useProjectActivityPopup({
       cancelAnimationFrame(firstFrame)
       if (secondFrame) cancelAnimationFrame(secondFrame)
     }
-  }, [activityFeedRef, isActivityModalOpen, isStartingNewChat, scrollSignal, selectedChatConversationId])
+  }, [chatFeedRef, isChatPopupOpen, isStartingNewChat, scrollSignal, selectedChatConversationId])
 
   useEffect(() => {
-    keepActivityBottomRef.current = true
+    keepChatBottomRef.current = true
   }, [isStartingNewChat, selectedChatConversationId])
 
   useEffect(() => {
@@ -491,14 +491,14 @@ export function useProjectActivityPopup({
     }
   }, [chatConversations, isChatModalMounted, isStartingNewChat, selectedChatConversationId])
 
-  const onActivityScroll = () => {
-    const feed = activityFeedRef.current
+  const onChatScroll = () => {
+    const feed = chatFeedRef.current
     if (!feed) return
     const distanceToBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight
-    keepActivityBottomRef.current = distanceToBottom < CHAT_BOTTOM_STICKY_THRESHOLD
+    keepChatBottomRef.current = distanceToBottom < CHAT_BOTTOM_STICKY_THRESHOLD
     if (!lazyLoadPendingRef.current && shouldLoadEarlierMessages(feed.scrollTop, hiddenMessageCount, CHAT_TOP_LAZY_LOAD_THRESHOLD)) {
       lazyLoadPendingRef.current = true
-      keepActivityBottomRef.current = false
+      keepChatBottomRef.current = false
       lazyLoadAnchorRef.current = { scrollTop: feed.scrollTop, scrollHeight: feed.scrollHeight }
       setChatVisibleLimit((value) => Math.min(visibleChatMessages.length, value + CHAT_MESSAGE_LOAD_STEP))
     }
@@ -529,7 +529,7 @@ export function useProjectActivityPopup({
     void addChatAttachments(event.dataTransfer.files)
   }
 
-  const chatState: ActivityPopupState = {
+  const chatState: ChatPopupState = {
     task: selectedTask,
     chatDragDepth,
     conversations: chatConversations,
@@ -550,7 +550,7 @@ export function useProjectActivityPopup({
     renderedMessages: renderedChatMessages,
     hiddenMessageCount,
     localStatusMessage: localChatStatusMessage,
-    activityFeedRef,
+    chatFeedRef,
     chatGateway,
     chatGatewayOption,
     chatGatewayOptions,
@@ -581,7 +581,7 @@ export function useProjectActivityPopup({
     taskContextSkills
   }
 
-  const chatHandlers: ActivityPopupHandlers = {
+  const chatHandlers: ChatPopupHandlers = {
     onClose: () => {
       closePlanChoice()
       onClose()
@@ -624,7 +624,7 @@ export function useProjectActivityPopup({
     onPlanChoiceSelect: (clarificationMode) => void confirmPlanWithCodex(clarificationMode),
     onRun: () => void runSelectedTaskWithCodex(),
     onLoadEarlier: () => setChatVisibleLimit((value) => Math.min(visibleChatMessages.length, value + CHAT_MESSAGE_LOAD_STEP)),
-    onActivityScroll,
+    onChatScroll,
     onGatewayChange: (option) => {
       setChatGatewayId(option?.value ?? '')
       setChatModel('')

@@ -8,7 +8,7 @@ import { formatChatTime, groupCodexTranscriptMessages } from '@renderer/screens/
 import type { ChatAttachmentDraft, ChatConversationSummary, PlannerClarificationMode, SlashCommand, TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
-interface ActivityPopupLegacyProps {
+interface ChatPopupFlatProps {
   task: TaskEntity | null
   chatDragDepth: number
   conversations: ChatConversationSummary[]
@@ -28,7 +28,7 @@ interface ActivityPopupLegacyProps {
   renderedMessages: TaskActivityMessage[]
   hiddenMessageCount: number
   localStatusMessage: TaskActivityMessage | null
-  activityFeedRef: RefObject<HTMLDivElement | null>
+  chatFeedRef: RefObject<HTMLDivElement | null>
   chatGateway: Gateway | null
   chatGatewayOption: AppSelectOption | null
   chatGatewayOptions: AppSelectOption[]
@@ -72,7 +72,7 @@ interface ActivityPopupLegacyProps {
   onPlanChoiceSelect: (clarificationMode: PlannerClarificationMode) => void
   onRun: () => void
   onLoadEarlier: () => void
-  onActivityScroll: () => void
+  onChatScroll: () => void
   onGatewayChange: (option: AppSelectOption | null) => void
   onModelChange: (option: AppSelectOption | null) => void
   onPlanModelChange: (option: AppSelectOption | null) => void
@@ -90,8 +90,8 @@ interface ActivityPopupLegacyProps {
   onPlannerQuestionAnswer: (answer: string) => void
 }
 
-type ActivityPopupStateProps = Omit<
-  ActivityPopupLegacyProps,
+type ChatPopupStateProps = Omit<
+  ChatPopupFlatProps,
   | 'onClose'
   | 'onDragEnter'
   | 'onDragOver'
@@ -107,7 +107,7 @@ type ActivityPopupStateProps = Omit<
   | 'onPlanChoiceSelect'
   | 'onRun'
   | 'onLoadEarlier'
-  | 'onActivityScroll'
+  | 'onChatScroll'
   | 'onGatewayChange'
   | 'onModelChange'
   | 'onPlanModelChange'
@@ -125,8 +125,8 @@ type ActivityPopupStateProps = Omit<
   | 'onPlannerQuestionAnswer'
 >
 
-type ActivityPopupHandlerProps = Pick<
-  ActivityPopupLegacyProps,
+type ChatPopupHandlerProps = Pick<
+  ChatPopupFlatProps,
   | 'onClose'
   | 'onDragEnter'
   | 'onDragOver'
@@ -142,7 +142,7 @@ type ActivityPopupHandlerProps = Pick<
   | 'onPlanChoiceSelect'
   | 'onRun'
   | 'onLoadEarlier'
-  | 'onActivityScroll'
+  | 'onChatScroll'
   | 'onGatewayChange'
   | 'onModelChange'
   | 'onPlanModelChange'
@@ -160,9 +160,9 @@ type ActivityPopupHandlerProps = Pick<
   | 'onPlannerQuestionAnswer'
 >
 
-interface ActivityPopupProps extends Partial<ActivityPopupStateProps>, Partial<ActivityPopupHandlerProps> {
-  chatState?: Partial<ActivityPopupStateProps>
-  chatHandlers?: Partial<ActivityPopupHandlerProps>
+interface ChatPopupProps extends Partial<ChatPopupStateProps>, Partial<ChatPopupHandlerProps> {
+  chatState?: Partial<ChatPopupStateProps>
+  chatHandlers?: Partial<ChatPopupHandlerProps>
   chatOptions?: {
     title?: string
     subtitle?: string
@@ -172,14 +172,14 @@ interface ActivityPopupProps extends Partial<ActivityPopupStateProps>, Partial<A
   }
 }
 
-export function ActivityPopup({
+export function ChatPopup({
   chatState,
   chatHandlers,
   chatOptions,
-  ...legacyState
-}: ActivityPopupProps) {
+  ...flatProps
+}: ChatPopupProps) {
   const noOp = () => {}
-  const state = (chatState ?? legacyState) as ActivityPopupStateProps | null
+  const state = (chatState ?? flatProps) as ChatPopupStateProps | null
   const [isConfigurationDetailsOpen, setIsConfigurationDetailsOpen] = useState(false)
   const isSteerMode = state?.chatMode === 'steer'
 
@@ -246,37 +246,37 @@ export function ActivityPopup({
     return null
   }
   const handlers = {
-    onClose: chatHandlers?.onClose ?? legacyState.onClose ?? noOp,
-    onDragEnter: chatHandlers?.onDragEnter ?? legacyState.onDragEnter ?? (() => {}),
-    onDragOver: chatHandlers?.onDragOver ?? legacyState.onDragOver ?? (() => {}),
-    onDragLeave: chatHandlers?.onDragLeave ?? legacyState.onDragLeave ?? (() => {}),
-    onDrop: chatHandlers?.onDrop ?? legacyState.onDrop ?? (() => {}),
-    onNewConversation: chatHandlers?.onNewConversation ?? legacyState.onNewConversation ?? noOp,
-    onConversationSelect: chatHandlers?.onConversationSelect ?? legacyState.onConversationSelect ?? noOp,
-    onSettingsToggle: chatHandlers?.onSettingsToggle ?? legacyState.onSettingsToggle ?? noOp,
-    onSettingsClose: chatHandlers?.onSettingsClose ?? legacyState.onSettingsClose ?? noOp,
-    onStopChat: chatHandlers?.onStopChat ?? legacyState.onStopChat ?? noOp,
-    onPlan: chatHandlers?.onPlan ?? legacyState.onPlan ?? noOp,
-    onPlanChoiceClose: chatHandlers?.onPlanChoiceClose ?? legacyState.onPlanChoiceClose ?? noOp,
-    onPlanChoiceSelect: chatHandlers?.onPlanChoiceSelect ?? legacyState.onPlanChoiceSelect ?? noOp,
-    onRun: chatHandlers?.onRun ?? legacyState.onRun ?? noOp,
-    onLoadEarlier: chatHandlers?.onLoadEarlier ?? legacyState.onLoadEarlier ?? noOp,
-    onActivityScroll: chatHandlers?.onActivityScroll ?? legacyState.onActivityScroll ?? noOp,
-    onGatewayChange: chatHandlers?.onGatewayChange ?? legacyState.onGatewayChange ?? (() => {}),
-    onModelChange: chatHandlers?.onModelChange ?? legacyState.onModelChange ?? (() => {}),
-    onPlanModelChange: chatHandlers?.onPlanModelChange ?? legacyState.onPlanModelChange ?? (() => {}),
-    onRunModelChange: chatHandlers?.onRunModelChange ?? legacyState.onRunModelChange ?? (() => {}),
-    onIncludeContextChange: chatHandlers?.onIncludeContextChange ?? legacyState.onIncludeContextChange ?? noOp,
-    onAttachmentRemove: chatHandlers?.onAttachmentRemove ?? legacyState.onAttachmentRemove ?? noOp,
-    onAttachFilesClick: chatHandlers?.onAttachFilesClick ?? legacyState.onAttachFilesClick ?? noOp,
-    onFilesSelected: chatHandlers?.onFilesSelected ?? legacyState.onFilesSelected ?? ((_) => {}),
-    onDraftChange: chatHandlers?.onDraftChange ?? legacyState.onDraftChange ?? (() => {}),
-    onComposerFocusChange: chatHandlers?.onComposerFocusChange ?? legacyState.onComposerFocusChange ?? noOp,
-    onSlashCommandApply: chatHandlers?.onSlashCommandApply ?? legacyState.onSlashCommandApply ?? noOp,
-    onSlashCommandIndexChange: chatHandlers?.onSlashCommandIndexChange ?? legacyState.onSlashCommandIndexChange ?? (() => {}),
-    onClearSlashDraft: chatHandlers?.onClearSlashDraft ?? legacyState.onClearSlashDraft ?? noOp,
-    onSend: chatHandlers?.onSend ?? legacyState.onSend ?? noOp,
-    onPlannerQuestionAnswer: chatHandlers?.onPlannerQuestionAnswer ?? legacyState.onPlannerQuestionAnswer ?? noOp
+    onClose: chatHandlers?.onClose ?? flatProps.onClose ?? noOp,
+    onDragEnter: chatHandlers?.onDragEnter ?? flatProps.onDragEnter ?? (() => {}),
+    onDragOver: chatHandlers?.onDragOver ?? flatProps.onDragOver ?? (() => {}),
+    onDragLeave: chatHandlers?.onDragLeave ?? flatProps.onDragLeave ?? (() => {}),
+    onDrop: chatHandlers?.onDrop ?? flatProps.onDrop ?? (() => {}),
+    onNewConversation: chatHandlers?.onNewConversation ?? flatProps.onNewConversation ?? noOp,
+    onConversationSelect: chatHandlers?.onConversationSelect ?? flatProps.onConversationSelect ?? noOp,
+    onSettingsToggle: chatHandlers?.onSettingsToggle ?? flatProps.onSettingsToggle ?? noOp,
+    onSettingsClose: chatHandlers?.onSettingsClose ?? flatProps.onSettingsClose ?? noOp,
+    onStopChat: chatHandlers?.onStopChat ?? flatProps.onStopChat ?? noOp,
+    onPlan: chatHandlers?.onPlan ?? flatProps.onPlan ?? noOp,
+    onPlanChoiceClose: chatHandlers?.onPlanChoiceClose ?? flatProps.onPlanChoiceClose ?? noOp,
+    onPlanChoiceSelect: chatHandlers?.onPlanChoiceSelect ?? flatProps.onPlanChoiceSelect ?? noOp,
+    onRun: chatHandlers?.onRun ?? flatProps.onRun ?? noOp,
+    onLoadEarlier: chatHandlers?.onLoadEarlier ?? flatProps.onLoadEarlier ?? noOp,
+    onChatScroll: chatHandlers?.onChatScroll ?? flatProps.onChatScroll ?? noOp,
+    onGatewayChange: chatHandlers?.onGatewayChange ?? flatProps.onGatewayChange ?? (() => {}),
+    onModelChange: chatHandlers?.onModelChange ?? flatProps.onModelChange ?? (() => {}),
+    onPlanModelChange: chatHandlers?.onPlanModelChange ?? flatProps.onPlanModelChange ?? (() => {}),
+    onRunModelChange: chatHandlers?.onRunModelChange ?? flatProps.onRunModelChange ?? (() => {}),
+    onIncludeContextChange: chatHandlers?.onIncludeContextChange ?? flatProps.onIncludeContextChange ?? noOp,
+    onAttachmentRemove: chatHandlers?.onAttachmentRemove ?? flatProps.onAttachmentRemove ?? noOp,
+    onAttachFilesClick: chatHandlers?.onAttachFilesClick ?? flatProps.onAttachFilesClick ?? noOp,
+    onFilesSelected: chatHandlers?.onFilesSelected ?? flatProps.onFilesSelected ?? ((_) => {}),
+    onDraftChange: chatHandlers?.onDraftChange ?? flatProps.onDraftChange ?? (() => {}),
+    onComposerFocusChange: chatHandlers?.onComposerFocusChange ?? flatProps.onComposerFocusChange ?? noOp,
+    onSlashCommandApply: chatHandlers?.onSlashCommandApply ?? flatProps.onSlashCommandApply ?? noOp,
+    onSlashCommandIndexChange: chatHandlers?.onSlashCommandIndexChange ?? flatProps.onSlashCommandIndexChange ?? (() => {}),
+    onClearSlashDraft: chatHandlers?.onClearSlashDraft ?? flatProps.onClearSlashDraft ?? noOp,
+    onSend: chatHandlers?.onSend ?? flatProps.onSend ?? noOp,
+    onPlannerQuestionAnswer: chatHandlers?.onPlannerQuestionAnswer ?? flatProps.onPlannerQuestionAnswer ?? noOp
   }
 
   const {
@@ -297,7 +297,7 @@ export function ActivityPopup({
     visibleMessages,
     renderedMessages,
     localStatusMessage,
-    activityFeedRef,
+    chatFeedRef,
     chatGateway,
     chatGatewayOption,
     chatGatewayOptions,
@@ -341,7 +341,7 @@ export function ActivityPopup({
     onStopChat,
     onPlan,
     onRun,
-    onActivityScroll,
+    onChatScroll,
     onGatewayChange,
     onModelChange,
     onPlanModelChange,
@@ -385,8 +385,8 @@ export function ActivityPopup({
 
   return (
     <>
-      <div className={styles.activityBackdrop} onClick={onClose} />
-      <section className={`${styles.modalShell} ${styles.activityModalShell}`} role="dialog" aria-modal="true" aria-label="Codex chat" onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
+      <div className={styles.chatBackdrop} onClick={onClose} />
+      <section className={`${styles.modalShell} ${styles.chatPopupShell}`} role="dialog" aria-modal="true" aria-label="Codex chat" onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
         {chatDragDepth > 0 ? (
           <div className={styles.chatDropOverlay}>
             <LuCloudUpload size={30} />
@@ -463,7 +463,7 @@ export function ActivityPopup({
             </div>
           </header>
           <div className={styles.chatWorkspace}>
-            <div className={styles.chatTranscript} ref={activityFeedRef} onScroll={onActivityScroll}>
+            <div className={styles.chatTranscript} ref={chatFeedRef} onScroll={onChatScroll}>
               {visibleMessages.length > 0 ? (
                 <div className={styles.chatMessageList}>
                   {transcriptItems.map((item) => (

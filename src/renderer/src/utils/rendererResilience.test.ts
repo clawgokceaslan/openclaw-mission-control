@@ -63,7 +63,7 @@ describe('renderer resilience utilities', () => {
       projectId: 'project-1',
       selectedTaskId: 'task-1',
       selectedChatConversationId: 'conversation-1',
-      activityModalOpen: true
+      chatPopupOpen: true
     })
 
     expect(collectRendererHealth().diagnosticContext).toMatchObject({
@@ -71,7 +71,7 @@ describe('renderer resilience utilities', () => {
       projectId: 'project-1',
       selectedTaskId: 'task-1',
       selectedChatConversationId: 'conversation-1',
-      activityModalOpen: true
+      chatPopupOpen: true
     })
 
     clearRendererDiagnosticContext('project-detail')

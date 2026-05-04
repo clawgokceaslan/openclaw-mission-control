@@ -5,7 +5,7 @@ import { DEFAULT_CODEX_LANGUAGE } from '@shared/utils/codex-language'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { createSerializedAsyncRunner } from '@renderer/utils/serializedAsync'
-import { ActivityPopup } from '@renderer/popups/Activity'
+import { ChatPopup } from '@renderer/popups/ChatPopup'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import {
   CHAT_INITIAL_MESSAGE_LIMIT,
@@ -208,7 +208,7 @@ export function LastChatsPage() {
   const [localSettledConversationIds, setLocalSettledConversationIds] = useState<Set<string>>(() => new Set())
   const [resolvingConversationIds, setResolvingConversationIds] = useState<Set<string>>(() => new Set())
   const [documentVisible, setDocumentVisible] = useState(() => typeof document === 'undefined' || document.visibilityState !== 'hidden')
-  const activityFeedRef = useRef<HTMLDivElement | null>(null)
+  const chatFeedRef = useRef<HTMLDivElement | null>(null)
   const draftTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const keepChatBottomRef = useRef(true)
@@ -499,7 +499,7 @@ export function LastChatsPage() {
   }, [refreshData, selectedTaskId])
 
   useEffect(() => {
-    const feed = activityFeedRef.current
+    const feed = chatFeedRef.current
     if (!feed) return
     const lazyAnchor = lazyLoadAnchorRef.current
     if (lazyAnchor) {
@@ -519,8 +519,8 @@ export function LastChatsPage() {
     return () => cancelAnimationFrame(frame)
   }, [renderedMessages.length, renderedMessages[renderedMessages.length - 1]?.body.length, selectedConversationId, isStartingNewChat])
 
-  const handleActivityScroll = () => {
-    const feed = activityFeedRef.current
+  const handleChatScroll = () => {
+    const feed = chatFeedRef.current
     if (!feed) return
     const distanceToBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight
     keepChatBottomRef.current = distanceToBottom < CHAT_TOP_LAZY_LOAD_THRESHOLD
@@ -757,7 +757,7 @@ export function LastChatsPage() {
     renderedMessages,
     hiddenMessageCount,
     localStatusMessage,
-    activityFeedRef,
+    chatFeedRef,
     chatGateway,
     chatGatewayOption,
     chatGatewayOptions,
@@ -812,7 +812,7 @@ export function LastChatsPage() {
     onPlanChoiceSelect: () => {},
     onRun: () => {},
     onLoadEarlier: () => {},
-    onActivityScroll: handleActivityScroll,
+    onChatScroll: handleChatScroll,
     onGatewayChange: (option: AppSelectOption | null) => {
       setChatGatewayId(option?.value ?? '')
       setChatModel('')
@@ -948,7 +948,7 @@ export function LastChatsPage() {
       )}
 
       {chatState ? (
-        <ActivityPopup
+        <ChatPopup
           chatState={chatState}
           chatHandlers={chatHandlers}
           chatOptions={{

@@ -108,7 +108,7 @@ export interface ProjectCodexFlowContext {
     | 'setChatSending'
     | 'setChatStopping'
     | 'setChatSettingsOpen'
-    | 'setIsActivityModalOpen'
+    | 'setIsChatPopupOpen'
     | 'setIsStartingNewChat'
     | 'setSelectedChatConversationId'
     | 'setCodexModelLoading'
@@ -188,7 +188,7 @@ export function useProjectCodexFlow({
     setChatSending,
     setChatStopping,
     setChatSettingsOpen,
-    setIsActivityModalOpen,
+    setIsChatPopupOpen,
     setIsStartingNewChat,
     setSelectedChatConversationId,
     setCodexModelLoading,
@@ -277,7 +277,7 @@ export function useProjectCodexFlow({
 
     setCodexRunFeedback(null)
     setCodexRunLaunching(true)
-    setIsActivityModalOpen(true)
+    setIsChatPopupOpen(true)
     setIsStartingNewChat(false)
     try {
       const snapshot = buildProjectWorkspaceExportTaskPayload(selectedTaskExportContext)
@@ -337,7 +337,7 @@ export function useProjectCodexFlow({
     token,
     setCodexRunFeedback,
     setCodexRunLaunching,
-    setIsActivityModalOpen,
+    setIsChatPopupOpen,
     setIsStartingNewChat,
     setSelectedChatConversationId,
     setError,
@@ -351,7 +351,7 @@ export function useProjectCodexFlow({
       return
     }
     setCodexRunFeedback(null)
-    setIsActivityModalOpen(true)
+    setIsChatPopupOpen(true)
     setIsStartingNewChat(false)
     setChatSettingsOpen(false)
     setPlanChoiceOpen(true)
@@ -359,7 +359,7 @@ export function useProjectCodexFlow({
     project,
     selectedTask,
     setCodexRunFeedback,
-    setIsActivityModalOpen,
+    setIsChatPopupOpen,
     setIsStartingNewChat,
     setChatSettingsOpen
   ])
@@ -390,7 +390,7 @@ export function useProjectCodexFlow({
 
     setCodexRunFeedback(null)
     setCodexPlanLaunching(true)
-    setIsActivityModalOpen(true)
+    setIsChatPopupOpen(true)
     setIsStartingNewChat(false)
     try {
       const response = await invokeBridge<CodexPlanResponse>(IPC_CHANNELS.tasks.planWithCodex, {
@@ -433,7 +433,7 @@ export function useProjectCodexFlow({
     token,
     setCodexRunFeedback,
     setCodexPlanLaunching,
-    setIsActivityModalOpen,
+    setIsChatPopupOpen,
     setIsStartingNewChat,
     setSelectedChatConversationId,
     setError,

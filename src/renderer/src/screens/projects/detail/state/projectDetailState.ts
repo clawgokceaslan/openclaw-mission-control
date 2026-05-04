@@ -58,7 +58,7 @@ export interface ProjectDetailUiState {
   isProjectPromptSaving: boolean
   error: string | null
   busy: boolean
-  isActivityModalOpen: boolean
+  isChatPopupOpen: boolean
   isTitleEditing: boolean
   titleDraft: string
   taskTitle: string
@@ -116,7 +116,7 @@ export interface ProjectDetailFormsState {
   selectedSubtaskIds: string[]
   subtaskStatusMenu: { subtaskId: string; left: number; top: number } | null
   history: TaskHistoryItem[]
-  localActivityEntries: ThreadEntry[]
+  localChatEntries: ThreadEntry[]
 }
 
 export interface ProjectDetailCodexState {
@@ -179,7 +179,7 @@ type ModalActionKey = keyof Pick<
   | 'isProjectGroupPickerOpen'
   | 'isStatusTemplatePickerOpen'
   | 'isProjectPromptSettingsOpen'
-  | 'isActivityModalOpen'
+  | 'isChatPopupOpen'
   | 'isAddSubtaskOpen'
   | 'isTaskImportOpen'
   | 'isChecklistModalOpen'
@@ -289,7 +289,7 @@ export const PROJECT_DETAIL_INITIAL_STATE: ProjectDetailState = {
     isProjectPromptSaving: false,
     error: null,
     busy: false,
-    isActivityModalOpen: false,
+    isChatPopupOpen: false,
     isTitleEditing: false,
     titleDraft: '',
     taskTitle: '',
@@ -346,7 +346,7 @@ export const PROJECT_DETAIL_INITIAL_STATE: ProjectDetailState = {
     selectedSubtaskIds: [],
     subtaskStatusMenu: null,
     history: [],
-    localActivityEntries: []
+    localChatEntries: []
   },
   codex: {
     codexGatewayId: '',
@@ -430,7 +430,7 @@ const PROJECT_DETAIL_FIELD_TO_PATH = {
   isProjectPromptSaving: ['ui', 'isProjectPromptSaving'],
   error: ['ui', 'error'],
   busy: ['ui', 'busy'],
-  isActivityModalOpen: ['ui', 'isActivityModalOpen'],
+  isChatPopupOpen: ['ui', 'isChatPopupOpen'],
   isTitleEditing: ['ui', 'isTitleEditing'],
   titleDraft: ['ui', 'titleDraft'],
   taskTitle: ['ui', 'taskTitle'],
@@ -485,7 +485,7 @@ const PROJECT_DETAIL_FIELD_TO_PATH = {
   selectedSubtaskIds: ['forms', 'selectedSubtaskIds'],
   subtaskStatusMenu: ['forms', 'subtaskStatusMenu'],
   history: ['forms', 'history'],
-  localActivityEntries: ['forms', 'localActivityEntries'],
+  localChatEntries: ['forms', 'localChatEntries'],
   codexGatewayId: ['codex', 'codexGatewayId'],
   codexRuntimeWorkspaceId: ['codex', 'codexRuntimeWorkspaceId'],
   codexDefaultModel: ['codex', 'codexDefaultModel'],

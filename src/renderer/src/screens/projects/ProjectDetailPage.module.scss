@@ -1633,7 +1633,7 @@
   z-index: 30;
 }
 
-.activityBackdrop {
+.chatBackdrop {
   position: fixed;
   inset: 0;
   background:
@@ -1656,7 +1656,7 @@
   grid-template-rows: auto 1fr;
 }
 
-.activityModalShell {
+.chatPopupShell {
   z-index: 1500;
   inset: clamp(12px, 2vh, 22px) clamp(12px, 2vw, 26px);
   width: auto;
@@ -3584,7 +3584,7 @@
   display: grid;
 }
 
-.activityModalBody {
+.chatPopupBody {
   min-height: 0;
   display: grid;
   grid-template-columns: 1fr;
@@ -7618,7 +7618,7 @@
     min-height: 420px;
   }
 
-  .activityModalShell {
+  .chatPopupShell {
     inset: 9px;
     width: auto;
     height: auto;
