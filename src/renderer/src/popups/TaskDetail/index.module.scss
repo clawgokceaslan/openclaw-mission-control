@@ -145,6 +145,24 @@
   }
 }
 
+.labeledActionButton {
+  width: auto;
+  min-width: 32px;
+  gap: 7px;
+  padding: 0 10px;
+  white-space: nowrap;
+
+  svg {
+    flex: 0 0 auto;
+  }
+}
+
+.actionButtonLabel {
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .runButton {
   border-color: color-mix(in srgb, var(--omc-success-strong) 64%, transparent);
   background: linear-gradient(180deg, color-mix(in srgb, var(--omc-success-strong) 92%, #ffffff) 0%, var(--omc-success-strong) 100%);
@@ -179,23 +197,23 @@
 }
 
 .importButton {
-  border-color: color-mix(in srgb, var(--omc-primary) 52%, transparent);
-  background: color-mix(in srgb, var(--omc-primary) 90%, var(--omc-text-strong));
+  border-color: color-mix(in srgb, #ec4899 56%, transparent);
+  background: color-mix(in srgb, #ec4899 88%, #111827);
 
   &:hover {
-    border-color: var(--omc-primary);
-    background: color-mix(in srgb, var(--omc-primary) 80%, var(--omc-text-strong));
+    border-color: #ec4899;
+    background: color-mix(in srgb, #ec4899 78%, #111827);
     color: var(--omc-inverse-text);
   }
 }
 
 .downloadButton {
-  border-color: color-mix(in srgb, #14b8a6 58%, transparent);
-  background: color-mix(in srgb, #14b8a6 88%, #0f172a);
+  border-color: color-mix(in srgb, #0ea5e9 58%, transparent);
+  background: color-mix(in srgb, #0ea5e9 88%, #0f172a);
 
   &:hover {
-    border-color: #14b8a6;
-    background: color-mix(in srgb, #14b8a6 78%, #0f172a);
+    border-color: #0ea5e9;
+    background: color-mix(in srgb, #0ea5e9 78%, #0f172a);
     color: var(--omc-inverse-text);
   }
 }
