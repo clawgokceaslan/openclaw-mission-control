@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { AppSelectOption } from '@renderer/components/select/AppSelect'
-import type { Gateway, Project, ProjectGroup, ProjectStatus, StatusTemplate, Workspace, Tag, Skill, Agent, CustomField, TaskEntity } from '@shared/types/entities'
+import type { Gateway, Project, ProjectCodexSettings, ProjectGroup, ProjectStatus, StatusTemplate, Workspace, Tag, Skill, Agent, CustomField, TaskEntity } from '@shared/types/entities'
 import { invokeBridge } from '@renderer/utils/api'
 import {
   codexConfigOf,
@@ -117,7 +117,7 @@ interface UseProjectWorkspaceSettingsResult {
     chooseProjectWorkspaceFolder: () => Promise<void>
     createWorkspaceFromDraft: () => Promise<Workspace | null>
     updateProjectWorkspace: (workspaceId: string | null) => Promise<void>
-    saveProjectCodexSettings: (draft?: { gatewayId: string; runtimeWorkspaceId: string; planModel: string; runModel: string }) => Promise<void>
+    saveProjectCodexSettings: (draft?: { gatewayId: string; runtimeWorkspaceId: string; planModel: string; runModel: string }) => Promise<ProjectCodexSettings>
     updateProjectGroupMembership: (nextGroupId: string | null) => Promise<void>
     saveSelectedProjectGroup: () => Promise<void>
     syncProjectWorkspace: () => Promise<void>
@@ -322,8 +322,8 @@ export function useProjectWorkspaceSettings({
     await refresh()
   }
 
-  const saveProjectCodexSettings = async (draft?: { gatewayId: string; runtimeWorkspaceId: string; planModel: string; runModel: string }) => {
-    if (!project) return
+  const saveProjectCodexSettings = async (draft?: { gatewayId: string; runtimeWorkspaceId: string; planModel: string; runModel: string }): Promise<ProjectCodexSettings> => {
+    if (!project) throw new Error('Project is not loaded')
     const nextGatewayId = draft?.gatewayId ?? codexGatewayId
     const nextRuntimeWorkspaceId = draft?.runtimeWorkspaceId ?? codexRuntimeWorkspaceId
     const nextPlanModel = draft?.planModel ?? codexDefaultPlanModel
@@ -343,16 +343,20 @@ export function useProjectWorkspaceSettings({
     })
     setCodexSaving(false)
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Unable to save Codex settings')
-      return
+      const message = response.error?.message ?? 'Unable to save Codex settings'
+      setError(message)
+      throw new Error(message)
     }
+    const saved = projectCodexSettings(response.data)
     setProject(response.data)
-    setCodexGatewayId(nextGatewayId)
-    setCodexRuntimeWorkspaceId(nextRuntimeWorkspaceId)
-    setCodexDefaultModel(nextRunModel)
-    setCodexDefaultPlanModel(nextPlanModel)
-    setCodexDefaultRunModel(nextRunModel)
+    setCodexGatewayId(saved.gatewayId ?? '')
+    setCodexRuntimeWorkspaceId(saved.runtimeWorkspaceId ?? '')
+    setCodexDefaultModel(saved.defaultModel ?? saved.runModel ?? '')
+    setCodexDefaultPlanModel(saved.planModel ?? saved.defaultModel ?? '')
+    setCodexDefaultRunModel(saved.runModel ?? saved.defaultModel ?? '')
     setError(null)
+    await refresh()
+    return saved
   }
 
   const updateProjectGroupMembership = async (nextGroupId: string | null) => {

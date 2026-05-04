@@ -539,6 +539,7 @@ export function ProjectDetailPage() {
   const chatModelOption = chatModelOptions.find((option) => option.value === chatModel) ?? null
   const chatPlanModelOption = chatModelOptions.find((option) => option.value === (chatPlanModel || chatModel)) ?? null
   const chatRunModelOption = chatModelOptions.find((option) => option.value === (chatRunModel || chatModel)) ?? null
+  const selectedTaskCodexSignature = useMemo(() => JSON.stringify(selectedTask?.payload?.codex ?? null), [selectedTask?.payload])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -549,12 +550,24 @@ export function ProjectDetailPage() {
     if (!selectedTask) return
     const override = readTaskCodexOverride(selectedTask)
     const nextRunModel = override.runModel || override.legacyModel || savedCodexSettings.runModel || savedCodexSettings.defaultModel || ''
-    setChatGatewayId(override.gatewayId || savedCodexSettings.gatewayId || '')
+    const nextGatewayId = override.gatewayId || savedCodexSettings.gatewayId || ''
+    const nextPlanModel = override.planModel || savedCodexSettings.planModel || savedCodexSettings.defaultModel || ''
+    setChatGatewayId(nextGatewayId)
     setChatModel(nextRunModel)
-    setChatPlanModel(override.planModel || savedCodexSettings.planModel || savedCodexSettings.defaultModel || '')
+    setChatPlanModel(nextPlanModel)
     setChatRunModel(nextRunModel)
-    setSelectedChatConversationId('all')
-  }, [selectedTask?.id, savedCodexSettings.gatewayId, savedCodexSettings.defaultModel, savedCodexSettings.planModel, savedCodexSettings.runModel])
+  }, [
+    selectedTask?.id,
+    selectedTaskCodexSignature,
+    savedCodexSettings.gatewayId,
+    savedCodexSettings.defaultModel,
+    savedCodexSettings.planModel,
+    savedCodexSettings.runModel,
+    setChatGatewayId,
+    setChatModel,
+    setChatPlanModel,
+    setChatRunModel
+  ])
   useEffect(() => {
     setCodexRunFeedback(null)
   }, [selectedTaskId])

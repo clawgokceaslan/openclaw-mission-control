@@ -91,11 +91,15 @@ export class ProjectService {
     }
     const runtimeWorkspaceId = await this.normalizeWorkspaceId(orgId, codex.runtimeWorkspaceId)
     if (!runtimeWorkspaceId.ok) return runtimeWorkspaceId as ServiceResponse<ProjectCodexSettings>
-    const defaultModel = typeof codex.defaultModel === 'string' && codex.defaultModel.trim() ? codex.defaultModel.trim() : null
+    const runModel = typeof codex.runModel === 'string' && codex.runModel.trim() ? codex.runModel.trim() : null
+    const planModel = typeof codex.planModel === 'string' && codex.planModel.trim() ? codex.planModel.trim() : null
+    const defaultModel = typeof codex.defaultModel === 'string' && codex.defaultModel.trim() ? codex.defaultModel.trim() : runModel
     return okResponse({
       gatewayId,
       runtimeWorkspaceId: runtimeWorkspaceId.data ?? null,
-      defaultModel
+      defaultModel,
+      planModel,
+      runModel
     })
   }
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AppSelectOption } from '@renderer/components/select/AppSelect'
 import { AppSelect } from '@renderer/components/select/AppSelect'
-import type { Gateway, Project, ProjectGroup, ProjectStatus, ProjectStatusCategory, StatusTemplate, Workspace } from '@shared/types/entities'
+import type { Gateway, Project, ProjectCodexSettings, ProjectGroup, ProjectStatus, ProjectStatusCategory, StatusTemplate, Workspace } from '@shared/types/entities'
 import type { ProjectSettingsTab } from '@renderer/screens/projects/detail/types'
 import { StatusTemplatePickerModal } from '@renderer/components/projects/detail/ProjectModals/StatusTemplatePickerModal'
 import { ProjectGroupPickerModal } from '@renderer/components/projects/detail/ProjectModals/ProjectGroupPickerModal'
@@ -57,7 +57,7 @@ export interface ProjectDetailSettingsPopupProps {
     onSetCodexRuntimeWorkspaceId: (value: string) => void
     onSetCodexModelError: (value: string | null) => void
     codexSaving: boolean
-    onSaveProjectCodexSettings: (draft?: { gatewayId: string; runtimeWorkspaceId: string; planModel: string; runModel: string }) => void | Promise<void>
+    onSaveProjectCodexSettings: (draft?: { gatewayId: string; runtimeWorkspaceId: string; planModel: string; runModel: string }) => ProjectCodexSettings | void | Promise<ProjectCodexSettings | void>
     onRefreshCodexGatewayModels?: (gatewayId: string) => Promise<void> | void
 
     isStatusTemplatePickerOpen: boolean
@@ -156,7 +156,13 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
     setCodexSaveMessage(null)
     setCodexSaveError(null)
     try {
-      await s.onSaveProjectCodexSettings({ gatewayId: gatewayIdDraft, runtimeWorkspaceId: runtimeWorkspaceIdDraft, planModel: planModelDraft, runModel: runModelDraft })
+      const saved = await s.onSaveProjectCodexSettings({ gatewayId: gatewayIdDraft, runtimeWorkspaceId: runtimeWorkspaceIdDraft, planModel: planModelDraft, runModel: runModelDraft })
+      if (saved && typeof saved === 'object') {
+        setGatewayIdDraft(saved.gatewayId ?? '')
+        setRuntimeWorkspaceIdDraft(saved.runtimeWorkspaceId ?? '')
+        setPlanModelDraft(saved.planModel ?? saved.defaultModel ?? '')
+        setRunModelDraft(saved.runModel ?? saved.defaultModel ?? '')
+      }
       setCodexSaveMessage('Saved')
     } catch (error) {
       setCodexSaveError(error instanceof Error ? error.message : 'Unable to save Codex settings')

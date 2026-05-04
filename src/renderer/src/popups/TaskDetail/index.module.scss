@@ -302,7 +302,6 @@
 .commentComposerFooter button { min-height: 28px; border: 1px solid var(--omc-border); border-radius: 9px; background: var(--omc-surface-muted); color: var(--omc-text-strong); padding: 0 10px; font-weight: 850; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .commentComposerFooter button { border-color: var(--omc-primary); background: var(--omc-primary); color: var(--omc-inverse-text); }
 .commentComposerFooter button:disabled { opacity: 0.5; }
-.commentsEmpty { margin: auto 0; border: 1px dashed var(--omc-border-strong); border-radius: 10px; background: var(--omc-surface-muted); color: var(--omc-text-muted); padding: 14px; text-align: center; font-size: 0.9rem; font-weight: 650; }
 
 .breadcrumbRow { display: flex; align-items: center; gap: 8px; padding: 10px 22px; border-bottom: 1px solid var(--omc-surface-muted); background: var(--omc-surface-soft); }
 .breadcrumbBtn,

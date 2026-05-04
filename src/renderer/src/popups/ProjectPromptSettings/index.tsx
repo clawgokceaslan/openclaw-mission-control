@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
-import { LuBookOpen, LuDownload, LuSparkles, LuX } from 'react-icons/lu'
+import { useEffect, useState } from 'react'
+import { LuBookOpen, LuDownload, LuX } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { ProjectInstructionTemplate } from '@shared/types/entities'
 import type { ProjectPromptTab } from '@renderer/screens/projects/detail/types'
+import { PROJECT_INSTRUCTION_TABS } from '@renderer/constants/project-instructions'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { loadList } from '@renderer/utils/api'
 import styles from './index.module.scss'
@@ -25,14 +26,6 @@ interface ProjectPromptSettingsPopupProps {
   onClose: () => void
   onSave: () => void
 }
-
-const TAB_CONFIG: Array<{ id: ProjectPromptTab; label: string; title: string; description: string; placeholder: string }> = [
-  { id: 'context', label: 'Context', title: 'General context', description: 'Shared background and project facts that every task should know.', placeholder: 'Add common project context...' },
-  { id: 'prompt', label: 'Prompt', title: 'General prompt', description: 'Shared behavior instructions for planning, running, and follow-up chat.', placeholder: 'Set shared instructions for this project...' },
-  { id: 'planGuide', label: 'Plan guide', title: 'Plan guide', description: 'Instructions used specifically when Codex plans or revises a task.', placeholder: 'Tell Codex how to plan tasks in this project...' },
-  { id: 'output', label: 'Output', title: 'Default output', description: 'Default response or deliverable format expected from agents.', placeholder: 'Set default output format...' },
-  { id: 'rules', label: 'Rules', title: 'Project rules', description: 'Hard rules that Codex must apply in Task.md, planning, run, and chat flows.', placeholder: 'Add project-specific rules, one per line...' }
-]
 
 const PLAN_GUIDE_EXAMPLE = `# Standard Plan Guide
 
@@ -157,10 +150,9 @@ export function ProjectPromptSettingsPopup({
   const { token } = useAuth()
   const [templates, setTemplates] = useState<ProjectInstructionTemplate[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
-  const active = TAB_CONFIG.find((item) => item.id === tab) ?? TAB_CONFIG[0]
+  const active = PROJECT_INSTRUCTION_TABS.find((item) => item.id === tab) ?? PROJECT_INSTRUCTION_TABS[0]
   const value = tab === 'context' ? context : tab === 'prompt' ? prompt : tab === 'planGuide' ? planGuide : tab === 'output' ? output : rules
   const onChange = tab === 'context' ? onContextChange : tab === 'prompt' ? onPromptChange : tab === 'planGuide' ? onPlanGuideChange : tab === 'output' ? onOutputChange : onRulesChange
-  const selectedTemplate = useMemo(() => templates.find((item) => item.id === selectedTemplateId) ?? null, [selectedTemplateId, templates])
   const hasDraftContent = Boolean(context.trim() || prompt.trim() || planGuide.trim() || output.trim() || rules.trim())
 
   useEffect(() => {
@@ -176,7 +168,9 @@ export function ProjectPromptSettingsPopup({
     }
   }, [token])
 
-  const applySelectedTemplate = () => {
+  const handleTemplateSelect = (templateId: string) => {
+    setSelectedTemplateId(templateId)
+    const selectedTemplate = templates.find((item) => item.id === templateId)
     if (!selectedTemplate) return
     const template = selectedTemplate.template ?? {}
     onContextChange(template.generalContext ?? '')
@@ -202,7 +196,7 @@ export function ProjectPromptSettingsPopup({
         </header>
 
         <div className={styles.tabRow} role="tablist" aria-label="Project instruction tabs">
-          {TAB_CONFIG.map((item) => (
+          {PROJECT_INSTRUCTION_TABS.map((item) => (
             <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} className={tab === item.id ? styles.tabActive : styles.tab} onClick={() => onTabChange(item.id)}>
               {item.label}
             </button>
@@ -212,20 +206,16 @@ export function ProjectPromptSettingsPopup({
         <div className={styles.body}>
           <section className={styles.templateApplyCard}>
             <div>
-              <strong>Apply template</strong>
-              <span>{hasDraftContent ? 'Applying a template replaces the current unsaved draft across all instruction fields.' : 'Choose a template to fill every Project Instructions field together.'}</span>
+              <strong>Template</strong>
+              <span>{hasDraftContent ? 'Selecting a template immediately replaces the current unsaved draft across all instruction fields. Save writes the copied text to this project.' : 'Choose a template to immediately fill every Project Instructions field together.'}</span>
             </div>
             <div className={styles.templateApplyControls}>
-              <select value={selectedTemplateId} onChange={(event) => setSelectedTemplateId(event.target.value)}>
+              <select value={selectedTemplateId} onChange={(event) => handleTemplateSelect(event.target.value)}>
                 <option value="">Select project instructions template...</option>
                 {templates.map((item) => (
                   <option key={item.id} value={item.id}>{item.name}{item.builtIn ? ' (built-in)' : ''}</option>
                 ))}
               </select>
-              <button type="button" onClick={applySelectedTemplate} disabled={!selectedTemplate}>
-                <LuSparkles size={15} />
-                Apply template
-              </button>
             </div>
           </section>
           <label className={styles.field}>

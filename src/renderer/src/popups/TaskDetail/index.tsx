@@ -101,9 +101,7 @@ function CommentsPane({ scope }: { scope: Record<string, any> }) {
                 </div>
               </article>
             ))
-          ) : (
-            <div className={styles.commentsEmpty}>No comments yet.</div>
-          )}
+          ) : null}
         </div>
         <section className={styles.commentsComposer}>
           <div className={styles.commentsComposerHeader}>

@@ -2,6 +2,8 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { LuCopyPlus, LuPencil, LuPlus, LuSearch, LuTrash2, LuX } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { ProjectInstructionTemplate, ProjectInstructionTemplatePayload } from '@shared/types/entities'
+import { PROJECT_INSTRUCTION_TABS } from '@renderer/constants/project-instructions'
+import type { ProjectPromptTab } from '@renderer/screens/projects/detail/types'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList } from '@renderer/utils/api'
 import styles from './ProjectInstructionTemplatesPage.module.scss'
@@ -21,6 +23,14 @@ type EditorState = {
   name: string
   description: string
   template: ProjectInstructionTemplatePayload
+}
+
+const TEMPLATE_FIELD_BY_TAB: Record<ProjectPromptTab, keyof ProjectInstructionTemplatePayload> = {
+  context: 'generalContext',
+  prompt: 'generalPrompt',
+  planGuide: 'planGuide',
+  output: 'defaultOutput',
+  rules: 'rules'
 }
 
 function normalizeTemplate(value?: ProjectInstructionTemplatePayload): ProjectInstructionTemplatePayload {
@@ -48,6 +58,7 @@ export function ProjectInstructionTemplatesPage() {
   const [items, setItems] = useState<ProjectInstructionTemplate[]>([])
   const [query, setQuery] = useState('')
   const [editor, setEditor] = useState<EditorState | null>(null)
+  const [editorTab, setEditorTab] = useState<ProjectPromptTab>('context')
   const [deleteTarget, setDeleteTarget] = useState<ProjectInstructionTemplate | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
@@ -77,11 +88,13 @@ export function ProjectInstructionTemplatesPage() {
 
   const openCreate = () => {
     setFormError(null)
+    setEditorTab('context')
     setEditor({ mode: 'create', name: '', description: '', template: emptyTemplate })
   }
 
   const openEdit = (item: ProjectInstructionTemplate) => {
     setFormError(null)
+    setEditorTab('context')
     setEditor({
       mode: item.builtIn ? 'copy' : 'edit',
       source: item,
@@ -94,6 +107,9 @@ export function ProjectInstructionTemplatesPage() {
   const patchTemplate = (patch: Partial<ProjectInstructionTemplatePayload>) => {
     setEditor((current) => current ? { ...current, template: { ...current.template, ...patch } } : current)
   }
+
+  const activeEditorTab = PROJECT_INSTRUCTION_TABS.find((item) => item.id === editorTab) ?? PROJECT_INSTRUCTION_TABS[0]
+  const activeTemplateField = TEMPLATE_FIELD_BY_TAB[activeEditorTab.id]
 
   const saveTemplate = async (event: FormEvent) => {
     event.preventDefault()
@@ -204,17 +220,32 @@ export function ProjectInstructionTemplatesPage() {
             </header>
 
             <form className={styles.form} onSubmit={saveTemplate}>
-              {formError ? <p className={styles.formError}>{formError}</p> : null}
-              <div className={styles.formGrid}>
-                <label><span>Name *</span><input autoFocus value={editor.name} onChange={(event) => setEditor((current) => current ? { ...current, name: event.target.value } : current)} required /></label>
-                <label><span>Description</span><input value={editor.description} onChange={(event) => setEditor((current) => current ? { ...current, description: event.target.value } : current)} /></label>
-                <label><span>Context</span><textarea value={editor.template.generalContext ?? ''} onChange={(event) => patchTemplate({ generalContext: event.target.value })} /></label>
-                <label><span>Prompt</span><textarea value={editor.template.generalPrompt ?? ''} onChange={(event) => patchTemplate({ generalPrompt: event.target.value })} /></label>
-                <label className={styles.wideField}><span>Plan guide</span><textarea value={editor.template.planGuide ?? ''} onChange={(event) => patchTemplate({ planGuide: event.target.value })} /></label>
-                <label><span>Output</span><textarea value={editor.template.defaultOutput ?? ''} onChange={(event) => patchTemplate({ defaultOutput: event.target.value })} /></label>
-                <label><span>Rules</span><textarea value={editor.template.rules ?? ''} onChange={(event) => patchTemplate({ rules: event.target.value })} /></label>
+              <div className={styles.editorBody}>
+                {formError ? <p className={styles.formError}>{formError}</p> : null}
+                <div className={styles.metaGrid}>
+                  <label><span>Name *</span><input autoFocus value={editor.name} onChange={(event) => setEditor((current) => current ? { ...current, name: event.target.value } : current)} required /></label>
+                  <label><span>Description</span><input value={editor.description} onChange={(event) => setEditor((current) => current ? { ...current, description: event.target.value } : current)} /></label>
+                </div>
+                <div className={styles.tabRow} role="tablist" aria-label="Project instruction template fields">
+                  {PROJECT_INSTRUCTION_TABS.map((item) => (
+                    <button key={item.id} type="button" role="tab" aria-selected={editorTab === item.id} className={editorTab === item.id ? styles.tabActive : styles.tab} onClick={() => setEditorTab(item.id)}>
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+                <label className={styles.field}>
+                  <div className={styles.fieldHeader}>
+                    <div>
+                      <span>{activeEditorTab.title}</span>
+                      <small>{activeEditorTab.description}</small>
+                    </div>
+                    <b>No character limit</b>
+                  </div>
+                  <textarea value={editor.template[activeTemplateField] ?? ''} onChange={(event) => patchTemplate({ [activeTemplateField]: event.target.value } as Partial<ProjectInstructionTemplatePayload>)} placeholder={activeEditorTab.placeholder} />
+                </label>
               </div>
               <footer className={styles.modalFooter}>
+                <p>One template covers every Project Instructions tab. Save creates reusable copy text; projects do not keep a live link to this template.</p>
                 <button type="button" className={styles.secondaryButton} onClick={() => setEditor(null)} disabled={saving}>Cancel</button>
                 <button type="submit" className={styles.primaryButton} disabled={saving || !editor.name.trim()}>{saving ? 'Saving...' : editor.mode === 'copy' ? 'Save custom copy' : 'Save'}</button>
               </footer>
@@ -231,7 +262,7 @@ export function ProjectInstructionTemplatesPage() {
               <div><h2>Delete project instruction template</h2><p>This does not affect projects that already used this template.</p></div>
               <button type="button" className={styles.modalClose} onClick={() => setDeleteTarget(null)} aria-label="Close delete confirmation"><LuX size={16} /></button>
             </header>
-            <div className={styles.confirmBody}>Delete <strong>{deleteTarget.name}</strong>?</div>
+            <div className={styles.confirmBody}>Are you sure you want to delete <strong>{deleteTarget.name}</strong>?</div>
             <footer className={styles.modalFooter}>
               <button type="button" className={styles.secondaryButton} onClick={() => setDeleteTarget(null)}>Cancel</button>
               <button type="button" className={styles.dangerButton} onClick={() => void removeTemplate()}>Delete</button>
