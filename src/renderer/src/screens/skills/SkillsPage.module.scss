@@ -69,7 +69,7 @@
 }
 
 .filterBar {
-  --table-filter-control-height: 40px;
+  --table-filter-control-height: var(--omc-table-search-control-height);
 
   display: grid;
   grid-template-columns: minmax(260px, 1fr) minmax(170px, 200px);
@@ -81,6 +81,7 @@
     width: 100%;
     min-width: 0;
     height: var(--table-filter-control-height);
+    line-height: var(--table-filter-control-height);
     border: 1px solid var(--omc-input-border);
     border-radius: 10px;
     background: var(--omc-surface);
@@ -96,11 +97,12 @@
 }
 
 .statusFilterSelect {
+  --app-select-control-height: var(--table-filter-control-height);
+
   width: 100%;
   min-width: 0;
 
   :global(.app-select__control) {
-    min-height: var(--table-filter-control-height);
     height: var(--table-filter-control-height);
   }
 
@@ -110,7 +112,6 @@
 
   :global(.app-select__indicators) {
     flex: 0 0 auto;
-    height: var(--table-filter-control-height);
   }
 }
 

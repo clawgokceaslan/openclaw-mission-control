@@ -95,6 +95,8 @@ export const CHAT_TOP_LAZY_LOAD_THRESHOLD = 96
 export const CHAT_COMPOSER_MIN_HEIGHT = 72
 export const CHAT_COMPOSER_MAX_HEIGHT = 270
 export const CHAT_RUNNING_ACTIVITY_STALE_MS = 15 * 60 * 1000
+const CHAT_FOLLOW_UP_CONTEXT_MAX_LENGTH = 2_800
+const CHAT_FOLLOW_UP_CONTEXT_RECENT_MESSAGES = 6
 
 export const CHAT_RUNNING_STATUS_LABELS = ['queued', 'running', 'completed', 'failed'] as const
 
@@ -305,6 +307,108 @@ function parseDurationMs(value: unknown): number | undefined {
     return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : undefined
   }
   return undefined
+}
+
+function truncateText(value: string, max = 500): string {
+  if (value.length <= max) return value
+  return `${value.slice(0, max)}\n[truncated ${value.length - max} chars]`
+}
+
+function runCompleteMessage(message: TaskActivityMessage): message is TaskActivityMessage {
+  if (!isRunCompleteMessage(message)) return false
+  return message.role === 'system' || message.status === 'failed' || message.status === 'completed'
+}
+
+function describeRunResult(metadata: Record<string, unknown> | undefined): string {
+  if (!metadata) return ''
+  if (typeof metadata.code === 'number') return `Exit code ${metadata.code}`
+  if (typeof metadata.signal === 'string') return `Stopped by signal: ${metadata.signal}`
+  if (metadata.stopped === true) return 'Stopped by user'
+  if (metadata.stopped === false) return ''
+  return ''
+}
+
+function formatChangesSummary(summary: CodexChangesSummary): string {
+  if (summary.unavailable) return 'Changes summary unavailable.'
+  if (summary.hasNoChanges || summary.files === 0) return summary.hasNoChanges
+    ? 'No workspace changes detected.'
+    : 'Changes reported without file-level detail.'
+  const parts = []
+  if (summary.files > 0) parts.push(`${summary.files} file${summary.files === 1 ? '' : 's'} changed`)
+  if (summary.blocks > 0) parts.push(`${summary.blocks} block${summary.blocks === 1 ? '' : 's'} changed`)
+  if (summary.insertions > 0) parts.push(`+${summary.insertions} insertions`)
+  if (summary.deletions > 0) parts.push(`-${summary.deletions} deletions`)
+  return parts.length > 0 ? parts.join(', ') : 'Workspace changes detected.'
+}
+
+function buildConversationIdLatest(messages: TaskActivityMessage[]): string | null {
+  const index = new Map<string, { latestAt: number; latestRunCompletedAt: number }>()
+  for (const message of messages) {
+    const id = conversationIdOf(message)
+    if (!id) continue
+    const current = index.get(id) ?? { latestAt: -Infinity, latestRunCompletedAt: -Infinity }
+    const at = messageTimeOf(message)
+    if (at > current.latestAt) current.latestAt = at
+    if (runCompleteMessage(message)) current.latestRunCompletedAt = Math.max(current.latestRunCompletedAt, at)
+    index.set(id, current)
+  }
+  let selectedId: string | null = null
+  let selectedScore = -Infinity
+
+  for (const [id, stats] of index.entries()) {
+    const completedScore = stats.latestRunCompletedAt > -Infinity ? stats.latestRunCompletedAt + (24 * 60 * 60 * 1000) : -Infinity
+    const score = Math.max(stats.latestAt, completedScore)
+    if (score > selectedScore) {
+      selectedScore = score
+      selectedId = id
+    }
+  }
+  return selectedId
+}
+
+function messageShortLabel(message: TaskActivityMessage): string {
+  const summary = message.body.trim().replace(/\s+/g, ' ')
+  const role = message.role
+  const source = message.source
+  return `${source}/${role}: ${truncateText(summary, 220)}`
+}
+
+export function buildLatestRunFollowUpContext(messages: TaskActivityMessage[]): string {
+  const runMessages = messages.filter((message) => message.source === 'codex-run')
+  const conversationId = buildConversationIdLatest(runMessages)
+  if (!conversationId) return ''
+
+  const conversationMessages = runMessages
+    .filter((message) => conversationIdOf(message) === conversationId)
+    .sort((a, b) => a.createdAt - b.createdAt)
+  if (conversationMessages.length === 0) return ''
+
+  const runComplete = [...conversationMessages].slice().reverse().find((message) => runCompleteMessage(message))
+  const finalAssistant = [...conversationMessages].slice().reverse().find((message) => (
+    message.role === 'assistant' && typeof message.body === 'string' && message.body.trim()
+  ))
+  const reportedChanges = [...conversationMessages]
+    .filter((message) => message.role === 'tool' && message.metadata?.codexBlock === 'changes')
+    .slice(-1)[0]
+  const usage = usageFromMetadata(finalAssistant?.metadata) ?? usageFromMetadata(reportedChanges?.metadata) ?? usageFromMetadata(runComplete?.metadata)
+  const result = describeRunResult(runComplete?.metadata)
+  const changesSummary = reportedChanges ? codexChangesSummary(reportedChanges) : null
+  const recent = conversationMessages
+    .slice(-CHAT_FOLLOW_UP_CONTEXT_RECENT_MESSAGES)
+    .map(messageShortLabel)
+
+  const lines = [
+    `Latest run output context for conversation ${conversationId}:`,
+    runComplete ? `Final run status: ${truncateText(runComplete.body.trim() || 'completed', 520)}` : 'Latest run status: not yet completed.',
+    result ? `Result: ${result}` : null,
+    finalAssistant ? `Final assistant message: ${truncateText(finalAssistant.body.trim(), 760)}` : null,
+    changesSummary ? `Reported changes: ${truncateText(formatChangesSummary(changesSummary), 260)}` : null,
+    usage ? `Usage: ${formatUsageSummary(usage)}` : null,
+    'Recent run activity:',
+    ...recent.map((row) => `- ${row}`)
+  ].filter(Boolean)
+
+  return truncateText(lines.join('\n'), CHAT_FOLLOW_UP_CONTEXT_MAX_LENGTH)
 }
 
 function parseDurationMsFromSeconds(value: unknown): number | undefined {
@@ -666,8 +770,6 @@ export function buildChatConversationSummaries(messages: TaskActivityMessage[], 
 
     if (message.role === 'user') current.count += 1
     if (at > current.latestAt) {
-      current.title = nextTitle
-      current.source = message.source
       current.latestAt = at
       current.latestStatus = nextStatus
       current.model = messageModel ?? current.model
@@ -746,6 +848,33 @@ export function activityMessagesFromTask(task: TaskEntity): TaskActivityMessage[
   const raw = payload.activityMessages
   if (!Array.isArray(raw)) return []
   return raw.map(normalizeActivityMessage).filter((item): item is TaskActivityMessage => Boolean(item))
+}
+
+export function appendActivityMessageToTasks(
+  tasks: TaskEntity[],
+  taskId: string,
+  message: TaskActivityMessage,
+  limit = 300
+): TaskEntity[] {
+  let changed = false
+  const nextTasks = tasks.map((task) => {
+    if (task.id !== taskId) return task
+    const currentMessages = activityMessagesFromTask(task)
+    if (currentMessages.some((item) => item.id === message.id)) return task
+    const payload = task.payload && typeof task.payload === 'object' && !Array.isArray(task.payload)
+      ? task.payload as Record<string, unknown>
+      : {}
+    changed = true
+    return {
+      ...task,
+      payload: {
+        ...payload,
+        activityMessages: [...currentMessages, message].slice(-limit)
+      },
+      updatedAt: Math.max(task.updatedAt ?? 0, message.updatedAt ?? message.createdAt)
+    }
+  })
+  return changed ? nextTasks : tasks
 }
 
 export function formatCodexToolBody(body: string): string {

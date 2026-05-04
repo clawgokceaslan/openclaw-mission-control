@@ -43,7 +43,7 @@ function task(): TaskEntity {
 }
 
 describe('buildTaskMarkdown', () => {
-  it('presents subtasks as the primary execution plan with checklist counts', () => {
+  it('presents subtasks as the primary execution plan with optional checklist counts', () => {
     const markdown = buildTaskMarkdown({
       task: task(),
       project: null,
@@ -56,8 +56,12 @@ describe('buildTaskMarkdown', () => {
     })
 
     expect(markdown).toContain('## Subtasks as Primary Execution Plan')
+    expect(markdown).toContain('1. Read Project Inputs, Task Details, Agents.md, Skills.md, and attachments if present.')
+    expect(markdown).toContain('2. Execute 1 actionable subtask in Subtasks Index order.')
+    expect(markdown).not.toContain('```text')
     expect(markdown).toContain('Subtasks are the authoritative execution plan for this task.')
-    expect(markdown).toContain('Checklist: 2 - description: present')
+    expect(markdown).toContain('Optional checklist: 2')
+    expect(markdown).not.toContain('complete each subtask checklist before moving on')
     expect(markdown.indexOf('### Checklist')).toBeLessThan(markdown.indexOf('### Comments'))
   })
 })

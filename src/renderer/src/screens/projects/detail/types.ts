@@ -76,6 +76,7 @@ export type ChatAttachmentDraft = {
   bytes: number[]
 }
 export type CodexRunFeedback = { kind: 'error' | 'success'; message: string }
+export type PlannerClarificationMode = 'ask-first' | 'direct'
 export type ChatOperationState = 'running' | 'success' | 'error'
 export type ChatOperationFeedbackData = {
   state: ChatOperationState

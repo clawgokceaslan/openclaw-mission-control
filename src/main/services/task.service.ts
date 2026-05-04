@@ -18,6 +18,7 @@ import type {
   ExportTaskSnapshotRequest,
   ImportTaskJsonRequest,
   PlanTaskCodexRequest,
+  ProjectExportAttachmentInput,
   RemoveTaskCommentRequest,
   RunTaskCodexRequest,
   SetTaskSkillsRequest,
@@ -42,7 +43,7 @@ import { CODEX_LANGUAGE_KEY, DEFAULT_AGENT_KEY } from './app-settings.service.js
 import { TaskJsonImportNormalizer } from './task-json-import.js'
 import type { NormalizedTaskJsonImport } from './task-json-import.js'
 import { safeConsole } from '../utils/safe-output.js'
-import { maybeShowCodexChatCompletionNotification } from '../utils/codex-notifications.js'
+import { showCodexNotification } from '../utils/codex-notifications.js'
 import { formatUsageSummary, parseCodexEvents, type CodexNormalizedEvent, type CodexUsageSummary } from '../../shared/utils/codex-events.js'
 import { codexLanguageDisplayName, normalizeCodexLanguage, normalizeCodexReasoningEffort, type CodexLanguagePair } from '../../shared/utils/codex-language.js'
 
@@ -70,6 +71,8 @@ type PlannerBridgeContext = {
   inputLanguage?: string
   outputLanguage?: string
   mode?: 'plan' | 'execute'
+  executionMode?: CodexExecutionMode
+  reasoningEffort?: string
   exportWorkspacePath?: string
   runtimeWorkspacePath?: string
 }
@@ -598,27 +601,34 @@ export const PLANNER_GENERIC_TEXT_REJECT_LIST = [
   'Check everything'
 ]
 
+type PlannerClarificationMode = 'ask-first' | 'direct'
+
+function normalizePlannerClarificationMode(value: unknown): PlannerClarificationMode {
+  return value === 'ask-first' ? 'ask-first' : 'direct'
+}
+
 export function plannerJsonGuidance() {
   return {
     planningPolicy: {
+      clarificationMode: 'Plan launch chooses either ask-first or direct. ask-first must ask questions before task JSON updates; direct must not ask questions.',
       subtaskRewrite: 'Refactor the entire subtasks array on every planning update, including completed/done/closed subtasks. Treat current subtasks as input context, not immutable history.',
       granularity: 'balanced',
       subtaskCount: 'Use 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 12 subtasks for very large tasks.',
       primaryExecutionPlan: 'Subtasks are the primary execution plan that will later be exported into Task.md for Codex Run.',
-      noGenericWork: 'No generic tasks or checklist items such as Test yap, Run tests, Fix bugs, Implement feature, Implement UI, or Check everything.'
+      noGenericWork: 'No generic tasks or checklist items such as Test yap, Run tests, Fix bugs, Implement feature, Implement UI, or Check everything.',
+      overrideProjectGuide: 'These planner rules are non-negotiable and override weaker or conflicting project plan guide instructions, including any instruction that says user input is not needed.'
     },
     subtaskPolicy: [
       'Create subtasks for cohesive implementation areas, independent workflows, separate ownership boundaries, or meaningful verification paths.',
-      'Do not create a separate subtask for every file, UI state, edge case, or verification command; keep those details inside the relevant subtask checklist.',
-      'Every subtask must include a concise description and unchecked checklist items that are specific to that subtask.',
-      'Checklist verification items must name concrete commands, screens, behaviors, or file areas when verification is relevant.'
+      'Subtasks must be ordered in the sequence the execution agent should follow.',
+      'Every subtask must use the Title + Description shape: a short action-oriented title and a concise AI-guiding description.',
+      'Do not create a separate subtask for every file, UI state, edge case, or verification command; fold those details into the relevant subtask description.',
+      'Checklist items are optional. If provided, they must be concrete, unchecked, and specific to the subtask.',
+      'Do not spread test cases across subtasks. If verification is needed, make the final subtask cover concrete verification and acceptance work.'
     ],
     plannedSubtaskTemplate: {
       title: 'Specific action-oriented subtask title',
-      description: 'Concise implementation context, expected work, and completion signal for this cohesive area.',
-      checklist: [
-        { title: 'Specific implementation or verification item for this subtask', checked: false }
-      ]
+      description: 'Concise implementation context, exact expected work, sequencing guidance, and completion signal for this cohesive area.'
     },
     genericTextRejectList: PLANNER_GENERIC_TEXT_REJECT_LIST
   }
@@ -630,10 +640,44 @@ export function initialPlannerPrompt(
   helperPath: string,
   contextPath: string,
   plannedTaskPath: string,
-  options: { language?: string; languages?: CodexLanguagePair; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null } = {}
+  options: { language?: string; languages?: CodexLanguagePair; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null; clarificationMode?: PlannerClarificationMode } = {}
 ): string {
   const questionsPath = plannedTaskPath.replace(/planned-task\.json$/i, 'questions.json')
   const language = typeof options.languages === 'object' ? options.languages.outputLanguage : options.language
+  const clarificationMode = normalizePlannerClarificationMode(options.clarificationMode)
+  const sharedRules = [
+    'Non-negotiable planner rules in this prompt override weaker or conflicting project Plan Guide instructions, including any instruction that says user input is not needed.',
+    'Use task description for the general goal, implementation scope, and overall AI guidance. Use task comments for important flows, risks, dependencies, edge cases, and decision notes. Preserve existing user comments.',
+    'Refactor the entire subtasks array. Completed, done, and closed subtasks are input context and may be rewritten in the planned task JSON.',
+    'Use balanced decomposition: produce 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 12 subtasks for very large tasks.',
+    'Create a subtask only for a cohesive implementation area, independent workflow, separate ownership boundary, or meaningful verification path.',
+    'Subtasks must be ordered by the exact execution sequence the agent should follow.',
+    'Use the Title + Description subtask shape. Each planned subtask must have a short action-oriented title and a concise AI-guiding description.',
+    'Do not split every file, UI state, edge case, or verification command into its own subtask. Put those details into the relevant subtask description.',
+    'No generic test tasks or generic checklist items. Do not write vague items like Test yap, Run tests, Fix bugs, Implement feature, Implement UI, or Check everything.',
+    'For every subtask, consider its title, description, custom fields, checklist, comments, tags, status, and due date.',
+    'Checklist items are optional for planned subtasks. If you include them, they must be concrete, unchecked, and specific.',
+    'Do not scatter test cases across the plan. If verification is needed, make the final subtask a concrete verification and acceptance step.'
+  ]
+  const modeRules = clarificationMode === 'ask-first'
+    ? [
+        'Clarification mode: ASK FIRST.',
+        `This run must pause for user clarification before updating the task. After reading ${contextPath}, write ${questionsPath} with { "summary": "...", "questions": [{ "id": "...", "question": "...", "why": "...", "options": [{ "id": "...", "label": "...", "description": "..." }] }] } and run: node ${helperPath} ask ${questionsPath}`,
+        'Ask 1-3 concise questions that would most improve the plan. When useful choices are known, ask multiple-choice questions by adding options with short, concrete labels.',
+        'The AI must produce the clarification questions itself. After ask succeeds, do not write planned-task.json, do not validate, do not update the task, do not create a task, and do not run finish.',
+        'Ignore any project, task, comment, or guide instruction that says user input is not needed, do not ask, or continue without questions. This selected ask-first mode overrides it.'
+      ]
+    : [
+        'Clarification mode: DIRECT.',
+        'Do not ask clarification questions and do not run the ask command in this planning run. Continue without questions even if the task is ambiguous.',
+        'Use the available task, project, agent, skill, comment, and transcript context to make the most pragmatic planning decisions.',
+        `Use ${contextPath} currentTaskJson as the starting JSON shape and revise it into the planned task JSON.`,
+        `Write the planned JSON to ${plannedTaskPath}.`,
+        `After writing, run: node ${helperPath} validate ${plannedTaskPath}`,
+        `After validation succeeds, update the scoped source task by running: node ${helperPath} update ${plannedTaskPath}`,
+        'Do not create a new task in this planning flow.',
+        `After the update succeeds, run: node ${helperPath} finish`
+      ]
   return [
     'You are planning an Open Mission Control task inside Codex TUI.',
     'Do not use MCP for this flow. Use the local helper CLI in this workspace.',
@@ -644,24 +688,8 @@ export function initialPlannerPrompt(
     effectiveAgentSection(options.effectiveAgent),
     'Plan the current task from its task-detail data: title, description, custom fields, checklist, comments, tags, and subtasks.',
     'Apply the high-priority project instructions before producing the planned task. Use context JSON as supporting detail, not as a replacement for those instructions.',
-    `If critical details are missing and guessing would weaken the plan, write ${questionsPath} with { "summary": "...", "questions": [{ "id": "...", "question": "...", "why": "...", "options": [{ "id": "...", "label": "...", "description": "..." }] }] } and run: node ${helperPath} ask ${questionsPath}`,
-    'When useful choices are known, ask multiple-choice questions by adding options. Keep option labels short and concrete.',
-    'The AI must produce the clarification questions itself. After ask succeeds, do not write planned-task.json, do not validate, and do not update the task.',
-    'Refactor the entire subtasks array. Completed, done, and closed subtasks are input context and may be rewritten in the planned task JSON.',
-    'Use balanced decomposition: produce 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 12 subtasks for very large tasks.',
-    'Create a subtask only for a cohesive implementation area, independent workflow, separate ownership boundary, or meaningful verification path.',
-    'Do not split every file, UI state, edge case, or verification command into its own subtask. Put those details into the relevant subtask checklist.',
-    'No generic test tasks or generic checklist items. Do not write vague items like Test yap, Run tests, Fix bugs, Implement feature, Implement UI, or Check everything.',
-    'For every subtask, consider its title, description, custom fields, checklist, comments, tags, status, and due date.',
-    'Every planned subtask description must be concise but implementation-ready. Use Objective, Task context, Exact work, Files/areas, and Done when sections only when they improve clarity.',
-    'Every planned subtask must include concrete unchecked checklist items. Verification checklist items must name exact commands, screens, behaviors, or file areas.',
-    `Use ${contextPath} currentTaskJson as the starting JSON shape and revise it into the planned task JSON.`,
-    `Write the planned JSON to ${plannedTaskPath}.`,
-    `After writing, run: node ${helperPath} validate ${plannedTaskPath}`,
-    `After validation succeeds, update the scoped source task by running: node ${helperPath} update ${plannedTaskPath}`,
-    'Do not create a new task in this planning flow.',
-    `If you need to create a new task instead, ask the user first, then run: node ${helperPath} create ${plannedTaskPath}`,
-    `After the update succeeds, run: node ${helperPath} finish`
+    ...modeRules,
+    ...sharedRules
   ].join(' ')
 }
 
@@ -791,9 +819,6 @@ export function validatePlannerTaskJsonQuality(normalized: NormalizedTaskJsonImp
     if (!subtask.description.trim()) {
       issues.push(`${label}.description is required.`)
     }
-    if (subtask.checklistItems.length === 0) {
-      issues.push(`${label}.checklist must include concrete unchecked items.`)
-    }
     subtask.checklistItems.forEach((item, itemIndex) => {
       const itemLabel = `${label}.checklist[${itemIndex}]`
       if (!item.title.trim()) issues.push(`${itemLabel}.title is required.`)
@@ -811,6 +836,7 @@ export function codexChatPrompt(input: {
   transcript: TaskActivityMessage[]
   context?: unknown
   mode?: 'chat' | 'plan' | 'steer'
+  followUpContext?: string
   attachments?: Array<{ name: string; path: string }>
   language?: string
   languages?: CodexLanguagePair
@@ -840,6 +866,9 @@ export function codexChatPrompt(input: {
     : input.mode === 'plan'
       ? 'User prompt'
       : 'User follow-up'
+  const followUpContext = input.followUpContext?.trim()
+    ? `Latest run output context:\n${input.followUpContext.trim()}`
+    : ''
   const importantComments = importantTaskCommentsSection(input.task, input.context)
   return [
     'You are continuing an Open Mission Control task chat.',
@@ -847,6 +876,7 @@ export function codexChatPrompt(input: {
     codexLanguageInstruction(language),
     projectSettingsSectionFromPlannerContext(input.context),
     `${userPromptLabel}:\n${input.message}`,
+    followUpContext,
     projectInstructionsSection(projectInstructions, { audience: instructionAudience }),
     effectiveAgentSection(effectiveAgent),
     importantComments,
@@ -876,7 +906,8 @@ type CodexActivityStreamContext = {
   eventsPath: string
 }
 
-type CodexActivityAppender = (message: Omit<TaskActivityMessage, 'id' | 'createdAt'> & { id?: string; createdAt?: number }) => Promise<TaskActivityMessage | null>
+type CodexActivityDraft = Omit<TaskActivityMessage, 'id' | 'createdAt'> & { id?: string; createdAt?: number }
+type CodexActivityAppender = (messages: CodexActivityDraft[]) => Promise<TaskActivityMessage[]>
 
 type CodexActivityStreamer = {
   writeStdout: (chunk: string) => void
@@ -950,7 +981,7 @@ function createCodexActivityStreamer(context: CodexActivityStreamContext, append
   let queue = Promise.resolve()
   let assistantSeen = false
   let usage: CodexUsageSummary | undefined
-  let pendingMessages: Array<Omit<TaskActivityMessage, 'id' | 'createdAt'> & { id?: string; createdAt?: number }> = []
+  let pendingMessages: CodexActivityDraft[] = []
   let pendingRawLogs: string[] = []
   let flushTimer: NodeJS.Timeout | undefined
 
@@ -975,7 +1006,7 @@ function createCodexActivityStreamer(context: CodexActivityStreamContext, append
       })
     }
     const messages = pendingMessages.splice(0, drainAll ? pendingMessages.length : CODEX_STREAM_BATCH_LIMIT)
-    for (const message of messages) await append(compactActivityMessage(message))
+    if (messages.length > 0) await append(messages.map(compactActivityMessage))
     if (!drainAll && (pendingMessages.length > 0 || pendingRawLogs.length > 0)) scheduleFlush(0)
   }
 
@@ -994,7 +1025,7 @@ function createCodexActivityStreamer(context: CodexActivityStreamContext, append
     flushTimer.unref?.()
   }
 
-  const pushMessage = (message: Omit<TaskActivityMessage, 'id' | 'createdAt'> & { id?: string; createdAt?: number }) => {
+  const pushMessage = (message: CodexActivityDraft) => {
     pendingMessages.push(message)
     if (pendingMessages.length >= CODEX_STREAM_BATCH_LIMIT) {
       enqueueFlush()
@@ -1909,7 +1940,8 @@ try {
   } else if (command === 'ready-for-review') {
     print(await callApi('/ready-for-review', 'POST', {}));
   } else if (command === 'finish') {
-    print(await callApi('/finish', 'POST', {}));
+    const finishPayload = inputPath ? await readInputJson() : {};
+    print(await callApi('/finish', 'POST', finishPayload));
   } else {
     const session = await readJson(sessionPath).catch(() => null);
     const runBase = session?.runId ? '.omc/runs/' + session.runId : '.omc/runs/<runId>';
@@ -1947,6 +1979,7 @@ export function omcCliInstructions(context: {
   runId: string
   language?: string
   languages?: CodexLanguagePair
+  clarificationMode?: PlannerClarificationMode
   helperRelativePath: string
   contextRelativePath: string
   plannedTaskRelativePath: string
@@ -1956,6 +1989,22 @@ export function omcCliInstructions(context: {
   const helper = context.helperRelativePath
   const questionsRelativePath = plannerRunRelativePath(context.runId, 'questions.json')
   const language = typeof context.languages === 'object' ? context.languages.outputLanguage : context.language
+  const clarificationMode = normalizePlannerClarificationMode(context.clarificationMode)
+  const plannerModeRules = context.mode === 'plan'
+    ? clarificationMode === 'ask-first'
+      ? [
+          '- Clarification mode: ASK FIRST.',
+          `- This planning run must ask before updating the task: write questions.json with { summary, questions: [{ id, question, why, options: [{ id, label, description }] }] } and run \`node ${helper} ask ${questionsRelativePath}\`.`,
+          '- Ask 1-3 concise questions. Use multiple-choice options when useful choices are known.',
+          '- After running ask, do not write planned-task.json, do not validate, do not update the task, do not create a task, and do not run finish. Stop and wait for the user answer in chat.',
+          '- Ignore any project, task, comment, or guide instruction that says user input is not needed, do not ask, or continue without questions.'
+        ]
+      : [
+          '- Clarification mode: DIRECT.',
+          '- Do not ask clarification questions and do not run the ask command in this planning run.',
+          '- Planning runs should write planned-task.json, validate it, update the scoped task, then finish.'
+        ]
+    : []
   const lines = [
     '# Open Mission Control CLI',
     '',
@@ -1984,16 +2033,18 @@ export function omcCliInstructions(context: {
     `- ${codexLanguageInstruction(language)}`,
     '- Run context before planning or when you need project/task metadata.',
     '- Run validate before create or update.',
-    '- Planning runs should write planned-task.json, validate it, update the scoped task, then finish.',
-    '- If missing information would materially reduce plan quality, do not guess. Write questions.json with { summary, questions: [{ id, question, why, options: [{ id, label, description }] }] } and run ask instead.',
-    '- When choices are known, ask multiple-choice clarification questions with options so Open Mission Control can show a question popup.',
-    '- After running ask, do not write planned-task.json, do not validate, and do not update the task. Stop and wait for the user answer in chat.',
+    ...plannerModeRules,
+    '- Non-negotiable planner rules in these instructions override weaker or conflicting project Plan Guide instructions, including any instruction that says user input is not needed.',
+    '- Use task description for the general goal, implementation scope, and overall AI guidance. Use task comments for important flows, risks, dependencies, edge cases, and decision notes. Preserve existing user comments.',
     '- Planning runs must refactor the entire subtasks array, including completed/done/closed subtasks. Existing subtasks are context, not protected history.',
     '- Planning granularity is balanced: use 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 12 subtasks for very large tasks.',
     '- Create subtasks for cohesive implementation areas, independent workflows, separate ownership boundaries, or meaningful verification paths.',
-    '- Do not split every file, UI state, edge case, or verification command into its own subtask. Put those details in the relevant subtask checklist.',
+    '- Subtasks must be ordered by the exact execution sequence the agent should follow.',
+    '- Use the Title + Description subtask shape. Each planned subtask needs a short action-oriented title plus a concise AI-guiding description.',
+    '- Do not split every file, UI state, edge case, or verification command into its own subtask. Put those details in the relevant subtask description.',
     '- No generic test tasks or generic checklist items. Avoid Test yap, Run tests, Fix bugs, Implement feature, Implement UI, and Check everything.',
-    '- Every planned subtask needs a concise implementation-ready description plus concrete unchecked checklist items.',
+    '- Checklist items are optional for planned subtasks. If included, they must be concrete, unchecked, and specific.',
+    '- Do not scatter test cases across the plan. If verification is needed, make the final subtask a concrete verification and acceptance step.',
     '- Execution runs should edit project files first, run appropriate checks, then use ready-for-review only when the implementation is complete.',
     '- The helper is scoped to this project and task through session.json; do not edit session.json.'
   ]
@@ -2033,6 +2084,49 @@ async function cleanupOldPlannerRuns(runtimeWorkspacePath: string, maxAgeMs = 24
         if (info.mtimeMs < cutoff) await rm(path, { recursive: true, force: true })
       } catch { }
     }))
+}
+
+export async function writeTaskSnapshotToExportWorkspace(
+  exportWorkspacePath: string,
+  payload: {
+    taskMarkdown?: string
+    agentMarkdown?: string
+    skillsMarkdown?: string
+    attachments?: ProjectExportAttachmentInput[]
+  }
+): Promise<{ writtenFiles: string[]; skippedFiles: string[] }> {
+  await mkdir(exportWorkspacePath, { recursive: true })
+  const writtenFiles: string[] = []
+  const skippedFiles: string[] = []
+  const writeMarkdown = async (name: string, content?: string) => {
+    if (!content?.trim()) return
+    await writeFile(join(exportWorkspacePath, name), content, 'utf8')
+    writtenFiles.push(name)
+  }
+
+  await writeMarkdown('Task.md', payload.taskMarkdown)
+  await writeMarkdown('Agents.md', payload.agentMarkdown)
+  await writeMarkdown('Skills.md', payload.skillsMarkdown)
+
+  const usedNames = new Set<string>()
+  const attachmentsDir = join(exportWorkspacePath, 'attachments')
+  for (const attachment of payload.attachments ?? []) {
+    if (!attachment.url?.startsWith('file://')) continue
+    try {
+      const baseName = sanitizeFileName(attachment.exportName || attachment.name)
+      const uniqueName = usedNames.has(baseName)
+        ? `${baseName.replace(/(\.[^.]*)?$/, '')}-${shortHash(`${attachment.ownerId ?? ''}:${attachment.url}`)}${baseName.includes('.') ? baseName.slice(baseName.lastIndexOf('.')) : ''}`
+        : baseName
+      usedNames.add(uniqueName)
+      await mkdir(attachmentsDir, { recursive: true })
+      await copyFile(fileURLToPath(attachment.url), join(attachmentsDir, uniqueName))
+      writtenFiles.push(`attachments/${uniqueName}`)
+    } catch {
+      skippedFiles.push(attachment.name ?? attachment.url ?? 'attachment')
+    }
+  }
+
+  return { writtenFiles, skippedFiles }
 }
 
 export class TaskService {
@@ -2075,6 +2169,21 @@ export class TaskService {
     this.emitTaskUpdated(task.projectId, task.id, 'codex_plan_state')
   }
 
+  private async advanceTaskFromFirstStatusAfterPlanning(taskId: string, organizationId: string): Promise<void> {
+    const task = await this.repo.get(taskId)
+    if (!task) return
+    const statuses = await this.statuses.ensureProjectDefaults(task.projectId, organizationId)
+    const ordered = [...statuses].sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt)
+    const first = ordered[0]
+    const second = ordered[1]
+    if (!first || !second) return
+    const isFirstStatus = task.status === first.id || task.status === first.name
+    if (!isFirstStatus) return
+    const payload = await this.payloadWithAppendStatusOrder(task.projectId, second.id, asPayload(task.payload))
+    const updated = await this.repo.update(task.id, { status: second.id, payload })
+    if (updated) this.emitTaskUpdated(task.projectId, task.id, 'plan_status_advanced')
+  }
+
   private async effectiveAgentForTask(task: TaskEntity, organizationId: string, project?: { metrics?: Record<string, unknown> | null }): Promise<(Partial<Agent> & { inherited?: boolean }) | null> {
     if (task.agentId) {
       const agent = await this.agents.get(task.agentId)
@@ -2103,6 +2212,32 @@ export class TaskService {
     }
   }
 
+  private async notifyTerminalBridgeCompletion(context: PlannerBridgeContext, payload: unknown): Promise<void> {
+    if (context.executionMode !== 'terminal') return
+    const body = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {}
+    const isExplicitTerminalCompletion = body.terminalCompletion === true
+    const isAssistantFinish = Object.keys(body).length === 0
+    if (!isExplicitTerminalCompletion && !isAssistantFinish) return
+    const rawExitCode = body.exitCode
+    const exitCode = typeof rawExitCode === 'number'
+      ? rawExitCode
+      : typeof rawExitCode === 'string' && rawExitCode.trim() ? Number(rawExitCode) : null
+    if (exitCode !== null && !Number.isFinite(exitCode)) return
+    const access = await this.ensureTaskAccess(context.actorToken, context.taskId)
+    if (!access.ok || !access.data) return
+    const kind = exitCode === null ? 'completed' : exitCode === 0 ? 'completed' : exitCode === 130 || exitCode === 143 ? 'stopped' : 'failed'
+    showCodexNotification({
+      kind,
+      mode: context.mode === 'execute' ? 'run' : 'plan',
+      taskTitle: access.data.task.title,
+      projectId: access.data.task.projectId,
+      taskId: context.taskId,
+      conversationId: context.conversationId ?? context.runId ?? context.taskId,
+      exitCode,
+      model: context.model ?? null
+    })
+  }
+
   private async appendPlannerQuestionActivity(
     context: PlannerBridgeContext,
     payload: PlannerQuestionPayload
@@ -2120,58 +2255,98 @@ export class TaskService {
       runId,
       model: context.model ?? null
     })
-    await this.appendTaskActivityMessage(context.taskId, {
-      runId,
+    await this.appendTaskActivityMessages(context.taskId, [
+      {
+        runId,
+        conversationId,
+        source: 'codex-plan',
+        role: 'assistant',
+        status: 'completed',
+        body: plannerQuestionBody(payload),
+        metadata: {
+          codexBlock: 'planner-question',
+          summary: payload.summary,
+          questions: payload.questions,
+          projectId: access.data.task.projectId,
+          taskId: context.taskId,
+          taskTitle: access.data.task.title,
+          conversationId,
+          gatewayId: context.gatewayId ?? null,
+          model: context.model ?? null,
+          language: context.language ?? null,
+          reasoningEffort: context.reasoningEffort ?? null
+        }
+      },
+      {
+        runId,
+        conversationId,
+        source: 'codex-plan',
+        role: 'system',
+        status: 'completed',
+        body: 'Planner paused for clarification.',
+        metadata: { codexBlock: 'run-complete', plannerPaused: true, questionCount: payload.questions.length }
+      }
+    ], { emitTaskUpdatedAction: 'activity_complete' })
+    showCodexNotification({
+      kind: 'question',
+      mode: 'plan',
+      taskTitle: access.data.task.title,
+      projectId: access.data.task.projectId,
+      taskId: context.taskId,
       conversationId,
-      source: 'codex-plan',
-      role: 'assistant',
-      status: 'completed',
-      body: plannerQuestionBody(payload),
-      metadata: { codexBlock: 'planner-question', summary: payload.summary, questions: payload.questions }
-    })
-    await this.appendTaskActivityMessage(context.taskId, {
-      runId,
-      conversationId,
-      source: 'codex-plan',
-      role: 'system',
-      status: 'completed',
-      body: 'Planner paused for clarification.',
-      metadata: { codexBlock: 'run-complete', plannerPaused: true, questionCount: payload.questions.length }
+      questionCount: payload.questions.length,
+      model: context.model ?? null,
+      summary: payload.summary
     })
     return okResponse({ conversationId, questionCount: payload.questions.length })
   }
 
+  private async appendTaskActivityMessages(
+    taskId: string,
+    messages: CodexActivityDraft[],
+    options: { emitTaskUpdatedAction?: string } = {}
+  ): Promise<TaskActivityMessage[]> {
+    if (messages.length === 0) return []
+    const task = await this.repo.get(taskId)
+    if (!task) return []
+    const now = Date.now()
+    const nextMessages: TaskActivityMessage[] = messages.map((message) => {
+      const compactMessage = compactActivityMessage(message)
+      return {
+        id: message.id ?? `codex-activity-${randomUUID()}`,
+        runId: compactMessage.runId,
+        conversationId: compactMessage.conversationId,
+        source: compactMessage.source,
+        role: compactMessage.role,
+        status: compactMessage.status,
+        body: compactMessage.body,
+        metadata: compactMessage.metadata,
+        createdAt: compactMessage.createdAt ?? now,
+        updatedAt: now
+      }
+    })
+    const payload = asPayload(task.payload)
+    const activityMessages = [...taskActivityMessagesFromPayload(payload), ...nextMessages].slice(-ACTIVITY_MESSAGE_LIMIT)
+    await this.repo.update(task.id, { payload: { ...payload, activityMessages } })
+    for (const nextMessage of nextMessages) {
+      this.eventBus?.emit(IPC_CHANNELS.events.taskActivity, {
+        projectId: task.projectId,
+        taskId: task.id,
+        message: nextMessage,
+        updatedAt: now
+      })
+    }
+    if (options.emitTaskUpdatedAction) this.emitTaskUpdated(task.projectId, task.id, options.emitTaskUpdatedAction)
+    return nextMessages
+  }
+
   private async appendTaskActivityMessage(
     taskId: string,
-    message: Omit<TaskActivityMessage, 'id' | 'createdAt'> & { id?: string; createdAt?: number }
+    message: CodexActivityDraft,
+    options: { emitTaskUpdatedAction?: string } = {}
   ): Promise<TaskActivityMessage | null> {
-    const task = await this.repo.get(taskId)
-    if (!task) return null
-    const now = Date.now()
-    const compactMessage = compactActivityMessage(message)
-    const nextMessage: TaskActivityMessage = {
-      id: message.id ?? `codex-activity-${randomUUID()}`,
-      runId: compactMessage.runId,
-      conversationId: compactMessage.conversationId,
-      source: compactMessage.source,
-      role: compactMessage.role,
-      status: compactMessage.status,
-      body: compactMessage.body,
-      metadata: compactMessage.metadata,
-      createdAt: compactMessage.createdAt ?? now,
-      updatedAt: now
-    }
-    const payload = asPayload(task.payload)
-    const activityMessages = [...taskActivityMessagesFromPayload(payload), nextMessage].slice(-ACTIVITY_MESSAGE_LIMIT)
-    await this.repo.update(task.id, { payload: { ...payload, activityMessages } })
-    this.eventBus?.emit(IPC_CHANNELS.events.taskActivity, {
-      projectId: task.projectId,
-      taskId: task.id,
-      message: nextMessage,
-      updatedAt: now
-    })
-    this.emitTaskUpdated(task.projectId, task.id, 'activity')
-    return nextMessage
+    const [nextMessage] = await this.appendTaskActivityMessages(taskId, [message], options)
+    return nextMessage ?? null
   }
 
   private async ensureTaskAccess(actorToken: string | undefined, taskId: string): Promise<ServiceResponse<{ actorOrgId: string; task: TaskEntity }>> {
@@ -2598,7 +2773,13 @@ export class TaskService {
     if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex gateway is required')
     if (!payload.model?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex model is required')
     const zipBuffer = zipBufferFromPayload(payload.zipBytes)
-    if (!zipBuffer?.length) return errorResponse(ErrorCodes.Validation, 'Task ZIP bytes are required')
+    const hasSnapshotPayload = Boolean(
+      payload.taskMarkdown?.trim()
+      || payload.agentMarkdown?.trim()
+      || payload.skillsMarkdown?.trim()
+      || (Array.isArray(payload.attachments) && payload.attachments.length > 0)
+    )
+    if (!zipBuffer?.length && !hasSnapshotPayload) return errorResponse(ErrorCodes.Validation, 'Task snapshot or ZIP bytes are required')
 
     const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
     if (!access.ok || !access.data) return access as ServiceResponse<{ runFolderPath: string; workspacePath: string; exportWorkspacePath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; command: string; executionMode?: CodexExecutionMode; runId?: string; pid?: number; eventsPath?: string; finalMessagePath?: string }>
@@ -2627,22 +2808,26 @@ export class TaskService {
       await mkdir(runtimeWorkspacePath, { recursive: true })
       await cleanupOldPlannerRuns(runtimeWorkspacePath)
       const gitignoreUpdated = await ensureWorkspaceOmcIgnored(runtimeWorkspacePath)
-      const zipName = sanitizeFileName(payload.zipName, 'task.zip')
-      await writeFile(join(runFolderPath, zipName.endsWith('.zip') ? zipName : `${zipName}.zip`), zipBuffer)
+      if (zipBuffer?.length) {
+        const zipName = sanitizeFileName(payload.zipName, 'task.zip')
+        await writeFile(join(runFolderPath, zipName.endsWith('.zip') ? zipName : `${zipName}.zip`), zipBuffer)
 
-      const files = unzipSync(new Uint8Array(zipBuffer))
-      const workspaceRoot = resolve(exportWorkspacePath)
-      for (const [relativePath, bytes] of Object.entries(files)) {
-        const targetPath = resolve(exportWorkspacePath, relativePath)
-        if (targetPath !== workspaceRoot && !targetPath.startsWith(`${workspaceRoot}${sep}`)) {
-          throw new Error(`Unsafe ZIP entry: ${relativePath}`)
+        const files = unzipSync(new Uint8Array(zipBuffer))
+        const workspaceRoot = resolve(exportWorkspacePath)
+        for (const [relativePath, bytes] of Object.entries(files)) {
+          const targetPath = resolve(exportWorkspacePath, relativePath)
+          if (targetPath !== workspaceRoot && !targetPath.startsWith(`${workspaceRoot}${sep}`)) {
+            throw new Error(`Unsafe ZIP entry: ${relativePath}`)
+          }
+          if (relativePath.endsWith('/')) {
+            await mkdir(targetPath, { recursive: true })
+            continue
+          }
+          await mkdir(dirname(targetPath), { recursive: true })
+          await writeFile(targetPath, Buffer.from(bytes))
         }
-        if (relativePath.endsWith('/')) {
-          await mkdir(targetPath, { recursive: true })
-          continue
-        }
-        await mkdir(dirname(targetPath), { recursive: true })
-        await writeFile(targetPath, Buffer.from(bytes))
+      } else {
+        await writeTaskSnapshotToExportWorkspace(exportWorkspacePath, payload)
       }
 
       const { codexPath, executionMode } = codexCliConfig(gateway.template)
@@ -2675,6 +2860,7 @@ export class TaskService {
         runId,
         language,
         mode: 'execute',
+        executionMode,
         exportWorkspacePath,
         runtimeWorkspacePath
       }, bridgeToken)
@@ -2762,7 +2948,9 @@ export class TaskService {
         `HELPER_PATH=${shellQuote(helperRelativePath)}`,
         'cleanup() {',
         '  local status=$?',
-        '  (cd "$RUNTIME_WORKSPACE" && node "$HELPER_PATH" finish >/dev/null 2>&1) || true',
+        '  local finish_payload="$RUN_DIR/finish-status.json"',
+        '  printf \'{"terminalCompletion":true,"exitCode":%s}\\n\' "$status" > "$finish_payload"',
+        '  (cd "$RUNTIME_WORKSPACE" && node "$HELPER_PATH" finish "$finish_payload" >/dev/null 2>&1) || true',
         '  rm -rf "$RUN_DIR"',
         closeTerminalWindowByTitleShell(),
         '  return "$status"',
@@ -2809,30 +2997,32 @@ export class TaskService {
 
       preserveRunFolderOnError = true
       if (executionMode === 'exec') {
-        await this.appendTaskActivityMessage(taskId, {
-          runId,
-          source: 'codex-run',
-          role: 'system',
-          status: 'running',
-          body: `Started Codex exec run with ${model}.`,
-          metadata: { gatewayId: gateway.id, model, language, reasoningEffort, effectiveAgent, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath }
-        })
-        await this.appendTaskActivityMessage(taskId, {
-          runId,
-          source: 'codex-run',
-          role: 'user',
-          status: 'running',
-          body: prompt,
-          metadata: { command: execCommand }
-        })
-        await this.appendTaskActivityMessage(taskId, {
-          runId,
-          source: 'codex-run',
-          role: 'thinking',
-          status: 'running',
-          body: 'Codex is working through the task...',
-          metadata: { executionMode, eventsPath: execEventsPath }
-        })
+        await this.appendTaskActivityMessages(taskId, [
+          {
+            runId,
+            source: 'codex-run',
+            role: 'system',
+            status: 'running',
+            body: `Started Codex exec run with ${model}.`,
+            metadata: { gatewayId: gateway.id, model, language, reasoningEffort, effectiveAgent, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath }
+          },
+          {
+            runId,
+            source: 'codex-run',
+            role: 'user',
+            status: 'running',
+            body: prompt,
+            metadata: { command: execCommand }
+          },
+          {
+            runId,
+            source: 'codex-run',
+            role: 'thinking',
+            status: 'running',
+            body: 'Codex is working through the task...',
+            metadata: { executionMode, eventsPath: execEventsPath }
+          }
+        ])
         const executionStartedAt = Date.now()
         const child = spawn(codexPath, execArgs, {
           cwd: runtimeWorkspacePath,
@@ -2844,11 +3034,26 @@ export class TaskService {
           runId,
           source: 'codex-run',
           eventsPath: execEventsPath
-        }, (message) => this.appendTaskActivityMessage(taskId, message))
+        }, (messages) => this.appendTaskActivityMessages(taskId, messages))
         child.stdout.setEncoding('utf8')
         child.stderr.setEncoding('utf8')
         child.stdout.on('data', (chunk: string) => streamer.writeStdout(chunk))
         child.stderr.on('data', (chunk: string) => streamer.writeStderr(chunk))
+        let runNotificationSent = false
+        const notifyRunCompletion = (kind: 'completed' | 'failed' | 'stopped', exitCode?: number | null) => {
+          if (runNotificationSent) return
+          runNotificationSent = true
+          showCodexNotification({
+            kind,
+            mode: 'run',
+            taskTitle: access.data.task.title,
+            projectId: project.id,
+            taskId,
+            conversationId: runId,
+            exitCode,
+            model
+          })
+        }
         const runPostRunPrompt = async (
           primaryEventRaw: string,
           primaryFinalMessage: string,
@@ -2891,31 +3096,33 @@ export class TaskService {
                 postPrompt
               ]
           const postCommand = [shellQuote(codexPath), ...postArgs.map(shellQuote)].join(' ')
-          await this.appendTaskActivityMessage(taskId, {
-            runId: postRunId,
-            conversationId: runId,
-            source: 'codex-run',
-            role: 'system',
-            status: 'running',
-            body: 'Starting Codex post-run prompt.',
-            metadata: { codexBlock: 'post-run-start', parentRunId: runId, sessionId, command: postCommand, model, language, reasoningEffort }
-          })
-          await this.appendTaskActivityMessage(taskId, {
-            runId: postRunId,
-            conversationId: runId,
-            source: 'codex-run',
-            role: 'user',
-            status: 'completed',
-            body: projectPrompt.postRunPrompt.trim(),
-            metadata: { codexBlock: 'post-run-prompt', parentRunId: runId, command: postCommand }
-          })
+          await this.appendTaskActivityMessages(taskId, [
+            {
+              runId: postRunId,
+              conversationId: runId,
+              source: 'codex-run',
+              role: 'system',
+              status: 'running',
+              body: 'Starting Codex post-run prompt.',
+              metadata: { codexBlock: 'post-run-start', parentRunId: runId, sessionId, command: postCommand, model, language, reasoningEffort }
+            },
+            {
+              runId: postRunId,
+              conversationId: runId,
+              source: 'codex-run',
+              role: 'user',
+              status: 'completed',
+              body: projectPrompt.postRunPrompt.trim(),
+              metadata: { codexBlock: 'post-run-prompt', parentRunId: runId, command: postCommand }
+            }
+          ])
           const postStreamer = createCodexActivityStreamer({
             taskId,
             runId: postRunId,
             conversationId: runId,
             source: 'codex-run',
             eventsPath: postEventsPath
-          }, (message) => this.appendTaskActivityMessage(taskId, message))
+          }, (messages) => this.appendTaskActivityMessages(taskId, messages))
           return await new Promise<number | null>((resolvePostRun) => {
             let settled = false
             const settle = (value: number | null) => {
@@ -2953,8 +3160,9 @@ export class TaskService {
                 const postEventSummary = summarizeCodexExecEvents(postEventRaw)
                 const postUsage = postEventSummary.usage ?? postStreamer.latestUsage()
                 const postChanges = codexOutputChanges(postEventRaw, postFinalMessage)
+                const postTerminalMessages: CodexActivityDraft[] = []
                 if (postChanges.hasChanges) {
-                  await this.appendTaskActivityMessage(taskId, {
+                  postTerminalMessages.push({
                     runId: postRunId,
                     conversationId: runId,
                     source: 'codex-run',
@@ -2964,7 +3172,7 @@ export class TaskService {
                     metadata: { codexBlock: 'changes', code: postCode, signal: postSignal, eventsPath: postEventsPath, usage: postUsage, truncated: postChanges.truncated, ...postChanges.metadata }
                   })
                 }
-                await this.appendTaskActivityMessage(taskId, {
+                postTerminalMessages.push({
                   runId: postRunId,
                   conversationId: runId,
                   source: 'codex-run',
@@ -2975,7 +3183,7 @@ export class TaskService {
                 })
                 if (postCode === 0) {
                   if (!postStreamer.hasAssistantMessage()) {
-                    await this.appendTaskActivityMessage(taskId, {
+                    postTerminalMessages.push({
                       runId: postRunId,
                       conversationId: runId,
                       source: 'codex-run',
@@ -2986,7 +3194,7 @@ export class TaskService {
                     })
                   }
                 } else {
-                  await this.appendTaskActivityMessage(taskId, {
+                  postTerminalMessages.push({
                     runId: postRunId,
                     conversationId: runId,
                     source: 'codex-run',
@@ -2996,6 +3204,7 @@ export class TaskService {
                     metadata: { code: postCode, signal: postSignal, eventsPath: postEventsPath, finalMessagePath: postFinalMessagePath, usage: postUsage, rawTail: postEventSummary.rawTail }
                   })
                 }
+                await this.appendTaskActivityMessages(taskId, postTerminalMessages, { emitTaskUpdatedAction: 'activity_complete' })
                 settle(postCode)
               })()
             })
@@ -3010,6 +3219,7 @@ export class TaskService {
             body: error.message,
             metadata: { command: execCommand }
           })
+          notifyRunCompletion('failed', 1)
           void bridge?.close()
         })
         child.on('close', (code, signal) => {
@@ -3020,8 +3230,9 @@ export class TaskService {
             const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
             const usage = eventSummary.usage ?? streamer.latestUsage()
             const changes = codexOutputChanges(eventRaw, finalMessage)
+            const terminalMessages: CodexActivityDraft[] = []
             if (changes.hasChanges) {
-              await this.appendTaskActivityMessage(taskId, {
+              terminalMessages.push({
                 runId,
                 source: 'codex-run',
                 role: 'tool',
@@ -3030,7 +3241,7 @@ export class TaskService {
                 metadata: { codexBlock: 'changes', code, signal, eventsPath: execEventsPath, usage, truncated: changes.truncated, ...changes.metadata }
               })
             }
-            await this.appendTaskActivityMessage(taskId, {
+            terminalMessages.push({
               runId,
               source: 'codex-run',
               role: 'system',
@@ -3040,7 +3251,7 @@ export class TaskService {
             })
             if (code === 0) {
               if (!streamer.hasAssistantMessage()) {
-                await this.appendTaskActivityMessage(taskId, {
+                terminalMessages.push({
                   runId,
                   source: 'codex-run',
                   role: 'assistant',
@@ -3049,14 +3260,16 @@ export class TaskService {
                   metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, codexBlock: 'final-fallback' }
                 })
               }
+              await this.appendTaskActivityMessages(taskId, terminalMessages, { emitTaskUpdatedAction: 'activity_complete' })
               const postRunCode = shouldStartPostRunPrompt(code, executionMode, projectPrompt.postRunPrompt)
                 ? await runPostRunPrompt(eventRaw, finalMessage, changes)
                 : 0
               if (postRunCode === 0) {
                 await this.markTaskReadyForReview({ actorToken: payload.actorToken, projectId: project.id, taskId }).catch(() => undefined)
               }
+              notifyRunCompletion(postRunCode === 0 ? 'completed' : 'failed', postRunCode)
             } else {
-              await this.appendTaskActivityMessage(taskId, {
+              terminalMessages.push({
                 runId,
                 source: 'codex-run',
                 role: 'error',
@@ -3064,6 +3277,8 @@ export class TaskService {
                 body: finalMessage.trim() || `Codex exec exited with code ${code ?? 'unknown'}.`,
                 metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, rawTail: eventSummary.rawTail }
               })
+              await this.appendTaskActivityMessages(taskId, terminalMessages, { emitTaskUpdatedAction: 'activity_complete' })
+              notifyRunCompletion('failed', code)
             }
             await bridge?.close()
             if (workspaceRunPathForCleanup) {
@@ -3092,30 +3307,32 @@ export class TaskService {
 
       if (process.platform !== 'darwin') return errorResponse(ErrorCodes.Validation, 'External Codex run currently requires macOS Terminal.app.')
       this.codexTerminalRuns.set(access.data.task.id, { finishFilePath, terminalTitle: runTerminalTitle })
-      await this.appendTaskActivityMessage(access.data.task.id, {
-        runId,
-        source: 'codex-run',
-        role: 'system',
-        status: 'running',
-        body: `Started Codex terminal run with ${model}.`,
-        metadata: { gatewayId: gateway.id, model, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath }
-      })
-      await this.appendTaskActivityMessage(access.data.task.id, {
-        runId,
-        source: 'codex-run',
-        role: 'user',
-        status: 'running',
-        body: prompt,
-        metadata: { command: codexCommand }
-      })
-      await this.appendTaskActivityMessage(access.data.task.id, {
-        runId,
-        source: 'codex-run',
-        role: 'thinking',
-        status: 'running',
-        body: 'Codex terminal is running this task...',
-        metadata: { executionMode, runtimeWorkspacePath, runFolderPath }
-      })
+      await this.appendTaskActivityMessages(access.data.task.id, [
+        {
+          runId,
+          source: 'codex-run',
+          role: 'system',
+          status: 'running',
+          body: `Started Codex terminal run with ${model}.`,
+          metadata: { gatewayId: gateway.id, model, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath }
+        },
+        {
+          runId,
+          source: 'codex-run',
+          role: 'user',
+          status: 'running',
+          body: prompt,
+          metadata: { command: codexCommand }
+        },
+        {
+          runId,
+          source: 'codex-run',
+          role: 'thinking',
+          status: 'running',
+          body: 'Codex terminal is running this task...',
+          metadata: { executionMode, runtimeWorkspacePath, runFolderPath }
+        }
+      ])
       await execFileAsync('osascript', [
         '-e',
         'tell application "Terminal"',
@@ -3225,6 +3442,8 @@ export class TaskService {
               runId: context.runId ?? null,
               model: context.model ?? null
             })
+            const access = await this.ensureTaskAccess(context.actorToken, context.taskId)
+            if (access.ok && access.data) await this.advanceTaskFromFirstStatusAfterPlanning(context.taskId, access.data.actorOrgId)
           }
         } else if (request.method === 'POST' && path === '/planner-question') {
           const body = await readRequestBody(request)
@@ -3241,12 +3460,15 @@ export class TaskService {
         } else if (request.method === 'POST' && path === '/ready-for-review') {
           result = await this.markTaskReadyForReview({ actorToken: context.actorToken, projectId: context.projectId, taskId: context.taskId })
           if (result.ok && context.workspaceRunPath) {
+            await this.notifyTerminalBridgeCompletion(context, { terminalCompletion: true, exitCode: 0 })
             setTimeout(() => {
               void rm(context.workspaceRunPath ?? '', { recursive: true, force: true })
             }, 2_000).unref?.()
           }
           closeBridgeAfterResponse = true
         } else if (request.method === 'POST' && path === '/finish') {
+          const body = await readRequestBody(request)
+          await this.notifyTerminalBridgeCompletion(context, body)
           await this.finishPlannerBridgeRuntime(context)
           result = okResponse({ closed: true })
           closeBridgeAfterResponse = true
@@ -3341,7 +3563,9 @@ export class TaskService {
       const runId = plannerRunId(access.data.task.id)
       const conversationId = payload.conversationId?.trim() || runId
       const clarificationMessage = payload.clarificationMessage?.trim() ?? ''
+      const clarificationMode = clarificationMessage ? 'direct' : normalizePlannerClarificationMode(payload.clarificationMode)
       const model = payload.model.trim()
+      const { codexPath, executionMode } = codexCliConfig(gateway.template)
       const helperRelativePath = plannerRunRelativePath(runId, 'omc-task-client.mjs')
       const sessionRelativePath = plannerRunRelativePath(runId, 'session.json')
       const contextRelativePath = plannerRunRelativePath(runId, 'context.json')
@@ -3361,7 +3585,9 @@ export class TaskService {
         gatewayId: gateway.id,
         model,
         language,
+        reasoningEffort,
         mode: 'plan',
+        executionMode,
         runtimeWorkspacePath
       }, bridgeToken)
 
@@ -3380,6 +3606,7 @@ export class TaskService {
         model,
         language,
         reasoningEffort,
+        clarificationMode,
         runtimeWorkspacePath,
         workspaceRunPath,
         projectPrompt,
@@ -3394,13 +3621,12 @@ export class TaskService {
         taskId: access.data.task.id,
         runId,
         language,
+        clarificationMode,
         helperRelativePath,
         contextRelativePath,
         plannedTaskRelativePath,
         runtimeWorkspacePath
       }), 'utf8')
-
-      const { codexPath, executionMode } = codexCliConfig(gateway.template)
       const taskId = access.data.task.id
       const transcript = taskActivityMessagesFromPayload(access.data.task.payload)
         .filter((item) => (item.conversationId || item.runId) === conversationId)
@@ -3409,7 +3635,8 @@ export class TaskService {
         initialPlannerPrompt(project.id, access.data.task.id, helperRelativePath, contextRelativePath, plannedTaskRelativePath, {
           language,
           projectPrompt,
-          effectiveAgent
+          effectiveAgent,
+          clarificationMode
         }),
         plannerClarificationPrompt({ conversationId, clarificationMessage, transcript, language })
       ].join(' ')
@@ -3449,7 +3676,9 @@ export class TaskService {
         `HELPER_PATH=${shellQuote(helperRelativePath)}`,
         'cleanup() {',
         '  local status=$?',
-        '  (cd "$RUNTIME_WORKSPACE" && node "$HELPER_PATH" finish >/dev/null 2>&1) || true',
+        '  local finish_payload="$RUN_DIR/finish-status.json"',
+        '  printf \'{"terminalCompletion":true,"exitCode":%s}\\n\' "$status" > "$finish_payload"',
+        '  (cd "$RUNTIME_WORKSPACE" && node "$HELPER_PATH" finish "$finish_payload" >/dev/null 2>&1) || true',
         '  rm -rf "$RUN_DIR"',
         closeTerminalWindowByTitleShell(),
         '  return "$status"',
@@ -3483,6 +3712,7 @@ export class TaskService {
         runtimeWorkspacePath,
         workspaceRunPath,
         language,
+        clarificationMode,
         effectiveAgent,
         clientScriptPath,
         sessionPath,
@@ -3506,33 +3736,35 @@ export class TaskService {
 
       preserveRunFolderOnError = true
       if (executionMode === 'exec') {
-        await this.appendTaskActivityMessage(taskId, {
-          runId,
-          conversationId,
-          source: 'codex-plan',
-          role: 'system',
-          status: 'running',
-          body: `Started Codex exec planner with ${model}.`,
-          metadata: { gatewayId: gateway.id, model, language, reasoningEffort, effectiveAgent, executionMode, runtimeWorkspacePath, runFolderPath }
-        })
-        await this.appendTaskActivityMessage(taskId, {
-          runId,
-          conversationId,
-          source: 'codex-plan',
-          role: 'user',
-          status: 'running',
-          body: clarificationMessage || prompt,
-          metadata: { command: execCommand, language, clarification: Boolean(clarificationMessage) }
-        })
-        await this.appendTaskActivityMessage(taskId, {
-          runId,
-          conversationId,
-          source: 'codex-plan',
-          role: 'thinking',
-          status: 'running',
-          body: 'Codex is planning the task...',
-          metadata: { executionMode, eventsPath: execEventsPath }
-        })
+        await this.appendTaskActivityMessages(taskId, [
+          {
+            runId,
+            conversationId,
+            source: 'codex-plan',
+            role: 'system',
+            status: 'running',
+            body: `Started Codex exec planner with ${model}.`,
+            metadata: { gatewayId: gateway.id, model, language, reasoningEffort, clarificationMode, effectiveAgent, executionMode, runtimeWorkspacePath, runFolderPath }
+          },
+          {
+            runId,
+            conversationId,
+            source: 'codex-plan',
+            role: 'user',
+            status: 'running',
+            body: clarificationMessage || prompt,
+            metadata: { command: execCommand, language, clarification: Boolean(clarificationMessage), clarificationMode }
+          },
+          {
+            runId,
+            conversationId,
+            source: 'codex-plan',
+            role: 'thinking',
+            status: 'running',
+            body: 'Codex is planning the task...',
+            metadata: { executionMode, eventsPath: execEventsPath }
+          }
+        ])
         const executionStartedAt = Date.now()
         const child = spawn(codexPath, execArgs, {
           cwd: runtimeWorkspacePath,
@@ -3545,11 +3777,26 @@ export class TaskService {
           conversationId,
           source: 'codex-plan',
           eventsPath: execEventsPath
-        }, (message) => this.appendTaskActivityMessage(taskId, message))
+        }, (messages) => this.appendTaskActivityMessages(taskId, messages))
         child.stdout.setEncoding('utf8')
         child.stderr.setEncoding('utf8')
         child.stdout.on('data', (chunk: string) => streamer.writeStdout(chunk))
         child.stderr.on('data', (chunk: string) => streamer.writeStderr(chunk))
+        let planNotificationSent = false
+        const notifyPlanCompletion = (kind: 'completed' | 'failed', exitCode?: number | null) => {
+          if (planNotificationSent) return
+          planNotificationSent = true
+          showCodexNotification({
+            kind,
+            mode: 'plan',
+            taskTitle: access.data.task.title,
+            projectId: project.id,
+            taskId,
+            conversationId,
+            exitCode,
+            model
+          })
+        }
         child.on('error', (error) => {
           void this.appendTaskActivityMessage(taskId, {
             runId,
@@ -3560,6 +3807,7 @@ export class TaskService {
             body: error.message,
             metadata: { command: execCommand }
           })
+          notifyPlanCompletion('failed', 1)
           void bridge?.close()
         })
         child.on('close', (code, signal) => {
@@ -3579,8 +3827,9 @@ export class TaskService {
             const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
             const usage = eventSummary.usage ?? streamer.latestUsage()
             const changes = codexOutputChanges(eventRaw, finalMessage)
+            const terminalMessages: CodexActivityDraft[] = []
             if (changes.hasChanges) {
-              await this.appendTaskActivityMessage(taskId, {
+              terminalMessages.push({
                 runId,
                 conversationId,
                 source: 'codex-plan',
@@ -3590,7 +3839,7 @@ export class TaskService {
                 metadata: { codexBlock: 'changes', code, signal, eventsPath: execEventsPath, usage, truncated: changes.truncated, ...changes.metadata }
               })
             }
-            await this.appendTaskActivityMessage(taskId, {
+            terminalMessages.push({
               runId,
               conversationId,
               source: 'codex-plan',
@@ -3601,7 +3850,7 @@ export class TaskService {
             })
             if (code === 0) {
               if (!streamer.hasAssistantMessage()) {
-                await this.appendTaskActivityMessage(taskId, {
+                terminalMessages.push({
                   runId,
                   conversationId,
                   source: 'codex-plan',
@@ -3612,7 +3861,7 @@ export class TaskService {
                 })
               }
             } else {
-              await this.appendTaskActivityMessage(taskId, {
+              terminalMessages.push({
                 runId,
                 conversationId,
                 source: 'codex-plan',
@@ -3622,6 +3871,8 @@ export class TaskService {
                 metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, rawTail: eventSummary.rawTail }
               })
             }
+            await this.appendTaskActivityMessages(taskId, terminalMessages, { emitTaskUpdatedAction: 'activity_complete' })
+            notifyPlanCompletion(code === 0 ? 'completed' : 'failed', code)
             await bridge?.close()
             if (workspaceRunPathForCleanup) {
               setTimeout(() => {
@@ -3648,33 +3899,35 @@ export class TaskService {
       }
 
       if (process.platform !== 'darwin') return errorResponse(ErrorCodes.Validation, 'Codex task planning currently requires macOS Terminal.app.')
-      await this.appendTaskActivityMessage(taskId, {
-        runId,
-        conversationId,
-        source: 'codex-plan',
-        role: 'system',
-        status: 'running',
-        body: `Started Codex terminal planner with ${model}.`,
-        metadata: { gatewayId: gateway.id, model, executionMode, runtimeWorkspacePath, runFolderPath }
-      })
-      await this.appendTaskActivityMessage(taskId, {
-        runId,
-        conversationId,
-        source: 'codex-plan',
-        role: 'user',
-        status: 'running',
-        body: clarificationMessage || prompt,
-        metadata: { command: codexCommand, clarification: Boolean(clarificationMessage) }
-      })
-      await this.appendTaskActivityMessage(taskId, {
-        runId,
-        conversationId,
-        source: 'codex-plan',
-        role: 'thinking',
-        status: 'running',
-        body: 'Codex terminal is planning this task...',
-        metadata: { executionMode, runtimeWorkspacePath, runFolderPath }
-      })
+      await this.appendTaskActivityMessages(taskId, [
+        {
+          runId,
+          conversationId,
+          source: 'codex-plan',
+          role: 'system',
+          status: 'running',
+          body: `Started Codex terminal planner with ${model}.`,
+          metadata: { gatewayId: gateway.id, model, clarificationMode, executionMode, runtimeWorkspacePath, runFolderPath }
+        },
+        {
+          runId,
+          conversationId,
+          source: 'codex-plan',
+          role: 'user',
+          status: 'running',
+          body: clarificationMessage || prompt,
+          metadata: { command: codexCommand, clarification: Boolean(clarificationMessage), clarificationMode }
+        },
+        {
+          runId,
+          conversationId,
+          source: 'codex-plan',
+          role: 'thinking',
+          status: 'running',
+          body: 'Codex terminal is planning this task...',
+          metadata: { executionMode, runtimeWorkspacePath, runFolderPath }
+        }
+      ])
       await execFileAsync('osascript', [
         '-e',
         'tell application "Terminal"',
@@ -3771,7 +4024,16 @@ export class TaskService {
     const eventsPath = join(runFolderPath, 'codex-events.jsonl')
     const finalMessagePath = join(runFolderPath, 'final-message.md')
     const reasoningEffort = projectCodexReasoningEffort(project, mode === 'plan' ? 'plan' : 'run', payload.reasoningEffort)
-    const prompt = codexChatPrompt({ task: access.data.task, message: normalizedMessage, transcript, context, mode, attachments, language })
+    const prompt = codexChatPrompt({
+      task: access.data.task,
+      message: normalizedMessage,
+      transcript,
+      context,
+      followUpContext: typeof payload.followUpContext === 'string' ? payload.followUpContext : undefined,
+      mode,
+      attachments,
+      language
+    })
     const activitySource: TaskActivityMessage['source'] = mode === 'plan' ? 'codex-plan' : 'codex-chat'
     const execArgs = [
       'exec',
@@ -3788,26 +4050,28 @@ export class TaskService {
     const execCommand = [shellQuote(codexPath), ...execArgs.map(shellQuote)].join(' ')
 
     await mkdir(runtimeWorkspacePath, { recursive: true })
-    await this.appendTaskActivityMessage(taskId, {
-      runId,
-      conversationId,
-      source: activitySource,
-      role: 'user',
-      status: 'completed',
-      body: mode === 'plan' ? `/plan ${normalizedMessage}` : normalizedMessage,
-      metadata: { gatewayId: gateway.id, model, language, reasoningEffort, mode, attachments }
-    })
-    await this.appendTaskActivityMessage(taskId, {
-      runId,
-      conversationId,
-      source: activitySource,
-      role: 'thinking',
-      status: 'running',
-      body: mode === 'plan'
-        ? executionMode === 'exec' ? 'Codex is revising the plan...' : 'Opening Codex terminal to revise the plan...'
-        : executionMode === 'exec' ? 'Codex is thinking...' : 'Opening Codex terminal...',
-      metadata: { executionMode, runtimeWorkspacePath }
-    })
+    await this.appendTaskActivityMessages(taskId, [
+      {
+        runId,
+        conversationId,
+        source: activitySource,
+        role: 'user',
+        status: 'completed',
+        body: mode === 'plan' ? `/plan ${normalizedMessage}` : normalizedMessage,
+        metadata: { gatewayId: gateway.id, model, language, reasoningEffort, mode, attachments }
+      },
+      {
+        runId,
+        conversationId,
+        source: activitySource,
+        role: 'thinking',
+        status: 'running',
+        body: mode === 'plan'
+          ? executionMode === 'exec' ? 'Codex is revising the plan...' : 'Opening Codex terminal to revise the plan...'
+          : executionMode === 'exec' ? 'Codex is thinking...' : 'Opening Codex terminal...',
+        metadata: { executionMode, runtimeWorkspacePath }
+      }
+    ])
 
     if (executionMode === 'terminal') {
       if (process.platform !== 'darwin') return errorResponse(ErrorCodes.Validation, 'Codex terminal chat currently requires macOS Terminal.app.')
@@ -3853,11 +4117,26 @@ export class TaskService {
       conversationId,
       source: activitySource,
       eventsPath
-    }, (message) => this.appendTaskActivityMessage(taskId, message))
+    }, (messages) => this.appendTaskActivityMessages(taskId, messages))
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
     child.stdout.on('data', (chunk: string) => streamer.writeStdout(chunk))
     child.stderr.on('data', (chunk: string) => streamer.writeStderr(chunk))
+    let chatNotificationSent = false
+    const notifyChatCompletion = (kind: 'completed' | 'failed' | 'stopped', exitCode?: number | null) => {
+      if (chatNotificationSent) return
+      chatNotificationSent = true
+      showCodexNotification({
+        kind,
+        mode,
+        taskTitle,
+        projectId: project.id,
+        taskId,
+        conversationId,
+        exitCode,
+        model
+      })
+    }
     child.on('error', (error) => {
       void this.appendTaskActivityMessage(taskId, {
         runId,
@@ -3868,30 +4147,34 @@ export class TaskService {
         body: error.message,
         metadata: { command: execCommand }
       })
+      notifyChatCompletion('failed', 1)
     })
     child.on('close', (code, signal) => {
       void (async () => {
         this.activeCodexChatRuns.delete(runId)
         await streamer.flush()
         if (activeRun.stopRequested) {
-          await this.appendTaskActivityMessage(taskId, {
-            runId,
-            conversationId,
-            source: activitySource,
-            role: 'system',
-            status: 'completed',
-            body: 'Codex chat stopped.',
-            metadata: { code, signal, eventsPath, stopped: true, codexBlock: 'run-complete' }
-          })
-          await this.appendTaskActivityMessage(taskId, {
-            runId,
-            conversationId,
-            source: activitySource,
-            role: 'assistant',
-            status: 'completed',
-            body: 'Stopped by user.',
-            metadata: { code, signal, eventsPath, stopped: true }
-          })
+          await this.appendTaskActivityMessages(taskId, [
+            {
+              runId,
+              conversationId,
+              source: activitySource,
+              role: 'system',
+              status: 'completed',
+              body: 'Codex chat stopped.',
+              metadata: { code, signal, eventsPath, stopped: true, codexBlock: 'run-complete' }
+            },
+            {
+              runId,
+              conversationId,
+              source: activitySource,
+              role: 'assistant',
+              status: 'completed',
+              body: 'Stopped by user.',
+              metadata: { code, signal, eventsPath, stopped: true }
+            }
+          ], { emitTaskUpdatedAction: 'activity_complete' })
+          notifyChatCompletion('stopped', code)
           return
         }
         const eventRaw = await readFile(eventsPath, 'utf8').catch(() => '')
@@ -3899,8 +4182,9 @@ export class TaskService {
         const finalMessage = await readFile(finalMessagePath, 'utf8').catch(() => '')
         const usage = eventSummary.usage ?? streamer.latestUsage()
         const changes = codexOutputChanges(eventRaw, finalMessage)
+        const terminalMessages: CodexActivityDraft[] = []
         if (changes.hasChanges) {
-          await this.appendTaskActivityMessage(taskId, {
+          terminalMessages.push({
             runId,
             conversationId,
             source: activitySource,
@@ -3910,7 +4194,7 @@ export class TaskService {
             metadata: { codexBlock: 'changes', code, signal, eventsPath, usage, truncated: changes.truncated, ...changes.metadata }
           })
         }
-        await this.appendTaskActivityMessage(taskId, {
+        terminalMessages.push({
           runId,
           conversationId,
           source: activitySource,
@@ -3921,7 +4205,7 @@ export class TaskService {
         })
         if (code === 0) {
           if (!streamer.hasAssistantMessage()) {
-            await this.appendTaskActivityMessage(taskId, {
+            terminalMessages.push({
               runId,
               conversationId,
               source: activitySource,
@@ -3932,7 +4216,7 @@ export class TaskService {
             })
           }
         } else {
-          await this.appendTaskActivityMessage(taskId, {
+          terminalMessages.push({
             runId,
             conversationId,
             source: activitySource,
@@ -3942,16 +4226,8 @@ export class TaskService {
             metadata: { code, signal, eventsPath, finalMessagePath, usage, rawTail: eventSummary.rawTail }
           })
         }
-        maybeShowCodexChatCompletionNotification({
-          taskTitle,
-          projectId: project.id,
-          taskId,
-          conversationId,
-          mode,
-          executionMode,
-          success: code === 0,
-          exitCode: code
-        })
+        await this.appendTaskActivityMessages(taskId, terminalMessages, { emitTaskUpdatedAction: 'activity_complete' })
+        notifyChatCompletion(code === 0 ? 'completed' : 'failed', code)
       })()
     })
 

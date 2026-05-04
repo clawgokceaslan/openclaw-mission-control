@@ -3,7 +3,7 @@ import { LuRefreshCw } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { DEFAULT_CODEX_LANGUAGE } from '@shared/utils/codex-language'
 import { useAuth } from '@renderer/providers/auth/auth-state'
-import { invokeBridge, loadList } from '@renderer/utils/api'
+import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { createSerializedAsyncRunner } from '@renderer/utils/serializedAsync'
 import { ActivityPopup } from '@renderer/popups/Activity'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
@@ -11,8 +11,10 @@ import {
   CHAT_INITIAL_MESSAGE_LIMIT,
   CHAT_MESSAGE_LOAD_STEP,
   CHAT_TOP_LAZY_LOAD_THRESHOLD,
+  appendActivityMessageToTasks,
   activityMessagesFromTask,
   buildChatConversationSummaries,
+  buildLatestRunFollowUpContext,
   formatChatTime,
   preserveScrollTopAfterPrepend,
   shouldLoadEarlierMessages,
@@ -261,6 +263,17 @@ export function LastChatsPage() {
     void refreshData({ silent: false })
   }, [refreshData])
 
+  useEffect(() => {
+    const onTaskActivity = (...args: unknown[]) => {
+      const payload = (args[1] ?? args[0]) as { taskId?: string; message?: TaskActivityMessage } | undefined
+      if (!payload?.taskId || !payload.message) return
+      setTasks((current) => appendActivityMessageToTasks(current, payload.taskId ?? '', payload.message as TaskActivityMessage))
+    }
+
+    subscribeToChannel(IPC_CHANNELS.events.taskActivity, onTaskActivity)
+    return () => unsubscribeFromChannel(IPC_CHANNELS.events.taskActivity, onTaskActivity)
+  }, [])
+
   const projectNameById = useMemo(() => {
     const map = new Map<string, string>()
     projects.forEach((project) => map.set(project.id, project.name))
@@ -468,7 +481,7 @@ export function LastChatsPage() {
 
   useEffect(() => {
     if (!selectedTaskId) return
-    const intervalMs = !documentVisible ? 15_000 : selectedChatIsRunning ? 2_500 : 12_000
+    const intervalMs = !documentVisible ? 30_000 : selectedChatIsRunning ? 6_000 : 20_000
     const timer = window.setInterval(() => {
       void refreshData({ silent: true })
     }, intervalMs)
@@ -619,11 +632,12 @@ export function LastChatsPage() {
         projectId: selectedProject.id,
         message: draftText.trim() || 'Review the attached file(s) in the task context.',
         gatewayId: chatGatewayId,
+        followUpContext: isStartingNewChat ? buildLatestRunFollowUpContext(selectedTaskMessages).trim() || undefined : undefined,
         model: resolvedModel,
         language: projectLanguage,
         reasoningEffort: mode === 'plan' ? planReasoningEffort : runReasoningEffort,
         conversationId: isStartingNewChat ? undefined : selectedConversationId || undefined,
-        includeTaskContext: chatIncludeContext,
+        includeTaskContext: isStartingNewChat ? false : chatIncludeContext,
         mode,
         attachments: chatAttachments.map((attachment) => ({ name: attachment.name, bytes: attachment.bytes }))
       })
@@ -738,6 +752,7 @@ export function LastChatsPage() {
     chatStopping,
     codexPlanLaunching: false,
     codexRunLaunching: false,
+    planChoiceOpen: false,
     visibleMessages,
     renderedMessages,
     hiddenMessageCount,
@@ -793,6 +808,8 @@ export function LastChatsPage() {
     onSettingsClose: () => setChatSettingsOpen(false),
     onStopChat: (conversationId?: string) => void stopCodexChat(conversationId),
     onPlan: () => {},
+    onPlanChoiceClose: () => {},
+    onPlanChoiceSelect: () => {},
     onRun: () => {},
     onLoadEarlier: () => {},
     onActivityScroll: handleActivityScroll,

@@ -34,6 +34,7 @@ import {
 import {
   activityMessagesFromTask,
   formatChatTime,
+  buildLatestRunFollowUpContext,
   userMessageCount
 } from './detail/chat/chatUtils'
 import {
@@ -86,6 +87,7 @@ import type {
 } from './detail/types'
 import { ActivityPopup } from '@renderer/popups/Activity'
 import { TaskDetailPopup } from '@renderer/popups/TaskDetail'
+import { PlanChoiceModal } from '@renderer/popups/PlanChoiceModal'
 import styles from './ProjectDetailPage.module.scss'
 
 const DETAIL_RATIO_KEY = 'omc:task-modal:detail-ratio'
@@ -511,6 +513,8 @@ export function ProjectDetailPage() {
     selectedChatConversationId,
     isStartingNewChat
   })
+
+  const chatFollowUpContext = useMemo(() => buildLatestRunFollowUpContext(chatActivityMessages), [chatActivityMessages])
 
   useEffect(() => {
     setRendererDiagnosticContext({
@@ -1138,7 +1142,7 @@ export function ProjectDetailPage() {
     setViewMode(mode)
   }
 
-  const { canRunSelectedTaskWithCodex, canPlanSelectedTaskWithCodex, canSendChat, chatOperationFeedback, refreshCodexGatewayModels, runSelectedTaskWithCodex, planSelectedTaskWithCodex, sendCodexChatMessage, sendPlannerClarification, stopCodexChat, addChatAttachments, applySlashCommand } = useProjectCodexFlow({
+  const { canRunSelectedTaskWithCodex, canPlanSelectedTaskWithCodex, canSendChat, chatOperationFeedback, planChoiceOpen, refreshCodexGatewayModels, runSelectedTaskWithCodex, planSelectedTaskWithCodex, confirmPlanWithCodex, closePlanChoice, sendCodexChatMessage, sendPlannerClarification, stopCodexChat, addChatAttachments, applySlashCommand } = useProjectCodexFlow({
     token,
     project,
     selectedTask,
@@ -1163,6 +1167,7 @@ export function ProjectDetailPage() {
     chatComposerMode,
     selectedChatConversationId,
     isStartingNewChat,
+    chatFollowUpContext,
     selectedChatSummary: derivedSelectedChatSummary,
     codexRunFeedback,
     codexRunLaunching,
@@ -1225,6 +1230,7 @@ export function ProjectDetailPage() {
     chatOperationFeedback,
     codexPlanLaunching,
     codexRunLaunching,
+    planChoiceOpen,
     selectedChatConversationId,
     setSelectedChatConversationId,
     isStartingNewChat,
@@ -1254,6 +1260,8 @@ export function ProjectDetailPage() {
     chatComposerFocused,
     runSelectedTaskWithCodex,
     planSelectedTaskWithCodex,
+    confirmPlanWithCodex,
+    closePlanChoice,
     sendCodexChatMessage,
     sendPlannerClarification,
     stopCodexChat,
@@ -3182,6 +3190,12 @@ export function ProjectDetailPage() {
       ) : null}
 
         {isActivityModalOpen ? <ActivityPopup chatState={chatState} chatHandlers={chatHandlers} /> : null}
+        <PlanChoiceModal
+          open={planChoiceOpen}
+          loading={codexPlanLaunching}
+          onClose={closePlanChoice}
+          onSelect={(mode) => void confirmPlanWithCodex(mode)}
+        />
     </section>
   )
 }

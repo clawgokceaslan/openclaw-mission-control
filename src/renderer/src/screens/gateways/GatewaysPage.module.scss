@@ -37,13 +37,16 @@
 }
 
 .toolbar {
+  --table-filter-control-height: var(--omc-table-search-control-height);
+
   display: flex;
   gap: 10px;
   align-items: center;
 
   input {
     width: min(420px, 100%);
-    min-height: 42px;
+    height: var(--table-filter-control-height);
+    line-height: var(--table-filter-control-height);
     border: 1px solid var(--omc-border);
     border-radius: 12px;
     padding: 0 14px;

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import type { TaskEntity } from '@shared/types/entities'
 import type { TaskActivityMessage } from '../types'
 import {
+  appendActivityMessageToTasks,
   buildChatConversationSummaries,
   codexChangesSummary,
+  buildLatestRunFollowUpContext,
   formatCodexWorkDuration,
   formatPlannerClarificationAnswer,
   groupCodexTranscriptMessages,
@@ -59,6 +62,17 @@ describe('chat conversation summaries', () => {
     expect(statusById.get('stopped')).toBe('completed')
     expect(statusById.get('completed')).toBe('completed')
     expect(statusById.get('failed')).toBe('failed')
+  })
+
+  it('keeps the original plan or run source when later follow-up messages land in the same conversation', () => {
+    const summaries = buildChatConversationSummaries([
+      message({ id: 'run-start', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'system', createdAt: 1, body: 'Run started.' }),
+      message({ id: 'follow-up', runId: 'chat-1', conversationId: 'run-1', source: 'codex-chat', role: 'user', createdAt: 2, body: 'Continue from the run output.' })
+    ], 10)
+
+    expect(summaries[0].title).toBe('Run')
+    expect(summaries[0].source).toBe('codex-run')
+    expect(summaries[0].count).toBe(1)
   })
 })
 
@@ -150,6 +164,33 @@ describe('chat utils helpers', () => {
 
   it('preserves scroll position after older messages are prepended', () => {
     expect(preserveScrollTopAfterPrepend(40, 1_000, 1_480)).toBe(520)
+  })
+
+  it('appends activity messages to the matching task payload without duplicating ids', () => {
+    const task: TaskEntity = {
+      id: 'task-1',
+      projectId: 'project-1',
+      title: 'Task',
+      status: 'active',
+      agentId: null,
+      payload: { activityMessages: [message({ id: 'old', createdAt: 1 })] },
+      result: {},
+      comments: [],
+      commentCount: 0,
+      tags: [],
+      skills: [],
+      subtasks: [],
+      checklistItems: [],
+      customFieldValues: {},
+      createdAt: 1,
+      updatedAt: 1
+    }
+    const nextMessage = message({ id: 'new', createdAt: 5, updatedAt: 6 })
+    const updated = appendActivityMessageToTasks([task], 'task-1', nextMessage)
+
+    expect((updated[0].payload?.activityMessages as TaskActivityMessage[]).map((item) => item.id)).toEqual(['old', 'new'])
+    expect(updated[0].updatedAt).toBe(6)
+    expect(appendActivityMessageToTasks(updated, 'task-1', nextMessage)).toBe(updated)
   })
 
   it('groups codex runtime rows into a readable work block and leaves user/completion rows outside', () => {
@@ -272,6 +313,81 @@ describe('chat utils helpers', () => {
     })
 
     expect(thinkingDurationLabel(thinking)).toBe('Working for 5 seconds')
+  })
+
+  it('builds latest run follow-up context for the most recent run conversation', () => {
+    const context = buildLatestRunFollowUpContext([
+      message({
+        id: 'run-1',
+        source: 'codex-run',
+        conversationId: 'run-1',
+        createdAt: 1,
+        role: 'assistant',
+        status: 'completed',
+        body: 'First run assistant note.',
+        metadata: { codexBlock: 'assistant', runStatus: 'completed' }
+      }),
+      message({
+        id: 'run-1-complete',
+        source: 'codex-run',
+        conversationId: 'run-1',
+        createdAt: 2,
+        role: 'system',
+        status: 'completed',
+        body: 'Run-1 complete.',
+        metadata: { codexBlock: 'run-complete', code: 0 }
+      }),
+      message({
+        id: 'run-2',
+        source: 'codex-run',
+        conversationId: 'run-2',
+        createdAt: 3,
+        role: 'assistant',
+        status: 'running',
+        body: 'Latest run in progress.',
+        metadata: { codexBlock: 'assistant', runStatus: 'running' }
+      }),
+      message({
+        id: 'run-2-changes',
+        source: 'codex-run',
+        conversationId: 'run-2',
+        createdAt: 4,
+        role: 'tool',
+        status: 'completed',
+        body: 'changes',
+        metadata: { codexBlock: 'changes', changeFiles: 2, changeInsertions: 3, changeDeletions: 1, changeFileStats: [] }
+      }),
+      message({
+        id: 'run-2-complete',
+        source: 'codex-run',
+        conversationId: 'run-2',
+        createdAt: 5,
+        role: 'system',
+        status: 'completed',
+        body: 'Run-2 complete.',
+        metadata: { codexBlock: 'run-complete', code: 0 }
+      }),
+      message({
+        id: 'non-run-2',
+        source: 'codex-chat',
+        conversationId: 'chat-2',
+        createdAt: 6,
+        role: 'assistant',
+        status: 'completed',
+        body: 'Ignored chat message'
+      })
+    ])
+
+    expect(context).toContain('Latest run output context for conversation run-2:')
+    expect(context).toContain('Final run status: Run-2 complete.')
+    expect(context).toContain('Result: Exit code 0')
+    expect(context).toContain('Recent run activity')
+    expect(context).toContain('Reported changes: 2 files changed, +3 insertions, -1 deletions')
+    expect(context).toContain('Final run status')
+  })
+
+  it('returns empty follow-up context for tasks with no run messages', () => {
+    expect(buildLatestRunFollowUpContext([message({ id: 'chat-only', source: 'codex-chat', createdAt: 1, body: 'hello' })])).toBe('')
   })
 
   it('summarizes patch block counts when metadata is unavailable', () => {

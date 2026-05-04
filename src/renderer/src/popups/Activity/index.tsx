@@ -4,8 +4,8 @@ import { formatUsageSummary } from '@shared/utils/codex-events'
 import type { Agent, Gateway, Skill, TaskEntity, Workspace } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { CodexChatMessageItem, CodexWorkBlock } from '@renderer/components/projects/detail/chat/CodexChatMessageItem'
-import { formatChatTime, formatPlannerClarificationAnswer, groupCodexTranscriptMessages, plannerQuestionPromptFromMessages } from '@renderer/screens/projects/detail/chat/chatUtils'
-import type { ChatAttachmentDraft, ChatConversationSummary, SlashCommand, TaskActivityMessage } from '@renderer/screens/projects/detail/types'
+import { formatChatTime, groupCodexTranscriptMessages } from '@renderer/screens/projects/detail/chat/chatUtils'
+import type { ChatAttachmentDraft, ChatConversationSummary, PlannerClarificationMode, SlashCommand, TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
 interface ActivityPopupLegacyProps {
@@ -23,6 +23,7 @@ interface ActivityPopupLegacyProps {
   chatStopping: boolean
   codexPlanLaunching: boolean
   codexRunLaunching: boolean
+  planChoiceOpen: boolean
   visibleMessages: TaskActivityMessage[]
   renderedMessages: TaskActivityMessage[]
   hiddenMessageCount: number
@@ -67,6 +68,8 @@ interface ActivityPopupLegacyProps {
   onSettingsClose: () => void
   onStopChat: (conversationId?: string) => void
   onPlan: () => void
+  onPlanChoiceClose: () => void
+  onPlanChoiceSelect: (clarificationMode: PlannerClarificationMode) => void
   onRun: () => void
   onLoadEarlier: () => void
   onActivityScroll: () => void
@@ -100,6 +103,8 @@ type ActivityPopupStateProps = Omit<
   | 'onSettingsClose'
   | 'onStopChat'
   | 'onPlan'
+  | 'onPlanChoiceClose'
+  | 'onPlanChoiceSelect'
   | 'onRun'
   | 'onLoadEarlier'
   | 'onActivityScroll'
@@ -133,6 +138,8 @@ type ActivityPopupHandlerProps = Pick<
   | 'onSettingsClose'
   | 'onStopChat'
   | 'onPlan'
+  | 'onPlanChoiceClose'
+  | 'onPlanChoiceSelect'
   | 'onRun'
   | 'onLoadEarlier'
   | 'onActivityScroll'
@@ -173,17 +180,67 @@ export function ActivityPopup({
 }: ActivityPopupProps) {
   const noOp = () => {}
   const state = (chatState ?? legacyState) as ActivityPopupStateProps | null
-  const plannerQuestionPrompt = useMemo(
-    () => plannerQuestionPromptFromMessages(state?.visibleMessages ?? []),
-    [state?.visibleMessages]
-  )
-  const [plannerQuestionSelections, setPlannerQuestionSelections] = useState<Record<string, string>>({})
-  const [plannerQuestionNotes, setPlannerQuestionNotes] = useState<Record<string, string>>({})
+  const [isConfigurationDetailsOpen, setIsConfigurationDetailsOpen] = useState(false)
+  const isSteerMode = state?.chatMode === 'steer'
+
+  const configurationDetails = useMemo(() => {
+    const workspaceLabel = state?.chatRuntimeWorkspace?.name || state?.runtimeWorkspaceId || 'Workspace required'
+    const sessionLabel = state?.selectedChatSummary?.status ?? (state?.visibleMessages.length ? 'mixed' : 'ready')
+    const skillsLabel = state?.taskContextSkills.length ? state.taskContextSkills.map((skill) => skill.name).join(', ') : 'None'
+    const usageLabel = state?.selectedChatUsage ? formatUsageSummary(state.selectedChatUsage) : 'N/A'
+    const includeContextLabel = state?.chatIncludeContext ? 'On' : 'Off'
+
+    return [
+      { label: 'Gateway', value: state?.chatGateway?.name ?? 'Gateway required', warning: !state?.chatGateway },
+      { label: 'Plan model', value: state?.chatPlanModel || state?.chatModel || 'Plan model required', warning: !state?.chatPlanModel && !state?.chatModel },
+      { label: 'Run model', value: state?.chatRunModel || state?.chatModel || 'Run model required', warning: !state?.chatRunModel && !state?.chatModel },
+      { label: 'Mode', value: state?.chatGatewayConfig?.executionMode === 'exec' ? 'Exec' : 'Terminal' },
+      { label: 'Workspace', value: workspaceLabel, warning: !workspaceLabel || workspaceLabel === 'Workspace required' },
+      { label: 'Session', value: sessionLabel },
+      { label: 'Agent', value: state?.selectedTaskAgent?.name ?? 'Unassigned' },
+      { label: 'Skills', value: skillsLabel },
+      { label: 'Usage', value: usageLabel, hidden: !usageLabel },
+      { label: 'Task context', value: includeContextLabel }
+    ]
+  }, [
+    state?.chatGateway?.name,
+    state?.chatGatewayConfig?.executionMode,
+    state?.chatIncludeContext,
+    state?.chatModel,
+    state?.chatPlanModel,
+    state?.chatRuntimeWorkspace?.name,
+    state?.runtimeWorkspaceId,
+    state?.selectedChatSummary?.status,
+    state?.selectedTaskAgent?.name,
+    state?.selectedChatUsage,
+    state?.taskContextSkills,
+    state?.visibleMessages.length,
+    state?.chatRunModel
+  ])
+
+  const visibleConfigurationDetails = configurationDetails.filter((item) => !item.hidden)
+  const configurationGroups = useMemo(() => {
+    const byLabel = new Map(visibleConfigurationDetails.map((item) => [item.label, item]))
+    const pick = (labels: string[]) => labels.flatMap((label) => {
+      const item = byLabel.get(label)
+      return item ? [item] : []
+    })
+    return [
+      { title: 'Runtime', items: pick(['Gateway', 'Mode', 'Workspace', 'Session']) },
+      { title: 'Models', items: pick(['Plan model', 'Run model']) },
+      { title: 'Task context', items: pick(['Agent', 'Skills', 'Task context']) },
+      { title: 'Usage', items: pick(['Usage']) }
+    ].filter((group) => group.items.length > 0)
+  }, [visibleConfigurationDetails])
 
   useEffect(() => {
-    setPlannerQuestionSelections({})
-    setPlannerQuestionNotes({})
-  }, [plannerQuestionPrompt?.messageId])
+    if (!isConfigurationDetailsOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsConfigurationDetailsOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [isConfigurationDetailsOpen])
 
   if (!state) {
     return null
@@ -200,6 +257,8 @@ export function ActivityPopup({
     onSettingsClose: chatHandlers?.onSettingsClose ?? legacyState.onSettingsClose ?? noOp,
     onStopChat: chatHandlers?.onStopChat ?? legacyState.onStopChat ?? noOp,
     onPlan: chatHandlers?.onPlan ?? legacyState.onPlan ?? noOp,
+    onPlanChoiceClose: chatHandlers?.onPlanChoiceClose ?? legacyState.onPlanChoiceClose ?? noOp,
+    onPlanChoiceSelect: chatHandlers?.onPlanChoiceSelect ?? legacyState.onPlanChoiceSelect ?? noOp,
     onRun: chatHandlers?.onRun ?? legacyState.onRun ?? noOp,
     onLoadEarlier: chatHandlers?.onLoadEarlier ?? legacyState.onLoadEarlier ?? noOp,
     onActivityScroll: chatHandlers?.onActivityScroll ?? legacyState.onActivityScroll ?? noOp,
@@ -297,23 +356,7 @@ export function ActivityPopup({
     onSlashCommandIndexChange,
     onClearSlashDraft,
     onSend,
-    onPlannerQuestionAnswer
   } = handlers
-
-  const canSubmitPlannerQuestion = Boolean(plannerQuestionPrompt && plannerQuestionPrompt.questions.every((question) => (
-    question.options.length > 0
-      ? Boolean(plannerQuestionSelections[question.id])
-      : Boolean(plannerQuestionNotes[question.id]?.trim())
-  )))
-
-  const submitPlannerQuestionAnswer = () => {
-    if (!plannerQuestionPrompt || !canSubmitPlannerQuestion) return
-    onPlannerQuestionAnswer(formatPlannerClarificationAnswer({
-      prompt: plannerQuestionPrompt,
-      selectedOptionIds: plannerQuestionSelections,
-      notes: plannerQuestionNotes
-    }))
-  }
 
   const isChatStopping = chatStopping
   const showRunActions = chatOptions?.showRunActions !== false
@@ -334,6 +377,11 @@ export function ActivityPopup({
   const conversationStatusClass = (conversation: ChatConversationSummary) => (
     styles[`chatStatus_${runningConversationIds.has(conversation.id) ? 'running' : conversation.status}`] ?? ''
   )
+  const conversationSourceClass = (conversation: ChatConversationSummary) => {
+    if (conversation.source === 'codex-plan') return styles.chatSource_plan
+    if (conversation.source === 'codex-run') return styles.chatSource_run
+    return styles.chatSource_followUp
+  }
 
   return (
     <>
@@ -370,7 +418,10 @@ export function ActivityPopup({
               }}
             >
               <span className={styles.chatConversationLine}>
-                <span className={styles.chatConversationTitle}>{conversation.title}</span>
+                <span className={styles.chatConversationTitle}>
+                  <b className={`${styles.chatConversationSourceBadge} ${conversationSourceClass(conversation)}`}>{conversation.title}</b>
+                  {conversation.model ? <em>{conversation.model}</em> : null}
+                </span>
                 <b className={`${styles.chatStatusBadge} ${conversationStatusClass(conversation)}`}>
                   {conversationStatusLabel(conversation)}
                 </b>
@@ -394,7 +445,6 @@ export function ActivityPopup({
                 ) : null}
               </span>
               <small>{conversation.count} messages · {formatChatTime(conversation.at)}</small>
-              {conversation.model ? <small>{conversation.model}</small> : null}
             </div>
           ))}
           {conversations.length > sidebarConversations.length ? <p>{conversations.length - sidebarConversations.length} older conversations hidden for performance.</p> : null}
@@ -413,56 +463,6 @@ export function ActivityPopup({
             </div>
           </header>
           <div className={styles.chatWorkspace}>
-            {plannerQuestionPrompt ? (
-              <div className={styles.plannerQuestionOverlay} role="dialog" aria-modal="false" aria-label="Planner clarification questions">
-                <div className={styles.plannerQuestionDialog}>
-                  <div className={styles.plannerQuestionHeader}>
-                    <span><LuSparkles size={16} /></span>
-                    <div>
-                      <h3>Planner needs input</h3>
-                      <p>{plannerQuestionPrompt.summary}</p>
-                    </div>
-                  </div>
-                  <div className={styles.plannerQuestionList}>
-                    {plannerQuestionPrompt.questions.map((question, questionIndex) => (
-                      <div key={question.id} className={styles.plannerQuestionCard}>
-                        <strong>{questionIndex + 1}. {question.question}</strong>
-                        {question.why ? <p>{question.why}</p> : null}
-                        {question.options.length > 0 ? (
-                          <div className={styles.plannerQuestionOptions}>
-                            {question.options.map((option) => (
-                              <label key={option.id} className={plannerQuestionSelections[question.id] === option.id ? styles.plannerQuestionOptionSelected : ''}>
-                                <input
-                                  type="radio"
-                                  name={`planner-question-${question.id}`}
-                                  checked={plannerQuestionSelections[question.id] === option.id}
-                                  onChange={() => setPlannerQuestionSelections((current) => ({ ...current, [question.id]: option.id }))}
-                                />
-                                <span>
-                                  <b>{option.label}</b>
-                                  {option.description ? <small>{option.description}</small> : null}
-                                </span>
-                              </label>
-                            ))}
-                          </div>
-                        ) : null}
-                        <textarea
-                          value={plannerQuestionNotes[question.id] ?? ''}
-                          onChange={(event) => setPlannerQuestionNotes((current) => ({ ...current, [question.id]: event.currentTarget.value }))}
-                          placeholder={question.options.length > 0 ? 'Optional note...' : 'Answer...'}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <div className={styles.plannerQuestionActions}>
-                    <button type="button" onClick={submitPlannerQuestionAnswer} disabled={!canSubmitPlannerQuestion || chatSending || codexPlanLaunching}>
-                      {chatSending || codexPlanLaunching ? <span className={styles.thinkingDots}><i /><i /><i /></span> : <LuSend size={15} />}
-                      Send answer
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : null}
             <div className={styles.chatTranscript} ref={activityFeedRef} onScroll={onActivityScroll}>
               {visibleMessages.length > 0 ? (
                 <div className={styles.chatMessageList}>
@@ -543,6 +543,12 @@ export function ActivityPopup({
                   ))}
                 </div>
               ) : null}
+              {isSteerMode ? (
+                <div className={styles.chatSteerModeRow}>
+                  <span>Steer</span>
+                  <small>Send steering instructions to the selected conversation</small>
+                </div>
+              ) : null}
               <div className={styles.chatComposerBox}>
                 <textarea
                   ref={draftTextareaRef}
@@ -564,26 +570,48 @@ export function ActivityPopup({
                     }
                   }}
                 />
-                <button type="button" className={styles.chatAttachButton} onClick={onAttachFilesClick} aria-label="Attach files"><LuPaperclip size={16} /></button>
                 <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => onFilesSelected(event.currentTarget.files)} />
-                <button type="button" className={selectedChatCanStop ? styles.chatStopButton : ''} onClick={() => selectedChatCanStop ? onStopChat() : onSend()} disabled={chatSending || isChatStopping || (!selectedChatCanStop && (!canSendChat || selectedChatIsRunning))} aria-label={selectedChatCanStop ? 'Stop Codex chat' : 'Send message'} title={selectedChatCanStop ? 'Stop' : 'Send'}>
+                <button type="button" className={[styles.chatSendButton, selectedChatCanStop ? styles.chatStopButton : ''].filter(Boolean).join(' ')} onClick={() => selectedChatCanStop ? onStopChat() : onSend()} disabled={chatSending || isChatStopping || (!selectedChatCanStop && (!canSendChat || selectedChatIsRunning))} aria-label={selectedChatCanStop ? 'Stop Codex chat' : 'Send message'} title={selectedChatCanStop ? 'Stop' : 'Send'}>
                   {selectedChatCanStop ? <LuCircleStop size={17} /> : chatSending ? <span className={styles.thinkingDots}><i /><i /><i /></span> : <LuSend size={16} />}
                 </button>
+                <div className={styles.chatComposerFooter}>
+                  <button type="button" className={styles.chatAttachButton} onClick={onAttachFilesClick} aria-label="Attach files"><LuPaperclip size={16} /></button>
+                  <button type="button" className={styles.chatConfigurationButton} onClick={() => setIsConfigurationDetailsOpen(true)} aria-haspopup="dialog">
+                    <LuSettings2 size={13} />
+                    <span>Configuration details</span>
+                  </button>
+                </div>
               </div>
             </div>
-            <div className={styles.chatComposerRail}>
-              <div className={styles.chatPillRow}>
-                <span className={!chatGateway ? styles.chatPillWarning : ''}><small>Gateway</small><b title={chatGateway?.name ?? 'Gateway required'}>{chatGateway?.name ?? 'Gateway required'}</b></span>
-                <span className={!chatPlanModel && !chatModel ? styles.chatPillWarning : ''}><small>Plan</small><b title={chatPlanModel || chatModel || 'Plan model required'}>{chatPlanModel || chatModel || 'Plan model required'}</b></span>
-                <span className={!chatRunModel && !chatModel ? styles.chatPillWarning : ''}><small>Run</small><b title={chatRunModel || chatModel || 'Run model required'}>{chatRunModel || chatModel || 'Run model required'}</b></span>
-                <span><small>Mode</small><b>{chatGatewayConfig.executionMode === 'exec' ? 'Exec' : 'Terminal'}</b></span>
-                <span><small>Workspace</small><b title={chatRuntimeWorkspace?.name ?? runtimeWorkspaceId ?? 'Workspace required'}>{chatRuntimeWorkspace?.name ?? runtimeWorkspaceId ?? 'Workspace required'}</b></span>
-                <span><small>Session</small><b>{selectedChatSummary?.status ?? (visibleMessages.length ? 'mixed' : 'ready')}</b></span>
-                <span><small>Agent</small><b>{selectedTaskAgent?.name ?? 'Unassigned'}</b></span>
-                <span><small>Skills</small><b>{taskContextSkills.length ? taskContextSkills.slice(0, 3).map((skill) => skill.name).join(', ') : 'None'}</b></span>
-                {selectedChatUsage ? <span><small>Usage</small><b>{formatUsageSummary(selectedChatUsage)}</b></span> : null}
+            {isConfigurationDetailsOpen ? (
+              <div className={styles.chatConfigModalOverlay} onMouseDown={() => setIsConfigurationDetailsOpen(false)}>
+                <div className={styles.chatConfigModal} role="dialog" aria-modal="true" aria-label="Configuration details" onMouseDown={(event) => event.stopPropagation()}>
+                  <header className={styles.chatConfigModalHeader}>
+                    <span><LuSettings2 size={16} /></span>
+                    <div>
+                      <h3>Configuration details</h3>
+                      <p>Read-only Codex runtime, model, agent, skills, and context settings.</p>
+                    </div>
+                    <button type="button" onClick={() => setIsConfigurationDetailsOpen(false)} aria-label="Close configuration details"><LuX size={16} /></button>
+                  </header>
+                  <div className={styles.chatConfigModalBody}>
+                    {configurationGroups.map((group) => (
+                      <section key={group.title} className={styles.chatConfigModalSection}>
+                        <h4>{group.title}</h4>
+                        <div className={styles.chatConfigDetailList}>
+                          {group.items.map((item) => (
+                            <div key={item.label} className={`${styles.chatConfigDetailRow} ${item.warning ? styles.chatConfigDetailWarning : ''}`}>
+                              <b>{item.label}</b>
+                              <span>{item.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : null}
           </footer>
         </main>
       </section>

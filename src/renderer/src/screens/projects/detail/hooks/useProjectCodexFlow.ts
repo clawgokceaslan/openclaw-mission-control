@@ -1,10 +1,10 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { Agent, CustomField, Gateway, Project, ProjectGroup, ProjectStatus, Skill, Tag, TaskEntity } from '@shared/types/entities'
 import { invokeBridge } from '@renderer/utils/api'
-import { buildTaskZipArchive } from '../taskExport'
+import { buildProjectWorkspaceExportTaskPayload, buildTaskZipArchive } from '../taskExport'
 import { createLocalId, taskCodexGatewayId, taskCodexModel } from '../projectDetailUtils'
-import { CodexRunFeedback, ChatAttachmentDraft, ChatOperationFeedbackData, ChatConversationSummary, SlashCommand } from '../types'
+import { CodexRunFeedback, ChatAttachmentDraft, ChatOperationFeedbackData, ChatConversationSummary, SlashCommand, type PlannerClarificationMode } from '../types'
 import type { ProjectDetailStateBindings } from '../state/projectDetailState'
 
 const slashPlanToken = /(?:^|\s)\/[a-z]*$/i
@@ -12,10 +12,12 @@ const slashPlanToken = /(?:^|\s)\/[a-z]*$/i
 interface CodexRunResponse {
   runFolderPath: string
   workspacePath: string
+  runtimeWorkspacePath?: string
   model: string
   gatewayId: string
   executionMode?: 'terminal' | 'exec'
   runId?: string
+  conversationId?: string
 }
 
 interface CodexPlanResponse {
@@ -97,6 +99,7 @@ export interface ProjectCodexFlowContext {
   codexPlanLaunching: boolean
   chatSending: boolean
   chatStopping: boolean
+  chatFollowUpContext?: string
   state: Pick<
     ProjectDetailStateBindings,
     | 'setCodexRunLaunching'
@@ -129,10 +132,13 @@ export interface UseProjectCodexFlowResult {
   canSendChat: boolean
   isPlanDraft: boolean
   chatOperationFeedback: ChatOperationFeedbackData | null
+  planChoiceOpen: boolean
   selectedTaskSummary: string
   refreshCodexGatewayModels: (gatewayId: string) => Promise<void>
   runSelectedTaskWithCodex: () => Promise<void>
   planSelectedTaskWithCodex: () => Promise<void>
+  confirmPlanWithCodex: (clarificationMode: PlannerClarificationMode) => Promise<void>
+  closePlanChoice: () => void
   sendCodexChatMessage: () => Promise<void>
   sendPlannerClarification: (answer: string) => Promise<void>
   stopCodexChat: (conversationIdOverride?: string) => Promise<CodexStopResult>
@@ -162,6 +168,7 @@ export function useProjectCodexFlow({
   planReasoningEffort = 'medium',
   runReasoningEffort = 'medium',
   chatIncludeContext,
+  chatFollowUpContext = '',
   chatComposerMode,
   selectedChatConversationId,
   isStartingNewChat,
@@ -209,6 +216,7 @@ export function useProjectCodexFlow({
   const canSendChat = Boolean(chatDraft.trim() || chatAttachments.length > 0)
 
   const selectedTaskSummary = selectedTask?.title ?? ''
+  const [planChoiceOpen, setPlanChoiceOpen] = useState(false)
 
   const refreshCodexGatewayModels = useCallback(async (gatewayId: string) => {
     if (!gatewayId) return
@@ -272,13 +280,11 @@ export function useProjectCodexFlow({
     setIsActivityModalOpen(true)
     setIsStartingNewChat(false)
     try {
-      const { fileName, archive } = await buildTaskZipArchive(selectedTaskExportContext)
-      const response = await invokeBridge<CodexRunResponse>(IPC_CHANNELS.tasks.runCodex, {
+      const snapshot = buildProjectWorkspaceExportTaskPayload(selectedTaskExportContext)
+      const basePayload = {
         actorToken: token,
         taskId: selectedTask.id,
         projectId: project.id,
-        zipName: fileName,
-        zipBytes: archive,
         gatewayId: resolvedTaskGatewayId,
         model: resolvedRunModel,
         language: codexLanguage,
@@ -286,7 +292,23 @@ export function useProjectCodexFlow({
         generalContext: project.generalContext ?? '',
         generalPrompt: project.generalPrompt ?? '',
         defaultOutput: project.defaultOutput ?? ''
+      }
+      let response = await invokeBridge<CodexRunResponse>(IPC_CHANNELS.tasks.runCodex, {
+        ...basePayload,
+        taskMarkdown: snapshot.taskMarkdown,
+        agentMarkdown: snapshot.agentMarkdown,
+        skillsMarkdown: snapshot.skillsMarkdown,
+        attachments: snapshot.attachments
       })
+      const errorMessage = response.ok ? '' : response.error?.message ?? ''
+      if (!response.ok && /zip bytes|required/i.test(errorMessage)) {
+        const zip = await buildTaskZipArchive(selectedTaskExportContext)
+        response = await invokeBridge<CodexRunResponse>(IPC_CHANNELS.tasks.runCodex, {
+          ...basePayload,
+          zipName: zip.fileName,
+          zipBytes: zip.archive
+        })
+      }
       if (!response.ok) {
         setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex' })
         return
@@ -328,6 +350,30 @@ export function useProjectCodexFlow({
       setCodexRunFeedback({ kind: 'error', message: 'Task is not ready for Codex planning.' })
       return
     }
+    setCodexRunFeedback(null)
+    setIsActivityModalOpen(true)
+    setIsStartingNewChat(false)
+    setChatSettingsOpen(false)
+    setPlanChoiceOpen(true)
+  }, [
+    project,
+    selectedTask,
+    setCodexRunFeedback,
+    setIsActivityModalOpen,
+    setIsStartingNewChat,
+    setChatSettingsOpen
+  ])
+
+  const closePlanChoice = useCallback(() => {
+    setPlanChoiceOpen(false)
+  }, [])
+
+  const confirmPlanWithCodex = useCallback(async (clarificationMode: PlannerClarificationMode) => {
+    if (!selectedTask || !project) {
+      setCodexRunFeedback({ kind: 'error', message: 'Task is not ready for Codex planning.' })
+      return
+    }
+    setPlanChoiceOpen(false)
 
     if (!resolvedTaskGatewayId) {
       setCodexRunFeedback({ kind: 'error', message: 'Configure a Codex gateway before planning this task.' })
@@ -355,6 +401,7 @@ export function useProjectCodexFlow({
         model: resolvedPlanModel,
         language: codexLanguage,
         reasoningEffort: planReasoningEffort,
+        clarificationMode,
         generalContext: project.generalContext ?? '',
         generalPrompt: project.generalPrompt ?? '',
         defaultOutput: project.defaultOutput ?? ''
@@ -441,7 +488,9 @@ export function useProjectCodexFlow({
         }
         setSelectedChatConversationId(response.data.conversationId ?? selectedChatConversationId)
         setIsStartingNewChat(false)
+        setChatDraft('')
         setChatAttachments([])
+        setChatComposerMode('chat')
         setCodexRunFeedback(response.data.executionMode === 'terminal'
           ? { kind: 'success', message: 'Codex planner launched with your clarification.' }
           : null)
@@ -454,11 +503,12 @@ export function useProjectCodexFlow({
         projectId: project.id,
         message: draftText.trim() || 'Review the attached file(s) in the task context.',
         gatewayId: chatGatewayId,
+        followUpContext: isStartingNewChat ? chatFollowUpContext?.trim() || undefined : undefined,
         model: resolvedChatModel,
         language: codexLanguage,
         reasoningEffort: effectiveChatMode === 'plan' ? planReasoningEffort : runReasoningEffort,
         conversationId: isStartingNewChat ? undefined : selectedChatConversationId || undefined,
-        includeTaskContext: chatIncludeContext,
+        includeTaskContext: isStartingNewChat ? false : chatIncludeContext,
         mode: effectiveChatMode,
         attachments: chatAttachments.map((attachment) => ({ name: attachment.name, bytes: attachment.bytes }))
       })
@@ -468,7 +518,9 @@ export function useProjectCodexFlow({
       }
       setSelectedChatConversationId(response.data.conversationId)
       setIsStartingNewChat(false)
+      setChatDraft('')
       setChatAttachments([])
+      setChatComposerMode('chat')
       if (response.data.executionMode === 'terminal') {
         setCodexRunFeedback({ kind: 'success', message: 'Codex terminal chat launched.' })
       } else {
@@ -499,6 +551,7 @@ export function useProjectCodexFlow({
     selectedChatConversationId,
     selectedChatSummary,
     chatMode,
+    chatFollowUpContext,
     token,
     setChatSending,
     setCodexRunFeedback,
@@ -506,6 +559,7 @@ export function useProjectCodexFlow({
     setIsStartingNewChat,
     setChatDraft,
     setChatAttachments,
+    setChatComposerMode,
     setChatSettingsOpen
   ])
 
@@ -620,10 +674,13 @@ export function useProjectCodexFlow({
     canSendChat,
     isPlanDraft,
     chatOperationFeedback,
+    planChoiceOpen,
     selectedTaskSummary,
     refreshCodexGatewayModels,
     runSelectedTaskWithCodex,
     planSelectedTaskWithCodex,
+    confirmPlanWithCodex,
+    closePlanChoice,
     sendCodexChatMessage,
     sendPlannerClarification,
     stopCodexChat,

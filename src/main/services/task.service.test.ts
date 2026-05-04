@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import EventEmitter from 'node:events'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
-import type { TaskChecklistItem, TaskEntity } from '../../shared/types/entities.js'
+import type { ProjectStatus, TaskChecklistItem, TaskEntity } from '../../shared/types/entities.js'
 import type { NormalizedTaskJsonImport, NormalizedImportedSubtask } from './task-json-import.js'
 import { TaskJsonImportNormalizer } from './task-json-import.js'
-import { codexChatPrompt, codexOutputChanges, codexWorkspaceChanges, initialCodexPrompt, initialPlannerPrompt, normalizePlannerQuestionPayload, omcCliInstructions, plannerJsonGuidance, shouldStartPostRunPrompt, TaskService, validatePlannerTaskJsonQuality } from './task.service.js'
+import { codexChatPrompt, codexOutputChanges, codexWorkspaceChanges, initialCodexPrompt, initialPlannerPrompt, normalizePlannerQuestionPayload, omcCliInstructions, plannerJsonGuidance, shouldStartPostRunPrompt, TaskService, validatePlannerTaskJsonQuality, writeTaskSnapshotToExportWorkspace } from './task.service.js'
+import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -255,13 +258,20 @@ describe('planner quality gate', () => {
     expect(validatePlannerTaskJsonQuality(plannedTask())).toEqual([])
   })
 
-  it('rejects subtasks without description or checklist', () => {
+  it('accepts title and description subtasks without checklist items', () => {
+    const issues = validatePlannerTaskJsonQuality(plannedTask({
+      subtasks: [plannedSubtask({ checklistItems: [] })]
+    }))
+
+    expect(issues).toEqual([])
+  })
+
+  it('rejects subtasks without description', () => {
     const issues = validatePlannerTaskJsonQuality(plannedTask({
       subtasks: [plannedSubtask({ description: '', checklistItems: [] })]
     }))
 
     expect(issues).toContain('subtasks[0].description is required.')
-    expect(issues).toContain('subtasks[0].checklist must include concrete unchecked items.')
   })
 
   it('rejects missing root description, acceptance criteria, and subtasks', () => {
@@ -276,7 +286,7 @@ describe('planner quality gate', () => {
     expect(issues).toContain('At least one planned subtask is required.')
   })
 
-  it('rejects generic checklist items', () => {
+  it('rejects generic checklist items when provided', () => {
     const issues = validatePlannerTaskJsonQuality(plannedTask({
       subtasks: [plannedSubtask({ checklistItems: [checklist('Test yap'), checklist('Run tests'), checklist('Fix bugs'), checklist('Implement feature')] })]
     }))
@@ -335,7 +345,7 @@ describe('planner quality gate', () => {
     expect((checklistItems as TaskChecklistItem[])[0].checked).toBe(false)
   })
 
-  it('documents full subtask rewrite and balanced decomposition in planner prompts', () => {
+  it('documents pragmatic title and description subtask planning in direct planner prompts', () => {
     const prompt = initialPlannerPrompt('project-1', 'task-1', '.omc/runs/run/omc-task-client.mjs', '.omc/runs/run/context.json', '.omc/runs/run/planned-task.json')
     const instructions = omcCliInstructions({
       mode: 'plan',
@@ -351,23 +361,67 @@ describe('planner quality gate', () => {
     expect(prompt).toContain('Refactor the entire subtasks array')
     expect(prompt).toContain('Use balanced decomposition')
     expect(prompt).toContain('3-8 subtasks for typical tasks')
-    expect(prompt).toContain('Do not split every file, UI state, edge case, or verification command')
+    expect(prompt).toContain('Non-negotiable planner rules')
+    expect(prompt).toContain('Use task description for the general goal')
+    expect(prompt).toContain('Use task comments for important flows')
+    expect(prompt).toContain('Subtasks must be ordered')
+    expect(prompt).toContain('Use the Title + Description subtask shape')
+    expect(prompt).toContain('Checklist items are optional')
+    expect(prompt).toContain('make the final subtask a concrete verification and acceptance step')
     expect(prompt).toContain('No generic test tasks')
-    expect(prompt).toContain('node .omc/runs/run/omc-task-client.mjs ask .omc/runs/run/questions.json')
+    expect(prompt).toContain('Clarification mode: DIRECT')
+    expect(prompt).toContain('Do not ask clarification questions')
+    expect(prompt).toContain('After the update succeeds, run: node .omc/runs/run/omc-task-client.mjs finish')
+    expect(prompt).not.toContain('Clarification mode: ASK FIRST')
     expect(instructions).toContain('refactor the entire subtasks array')
     expect(instructions).toContain('Planning granularity is balanced')
     expect(instructions).toContain('at most 12 subtasks')
+    expect(instructions).toContain('Non-negotiable planner rules')
+    expect(instructions).toContain('Title + Description subtask shape')
+    expect(instructions).toContain('Checklist items are optional')
     expect(instructions).toContain('No generic test tasks')
-    expect(instructions).toContain('Ask user clarification questions')
+    expect(instructions).toContain('Clarification mode: DIRECT')
+    expect(instructions).toContain('Do not ask clarification questions')
+  })
+
+  it('hard-controls ask-first planner prompts before task JSON updates', () => {
+    const prompt = initialPlannerPrompt('project-1', 'task-1', '.omc/runs/run/omc-task-client.mjs', '.omc/runs/run/context.json', '.omc/runs/run/planned-task.json', { clarificationMode: 'ask-first' })
+    const instructions = omcCliInstructions({
+      mode: 'plan',
+      projectId: 'project-1',
+      taskId: 'task-1',
+      runId: 'run',
+      clarificationMode: 'ask-first',
+      helperRelativePath: '.omc/runs/run/omc-task-client.mjs',
+      contextRelativePath: '.omc/runs/run/context.json',
+      plannedTaskRelativePath: '.omc/runs/run/planned-task.json',
+      runtimeWorkspacePath: '/workspace'
+    })
+
+    expect(prompt).toContain('Clarification mode: ASK FIRST')
+    expect(prompt).toContain('This run must pause for user clarification before updating the task')
+    expect(prompt).toContain('node .omc/runs/run/omc-task-client.mjs ask .omc/runs/run/questions.json')
+    expect(prompt).toContain('do not write planned-task.json, do not validate, do not update the task')
+    expect(prompt).toContain('user input is not needed')
+    expect(prompt).not.toContain('After the update succeeds, run: node .omc/runs/run/omc-task-client.mjs finish')
+    expect(instructions).toContain('Clarification mode: ASK FIRST')
+    expect(instructions).toContain('run `node .omc/runs/run/omc-task-client.mjs ask .omc/runs/run/questions.json`')
+    expect(instructions).toContain('do not write planned-task.json, do not validate, do not update the task')
+    expect(instructions).toContain('user input is not needed')
   })
 
   it('exposes balanced subtask policy in planner context guidance', () => {
     const guidance = plannerJsonGuidance()
 
     expect(guidance.planningPolicy.granularity).toBe('balanced')
+    expect(guidance.planningPolicy.clarificationMode).toContain('ask-first')
+    expect(guidance.planningPolicy.overrideProjectGuide).toContain('override')
     expect(guidance.planningPolicy.subtaskCount).toContain('3-8 subtasks')
     expect(guidance.subtaskPolicy.join('\n')).toContain('cohesive implementation areas')
-    expect(guidance.subtaskPolicy.join('\n')).toContain('Do not create a separate subtask for every file')
+    expect(guidance.subtaskPolicy.join('\n')).toContain('Title + Description shape')
+    expect(guidance.subtaskPolicy.join('\n')).toContain('Checklist items are optional')
+    expect(guidance.subtaskPolicy.join('\n')).toContain('final subtask')
+    expect(guidance.plannedSubtaskTemplate).not.toHaveProperty('checklist')
   })
 
   it('routes project instructions strictly between planner and run prompts', () => {
@@ -447,6 +501,191 @@ describe('planner question payload', () => {
 
     expect(response.ok).toBe(false)
     expect(response.error?.message).toContain('at least one question')
+  })
+})
+
+describe('codex activity persistence', () => {
+  it('stores planner question activity with global modal metadata', async () => {
+    const service = Object.create(TaskService.prototype) as any
+    let capturedMessages: any[] = []
+    service.pausedPlannerRunIds = new Set<string>()
+    service.ensureTaskAccess = async () => ({
+      ok: true,
+      data: {
+        task: { id: 'task-1', projectId: 'project-1', title: 'Question Task' },
+        actorOrgId: 'org-1'
+      }
+    })
+    service.setTaskCodexPlanState = async () => undefined
+    service.appendTaskActivityMessages = async (_taskId: string, messages: any[]) => {
+      capturedMessages = messages
+      return messages
+    }
+
+    const response = await service.appendPlannerQuestionActivity({
+      actorToken: 'token',
+      projectId: 'project-1',
+      taskId: 'task-1',
+      runId: 'run-1',
+      conversationId: 'conversation-1',
+      gatewayId: 'gateway-1',
+      model: 'gpt-5.5',
+      language: 'en',
+      reasoningEffort: 'high'
+    }, {
+      summary: 'Need scope.',
+      questions: [{ id: 'scope', question: 'Scope?', options: [] }]
+    })
+
+    expect(response.ok).toBe(true)
+    expect(capturedMessages[0].metadata).toMatchObject({
+      codexBlock: 'planner-question',
+      projectId: 'project-1',
+      taskId: 'task-1',
+      taskTitle: 'Question Task',
+      conversationId: 'conversation-1',
+      gatewayId: 'gateway-1',
+      model: 'gpt-5.5',
+      language: 'en',
+      reasoningEffort: 'high'
+    })
+  })
+
+  it('advances planned tasks from first workflow status to second status only', async () => {
+    const eventBus = new EventEmitter()
+    const taskUpdatedEvents: unknown[] = []
+    eventBus.on(IPC_CHANNELS.events.taskUpdated, (payload) => taskUpdatedEvents.push(payload))
+    const statuses: ProjectStatus[] = [
+      { id: 'status-1', organizationId: 'org-1', projectId: 'project-1', name: 'Backlog', category: 'not_started', color: '#8A99B4', sortOrder: 0, isDefault: true, createdAt: 1, updatedAt: 1 },
+      { id: 'status-2', organizationId: 'org-1', projectId: 'project-1', name: 'Doing', category: 'active', color: '#2F80ED', sortOrder: 1, isDefault: false, createdAt: 2, updatedAt: 2 }
+    ]
+    let task: TaskEntity = {
+      id: 'task-1',
+      projectId: 'project-1',
+      title: 'Task',
+      status: 'status-1',
+      payload: {},
+      result: {},
+      createdAt: 1,
+      updatedAt: 1
+    }
+    const updates: Array<Partial<TaskEntity>> = []
+    const service = Object.create(TaskService.prototype) as any
+    service.eventBus = eventBus
+    service.statuses = { ensureProjectDefaults: async () => statuses }
+    service.repo = {
+      get: async () => task,
+      list: async () => [task],
+      update: async (_id: string, patch: Partial<TaskEntity>) => {
+        updates.push(patch)
+        task = { ...task, ...patch }
+        return task
+      }
+    }
+
+    await service.advanceTaskFromFirstStatusAfterPlanning('task-1', 'org-1')
+    await service.advanceTaskFromFirstStatusAfterPlanning('task-1', 'org-1')
+
+    expect(updates).toHaveLength(1)
+    expect(task.status).toBe('status-2')
+    expect(taskUpdatedEvents).toHaveLength(1)
+    expect((taskUpdatedEvents[0] as { action: string }).action).toBe('plan_status_advanced')
+  })
+
+  it('batch appends activity messages with one repo update and per-message activity events', async () => {
+    const eventBus = new EventEmitter()
+    const activityEvents: unknown[] = []
+    const taskUpdatedEvents: unknown[] = []
+    eventBus.on(IPC_CHANNELS.events.taskActivity, (payload) => activityEvents.push(payload))
+    eventBus.on(IPC_CHANNELS.events.taskUpdated, (payload) => taskUpdatedEvents.push(payload))
+
+    let task: TaskEntity = {
+      id: 'task-1',
+      projectId: 'project-1',
+      title: 'Task',
+      status: 'active',
+      payload: {
+        activityMessages: Array.from({ length: 299 }, (_, index) => ({
+          id: `old-${index}`,
+          runId: 'run-1',
+          source: 'codex-run',
+          role: 'assistant',
+          body: `old ${index}`,
+          createdAt: index + 1
+        }))
+      },
+      result: {},
+      createdAt: 1,
+      updatedAt: 1
+    }
+    const updates: Array<Partial<TaskEntity>> = []
+    const service = Object.create(TaskService.prototype) as TaskService & {
+      repo: { get: (id: string) => Promise<TaskEntity | undefined>; update: (id: string, patch: Partial<TaskEntity>) => Promise<TaskEntity> }
+      eventBus: EventEmitter
+      appendTaskActivityMessages: (taskId: string, messages: unknown[], options?: { emitTaskUpdatedAction?: string }) => Promise<unknown[]>
+    }
+    service.repo = {
+      get: async () => task,
+      update: async (_id, patch) => {
+        updates.push(patch)
+        task = { ...task, ...patch }
+        return task
+      }
+    }
+    service.eventBus = eventBus
+
+    await service.appendTaskActivityMessages('task-1', [
+      { runId: 'run-1', source: 'codex-run', role: 'assistant', status: 'completed', body: 'new 1' },
+      { runId: 'run-1', source: 'codex-run', role: 'system', status: 'completed', body: 'done', metadata: { codexBlock: 'run-complete' } }
+    ])
+
+    const messages = task.payload?.activityMessages as Array<{ id: string; body: string }>
+    expect(updates).toHaveLength(1)
+    expect(messages).toHaveLength(300)
+    expect(messages[0].id).toBe('old-1')
+    expect(messages.at(-1)?.body).toBe('done')
+    expect(activityEvents).toHaveLength(2)
+    expect(taskUpdatedEvents).toHaveLength(0)
+
+    await service.appendTaskActivityMessages('task-1', [
+      { runId: 'run-1', source: 'codex-run', role: 'system', status: 'completed', body: 'terminal' }
+    ], { emitTaskUpdatedAction: 'activity_complete' })
+
+    expect(updates).toHaveLength(2)
+    expect(taskUpdatedEvents).toHaveLength(1)
+    expect((taskUpdatedEvents[0] as { action: string }).action).toBe('activity_complete')
+  })
+})
+
+describe('codex run snapshot export', () => {
+  it('writes markdown and file attachments without requiring a zip archive', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'omc-run-snapshot-'))
+    const attachmentPath = join(workspace, 'source.txt')
+    const exportPath = join(workspace, 'export')
+    await writeFile(attachmentPath, 'attachment body', 'utf8')
+
+    try {
+      const result = await writeTaskSnapshotToExportWorkspace(exportPath, {
+        taskMarkdown: '# Task\nRun it.',
+        agentMarkdown: '# Agents',
+        skillsMarkdown: '# Skills',
+        attachments: [{
+          name: 'source.txt',
+          exportName: 'copied.txt',
+          url: pathToFileURL(attachmentPath).toString(),
+          ownerId: 'task-1'
+        }]
+      })
+
+      expect(await readFile(join(exportPath, 'Task.md'), 'utf8')).toContain('Run it.')
+      expect(await readFile(join(exportPath, 'Agents.md'), 'utf8')).toContain('Agents')
+      expect(await readFile(join(exportPath, 'Skills.md'), 'utf8')).toContain('Skills')
+      expect(await readFile(join(exportPath, 'attachments', 'copied.txt'), 'utf8')).toBe('attachment body')
+      expect(result.writtenFiles).toEqual(['Task.md', 'Agents.md', 'Skills.md', 'attachments/copied.txt'])
+      expect(result.skippedFiles).toEqual([])
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
   })
 })
 

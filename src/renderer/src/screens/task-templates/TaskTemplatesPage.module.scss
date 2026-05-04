@@ -90,6 +90,8 @@
 }
 
 .searchFilterShell {
+  --table-filter-control-height: var(--omc-table-search-control-height);
+
   min-width: 0;
   border: 1px solid var(--omc-border);
   border-radius: 18px;
@@ -105,7 +107,7 @@
 
 .searchBox {
   min-width: 0;
-  min-height: 48px;
+  min-height: var(--table-filter-control-height);
   padding: 0 16px;
   display: flex;
   align-items: center;
@@ -115,7 +117,8 @@
   input {
     width: 100%;
     min-width: 0;
-    min-height: 48px;
+    height: var(--table-filter-control-height);
+    line-height: var(--table-filter-control-height);
     border: 0;
     border-radius: 0;
     background: transparent;
@@ -134,7 +137,7 @@
 
 .filterBox {
   min-width: 0;
-  min-height: 48px;
+  min-height: var(--table-filter-control-height);
   border-left: 1px solid var(--omc-border-subtle);
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -158,11 +161,12 @@
   }
 
 .tableFilterSelect {
+  --app-select-control-height: var(--table-filter-control-height);
+
   min-width: 0;
 
   :global(.app-select__control) {
-    min-height: 48px;
-    height: 48px;
+    height: var(--table-filter-control-height);
     border: 0;
     border-radius: 0;
     background: transparent;
@@ -175,7 +179,6 @@
   }
 
   :global(.app-select__value-container) {
-    min-height: 48px;
     padding-left: 0;
     padding-top: 0;
     padding-bottom: 0;
@@ -187,7 +190,6 @@
   }
 
   :global(.app-select__indicators) {
-    height: 48px;
     padding-right: 6px;
   }
 

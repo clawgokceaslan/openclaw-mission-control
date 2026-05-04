@@ -18,7 +18,9 @@ import type {
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { createSerializedAsyncRunner } from '@renderer/utils/serializedAsync'
 import { projectCodexSettings, withTaskMeta } from '../projectDetailUtils'
+import { appendActivityMessageToTasks } from '../chat/chatUtils'
 import type { ProjectDetailStateBindings } from './state/projectDetailState'
+import type { TaskActivityMessage } from '../types'
 
 export interface ProjectDetailDataContext {
   token: string | undefined
@@ -185,6 +187,7 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
     const onTaskUpdated = (...args: unknown[]) => {
       const payload = (args[1] ?? args[0]) as { projectId?: string; taskId?: string; action?: string } | undefined
       if (!payload?.projectId || payload.projectId !== projectId) return
+      if (payload.action === 'activity') return
       void refresh()
       if (payload.action === 'created' && payload.taskId) setSelectedTaskId(payload.taskId)
     }
@@ -192,6 +195,17 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
     subscribeToChannel(IPC_CHANNELS.events.taskUpdated, onTaskUpdated)
     return () => unsubscribeFromChannel(IPC_CHANNELS.events.taskUpdated, onTaskUpdated)
   }, [projectId, refresh, setSelectedTaskId])
+
+  useEffect(() => {
+    const onTaskActivity = (...args: unknown[]) => {
+      const payload = (args[1] ?? args[0]) as { projectId?: string; taskId?: string; message?: TaskActivityMessage } | undefined
+      if (!payload?.projectId || payload.projectId !== projectId || !payload.taskId || !payload.message) return
+      setTasks((current) => appendActivityMessageToTasks(current, payload.taskId ?? '', payload.message as TaskActivityMessage))
+    }
+
+    subscribeToChannel(IPC_CHANNELS.events.taskActivity, onTaskActivity)
+    return () => unsubscribeFromChannel(IPC_CHANNELS.events.taskActivity, onTaskActivity)
+  }, [projectId, setTasks])
 
   useEffect(() => {
     const codex = projectCodexSettings(project)

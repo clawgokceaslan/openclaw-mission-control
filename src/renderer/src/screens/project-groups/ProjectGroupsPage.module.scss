@@ -368,7 +368,11 @@
 .searchInput {
   margin-bottom: 10px;
   border-radius: 12px !important;
-  min-height: 42px !important;
+  height: var(--omc-table-search-control-height) !important;
+  min-height: var(--omc-table-search-control-height) !important;
+  line-height: var(--omc-table-search-control-height) !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
 }
 
 .projectList {

@@ -313,19 +313,6 @@ function pushSection(sections: string[], title: string, body: string | undefined
   sections.push(`${'#'.repeat(level)} ${title}\n${normalized}`)
 }
 
-function flowBox(lines: string[]): string[] {
-  const width = Math.max(14, ...lines.map((line) => line.length)) + 2
-  return [
-    `┌${'─'.repeat(width)}┐`,
-    ...lines.map((line) => `│ ${line.padEnd(width - 1)}│`),
-    `└${'─'.repeat(width)}┘`
-  ]
-}
-
-function flowConnector(): string[] {
-  return ['       │', '       v']
-}
-
 function taskHasMetadata(task: TaskEntity): boolean {
   return Boolean(
     (task.tags ?? []).length
@@ -335,73 +322,19 @@ function taskHasMetadata(task: TaskEntity): boolean {
   )
 }
 
-function subtaskFlowLabels(subtask: TaskSubtask): string[] {
-  const payload = getPayload(subtask)
-  const labels: string[] = []
-  if (getSubtaskDescription(subtask).trim()) labels.push('prompt')
-  if (getSubtaskComments(subtask).length) labels.push('comments')
-  if (payload.customFields && typeof payload.customFields === 'object' && Object.keys(payload.customFields as Record<string, unknown>).length) labels.push('custom fields')
-  if (getSubtaskChecklist(subtask).length) labels.push('checklist')
-  if (getSubtaskAttachments(subtask).length) labels.push('attachments')
-  if (getSubtaskAgentId(subtask)) labels.push('agent')
-  if (getSubtaskSkillIds(subtask).length) labels.push('skills')
-  return labels
-}
-
 function buildAiExecutionFlow(context: ExportContext): string {
   const { task } = context
   const subtasks = task.subtasks ?? []
   const actionableSubtasks = subtasks.filter((subtask) => !subtaskStatusAction(subtask, context.projectStatuses).shouldBypass)
   const bypassedSubtasks = subtasks.length - actionableSubtasks.length
-  const taskAttachments = getTaskAttachments(task)
-  const subtaskAttachments = subtasks.flatMap(getSubtaskAttachments)
-  const hasProjectRules = Boolean(
-    context.project?.generalContext?.trim()
-    || context.project?.generalPrompt?.trim()
-    || getProjectPlanGuide(context.project)
-    || context.project?.defaultOutput?.trim()
-    || getProjectRules(context.project)
-    || context.project?.description?.trim()
-    || context.projectGroup?.description?.trim()
-  )
-  const hasAgentReferences = Boolean(task.agentId || subtasks.some((subtask) => getSubtaskAgentId(subtask)))
-  const hasSkillReferences = Boolean((task.skills ?? []).length || subtasks.some((subtask) => getSubtaskSkillIds(subtask).length))
-  const hasAttachments = taskAttachments.length + subtaskAttachments.length > 0
-  const nodes: string[][] = [
-    ['START'],
-    ['Read Project Inputs']
-  ]
-
-  if (hasProjectRules) nodes.push(['Apply Project Instructions', 'context + prompt + plan guide + output + rules'])
-  nodes.push(['Read Task Details', 'title + description/prompt'])
-  if (taskHasMetadata(task)) nodes.push(['Read Task Metadata', 'tags + fields + comments'])
-  if (hasAttachments) nodes.push(['Use Attachment Folder', 'attachments/ + manifest'])
-  if (hasAgentReferences) nodes.push(['Load Agents.md', 'agent prompts'])
-  if (hasSkillReferences) nodes.push(['Load Skills.md', 'skill instructions'])
-  if (subtasks.length) {
-    const subtaskLabels = Array.from(new Set(actionableSubtasks.flatMap(subtaskFlowLabels)))
-    nodes.push([
-      actionableSubtasks.length
-        ? `Process ${actionableSubtasks.length} Subtask${actionableSubtasks.length === 1 ? '' : 's'}`
-        : 'Process 0 Subtasks',
-      bypassedSubtasks ? `bypass ${bypassedSubtasks} done/closed` : 'in numeric order',
-      subtaskLabels.length ? subtaskLabels.join(' + ') : 'title + status'
-    ])
-  }
-  nodes.push(['Execute Task'])
-  nodes.push(['Finalize Output'])
-
-  const diagram = nodes.flatMap((node, index) => [
-    ...flowBox(node),
-    ...(index < nodes.length - 1 ? flowConnector() : [])
-  ]).join('\n')
-
+  const metadataHint = taskHasMetadata(task) ? ' Review task metadata and comments before editing.' : ''
+  const subtaskHint = subtasks.length
+    ? `Execute ${actionableSubtasks.length} actionable subtask${actionableSubtasks.length === 1 ? '' : 's'} in Subtasks Index order.${bypassedSubtasks ? ` Bypass ${bypassedSubtasks} done/closed subtask${bypassedSubtasks === 1 ? '' : 's'}.` : ''}`
+    : 'No subtasks are defined; execute from the parent task details.'
   return [
-    '```text',
-    diagram,
-    '```',
-    '',
-    'Execution rule: Follow this flow top-to-bottom. Treat subtasks as the primary execution plan. Process subtasks strictly in numeric order from the Subtasks Index, complete each subtask checklist before moving on, and bypass only subtasks whose status action says to bypass. Skip nodes that are absent from this file/package.'
+    '1. Read Project Inputs, Task Details, Agents.md, Skills.md, and attachments if present.',
+    `2. ${subtaskHint} Use each subtask description as the main AI guidance; checklist items are optional supporting detail.`,
+    `3. Implement, verify, and finalize output.${metadataHint}`
   ].join('\n')
 }
 
@@ -411,12 +344,12 @@ function subtaskExecutionPlanMarkdown(context: ExportContext): string {
   const actionable = subtasks.filter((subtask) => !subtaskStatusAction(subtask, context.projectStatuses).shouldBypass).length
   const checklistCount = subtasks.reduce((sum, subtask) => sum + getSubtaskChecklist(subtask).length, 0)
   return [
-    'Subtasks are the authoritative execution plan for this task. Use the parent task details as context, then execute the numbered subtasks below in order.',
+    'Subtasks are the authoritative execution plan for this task. Use the parent task details as context, then execute the numbered subtask titles and descriptions below in order.',
     '',
     `- Total subtasks: ${subtasks.length}`,
     `- Actionable subtasks: ${actionable}`,
-    `- Subtask checklist items: ${checklistCount}`,
-    '- Complete each subtask checklist before moving to the next subtask.',
+    `- Optional subtask checklist items: ${checklistCount}`,
+    '- Treat each subtask description as the primary execution guidance before considering optional checklist details.',
     '- If a subtask is marked Done or Closed, follow its AI action in the index instead of redoing work.'
   ].join('\n')
 }
@@ -538,7 +471,7 @@ export function buildTaskMarkdown(context: ExportContext, exportStatuses: Attach
       const statusAction = subtaskStatusAction(subtask, context.projectStatuses)
       const checklistCount = getSubtaskChecklist(subtask).length
       const descriptionSignal = getSubtaskDescription(subtask).trim() ? 'description: present' : 'description: missing'
-      return `${index + 1}. [${subtaskLabel(subtask, index)}](#${subtaskAnchor(subtask, index)}) - Status: ${statusAction.label} - AI action: ${statusAction.action} - Checklist: ${checklistCount} - ${descriptionSignal}`
+      return `${index + 1}. [${subtaskLabel(subtask, index)}](#${subtaskAnchor(subtask, index)}) - Status: ${statusAction.label} - AI action: ${statusAction.action} - ${descriptionSignal} - Optional checklist: ${checklistCount}`
     }).join('\n'))
   }
   for (const [index, subtask] of subtasks.entries()) sections.push(buildSubtaskSection(subtask, index, context, subtaskExportStatuses[subtask.id] ?? []))

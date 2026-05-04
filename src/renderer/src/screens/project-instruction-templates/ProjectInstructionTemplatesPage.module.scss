@@ -97,8 +97,10 @@
 }
 
 .searchBox {
+  --table-filter-control-height: var(--omc-table-search-control-height);
+
   min-width: min(420px, 100%);
-  min-height: 38px;
+  height: var(--table-filter-control-height);
   border: 1px solid var(--omc-input-border);
   border-radius: 11px;
   background: var(--omc-input-bg);
@@ -110,6 +112,8 @@
 
   input {
     min-width: 0;
+    height: 100%;
+    line-height: calc(var(--table-filter-control-height) - 2px);
     flex: 1;
     border: 0;
     outline: 0;

@@ -277,6 +277,7 @@ export interface PlanTaskCodexRequest {
   model?: string
   language?: string
   reasoningEffort?: string
+  clarificationMode?: 'ask-first' | 'direct'
   inputLanguage?: string
   outputLanguage?: string
   conversationId?: string
@@ -439,6 +440,10 @@ export interface RunTaskCodexRequest {
   projectId?: string
   zipName?: string
   zipBytes?: ArrayBuffer | Uint8Array | number[]
+  taskMarkdown?: string
+  agentMarkdown?: string
+  skillsMarkdown?: string
+  attachments?: ProjectExportAttachmentInput[]
   gatewayId?: string
   model?: string
   language?: string
@@ -465,6 +470,7 @@ export interface CodexChatSendRequest {
   includeTaskContext?: boolean
   mode?: 'chat' | 'plan' | 'steer'
   attachments?: Array<{ name: string; bytes: ArrayBuffer | Uint8Array | number[] }>
+  followUpContext?: string
 }
 
 export interface CodexChatStopRequest {

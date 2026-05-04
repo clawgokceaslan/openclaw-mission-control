@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 import {
+  buildCodexNotificationOptions,
   maybeShowCodexChatCompletionNotification,
-  showCodexChatCompletionNotification
+  showCodexNotification
 } from './codex-notifications.js'
 
 function createWindow() {
@@ -70,27 +71,30 @@ function createRuntime(options: { supported?: boolean } = {}) {
   }
 }
 
-describe('codex chat completion notifications', () => {
-  it('shows one success notification for exec completion and opens the task chat on click', () => {
+const baseNotification = {
+  taskTitle: 'Task Alpha',
+  projectId: 'project-1',
+  taskId: 'task-1',
+  conversationId: 'conversation-1',
+  mode: 'run' as const
+}
+
+describe('codex notifications', () => {
+  it('shows a completed notification and opens the task chat on click', () => {
     const { instances, runtime, sent } = createRuntime()
 
-    maybeShowCodexChatCompletionNotification({
-      taskTitle: 'Task Alpha',
-      projectId: 'project-1',
-      taskId: 'task-1',
-      conversationId: 'conversation-1',
-      mode: 'plan',
-      executionMode: 'exec',
-      success: true
+    showCodexNotification({
+      ...baseNotification,
+      kind: 'completed',
+      model: 'gpt-5.3-codex'
     }, runtime)
 
     expect(instances).toHaveLength(1)
     expect(instances[0].options).toMatchObject({
-      title: 'Codex plan: Task Alpha',
-      body: 'Codex plan başarıyla tamamlandı. · Task Alpha',
-      silent: false,
-      timeoutType: 'default',
-      urgency: 'normal'
+      title: 'Completed · Run · Task Alpha',
+      subtitle: 'Codex Run completed',
+      body: 'Codex Run completed. Task: Task Alpha. Model: gpt-5.3-codex. Click to open the related chat.',
+      silent: false
     })
     expect(instances[0].shown).toBe(true)
 
@@ -109,62 +113,95 @@ describe('codex chat completion notifications', () => {
     ]])
   })
 
-  it('includes the exit code for exec failure notifications', () => {
+  it('includes the exit code for failed notifications', () => {
     const { instances, runtime } = createRuntime()
 
-    maybeShowCodexChatCompletionNotification({
-      taskTitle: 'Task Beta',
-      projectId: 'project-2',
-      taskId: 'task-2',
-      conversationId: 'conversation-2',
+    showCodexNotification({
+      ...baseNotification,
+      kind: 'failed',
       mode: 'chat',
-      executionMode: 'exec',
-      success: false,
       exitCode: 2
     }, runtime)
 
     expect(instances).toHaveLength(1)
     expect(instances[0].options).toMatchObject({
-      title: 'Codex chat: Task Beta',
-      body: 'Codex chat başarısız oldu (kod: 2). · Task Beta'
+      title: 'Failed · Chat · Task Alpha',
+      subtitle: 'Codex Chat failed',
+      body: 'Codex Chat failed. Exit code: 2. Task: Task Alpha. Click to open the related chat.'
+    })
+  })
+
+  it('shows stopped notifications for observable exec runs', () => {
+    const { instances, runtime } = createRuntime()
+
+    maybeShowCodexChatCompletionNotification({
+      ...baseNotification,
+      mode: 'steer',
+      executionMode: 'exec',
+      success: true,
+      stopped: true
+    }, runtime)
+
+    expect(instances).toHaveLength(1)
+    expect(instances[0].options).toMatchObject({
+      title: 'Stopped · Steer · Task Alpha',
+      subtitle: 'Codex Steer stopped'
+    })
+  })
+
+  it('shows question notifications for planner clarification', () => {
+    const { instances, runtime } = createRuntime()
+
+    showCodexNotification({
+      ...baseNotification,
+      kind: 'question',
+      mode: 'plan',
+      questionCount: 3,
+      summary: 'Scope needs confirmation'
+    }, runtime)
+
+    expect(instances).toHaveLength(1)
+    expect(instances[0].options).toMatchObject({
+      title: 'Question · Plan · Task Alpha',
+      subtitle: 'Codex Plan needs input',
+      body: '3 questions need attention. Task: Task Alpha. Question summary: Scope needs confirmation. Click to open the plan conversation.'
     })
   })
 
   it('shows the native notification even when the main window is visible and focused', () => {
     const { instances, runtime } = createRuntime()
 
-    maybeShowCodexChatCompletionNotification({
-      taskTitle: 'Focused Window Task',
-      projectId: 'project-focused',
-      taskId: 'task-focused',
-      conversationId: 'conversation-focused',
-      mode: 'chat',
-      executionMode: 'exec',
-      success: true
+    showCodexNotification({
+      ...baseNotification,
+      kind: 'completed'
     }, runtime)
 
     expect(instances).toHaveLength(1)
     expect(instances[0].shown).toBe(true)
   })
 
-  it('does not notify for stopped or terminal-mode runs', () => {
+  it('sets stronger native notification options by platform', () => {
+    expect(buildCodexNotificationOptions({ ...baseNotification, kind: 'completed' }, 'darwin')).toMatchObject({
+      silent: false,
+      sound: 'Glass',
+      closeButtonText: 'Open'
+    })
+    expect(buildCodexNotificationOptions({ ...baseNotification, kind: 'failed' }, 'linux')).toMatchObject({
+      silent: false,
+      urgency: 'critical',
+      timeoutType: 'never'
+    })
+    expect(buildCodexNotificationOptions({ ...baseNotification, kind: 'question' }, 'win32')).toMatchObject({
+      silent: false,
+      timeoutType: 'never'
+    })
+  })
+
+  it('does not fake notifications for unobservable terminal-mode completion', () => {
     const { instances, runtime } = createRuntime()
 
     maybeShowCodexChatCompletionNotification({
-      taskTitle: 'Stopped Task',
-      projectId: 'project-3',
-      taskId: 'task-3',
-      conversationId: 'conversation-3',
-      mode: 'chat',
-      executionMode: 'exec',
-      success: true,
-      stopped: true
-    }, runtime)
-    maybeShowCodexChatCompletionNotification({
-      taskTitle: 'Terminal Task',
-      projectId: 'project-4',
-      taskId: 'task-4',
-      conversationId: 'conversation-4',
+      ...baseNotification,
       mode: 'chat',
       executionMode: 'terminal',
       success: true
@@ -176,13 +213,9 @@ describe('codex chat completion notifications', () => {
   it('exits silently when notifications are unsupported', () => {
     const { instances, runtime } = createRuntime({ supported: false })
 
-    expect(() => showCodexChatCompletionNotification({
-      taskTitle: 'Unsupported Task',
-      projectId: 'project-5',
-      taskId: 'task-5',
-      conversationId: 'conversation-5',
-      mode: 'chat',
-      success: true
+    expect(() => showCodexNotification({
+      ...baseNotification,
+      kind: 'completed'
     }, runtime)).not.toThrow()
 
     expect(instances).toHaveLength(0)
