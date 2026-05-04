@@ -154,6 +154,14 @@ export type TaskCodexActionChip = {
   at: number
 }
 
+export type TaskCodexConversationSource = 'codex-plan' | 'codex-run'
+
+export type TaskCodexConversationMatch = {
+  source: TaskCodexConversationSource
+  conversationId: string
+  at: number
+}
+
 function taskActivityMessages(task: TaskEntity): TaskActivityMessage[] {
   const messages = task.payload?.activityMessages
   if (!Array.isArray(messages)) return []
@@ -189,26 +197,33 @@ export function taskCodexPlanBadge(task: TaskEntity): TaskCodexPlanBadge | null 
   return null
 }
 
-export function taskCodexActionChips(task: TaskEntity): TaskCodexActionChip[] {
-  const latest = new Map<'codex-plan' | 'codex-run', TaskCodexActionChip>()
+export function latestTaskCodexConversation(task: TaskEntity, source: TaskCodexConversationSource): TaskCodexConversationMatch | null {
+  let latest: TaskCodexConversationMatch | null = null
   for (const message of taskActivityMessages(task)) {
-    if (message.source !== 'codex-plan' && message.source !== 'codex-run') continue
+    if (message.source !== source) continue
     const conversationId = message.conversationId || message.runId
     if (!conversationId) continue
     const at = message.updatedAt ?? message.createdAt
-    const current = latest.get(message.source)
-    if (current && current.at >= at) continue
-    latest.set(message.source, {
-      source: message.source,
-      label: message.source === 'codex-plan' ? 'Plan' : 'Run',
-      conversationId,
-      status: message.status ?? 'event',
-      at
-    })
+    if (latest && latest.at >= at) continue
+    latest = { source, conversationId, at }
   }
+  return latest
+}
+
+export function taskCodexActionChips(task: TaskEntity): TaskCodexActionChip[] {
   return (['codex-plan', 'codex-run'] as const).flatMap((source) => {
-    const chip = latest.get(source)
-    return chip ? [chip] : []
+    const latest = latestTaskCodexConversation(task, source)
+    if (!latest) return []
+    const message = taskActivityMessages(task)
+      .filter((item) => item.source === source && (item.conversationId || item.runId) === latest.conversationId)
+      .find((item) => (item.updatedAt ?? item.createdAt) === latest.at)
+    return [{
+      source,
+      label: source === 'codex-plan' ? 'Plan' : 'Run',
+      conversationId: latest.conversationId,
+      status: message?.status ?? 'event',
+      at: latest.at
+    }]
   })
 }
 

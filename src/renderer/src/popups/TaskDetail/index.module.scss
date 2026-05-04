@@ -197,23 +197,23 @@
 }
 
 .importButton {
-  border-color: color-mix(in srgb, #ec4899 56%, transparent);
-  background: color-mix(in srgb, #ec4899 88%, #111827);
+  border-color: color-mix(in srgb, #7c3aed 48%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, #7c3aed 72%, #1f2937) 0%, color-mix(in srgb, #7c3aed 82%, #111827) 100%);
 
   &:hover {
-    border-color: #ec4899;
-    background: color-mix(in srgb, #ec4899 78%, #111827);
+    border-color: #7c3aed;
+    background: linear-gradient(180deg, color-mix(in srgb, #7c3aed 78%, #1f2937) 0%, color-mix(in srgb, #7c3aed 88%, #111827) 100%);
     color: var(--omc-inverse-text);
   }
 }
 
 .downloadButton {
-  border-color: color-mix(in srgb, #0ea5e9 58%, transparent);
-  background: color-mix(in srgb, #0ea5e9 88%, #0f172a);
+  border-color: color-mix(in srgb, #0284c7 50%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, #0284c7 74%, #1f2937) 0%, color-mix(in srgb, #0284c7 84%, #0f172a) 100%);
 
   &:hover {
-    border-color: #0ea5e9;
-    background: color-mix(in srgb, #0ea5e9 78%, #0f172a);
+    border-color: #0284c7;
+    background: linear-gradient(180deg, color-mix(in srgb, #0284c7 80%, #1f2937) 0%, color-mix(in srgb, #0284c7 90%, #0f172a) 100%);
     color: var(--omc-inverse-text);
   }
 }

@@ -295,9 +295,8 @@ export function PlannerQuestionHost() {
           </button>
         </div>
 
-        {resolveError ? <div className={styles.error}>{resolveError}</div> : null}
-
         <div className={styles.questions}>
+          {resolveError ? <div className={styles.error}>{resolveError}</div> : null}
           {active.prompt.questions.map((question, questionIndex) => (
             <article key={question.id} className={styles.questionCard}>
               <div className={styles.questionTitle}>

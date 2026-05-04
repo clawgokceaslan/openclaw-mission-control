@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskEntity } from '@shared/types/entities'
 import type { ProjectStatusColumn } from './status'
-import { orderTasksByStatusGroups, reorderTasksForDrop, taskCodexActionChips, taskCodexPlanBadge } from './projectDetailUtils'
+import { latestTaskCodexConversation, orderTasksByStatusGroups, reorderTasksForDrop, taskCodexActionChips, taskCodexPlanBadge } from './projectDetailUtils'
 
 function task(id: string, status: string, order: number): TaskEntity {
   return {
@@ -102,5 +102,48 @@ describe('task Codex card metadata', () => {
       ['Plan', 'plan-new', 'completed'],
       ['Run', 'run-new', 'running']
     ])
+  })
+
+  it('finds the latest Plan conversation by updatedAt before createdAt', () => {
+    const result = latestTaskCodexConversation({
+      ...task('with-plan-chat', 'todo', 0),
+      payload: {
+        activityMessages: [
+          { id: 'p-created-newer', runId: 'run-created-newer', conversationId: 'plan-created-newer', source: 'codex-plan', role: 'system', status: 'completed', body: 'created newer', createdAt: 20 },
+          { id: 'r-latest', runId: 'run-latest', conversationId: 'run-latest', source: 'codex-run', role: 'system', status: 'completed', body: 'run', createdAt: 25, updatedAt: 25 },
+          { id: 'p-updated-newer', runId: 'plan-run-latest', conversationId: 'plan-updated-newer', source: 'codex-plan', role: 'assistant', status: 'completed', body: 'updated newer', createdAt: 10, updatedAt: 30 }
+        ]
+      }
+    }, 'codex-plan')
+
+    expect(result).toEqual({ source: 'codex-plan', conversationId: 'plan-updated-newer', at: 30 })
+  })
+
+  it('finds the latest Run conversation and falls back to runId', () => {
+    const result = latestTaskCodexConversation({
+      ...task('with-run-chat', 'todo', 0),
+      payload: {
+        activityMessages: [
+          { id: 'r-old', runId: 'run-old', conversationId: 'run-old-conversation', source: 'codex-run', role: 'system', status: 'completed', body: 'old', createdAt: 1, updatedAt: 1 },
+          { id: 'p-newer', runId: 'plan-newer', conversationId: 'plan-newer', source: 'codex-plan', role: 'system', status: 'completed', body: 'plan', createdAt: 20, updatedAt: 20 },
+          { id: 'r-fallback', runId: 'run-fallback', source: 'codex-run', role: 'system', status: 'running', body: 'fallback', createdAt: 2, updatedAt: 30 }
+        ]
+      }
+    }, 'codex-run')
+
+    expect(result).toEqual({ source: 'codex-run', conversationId: 'run-fallback', at: 30 })
+  })
+
+  it('returns null when no same-type conversation exists', () => {
+    const result = latestTaskCodexConversation({
+      ...task('without-plan-chat', 'todo', 0),
+      payload: {
+        activityMessages: [
+          { id: 'r-only', runId: 'run-only', conversationId: 'run-only', source: 'codex-run', role: 'system', status: 'completed', body: 'run', createdAt: 1, updatedAt: 1 }
+        ]
+      }
+    }, 'codex-plan')
+
+    expect(result).toBeNull()
   })
 })

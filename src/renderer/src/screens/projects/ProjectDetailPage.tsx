@@ -44,6 +44,7 @@ import {
   createLocalId,
   customFieldValueToDraft,
   getTableViewConfig,
+  latestTaskCodexConversation,
   orderedTasksForStatus,
   projectDefaultAgentId,
   projectDefaultSkillIds,
@@ -1199,6 +1200,32 @@ export function ProjectDetailPage() {
       if (chatFileInputRef.current) chatFileInputRef.current.click()
     }
   })
+
+  const openExistingSelectedTaskCodexConversation = (source: 'codex-plan' | 'codex-run') => {
+    if (!selectedTask) return false
+    const latestConversation = latestTaskCodexConversation(selectedTask, source)
+    if (!latestConversation) return false
+    openTaskChatConversation(selectedTask.id, latestConversation.conversationId)
+    return true
+  }
+
+  const hasExistingSelectedTaskPlanConversation = useMemo(() => {
+    return selectedTask ? Boolean(latestTaskCodexConversation(selectedTask, 'codex-plan')) : false
+  }, [selectedTask])
+
+  const hasExistingSelectedTaskRunConversation = useMemo(() => {
+    return selectedTask ? Boolean(latestTaskCodexConversation(selectedTask, 'codex-run')) : false
+  }, [selectedTask])
+
+  const handleRunSelectedTaskWithCodex = () => {
+    if (openExistingSelectedTaskCodexConversation('codex-run')) return
+    void runSelectedTaskWithCodex()
+  }
+
+  const handlePlanSelectedTaskWithCodex = () => {
+    if (openExistingSelectedTaskCodexConversation('codex-plan')) return
+    void planSelectedTaskWithCodex()
+  }
 
   const { chatState, chatHandlers } = useProjectActivityPopup({
     selectedTask,
@@ -3000,12 +3027,12 @@ export function ProjectDetailPage() {
             }}
             onDownloadAgentMarkdown={selectedTaskAgentMarkdown.trim() ? () => downloadMarkdownFile('Agents.md', selectedTaskAgentMarkdown) : undefined}
             onDownloadSkillsMarkdown={selectedTaskSkillsMarkdown.trim() ? () => downloadMarkdownFile('Skills.md', selectedTaskSkillsMarkdown) : undefined}
-            onRunCodex={() => void runSelectedTaskWithCodex()}
+            onRunCodex={handleRunSelectedTaskWithCodex}
             isRunCodexBusy={codexRunLaunching}
-            isRunCodexDisabled={!canRunSelectedTaskWithCodex}
-            onPlanWithCodex={() => void planSelectedTaskWithCodex()}
+            isRunCodexDisabled={!hasExistingSelectedTaskRunConversation && !canRunSelectedTaskWithCodex}
+            onPlanWithCodex={handlePlanSelectedTaskWithCodex}
             isPlanWithCodexBusy={codexPlanLaunching}
-            isPlanWithCodexDisabled={!canPlanSelectedTaskWithCodex}
+            isPlanWithCodexDisabled={!hasExistingSelectedTaskPlanConversation && !canPlanSelectedTaskWithCodex}
             onImportJson={() => setIsTaskImportOpen(true)}
             scope={{
               project,
