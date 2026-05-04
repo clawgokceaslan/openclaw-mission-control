@@ -2,6 +2,17 @@ import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from 'rea
 import { useLocation, useNavigate } from 'react-router-dom'
 import { LuDownload, LuPencil, LuPlus, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
 import styles from './AgentsPage.module.scss'
+import {
+  AGENT_PROMPT_FILTER_KEY,
+  AGENT_PROMPT_FILTER_OPTIONS,
+  AGENT_TAG_FILTER_KEY,
+  AGENT_SEARCH_QUERY_KEY,
+  applyAgentFilters,
+  normalizeAgentPromptFilter,
+  normalizeAgentTagFilter,
+  type AgentFilterState,
+  type AgentPromptFilter
+} from './agentFilters'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
 import { Agent, Tag } from '@shared/types/entities'
@@ -14,6 +25,14 @@ import { TagPill } from '@renderer/components/tags/TagPill'
 
 function formatDate(timestamp: number) {
   return new Date(timestamp).toLocaleDateString()
+}
+
+function toTagOptions(tags: Tag[]) {
+  return tags.map((tag) => ({ label: tag.name, value: tag.id, color: tag.color }))
+}
+
+function findQueryValue(raw: string | null): string {
+  return (raw ?? '').trim()
 }
 
 export function AgentsPage() {
@@ -41,8 +60,46 @@ export function AgentsPage() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [importJson, setImportJson] = useState('')
   const [importError, setImportError] = useState<string | null>(null)
+  const [searchText, setSearchText] = useState('')
+  const [tagFilter, setTagFilter] = useState('')
+  const [promptFilter, setPromptFilter] = useState<AgentPromptFilter>('all')
   const tableRef = useRef<HTMLElement | null>(null)
   const dragScrollRef = useRef({ active: false, startX: 0, scrollLeft: 0 })
+
+  const tagOptions: AppSelectOption[] = useMemo(() => toTagOptions(tags), [tags])
+  const selectedTagOption = useMemo(() => tagOptions.find((option) => option.value === tagFilter) ?? null, [tagFilter, tagOptions])
+  const selectedPromptOption = useMemo(() => AGENT_PROMPT_FILTER_OPTIONS.find((option) => option.value === promptFilter) ?? AGENT_PROMPT_FILTER_OPTIONS[0], [promptFilter])
+
+  const syncFilterState = (next: AgentFilterState) => {
+    const params = new URLSearchParams(location.search)
+    const nextSearch = findQueryValue(next.search)
+    const nextTag = findQueryValue(next.tagId)
+
+    if (nextSearch) {
+      params.set(AGENT_SEARCH_QUERY_KEY, nextSearch)
+    } else {
+      params.delete(AGENT_SEARCH_QUERY_KEY)
+    }
+
+    if (nextTag) {
+      params.set(AGENT_TAG_FILTER_KEY, nextTag)
+    } else {
+      params.delete(AGENT_TAG_FILTER_KEY)
+    }
+
+    if (next.promptState && next.promptState !== 'all') {
+      params.set(AGENT_PROMPT_FILTER_KEY, next.promptState)
+    } else {
+      params.delete(AGENT_PROMPT_FILTER_KEY)
+    }
+
+    const query = params.toString()
+    navigate(`${location.pathname}${query ? `?${query}` : ''}`, { replace: true })
+
+    setSearchText(nextSearch)
+    setTagFilter(nextTag)
+    setPromptFilter(next.promptState)
+  }
 
   const refresh = async () => {
     setLoading(true)
@@ -74,28 +131,35 @@ export function AgentsPage() {
     void refreshTags()
   }, [token])
 
-  const sortedItems = useMemo(() => [...items].sort((a, b) => b.updatedAt - a.updatedAt), [items])
-  const tagOptions = useMemo<AppSelectOption[]>(() => tags.map((tag) => ({ label: tag.name, value: tag.id, color: tag.color })), [tags])
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search)
+    const rawSearch = searchParams.get(AGENT_SEARCH_QUERY_KEY)
+    const rawTag = searchParams.get(AGENT_TAG_FILTER_KEY)
+    const rawPrompt = searchParams.get(AGENT_PROMPT_FILTER_KEY)
+    const knownTagIds = tagOptions.map((tag) => tag.value)
+    const normalizedTag = normalizeAgentTagFilter(rawTag, knownTagIds)
 
-  const resetForm = () => {
-    setName('')
-    setTitle('')
-    setDescription('')
-    setTrainingMarkdown('')
-    setConfig({})
-    setSelectedTags([])
-    setFormError(null)
-    setIsImportModalOpen(false)
-    setImportJson('')
-    setImportError(null)
-  }
+    const nextSearchText = findQueryValue(rawSearch)
+    const nextPromptFilter = normalizeAgentPromptFilter(rawPrompt)
 
-  const openCreate = () => {
-    setMode('create')
-    setEditingAgent(null)
-    resetForm()
-    setIsModalOpen(true)
-  }
+    if (tagFilter !== normalizedTag) {
+      setTagFilter(normalizedTag)
+    }
+    if (searchText !== nextSearchText) {
+      setSearchText(nextSearchText)
+    }
+    if (promptFilter !== nextPromptFilter) {
+      setPromptFilter(nextPromptFilter)
+    }
+
+    if (rawTag && rawTag !== normalizedTag) {
+      syncFilterState({
+        search: nextSearchText,
+        tagId: normalizedTag,
+        promptState: nextPromptFilter
+      })
+    }
+  }, [location.pathname, location.search, location.state, navigate, tagFilter, searchText, promptFilter, tagOptions])
 
   useEffect(() => {
     const state = location.state as { openCreate?: boolean; name?: string } | null
@@ -126,6 +190,54 @@ export function AgentsPage() {
     setIsModalOpen(true)
   }
 
+  const openCreate = () => {
+    setMode('create')
+    setEditingAgent(null)
+    resetForm()
+    setIsModalOpen(true)
+  }
+
+  const filteredItems = useMemo(() => {
+    return applyAgentFilters(items, {
+      search: searchText,
+      tagId: tagFilter,
+      promptState: promptFilter
+    })
+  }, [items, promptFilter, searchText, tagFilter])
+
+  const hasActiveFilters = Boolean(searchText) || Boolean(tagFilter) || promptFilter !== 'all'
+  const itemSummary = hasActiveFilters
+    ? `${filteredItems.length} of ${items.length} agents configured.`
+    : `${items.length} agents configured.`
+
+  const clearFilters = () => {
+    syncFilterState({ search: '', tagId: '', promptState: 'all' })
+  }
+
+  const updateSearch = (nextSearch: string) => {
+    syncFilterState({
+      search: nextSearch,
+      tagId: tagFilter,
+      promptState: promptFilter
+    })
+  }
+
+  const updateTagFilter = (nextTagId: string) => {
+    syncFilterState({
+      search: searchText,
+      tagId: nextTagId,
+      promptState: promptFilter
+    })
+  }
+
+  const updatePromptFilter = (nextPromptState: AgentPromptFilter) => {
+    syncFilterState({
+      search: searchText,
+      tagId: tagFilter,
+      promptState: nextPromptState
+    })
+  }
+
   useEffect(() => {
     const state = location.state as { openEditId?: string; agent?: Agent } | null
     const searchParams = new URLSearchParams(location.search)
@@ -136,6 +248,19 @@ export function AgentsPage() {
     openEdit(target)
     navigate(location.pathname, { replace: true, state: null })
   }, [items, location.pathname, location.search, location.state, navigate])
+
+  const resetForm = () => {
+    setName('')
+    setTitle('')
+    setDescription('')
+    setTrainingMarkdown('')
+    setConfig({})
+    setSelectedTags([])
+    setFormError(null)
+    setIsImportModalOpen(false)
+    setImportJson('')
+    setImportError(null)
+  }
 
   const closeModal = () => {
     setIsModalOpen(false)
@@ -300,7 +425,7 @@ export function AgentsPage() {
       <header className={styles.header}>
         <div>
           <h1>Agents</h1>
-          <p>{items.length} agents configured.</p>
+          <p>{itemSummary}</p>
         </div>
         <div className={styles.headerActions}>
           <button type="button" className={styles.primaryButton} onClick={openCreate} disabled={loading}>
@@ -312,6 +437,33 @@ export function AgentsPage() {
 
       {error ? <p className={styles.error}>{error}</p> : null}
       {notice ? <p className={styles.notice}>{notice}</p> : null}
+
+      <section className={styles.filterBar}>
+        <input
+          value={searchText}
+          onChange={(event) => updateSearch(event.target.value)}
+          placeholder="Search agents by name, title, description, prompt, or tags..."
+        />
+        <AppSelect
+          mode="single"
+          value={selectedTagOption}
+          options={tagOptions}
+          placeholder="All tags"
+          isClearable
+          onChange={(option) => updateTagFilter(option?.value ?? '')}
+        />
+        <AppSelect
+          mode="single"
+          value={selectedPromptOption}
+          options={AGENT_PROMPT_FILTER_OPTIONS}
+          onChange={(option) => updatePromptFilter((option?.value as AgentPromptFilter | undefined) ?? 'all')}
+        />
+        {hasActiveFilters ? (
+          <button type="button" className={styles.secondaryButton} onClick={clearFilters}>
+            Clear filters
+          </button>
+        ) : null}
+      </section>
 
       <section
         ref={tableRef}
@@ -329,7 +481,7 @@ export function AgentsPage() {
           <span>Updated</span>
           <span>Actions</span>
         </div>
-        {sortedItems.length > 0 ? sortedItems.map((agent) => (
+        {filteredItems.length > 0 ? filteredItems.map((agent) => (
           <div key={agent.id} className={styles.tableRow}>
             <span className={styles.agentCell}>
               <strong>{agent.name}</strong>
@@ -358,7 +510,13 @@ export function AgentsPage() {
             </span>
           </div>
         )) : (
-          <div className={styles.emptyRow}>{loading ? 'Loading agents...' : 'No agents configured.'}</div>
+          <div className={styles.emptyRow}>
+            {loading
+              ? 'Loading agents...'
+              : hasActiveFilters
+                ? 'No agents match the current search or filters.'
+                : 'No agents configured.'}
+          </div>
         )}
       </section>
 
