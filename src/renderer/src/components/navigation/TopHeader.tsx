@@ -9,6 +9,7 @@ import { UserAvatar } from '@renderer/components/avatar/UserAvatar'
 import { usePlannerQuestions } from '@renderer/components/planner/PlannerQuestionHost'
 import styles from '@renderer/App.module.scss'
 import { GlobalCreateTaskModal } from './GlobalCreateTaskModal'
+import { PlannedTasksMenu } from './PlannedTasksMenu'
 import { UniversalCommand, type GlobalTaskCreateInitial } from './UniversalCommand'
 
 export function TopHeader({ user }: { user: User | null }) {
@@ -67,6 +68,7 @@ export function TopHeader({ user }: { user: User | null }) {
         </button>
 
         <div className={styles.userCluster}>
+          <PlannedTasksMenu />
           <div className={styles.plannerQuestionTopArea}>
             <button
               type="button"

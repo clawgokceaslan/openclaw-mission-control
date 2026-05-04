@@ -4,6 +4,16 @@ import { SqliteAdapter } from '../adapter/sqlite.js'
 import type { Skill, Tag, TaskComment, TaskEntity, TaskSubtask } from '../../shared/types/entities.js'
 import { resolveTagColor } from './tag-color.js'
 
+export type PlannedCodexTaskRepositoryRow = {
+  task: TaskEntity
+  project: {
+    id: string
+    name: string
+    description?: string
+    metrics?: Record<string, unknown>
+  }
+}
+
 type TaskPayload = Record<string, unknown> & {
   description?: string
   comments?: TaskComment[]
@@ -49,6 +59,44 @@ export class TaskRepository extends BaseRepository<TaskEntity> {
       )
       .all({ orgId })
     return rows.map((row: any) => this.map(row))
+  }
+
+  async listPlannedCodex(orgId: string, page: number, pageSize: number): Promise<{ rows: PlannedCodexTaskRepositoryRow[]; total: number }> {
+    const limit = Math.max(1, Math.min(100, Math.floor(pageSize)))
+    const offset = Math.max(0, Math.floor((page - 1) * limit))
+    const params = { orgId, limit, offset }
+    const where = "p.organization_id = @orgId AND json_extract(t.payload_json, '$.codexPlanState.state') = 'planned'"
+    const totalRow = await this.db
+      .prepare(`SELECT COUNT(*) AS total FROM tasks t JOIN projects p ON t.project_id = p.id WHERE ${where}`)
+      .get<{ total: number }>({ orgId })
+    const rows = await this.db
+      .prepare(
+        `SELECT
+           t.*,
+           p.id AS project_id_for_context,
+           p.name AS project_name,
+           p.description AS project_description,
+           p.metrics_json AS project_metrics_json
+         FROM tasks t
+         JOIN projects p ON t.project_id = p.id
+         WHERE ${where}
+         ORDER BY t.updated_at DESC
+         LIMIT @limit OFFSET @offset`
+      )
+      .all(params) as any[]
+
+    return {
+      total: Number(totalRow?.total ?? 0),
+      rows: rows.map((row) => ({
+        task: this.map(row),
+        project: {
+          id: row.project_id_for_context,
+          name: row.project_name,
+          description: row.project_description ?? undefined,
+          metrics: this.parseJson<Record<string, unknown>>(row.project_metrics_json) ?? {}
+        }
+      }))
+    }
   }
 
   async get(id: string): Promise<TaskEntity | undefined> {

@@ -1393,6 +1393,13 @@ export function ProjectDetailPage() {
       navigate(location.pathname, { replace: true, state: null })
       return
     }
+    if (state?.openProjectSettings) {
+      if (state.openTaskId) openTask(state.openTaskId)
+      setProjectSettingsTab(state.projectSettingsTab ?? 'models')
+      setIsStatusEditorOpen(true)
+      navigate(location.pathname, { replace: true, state: null })
+      return
+    }
     if (!project || !state?.openCreateTask) return
     setCreateTaskInitialTitle(state.title ?? '')
     setCreateTaskInitialTemplateId(state.templateId ?? null)

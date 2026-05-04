@@ -17,7 +17,10 @@ import type {
   CodexChatSendRequest,
   ExportTaskSnapshotRequest,
   ImportTaskJsonRequest,
+  ListPlannedCodexTasksRequest,
+  PaginatedResponse,
   PlanTaskCodexRequest,
+  PlannedCodexTaskRow,
   ProjectExportAttachmentInput,
   RemoveTaskCommentRequest,
   RunTaskCodexRequest,
@@ -154,6 +157,10 @@ function asPayload(value: unknown): TaskPayload {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as TaskPayload) : {}
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
 function asComments(value: unknown): TaskComment[] {
   if (!Array.isArray(value)) return []
   const comments: TaskComment[] = []
@@ -194,6 +201,24 @@ function asChecklistItems(value: unknown): TaskChecklistItem[] {
 function payloadStringList(payload: Record<string, unknown>, key: string): string[] {
   const value = payload[key]
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : []
+}
+
+function stringOrEmpty(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function projectCodexMetrics(projectMetrics: Record<string, unknown> | undefined): Record<string, unknown> {
+  return asRecord(projectMetrics?.codex)
+}
+
+function taskCodexMetrics(task: TaskEntity): Record<string, unknown> {
+  return asRecord(asPayload(task.payload).codex)
+}
+
+function taskCodexPlanConversationId(task: TaskEntity): string | undefined {
+  const planState = asRecord(asPayload(task.payload).codexPlanState)
+  const conversationId = planState.conversationId
+  return typeof conversationId === 'string' && conversationId.trim() ? conversationId : undefined
 }
 
 function customFieldEntries(values: Record<string, unknown> | undefined, customFields: Array<{ id: string; name: string; type?: string }>): Array<{ name: string; value: unknown }> {
@@ -2450,6 +2475,51 @@ export class TaskService {
       rows = await this.repo.listAll(actor.user.organizationId)
     }
     return okResponse(await this.enrichTasks(rows))
+  }
+
+  async listPlannedCodex(payload: ListPlannedCodexTasksRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<PaginatedResponse<PlannedCodexTaskRow>>> {
+    const actor = await this.auth.requireActor(payload?.actorToken)
+    const page = Math.max(1, Math.floor(Number(payload?.page ?? 1)))
+    const pageSize = Math.max(1, Math.min(50, Math.floor(Number(payload?.pageSize ?? 12))))
+    const { rows, total } = await this.repo.listPlannedCodex(actor.user.organizationId, page, pageSize)
+    const plannedRows: PlannedCodexTaskRow[] = rows.map(({ task, project }) => {
+      const taskCodex = taskCodexMetrics(task)
+      const projectCodex = projectCodexMetrics(project.metrics)
+      const gatewayId = stringOrEmpty(taskCodex.gatewayId) || stringOrEmpty(projectCodex.gatewayId)
+      const runModel = stringOrEmpty(taskCodex.runModel)
+        || stringOrEmpty(taskCodex.model)
+        || stringOrEmpty(projectCodex.runModel)
+        || stringOrEmpty(projectCodex.defaultModel)
+      const language = stringOrEmpty(projectCodex.language)
+        || stringOrEmpty(projectCodex.outputLanguage)
+        || stringOrEmpty(projectCodex.inputLanguage)
+      const runReasoningEffort = stringOrEmpty(projectCodex.runReasoningEffort)
+      const missing: PlannedCodexTaskRow['missing'] = []
+      if (!gatewayId) missing.push('gateway')
+      if (!runModel) missing.push('runModel')
+      return {
+        taskId: task.id,
+        projectId: project.id,
+        taskTitle: task.title,
+        taskStatus: task.status,
+        projectName: project.name,
+        projectDescription: project.description,
+        codexPlanConversationId: taskCodexPlanConversationId(task),
+        gatewayId: gatewayId || undefined,
+        runModel: runModel || undefined,
+        language: language || undefined,
+        runReasoningEffort: runReasoningEffort || undefined,
+        missing,
+        runnable: missing.length === 0,
+        updatedAt: task.updatedAt
+      }
+    })
+    return okResponse({
+      rows: plannedRows,
+      total,
+      page,
+      pageSize
+    })
   }
 
   async get(payload: { actorToken?: string; id?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<TaskEntity>> {

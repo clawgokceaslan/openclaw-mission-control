@@ -1,0 +1,240 @@
+.plannedTasksTopArea {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  -webkit-app-region: no-drag;
+
+  .plannedTasksButton {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--omc-border);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--omc-surface-muted) 82%, var(--omc-success) 18%);
+    color: var(--omc-success-strong);
+    transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+
+    &:hover {
+      border-color: var(--omc-success-border);
+      background: var(--omc-success-bg);
+      color: var(--omc-success-strong);
+    }
+
+    > span {
+      position: absolute;
+      top: -5px;
+      right: -5px;
+      min-width: 17px;
+      height: 17px;
+      padding: 0 5px;
+      border: 2px solid var(--omc-surface);
+      border-radius: 999px;
+      background: var(--omc-success);
+      color: var(--omc-inverse-text);
+      display: grid;
+      place-items: center;
+      font-size: 9px;
+      font-weight: 900;
+      line-height: 1;
+    }
+  }
+
+  .plannedTasksButtonIdle {
+    color: var(--omc-text-muted);
+    background: transparent;
+    opacity: 0.82;
+
+    &:hover {
+      border-color: var(--omc-border);
+      background: var(--omc-surface-muted);
+      color: var(--omc-text);
+    }
+  }
+
+  .plannedTasksPanel {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    z-index: 1200;
+    width: min(430px, calc(100vw - 24px));
+    max-height: min(520px, calc(100vh - 92px));
+    overflow: hidden;
+    border: 1px solid var(--omc-border);
+    border-radius: 16px;
+    background: var(--omc-surface);
+    color: var(--omc-text);
+    box-shadow: var(--omc-shadow-large);
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 14px 12px;
+      border-bottom: 1px solid var(--omc-border-subtle);
+
+      div {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+
+      strong {
+        color: var(--omc-text-strong);
+        font-size: 0.9rem;
+        font-weight: 850;
+      }
+
+      span {
+        color: var(--omc-text-muted);
+        font-size: 0.75rem;
+        font-weight: 800;
+      }
+
+      button {
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--omc-border);
+        border-radius: 10px;
+        background: var(--omc-surface);
+        color: var(--omc-text);
+      }
+    }
+
+    footer {
+      min-height: 44px;
+      border-top: 1px solid var(--omc-border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 10px;
+
+      span {
+        color: var(--omc-text-muted);
+        font-size: 0.74rem;
+        font-weight: 850;
+      }
+
+      button {
+        width: 32px;
+        height: 30px;
+        border: 1px solid var(--omc-border);
+        border-radius: 9px;
+        background: var(--omc-surface);
+        color: var(--omc-text);
+
+        &:disabled {
+          color: var(--omc-text-soft);
+          opacity: 0.55;
+        }
+      }
+    }
+  }
+
+  .plannedTasksList {
+    display: grid;
+    gap: 8px;
+    max-height: 392px;
+    overflow: auto;
+    padding: 10px;
+  }
+
+  .plannedTasksRow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    padding: 11px;
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 12px;
+    background: var(--omc-surface-muted);
+
+    .plannedTasksRowCopy {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+
+      strong,
+      span,
+      small {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      strong {
+        color: var(--omc-text-strong);
+        font-size: 0.82rem;
+        font-weight: 850;
+      }
+
+      span {
+        color: var(--omc-text-muted);
+        font-size: 0.72rem;
+        font-weight: 750;
+      }
+
+      small {
+        font-size: 0.7rem;
+        font-weight: 850;
+      }
+    }
+
+    button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 32px;
+      border: 1px solid var(--omc-border);
+      border-radius: 10px;
+      background: var(--omc-surface);
+      color: var(--omc-text);
+
+      &:disabled {
+        opacity: 0.55;
+      }
+    }
+  }
+
+  .plannedTasksReady {
+    color: var(--omc-success-text);
+  }
+
+  .plannedTasksMissing {
+    color: var(--omc-warning-text);
+  }
+
+  .plannedTasksState,
+  .plannedTasksEmpty {
+    display: grid;
+    justify-items: center;
+    gap: 7px;
+    padding: 24px 18px 22px;
+    color: var(--omc-text-muted);
+    text-align: center;
+    font-size: 0.78rem;
+    font-weight: 750;
+
+    strong {
+      color: var(--omc-text-strong);
+      font-size: 0.86rem;
+      font-weight: 850;
+    }
+
+    span {
+      max-width: 280px;
+      font-size: 0.74rem;
+      line-height: 1.45;
+    }
+  }
+
+  .plannedTasksError {
+    color: var(--omc-danger-text);
+  }
+}
