@@ -194,10 +194,6 @@ function agentPrompt(agent: Agent): string {
   return agent.trainingMarkdown?.trim() ?? ''
 }
 
-function stepPrompt(step: { prompt?: unknown }): string {
-  return typeof step.prompt === 'string' ? step.prompt.trim() : ''
-}
-
 function agentExtraConfig(agent: Agent): Record<string, unknown> {
   const config = agent.config && typeof agent.config === 'object' ? { ...agent.config } : {}
   delete config.title
@@ -380,7 +376,7 @@ function buildAiExecutionFlow(context: ExportContext): string {
   nodes.push(['Read Task Details', 'title + description/prompt'])
   if (taskHasMetadata(task)) nodes.push(['Read Task Metadata', 'tags + fields + comments'])
   if (hasAttachments) nodes.push(['Use Attachment Folder', 'attachments/ + manifest'])
-  if (hasAgentReferences) nodes.push(['Load Agents.md', 'agent prompts + steps'])
+  if (hasAgentReferences) nodes.push(['Load Agents.md', 'agent prompts'])
   if (hasSkillReferences) nodes.push(['Load Skills.md', 'skill instructions'])
   if (subtasks.length) {
     const subtaskLabels = Array.from(new Set(actionableSubtasks.flatMap(subtaskFlowLabels)))
@@ -560,7 +556,7 @@ export function buildAgentMarkdown(context: ExportContext): string {
     refs.set(agent.id, current)
   }
   add(context.task.agentId, `Task: ${context.task.title}`)
-  for (const [index, subtask] of (context.task.subtasks ?? []).entries()) add(getSubtaskAgentId(subtask), subtaskLabel(subtask, index))
+    for (const [index, subtask] of (context.task.subtasks ?? []).entries()) add(getSubtaskAgentId(subtask), subtaskLabel(subtask, index))
   if (!refs.size) return ''
   const sections = ['# Agents']
   for (const { agent, sources } of Array.from(refs.values()).sort((a, b) => a.agent.name.localeCompare(b.agent.name, 'tr'))) {
@@ -583,26 +579,6 @@ export function buildAgentMarkdown(context: ExportContext): string {
       `### References\n${sources.map((source) => `- ${source}`).join('\n')}`
     ]
     if (prompt) agentSections.push(`### Agent Prompt\n${prompt}`)
-    const steps = (agent.steps ?? [])
-      .filter((step) => step.title?.trim() || step.description?.trim() || stepPrompt(step))
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-    if (steps.length) {
-      agentSections.push([
-        '### Execution Steps',
-        ...steps.map((step, index) => {
-          const prompt = stepPrompt(step)
-          return [
-            `#### Step ${index + 1}: ${step.title || 'Untitled step'}`,
-            '| Field | Value |',
-            '| --- | --- |',
-            `| Title | ${markdownCell(step.title || 'Untitled step')} |`,
-            `| Description | ${markdownCell(step.description?.trim() || '-')} |`,
-            `| Sort order | ${markdownCell(step.sortOrder)} |`,
-            prompt ? `\n##### Step Prompt\n${prompt}` : ''
-          ].filter(Boolean).join('\n')
-        })
-      ].join('\n\n'))
-    }
     const extraConfig = agentExtraConfig(agent)
     if (Object.keys(extraConfig).length > 0) {
       agentSections.push(`### Extra Config\n\`\`\`json\n${JSON.stringify(extraConfig, null, 2)}\n\`\`\``)

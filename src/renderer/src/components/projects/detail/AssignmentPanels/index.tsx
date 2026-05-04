@@ -90,7 +90,6 @@ export function AgentAssignmentPanel({ agent, agents, ctaDescription, inheritedL
               <th>Name</th>
               <th>Title</th>
               <th>Tags</th>
-              <th>Steps</th>
               <th>Last heartbeat</th>
             </tr>
           </thead>
@@ -104,12 +103,11 @@ export function AgentAssignmentPanel({ agent, agents, ctaDescription, inheritedL
                 </td>
                 <td>{agent.title || 'Not set'}</td>
                 <td>{(agent.tags ?? []).map((tag) => tag.name).join(', ') || 'No tags'}</td>
-                <td>{agent.steps?.length ?? 0}</td>
                 <td>{formatTimestamp(agent.heartbeatAt)}</td>
               </tr>
             ) : (
               <tr>
-                <td colSpan={5} className={styles.assignmentEmptyCell}>Unassigned</td>
+                <td colSpan={4} className={styles.assignmentEmptyCell}>Unassigned</td>
               </tr>
             )}
           </tbody>

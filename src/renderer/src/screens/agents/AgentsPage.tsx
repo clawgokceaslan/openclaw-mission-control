@@ -4,23 +4,13 @@ import { LuDownload, LuPencil, LuPlus, LuTrash2, LuUpload, LuX } from 'react-ico
 import styles from './AgentsPage.module.scss'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
-import { Agent, AgentStep, Tag } from '@shared/types/entities'
+import { Agent, Tag } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { buildSingleAgentMarkdown } from '@renderer/utils/entityMarkdown'
 import { downloadMarkdownFile } from '../projects/detail/taskExport'
 import { AGENT_IMPORT_EXAMPLE, parseAgentImportJson } from './agentImport'
 import { TagPill } from '@renderer/components/tags/TagPill'
-
-function createStep(sortOrder: number): AgentStep {
-  return {
-    id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${sortOrder}`,
-    title: '',
-    description: '',
-    prompt: '',
-    sortOrder
-  }
-}
 
 function formatDate(timestamp: number) {
   return new Date(timestamp).toLocaleDateString()
@@ -47,7 +37,6 @@ export function AgentsPage() {
   const [trainingMarkdown, setTrainingMarkdown] = useState('')
   const [config, setConfig] = useState<Record<string, unknown>>({})
   const [selectedTags, setSelectedTags] = useState<AppSelectOption[]>([])
-  const [steps, setSteps] = useState<AgentStep[]>([])
   const [formError, setFormError] = useState<string | null>(null)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [importJson, setImportJson] = useState('')
@@ -95,7 +84,6 @@ export function AgentsPage() {
     setTrainingMarkdown('')
     setConfig({})
     setSelectedTags([])
-    setSteps([])
     setFormError(null)
     setIsImportModalOpen(false)
     setImportJson('')
@@ -131,7 +119,6 @@ export function AgentsPage() {
     setTrainingMarkdown(agent.trainingMarkdown ?? '')
     setConfig(agent.config ?? {})
     setSelectedTags((agent.tags ?? []).map((tag) => ({ label: tag.name, value: tag.id, color: tag.color })))
-    setSteps([...(agent.steps ?? [])].sort((a, b) => a.sortOrder - b.sortOrder))
     setFormError(null)
     setIsImportModalOpen(false)
     setImportJson('')
@@ -229,7 +216,6 @@ export function AgentsPage() {
     if (result.patch.description !== undefined) setDescription(result.patch.description)
     if (result.patch.prompt !== undefined) setTrainingMarkdown(result.patch.prompt)
     if (result.patch.config !== undefined) setConfig(result.patch.config)
-    if (result.patch.steps !== undefined) setSteps(result.patch.steps)
     const importedTags = await resolveImportedTags(result.patch.tags)
     if (importedTags) setSelectedTags(importedTags)
     setFormError(null)
@@ -241,24 +227,12 @@ export function AgentsPage() {
     downloadMarkdownFile('AGENT.md', buildSingleAgentMarkdown(agent))
   }
 
-  const updateStep = (id: string, patch: Partial<AgentStep>) => {
-    setSteps((prev) => prev.map((step) => step.id === id ? { ...step, ...patch } : step))
-  }
-
-  const removeStep = (id: string) => {
-    setSteps((prev) => prev.filter((step) => step.id !== id).map((step, index) => ({ ...step, sortOrder: index })))
-  }
-
   const saveAgent = async (event: FormEvent) => {
     event.preventDefault()
     if (!name.trim()) {
       setFormError('Agent name is required.')
       return
     }
-    const normalizedSteps = steps
-      .map((step, index) => ({ ...step, title: step.title.trim(), description: step.description.trim(), prompt: step.prompt?.trim() ?? '', sortOrder: index }))
-      .filter((step) => step.title || step.description || step.prompt)
-
     setLoading(true)
     const response = await invokeBridge<Agent>(mode === 'edit' ? IPC_CHANNELS.agents.update : IPC_CHANNELS.agents.create, {
       actorToken: token,
@@ -268,8 +242,7 @@ export function AgentsPage() {
       description: description.trim(),
       trainingMarkdown,
       config,
-      tagIds: selectedTags.map((tag) => tag.value),
-      steps: normalizedSteps
+      tagIds: selectedTags.map((tag) => tag.value)
     })
     setLoading(false)
     if (!response.ok) {
@@ -352,7 +325,6 @@ export function AgentsPage() {
           <span>Agent</span>
           <span>Title / description</span>
           <span>Tags</span>
-          <span>Steps</span>
           <span>Prompt</span>
           <span>Updated</span>
           <span>Actions</span>
@@ -371,7 +343,6 @@ export function AgentsPage() {
               {(agent.tags ?? []).length > 0 ? (agent.tags ?? []).slice(0, 3).map((tag) => <TagPill key={tag.id} tag={tag} compact />) : <em>No tags</em>}
               {(agent.tags ?? []).length > 3 ? <small>+{(agent.tags ?? []).length - 3}</small> : null}
             </span>
-            <span className={styles.mutedCell}>{(agent.steps ?? []).length}</span>
             <span className={styles.mutedCell}>{agent.trainingMarkdown?.trim() ? 'Ready' : 'Not set'}</span>
             <span className={styles.mutedCell}>{formatDate(agent.updatedAt)}</span>
             <span className={styles.actionsCell}>
@@ -446,38 +417,6 @@ export function AgentsPage() {
                   <span>Agent prompt</span>
                   <textarea value={trainingMarkdown} onChange={(event) => setTrainingMarkdown(event.target.value)} rows={7} placeholder="Describe the agent's operating rules, responsibilities, and expected behavior." />
                 </label>
-                <section className={styles.stepsBlock}>
-                  <header>
-                    <div>
-                      <h3>Steps</h3>
-                      <p>Add step-by-step guidance for this agent.</p>
-                    </div>
-                    <button type="button" className={styles.secondaryButton} onClick={() => setSteps((prev) => [...prev, createStep(prev.length)])}>
-                      <LuPlus size={14} />
-                      Add step
-                    </button>
-                  </header>
-                  {steps.length > 0 ? steps.map((step, index) => (
-                    <div key={step.id} className={styles.stepCard}>
-                      <div className={styles.stepNumber}>Step {index + 1}</div>
-                      <label>
-                        <span>Step title</span>
-                        <input value={step.title} onChange={(event) => updateStep(step.id, { title: event.target.value })} placeholder="Step title" />
-                      </label>
-                      <label>
-                        <span>Description</span>
-                        <textarea value={step.description} onChange={(event) => updateStep(step.id, { description: event.target.value })} rows={3} placeholder="Explain this step." />
-                      </label>
-                      <label>
-                        <span>Prompt</span>
-                        <textarea value={step.prompt ?? ''} onChange={(event) => updateStep(step.id, { prompt: event.target.value })} rows={3} placeholder="Prompt or instruction for this step." />
-                      </label>
-                      <button type="button" className={styles.stepRemoveButton} onClick={() => removeStep(step.id)}>Remove step</button>
-                    </div>
-                  )) : (
-                    <p className={styles.emptySteps}>No steps yet.</p>
-                  )}
-                </section>
               </div>
               <footer className={styles.modalFooter}>
                 <button type="button" className={styles.secondaryButton} onClick={closeModal}>Cancel</button>

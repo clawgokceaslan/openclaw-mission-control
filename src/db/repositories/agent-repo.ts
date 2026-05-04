@@ -1,29 +1,16 @@
 import { BaseRepository } from './base-repo.js'
 import { randomUUID } from 'node:crypto'
 import { SqliteAdapter } from '../adapter/sqlite.js'
-import type { Agent, AgentReasoningLevel, AgentStep, Tag } from '../../shared/types/entities.js'
+import type { Agent, Tag } from '../../shared/types/entities.js'
 import { resolveTagColor } from './tag-color.js'
 
 function asConfig(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
-function parseSteps(value: unknown): AgentStep[] {
-  if (!Array.isArray(value)) return []
-  return value.map((raw, index) => {
-    const item = asConfig(raw)
-    return {
-      id: typeof item.id === 'string' ? item.id : randomUUID(),
-      title: typeof item.title === 'string' ? item.title : '',
-      description: typeof item.description === 'string' ? item.description : '',
-      prompt: typeof item.prompt === 'string' ? item.prompt : '',
-      sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : index
-    }
-  }).filter((item) => item.title.trim() || item.description.trim() || item.prompt?.trim())
-}
-
-function parseReasoning(value: unknown): AgentReasoningLevel {
-  return value === 'low' || value === 'medium' || value === 'high' || value === 'extra_high' ? value : 'medium'
+function withoutLegacyAgentConfigKeys(config: Record<string, unknown>): Record<string, unknown> {
+  const { steps: _steps, reasoningLevel: _reasoningLevel, status: _status, outputFormatId: _outputFormatId, ...rest } = config
+  return rest
 }
 
 export class AgentRepository extends BaseRepository<Agent> {
@@ -189,7 +176,7 @@ export class AgentRepository extends BaseRepository<Agent> {
   }
 
   private map(row: any): Agent {
-    const config = this.parseJson<Record<string, unknown>>(row.config_json) || {}
+    const config = withoutLegacyAgentConfigKeys(this.parseJson<Record<string, unknown>>(row.config_json) || {})
     return {
       id: row.id,
       organizationId: row.organization_id,
@@ -200,8 +187,6 @@ export class AgentRepository extends BaseRepository<Agent> {
       title: typeof config.title === 'string' ? config.title : '',
       description: typeof config.description === 'string' ? config.description : '',
       trainingMarkdown: typeof config.trainingMarkdown === 'string' ? config.trainingMarkdown : '',
-      steps: parseSteps(config.steps),
-      reasoningLevel: parseReasoning(config.reasoningLevel),
       createdAt: row.created_at,
       updatedAt: row.updated_at
     }

@@ -1,18 +1,9 @@
-import type { AgentStep } from '@shared/types/entities'
-
 export const AGENT_IMPORT_EXAMPLE = `{
   "name": "Research Agent",
   "title": "Research specialist",
   "description": "Agent scope and boundaries",
   "prompt": "Agent-level operating prompt",
   "tags": ["research", "codex"],
-  "steps": [
-    {
-      "title": "Map context",
-      "description": "Read task inputs and relevant project files.",
-      "prompt": "Identify the implementation surface before editing."
-    }
-  ],
   "config": {
     "executionMode": "exec"
   }
@@ -24,19 +15,8 @@ export type AgentImportPatch = {
   description?: string
   prompt?: string
   tags?: string[]
-  steps?: AgentStep[]
   config?: Record<string, unknown>
   warnings: string[]
-}
-
-function createImportedStep(raw: Record<string, unknown>, index: number): AgentStep {
-  return {
-    id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-import-${index}`,
-    title: typeof raw.title === 'string' ? raw.title : '',
-    description: typeof raw.description === 'string' ? raw.description : '',
-    prompt: typeof raw.prompt === 'string' ? raw.prompt : '',
-    sortOrder: typeof raw.sortOrder === 'number' ? raw.sortOrder : index
-  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -69,8 +49,8 @@ export function parseAgentImportJson(value: string): { ok: true; patch: AgentImp
   if (typeof source.prompt === 'string') patch.prompt = source.prompt
   if (typeof source.trainingMarkdown === 'string') patch.prompt = source.trainingMarkdown
 
-  if (source.status !== undefined || source.reasoningLevel !== undefined) {
-    patch.warnings.push('status and reasoningLevel are legacy fields and were ignored.')
+  if (source.status !== undefined || source.reasoningLevel !== undefined || source.steps !== undefined) {
+    patch.warnings.push('status, steps, and reasoningLevel are legacy fields and were ignored.')
   }
 
   if (source.tags !== undefined) {
@@ -93,27 +73,6 @@ export function parseAgentImportJson(value: string): { ok: true; patch: AgentImp
       return { ok: false, error: `tags[${index}] must be a string or an object with id or name.` }
     }
     patch.tags = Array.from(new Set(tags))
-  }
-
-  if (source.steps !== undefined) {
-    if (!Array.isArray(source.steps)) {
-      return { ok: false, error: 'steps must be an array.' }
-    }
-    const importedSteps: AgentStep[] = []
-    for (const [index, rawStep] of source.steps.entries()) {
-      const step = asRecord(rawStep)
-      if (!step) return { ok: false, error: `steps[${index}] must be an object.` }
-      for (const key of ['title', 'description', 'prompt'] as const) {
-        if (step[key] !== undefined && typeof step[key] !== 'string') {
-          return { ok: false, error: `steps[${index}].${key} must be a string.` }
-        }
-      }
-      if (step.sortOrder !== undefined && typeof step.sortOrder !== 'number') {
-        return { ok: false, error: `steps[${index}].sortOrder must be a number.` }
-      }
-      importedSteps.push(createImportedStep(step, index))
-    }
-    patch.steps = importedSteps
   }
 
   if (source.config !== undefined) {

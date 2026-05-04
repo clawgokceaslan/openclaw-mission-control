@@ -29,7 +29,6 @@ function service() {
         title: input.config?.title as string | undefined,
         description: input.config?.description as string | undefined,
         trainingMarkdown: input.config?.trainingMarkdown as string | undefined,
-        steps: input.config?.steps as Agent['steps'],
         tags: selectedTags,
         tagIds: selectedTags.map((tag) => tag.id),
         createdAt: 1,
@@ -48,7 +47,6 @@ function service() {
         title: patch.config?.title as string | undefined,
         description: patch.config?.description as string | undefined,
         trainingMarkdown: patch.config?.trainingMarkdown as string | undefined,
-        steps: patch.config?.steps as Agent['steps'],
         tags: selectedTags,
         tagIds: selectedTags.map((tag) => tag.id),
         updatedAt: 2
@@ -105,11 +103,36 @@ describe('AgentService', () => {
     const response = await agentService.create({
       name: 'Agent',
       status: 'busy',
+      steps: [{ title: 'Legacy step' }] as any,
       reasoningLevel: 'high'
     } as any)
 
     expect(response.ok).toBe(true)
     expect(response.data?.config).not.toHaveProperty('reasoningLevel')
+    expect(response.data?.config).not.toHaveProperty('steps')
     expect(response.data?.status).toBeUndefined()
+  })
+
+  it('does not persist legacy steps or reasoningLevel on update payloads', async () => {
+    const { agentService } = service()
+    const created = await agentService.create({ name: 'Agent' })
+    const id = created.data?.id
+    if (!id) throw new Error('Expected agent id')
+
+    const response = await agentService.update({
+      id,
+      config: {
+        steps: [{ title: 'Legacy step' }],
+        reasoningLevel: 'high',
+        status: 'busy',
+        outputFormatId: 'legacy-output-format'
+      } as any
+    } as any)
+
+    expect(response.ok).toBe(true)
+    expect(response.data?.config).not.toHaveProperty('steps')
+    expect(response.data?.config).not.toHaveProperty('reasoningLevel')
+    expect(response.data?.config).not.toHaveProperty('status')
+    expect(response.data?.config).not.toHaveProperty('outputFormatId')
   })
 })

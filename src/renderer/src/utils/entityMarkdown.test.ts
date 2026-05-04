@@ -10,13 +10,8 @@ function agent(): Agent {
     name: 'Research Agent',
     title: 'Research specialist',
     description: 'Finds relevant context.',
-    status: 'idle',
     heartbeatAt: 1,
     trainingMarkdown: 'Always cite the task context.',
-    steps: [
-      { id: 'step-2', title: 'Second', description: '', prompt: 'Finish.', sortOrder: 1 },
-      { id: 'step-1', title: 'First', description: 'Read inputs.', prompt: 'Start.', sortOrder: 0 }
-    ],
     tags: [
       { id: 'tag-1', organizationId: 'org-1', name: 'research', color: '#0EA5E9' },
       { id: 'tag-2', organizationId: 'org-1', name: 'codex', color: '#10B981' }
@@ -24,26 +19,24 @@ function agent(): Agent {
     config: {
       title: 'Research specialist',
       trainingMarkdown: 'Always cite the task context.',
-      reasoningLevel: 'high',
       executionMode: 'exec'
     },
-    reasoningLevel: 'high',
     createdAt: 1,
     updatedAt: 2
   }
 }
 
 describe('agent markdown builders', () => {
-  it('builds AGENT.md with tags, prompt, steps, and no removed fields', () => {
+  it('builds AGENT.md with tags and prompt without step sections', () => {
     const markdown = buildSingleAgentMarkdown(agent())
 
     expect(markdown).toContain('| Tags | research, codex |')
     expect(markdown).toContain('## Agent Prompt')
     expect(markdown).toContain('Always cite the task context.')
-    expect(markdown.indexOf('### Step 1: First')).toBeLessThan(markdown.indexOf('### Step 2: Second'))
     expect(markdown).toContain('"executionMode": "exec"')
     expect(markdown).not.toContain('| Status |')
     expect(markdown).not.toContain('Reasoning level')
+    expect(markdown).not.toContain('### Step')
   })
 
   it('builds Agents.md with active agent settings only', () => {
@@ -70,5 +63,6 @@ describe('agent markdown builders', () => {
     expect(markdown).toContain('Always cite the task context.')
     expect(markdown).not.toContain('| Status |')
     expect(markdown).not.toContain('Reasoning level')
+    expect(markdown).not.toContain('Execution Steps')
   })
 })

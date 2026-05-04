@@ -29,19 +29,6 @@ export function buildSingleAgentMarkdown(agent: Agent): string {
     ].join('\n')
   ]
   if (agent.trainingMarkdown?.trim()) sections.push(`## Agent Prompt\n${agent.trainingMarkdown.trim()}`)
-  const steps = [...(agent.steps ?? [])]
-    .filter((step) => step.title?.trim() || step.description?.trim() || step.prompt?.trim())
-    .sort((a, b) => a.sortOrder - b.sortOrder)
-  if (steps.length) {
-    sections.push([
-      '## Steps',
-      ...steps.map((step, index) => [
-        `### Step ${index + 1}: ${step.title || 'Untitled step'}`,
-        step.description?.trim() ? step.description.trim() : '',
-        step.prompt?.trim() ? `#### Prompt\n${step.prompt.trim()}` : ''
-      ].filter(Boolean).join('\n\n'))
-    ].join('\n\n'))
-  }
   if (Object.keys(extraConfig).length > 0) {
     sections.push(`## Extra Config\n\`\`\`json\n${JSON.stringify(extraConfig, null, 2)}\n\`\`\``)
   }

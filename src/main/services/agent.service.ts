@@ -1,26 +1,17 @@
 import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
-import { Agent, AgentStep } from '../../shared/types/entities.js'
+import { Agent } from '../../shared/types/entities.js'
 import { AuthService } from './auth.service.js'
 import { AgentRepository } from '../../db/repositories/agent-repo.js'
 import { TagRepository } from '../../db/repositories/custom-field-repo.js'
 
-function normalizeSteps(value: unknown): AgentStep[] {
-  if (!Array.isArray(value)) return []
-  return value.map((raw, index) => {
-    const item = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {}
-    return {
-      id: typeof item.id === 'string' && item.id ? item.id : `${Date.now()}-${index}`,
-      title: typeof item.title === 'string' ? item.title : '',
-      description: typeof item.description === 'string' ? item.description : '',
-      prompt: typeof item.prompt === 'string' ? item.prompt : '',
-      sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : index
-    }
-  }).filter((item) => item.title.trim() || item.description.trim() || item.prompt?.trim())
-}
-
 function withoutOutputFormatId(config: Record<string, unknown>): Record<string, unknown> {
   const { outputFormatId: _outputFormatId, ...rest } = config
+  return rest
+}
+
+function withoutLegacyAgentConfigKeys(config: Record<string, unknown>): Record<string, unknown> {
+  const { outputFormatId: _outputFormatId, reasoningLevel: _reasoningLevel, status: _status, steps: _steps, ...rest } = config
   return rest
 }
 
@@ -32,7 +23,6 @@ type AgentWritePayload = {
   title?: string
   description?: string
   trainingMarkdown?: string
-  steps?: AgentStep[]
   tagIds?: string[]
 }
 
@@ -63,11 +53,10 @@ export class AgentService {
     const tagIds = await this.validateTagIds(payload.tagIds, actor.user.organizationId)
     if (!tagIds.ok) return tagIds.response
     const config = {
-      ...withoutOutputFormatId(payload.config ?? {}),
+      ...withoutLegacyAgentConfigKeys(withoutOutputFormatId(payload.config ?? {})),
       title: payload.title ?? '',
       description: payload.description ?? '',
-      trainingMarkdown: payload.trainingMarkdown ?? '',
-      steps: normalizeSteps(payload.steps)
+      trainingMarkdown: payload.trainingMarkdown ?? ''
     }
     const created = await this.repo.create({
       organizationId: actor.user.organizationId,
@@ -87,14 +76,12 @@ export class AgentService {
     const tagIds = await this.validateTagIds(payload.tagIds, actor.user.organizationId)
     if (!tagIds.ok) return tagIds.response
     const config = {
-      ...withoutOutputFormatId(current.config ?? {}),
-      ...withoutOutputFormatId(payload.config ?? {}),
+      ...withoutLegacyAgentConfigKeys(withoutOutputFormatId(current.config ?? {})),
+      ...withoutLegacyAgentConfigKeys(withoutOutputFormatId(payload.config ?? {})),
       ...(payload.title !== undefined ? { title: payload.title } : {}),
       ...(payload.description !== undefined ? { description: payload.description } : {}),
-      ...(payload.trainingMarkdown !== undefined ? { trainingMarkdown: payload.trainingMarkdown } : {}),
-      ...(payload.steps !== undefined ? { steps: normalizeSteps(payload.steps) } : {})
+      ...(payload.trainingMarkdown !== undefined ? { trainingMarkdown: payload.trainingMarkdown } : {})
     }
-    delete config.reasoningLevel
     const updated = await this.repo.update(payload.id, {
       name: payload.name ?? current.name,
       status: current.status,

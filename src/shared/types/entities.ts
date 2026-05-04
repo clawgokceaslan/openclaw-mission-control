@@ -212,16 +212,11 @@ export interface Agent {
   title?: string
   description?: string
   trainingMarkdown?: string
-  steps?: AgentStep[]
   tags?: Tag[]
   tagIds?: string[]
-  /** Legacy config field. Read for compatibility only; new agent writes do not expose it. */
-  reasoningLevel?: AgentReasoningLevel
   createdAt: number
   updatedAt: number
 }
-
-export type AgentReasoningLevel = 'low' | 'medium' | 'high' | 'extra_high'
 
 export interface AgentOutputFormatField {
   id: string
@@ -244,14 +239,6 @@ export interface OutputFormat {
   instructionsMarkdown?: string
   createdAt: number
   updatedAt: number
-}
-
-export interface AgentStep {
-  id: string
-  title: string
-  description: string
-  prompt?: string
-  sortOrder: number
 }
 
 export interface Gateway {

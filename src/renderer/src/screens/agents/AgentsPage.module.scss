@@ -111,7 +111,7 @@
 .tableRow {
   min-width: 1120px;
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.1fr) minmax(180px, 1fr) 72px 92px 120px 168px;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.1fr) minmax(180px, 1fr) 92px 120px 168px;
   gap: 16px;
   align-items: center;
 }
@@ -262,7 +262,7 @@
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: min(760px, calc(100vw - 32px));
+  width: min(960px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
   border: 1px solid var(--omc-border-subtle);
   border-radius: 18px;
@@ -472,70 +472,6 @@
   gap: 16px;
 }
 
-.stepsBlock {
-  border: 1px solid var(--omc-border-subtle);
-  border-radius: 14px;
-  background: var(--omc-surface-soft);
-  padding: 14px;
-  display: grid;
-  gap: 12px;
-
-  > header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-  }
-
-  h3,
-  p {
-    margin: 0;
-  }
-
-  h3 {
-    color: var(--omc-text-strong);
-    font-size: 0.98rem;
-    font-weight: 850;
-  }
-
-  p {
-    color: var(--omc-text-muted);
-    font-size: 0.9rem;
-  }
-}
-
-.stepCard {
-  border: 1px solid var(--omc-border-subtle);
-  border-radius: 12px;
-  background: var(--omc-surface);
-  padding: 12px;
-  display: grid;
-  gap: 10px;
-}
-
-.stepNumber {
-  color: var(--omc-primary);
-  font-size: 0.78rem;
-  font-weight: 850;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.stepRemoveButton {
-  justify-self: start;
-  border: none;
-  background: transparent;
-  color: var(--omc-danger);
-  padding: 0;
-  font-weight: 800;
-}
-
-.emptySteps {
-  margin: 0;
-  color: var(--omc-text-muted);
-  font-weight: 700;
-}
-
 .modalFooter {
   border-top: 1px solid var(--omc-border-subtle);
   padding-top: 16px;
@@ -557,7 +493,7 @@
 
 @media (width <= 760px) {
   .header,
-  .stepsBlock > header {
+  .header {
     align-items: flex-start;
     flex-direction: column;
   }
