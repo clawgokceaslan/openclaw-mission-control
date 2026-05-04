@@ -445,6 +445,7 @@ export function AgentsPage() {
           placeholder="Search agents by name, title, description, prompt, or tags..."
         />
         <AppSelect
+          className={styles.filterSelect}
           mode="single"
           value={selectedTagOption}
           options={tagOptions}
@@ -453,6 +454,7 @@ export function AgentsPage() {
           onChange={(option) => updateTagFilter(option?.value ?? '')}
         />
         <AppSelect
+          className={styles.filterSelect}
           mode="single"
           value={selectedPromptOption}
           options={AGENT_PROMPT_FILTER_OPTIONS}

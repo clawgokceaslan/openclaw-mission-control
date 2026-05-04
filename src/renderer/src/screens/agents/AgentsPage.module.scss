@@ -36,13 +36,15 @@
 }
 
 .filterBar {
+  --table-filter-control-height: 40px;
+
   display: grid;
   grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 1fr) minmax(190px, 1fr) auto;
   gap: 10px;
   align-items: center;
 
   input {
-    min-height: 40px;
+    height: var(--table-filter-control-height);
     border: 1px solid var(--omc-input-border);
     border-radius: 10px;
     background: var(--omc-surface);
@@ -56,12 +58,22 @@
     }
   }
 
-  :global(.app-select-container) {
+  .filterSelect {
     min-width: 170px;
+
+    :global(.app-select__control) {
+      min-height: var(--table-filter-control-height);
+      height: var(--table-filter-control-height);
+    }
+
+    :global(.app-select__value-container),
+    :global(.app-select__indicators) {
+      height: var(--table-filter-control-height);
+    }
   }
 
   button {
-    height: 40px;
+    height: var(--table-filter-control-height);
     white-space: nowrap;
   }
 }
