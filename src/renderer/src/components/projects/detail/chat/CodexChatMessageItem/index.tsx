@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react'
-import { LuBot, LuCircleCheck, LuCopy, LuExternalLink, LuFileText, LuMessageSquare, LuSparkles, LuTerminal, LuX } from 'react-icons/lu'
+import { LuBot, LuChevronDown, LuCircleCheck, LuCopy, LuExternalLink, LuFileText, LuMessageSquare, LuSearch, LuSparkles, LuTerminal, LuX } from 'react-icons/lu'
 import hljs from 'highlight.js/lib/core'
 import bash from 'highlight.js/lib/languages/bash'
 import css from 'highlight.js/lib/languages/css'
@@ -13,6 +13,7 @@ import { formatUsageSummary } from '@shared/utils/codex-events'
 import type { TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 import {
   formatChatTime,
+  formatCodexWorkDuration,
   formatCodexToolBody,
   codexChangesSummary,
   formatJsonMetadata,
@@ -21,6 +22,7 @@ import {
   roleLabel,
   usageFromMetadata
 } from '@renderer/screens/projects/detail/chat/chatUtils'
+import type { CodexWorkBlock as CodexWorkBlockData, CodexWorkSummaryKind, CodexWorkSummaryRow } from '@renderer/screens/projects/detail/chat/chatUtils'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
 const MAX_HIGHLIGHT_CHARS = 25_000
@@ -355,6 +357,108 @@ type CodexChatMessageItemProps = {
   message: TaskActivityMessage
 }
 
+type CodexWorkBlockProps = {
+  block: CodexWorkBlockData
+}
+
+function workSummaryIcon(kind: CodexWorkSummaryKind) {
+  if (kind === 'explored') return <LuSearch size={14} />
+  if (kind === 'changed') return <LuFileText size={14} />
+  return <LuTerminal size={14} />
+}
+
+function workTextBody(message: TaskActivityMessage): string {
+  if (message.role === 'thinking') {
+    return message.body.trim() || (message.status === 'running' ? 'Codex is working...' : '')
+  }
+  return message.body.trim()
+}
+
+function renderWorkTextMessage(message: TaskActivityMessage) {
+  const body = workTextBody(message)
+  if (!body) return null
+  return (
+    <div key={message.id} className={`${styles.codexWorkText} ${message.role === 'thinking' ? styles.codexWorkThinkingText : ''}`}>
+      {renderMarkdownLite(body)}
+    </div>
+  )
+}
+
+function renderWorkToolMessage(message: TaskActivityMessage) {
+  const codexBlock = typeof message.metadata?.codexBlock === 'string' ? message.metadata.codexBlock : ''
+  const pathEntries = metadataPathEntries(message.metadata)
+  if (message.role === 'tool' && codexBlock === 'changes') {
+    return (
+      <div key={message.id} className={styles.codexWorkNestedOutput}>
+        {renderChangesCard(message, pathEntries)}
+      </div>
+    )
+  }
+
+  const toolTitle = codexBlock === 'log'
+    ? 'Log'
+    : codexBlock === 'command'
+      ? 'Command'
+      : 'Tool output'
+  const toolBody = message.role === 'tool' ? (codexBlock ? message.body : formatCodexToolBody(message.body)) : message.body
+
+  return (
+    <div key={message.id} className={styles.codexWorkCommandRaw}>
+      <div className={styles.codexWorkCommandTitle}>
+        <LuTerminal size={13} />
+        <span>{toolTitle}</span>
+        {message.metadata?.exitCode !== undefined ? <small>exit {String(message.metadata.exitCode)}</small> : null}
+      </div>
+      <div className={styles.codexTranscriptText}>{renderMarkdownLite(toolBody)}</div>
+      {pathEntries.length > 0 ? (
+        <div className={styles.codexPathList}>
+          {pathEntries.map((entry) => (
+            <span key={entry.key} className={styles.codexPathChip} title={entry.value}>
+              <LuFileText size={12} /> <small>{entry.key.replace(/Path$/, '')}</small> {shortenPath(entry.value)}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function renderWorkSummary(summary: CodexWorkSummaryRow) {
+  return (
+    <details key={summary.id} className={`${styles.codexWorkSummaryDetails} ${styles[`codexWorkSummary_${summary.kind}`] ?? ''}`}>
+      <summary>
+        {workSummaryIcon(summary.kind)}
+        <span>{summary.label}</span>
+        <LuChevronDown className={styles.codexWorkChevron} size={13} />
+      </summary>
+      <div className={styles.codexWorkSummaryBody}>
+        {summary.messages.map(renderWorkToolMessage)}
+      </div>
+    </details>
+  )
+}
+
+export const CodexWorkBlock = memo(function CodexWorkBlock({ block }: CodexWorkBlockProps) {
+  return (
+    <article className={`${styles.chatMessage} ${styles.codexTranscriptRow} ${styles.codexWorkBlock}`}>
+      <details className={styles.codexWorkDetails} open>
+        <summary className={styles.codexWorkHeader}>
+          <LuChevronDown className={styles.codexWorkChevron} size={15} />
+          <span>{formatCodexWorkDuration(block.durationMs, block.isRunning)}</span>
+          {block.isRunning ? <span className={styles.thinkingDots}><i /><i /><i /></span> : null}
+        </summary>
+        <div className={styles.codexWorkBody}>
+          {block.entries.map((entry) => (
+            entry.kind === 'text'
+              ? renderWorkTextMessage(entry.message)
+              : renderWorkSummary(entry.summary)
+          ))}
+        </div>
+      </details>
+    </article>
+  )
+})
+
 function renderCodexTranscriptMessage(params: {
   message: TaskActivityMessage
   codexBlock: string
@@ -384,7 +488,7 @@ function renderCodexTranscriptMessage(params: {
     const summaryLabel = [`Thinking`, thinkingLabel].filter(Boolean).join(' · ')
     return (
       <article className={`${styles.chatMessage} ${styles.codexTranscriptRow} ${styles.codexTranscriptThinking}`}>
-        <details className={styles.codexThinkingDetails}>
+        <details className={styles.codexThinkingDetails} open>
           <summary className={styles.codexTranscriptTime}>
             {summaryLabel}
             {message.status === 'running' ? <span className={styles.thinkingDots}><i /><i /><i /></span> : null}
@@ -413,7 +517,7 @@ function renderCodexTranscriptMessage(params: {
   if (message.role === 'tool') {
     return (
       <article className={`${styles.chatMessage} ${styles.codexTranscriptRow}`}>
-        <details className={styles.codexTranscriptDetails} open={codexBlock === 'command'}>
+        <details className={styles.codexTranscriptDetails}>
           <summary><LuTerminal size={14} /> {toolTitle}</summary>
           <div>{toolBodyRendered}</div>
           {pathEntries.length > 0 ? (

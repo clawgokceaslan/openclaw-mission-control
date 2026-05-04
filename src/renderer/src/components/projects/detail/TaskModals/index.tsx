@@ -75,6 +75,7 @@ export interface TaskModalsProps {
   projectPromptPlanGuide?: string
   projectPromptOutput?: string
   projectPromptRules?: string
+  projectPromptPostRun?: string
   projectPromptError?: string | null
   projectPromptSaving?: boolean
   onProjectPromptTabChange?: (tab: ProjectPromptTab) => void
@@ -83,6 +84,7 @@ export interface TaskModalsProps {
   onProjectPromptPlanGuideChange?: (value: string) => void
   onProjectPromptOutputChange?: (value: string) => void
   onProjectPromptRulesChange?: (value: string) => void
+  onProjectPromptPostRunChange?: (value: string) => void
   onProjectPromptClose?: () => void
   onProjectPromptSave?: () => void | Promise<void>
 
@@ -230,6 +232,7 @@ export function TaskModals(props: TaskModalsProps) {
           planGuide={props.projectPromptPlanGuide ?? ''}
           output={props.projectPromptOutput ?? ''}
           rules={props.projectPromptRules ?? ''}
+          postRun={props.projectPromptPostRun ?? ''}
           error={props.projectPromptError ?? null}
           saving={props.projectPromptSaving ?? false}
           onTabChange={props.onProjectPromptTabChange ?? (() => undefined)}
@@ -238,6 +241,7 @@ export function TaskModals(props: TaskModalsProps) {
           onPlanGuideChange={props.onProjectPromptPlanGuideChange ?? (() => undefined)}
           onOutputChange={props.onProjectPromptOutputChange ?? (() => undefined)}
           onRulesChange={props.onProjectPromptRulesChange ?? (() => undefined)}
+          onPostRunChange={props.onProjectPromptPostRunChange ?? (() => undefined)}
           onClose={props.onProjectPromptClose ?? (() => undefined)}
           onSave={props.onProjectPromptSave ?? (() => undefined)}
         />

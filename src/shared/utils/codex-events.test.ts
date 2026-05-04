@@ -86,4 +86,36 @@ describe('parseCodexEvents', () => {
     expect(result.messages[0]?.startedAt).toBe(1700000000000)
     expect(result.messages[0]?.endedAt).toBe(1700000003000)
   })
+
+  it('normalizes richer codex session event shapes without losing readable text', () => {
+    const result = parseCodexEvents([
+      JSON.stringify({
+        type: 'response_item',
+        payload: {
+          type: 'reasoning',
+          summary: [
+            { type: 'summary_text', text: 'Inspecting chat transcript grouping.' },
+            { type: 'summary_text', text: 'Preparing readable work blocks.' }
+          ]
+        }
+      }),
+      JSON.stringify({
+        type: 'event_msg',
+        payload: {
+          type: 'agent_message',
+          message: 'I found the event stream shape.'
+        }
+      })
+    ].join('\n'))
+
+    expect(result.messages).toHaveLength(2)
+    expect(result.messages[0]).toMatchObject({
+      role: 'thinking',
+      text: 'Inspecting chat transcript grouping.\n\nPreparing readable work blocks.'
+    })
+    expect(result.messages[1]).toMatchObject({
+      role: 'assistant',
+      text: 'I found the event stream shape.'
+    })
+  })
 })

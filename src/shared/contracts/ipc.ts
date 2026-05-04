@@ -30,7 +30,9 @@ export const IPC_CHANNELS = {
     getActiveGateway: 'app-settings:get-active-gateway',
     setActiveGateway: 'app-settings:set-active-gateway',
     getDefaultAgent: 'app-settings:get-default-agent',
-    setDefaultAgent: 'app-settings:set-default-agent'
+    setDefaultAgent: 'app-settings:set-default-agent',
+    getCodexLanguage: 'app-settings:get-codex-language',
+    setCodexLanguage: 'app-settings:set-codex-language'
   },
   statuses: {
     list: 'statuses:list',
@@ -282,6 +284,10 @@ export interface PlanTaskCodexRequest {
   taskId?: string
   gatewayId?: string
   model?: string
+  language?: string
+  reasoningEffort?: string
+  inputLanguage?: string
+  outputLanguage?: string
   conversationId?: string
   clarificationMessage?: string
   generalContext?: string
@@ -355,6 +361,11 @@ export interface UpdateProjectRequest {
     defaultModel?: string | null
     planModel?: string | null
     runModel?: string | null
+    language?: string | null
+    planReasoningEffort?: string | null
+    runReasoningEffort?: string | null
+    inputLanguage?: string | null
+    outputLanguage?: string | null
   }
 }
 
@@ -439,6 +450,10 @@ export interface RunTaskCodexRequest {
   zipBytes?: ArrayBuffer | Uint8Array | number[]
   gatewayId?: string
   model?: string
+  language?: string
+  reasoningEffort?: string
+  inputLanguage?: string
+  outputLanguage?: string
   generalContext?: string
   generalPrompt?: string
   defaultOutput?: string
@@ -451,6 +466,10 @@ export interface CodexChatSendRequest {
   message?: string
   gatewayId?: string
   model?: string
+  language?: string
+  reasoningEffort?: string
+  inputLanguage?: string
+  outputLanguage?: string
   conversationId?: string
   includeTaskContext?: boolean
   mode?: 'chat' | 'plan' | 'steer'
@@ -515,7 +534,7 @@ export const SERVICE_MAP = {
   auth: ['login', 'logout', 'me', 'inviteValidate', 'updateProfile'],
   projects: ['list', 'get', 'create', 'update', 'moveWorkspace', 'exportWorkspace', 'remove'],
   workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
-  appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent'],
+  appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent', 'getCodexLanguage', 'setCodexLanguage'],
   statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
   tasks: ['list', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runCodex', 'planWithCodex', 'codexChatSend', 'codexChatStop', 'codexChatResolve', 'plannerContext', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
   taskTemplates: ['list', 'create', 'update', 'remove', 'importJson'],
@@ -689,6 +708,20 @@ export const SERVICE_ROUTING: {
       action: 'setDefaultAgent',
       method: 'setDefaultAgent',
       channel: IPC_CHANNELS.appSettings.setDefaultAgent,
+      requiresAuth: true
+    },
+    getCodexLanguage: {
+      domain: 'appSettings',
+      action: 'getCodexLanguage',
+      method: 'getCodexLanguage',
+      channel: IPC_CHANNELS.appSettings.getCodexLanguage,
+      requiresAuth: true
+    },
+    setCodexLanguage: {
+      domain: 'appSettings',
+      action: 'setCodexLanguage',
+      method: 'setCodexLanguage',
+      channel: IPC_CHANNELS.appSettings.setCodexLanguage,
       requiresAuth: true
     }
   },

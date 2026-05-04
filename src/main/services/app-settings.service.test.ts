@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AppSettingsService, DEFAULT_AGENT_KEY } from './app-settings.service.js'
+import { AppSettingsService, CODEX_LANGUAGE_KEY, DEFAULT_AGENT_KEY } from './app-settings.service.js'
 
 function serviceWithAgents(agents: Map<string, any>, store = new Map<string, unknown>()) {
   const auth = {
@@ -42,5 +42,27 @@ describe('AppSettingsService default agent', () => {
     expect(response.ok).toBe(true)
     expect(response.data?.agentId).toBeNull()
     expect(store.get(DEFAULT_AGENT_KEY)).toBeNull()
+  })
+})
+
+describe('AppSettingsService Codex language', () => {
+  it('defaults Codex language to Turkish', async () => {
+    const service = serviceWithAgents(new Map())
+
+    const response = await service.getCodexLanguage({})
+
+    expect(response.ok).toBe(true)
+    expect(response.data?.language).toBe('tr')
+  })
+
+  it('saves normalized Codex language values', async () => {
+    const store = new Map<string, unknown>()
+    const service = serviceWithAgents(new Map(), store)
+
+    const response = await service.setCodexLanguage({ language: 'EN' })
+
+    expect(response.ok).toBe(true)
+    expect(response.data?.language).toBe('en')
+    expect(store.get(CODEX_LANGUAGE_KEY)).toBe('en')
   })
 })

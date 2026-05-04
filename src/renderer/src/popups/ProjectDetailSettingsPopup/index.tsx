@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AppSelectOption } from '@renderer/components/select/AppSelect'
 import { AppSelect } from '@renderer/components/select/AppSelect'
-import type { Gateway, Project, ProjectCodexSettings, ProjectGroup, ProjectStatus, ProjectStatusCategory, StatusTemplate, Workspace } from '@shared/types/entities'
+import type { Agent, Gateway, Project, ProjectCodexSettings, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Workspace } from '@shared/types/entities'
+import { CODEX_LANGUAGE_OPTIONS, CODEX_REASONING_EFFORT_OPTIONS, normalizeCodexLanguage, normalizeCodexReasoningEffort } from '@shared/utils/codex-language'
 import type { ProjectSettingsTab } from '@renderer/screens/projects/detail/types'
 import { StatusTemplatePickerModal } from '@renderer/components/projects/detail/ProjectModals/StatusTemplatePickerModal'
 import { ProjectGroupPickerModal } from '@renderer/components/projects/detail/ProjectModals/ProjectGroupPickerModal'
@@ -48,6 +49,9 @@ export interface ProjectDetailSettingsPopupProps {
     codexDefaultModel: string
     codexDefaultPlanModel: string
     codexDefaultRunModel: string
+    codexLanguage: string
+    codexPlanReasoningEffort: string
+    codexRunReasoningEffort: string
     codexGatewayId: string
     codexRuntimeWorkspaceId: string
     onSetCodexGatewayId: (value: string) => void
@@ -57,8 +61,13 @@ export interface ProjectDetailSettingsPopupProps {
     onSetCodexRuntimeWorkspaceId: (value: string) => void
     onSetCodexModelError: (value: string | null) => void
     codexSaving: boolean
-    onSaveProjectCodexSettings: (draft?: { gatewayId: string; runtimeWorkspaceId: string; planModel: string; runModel: string }) => ProjectCodexSettings | void | Promise<ProjectCodexSettings | void>
+    onSaveProjectCodexSettings: (draft?: { gatewayId: string; runtimeWorkspaceId: string; planModel: string; runModel: string; language: string; planReasoningEffort: string; runReasoningEffort: string }) => ProjectCodexSettings | void | Promise<ProjectCodexSettings | void>
     onRefreshCodexGatewayModels?: (gatewayId: string) => Promise<void> | void
+    agents?: Agent[]
+    skills?: Skill[]
+    defaultAgentId: string
+    defaultSkillIds: string[]
+    onSaveProjectDefaultsSettings: (draft: { defaultAgentId: string | null; defaultSkillIds: string[] }) => Project | void | Promise<Project | void>
 
     isStatusTemplatePickerOpen: boolean
     statusTemplates: StatusTemplate[]
@@ -106,8 +115,16 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
   const [runtimeWorkspaceIdDraft, setRuntimeWorkspaceIdDraft] = useState(scope.codexRuntimeWorkspaceId)
   const [planModelDraft, setPlanModelDraft] = useState(scope.codexDefaultPlanModel || scope.codexDefaultModel)
   const [runModelDraft, setRunModelDraft] = useState(scope.codexDefaultRunModel || scope.codexDefaultModel)
+  const [languageDraft, setLanguageDraft] = useState(normalizeCodexLanguage(scope.codexLanguage))
+  const [planReasoningDraft, setPlanReasoningDraft] = useState(normalizeCodexReasoningEffort(scope.codexPlanReasoningEffort))
+  const [runReasoningDraft, setRunReasoningDraft] = useState(normalizeCodexReasoningEffort(scope.codexRunReasoningEffort))
+  const [defaultAgentIdDraft, setDefaultAgentIdDraft] = useState(scope.defaultAgentId)
+  const [defaultSkillIdsDraft, setDefaultSkillIdsDraft] = useState<string[]>(scope.defaultSkillIds ?? [])
+  const [workspaceTargetIdDraft, setWorkspaceTargetIdDraft] = useState(scope.selectedWorkspaceId ?? '')
   const [codexSaveMessage, setCodexSaveMessage] = useState<string | null>(null)
   const [codexSaveError, setCodexSaveError] = useState<string | null>(null)
+  const [defaultsSaveMessage, setDefaultsSaveMessage] = useState<string | null>(null)
+  const [defaultsSaveError, setDefaultsSaveError] = useState<string | null>(null)
   const [hydratedProjectId, setHydratedProjectId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -115,14 +132,22 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
     const nextProjectId = scope.project?.id ?? null
     if (hydratedProjectId === nextProjectId) return
     setHydratedProjectId(nextProjectId)
-    setActiveTab(scope.projectSettingsTab)
+    setActiveTab(scope.projectSettingsTab === 'codex' ? 'models' : scope.projectSettingsTab)
     setGatewayIdDraft(scope.codexGatewayId)
     setRuntimeWorkspaceIdDraft(scope.codexRuntimeWorkspaceId)
     setPlanModelDraft(scope.codexDefaultPlanModel || scope.codexDefaultModel)
     setRunModelDraft(scope.codexDefaultRunModel || scope.codexDefaultModel)
+    setLanguageDraft(normalizeCodexLanguage(scope.codexLanguage))
+    setPlanReasoningDraft(normalizeCodexReasoningEffort(scope.codexPlanReasoningEffort))
+    setRunReasoningDraft(normalizeCodexReasoningEffort(scope.codexRunReasoningEffort))
+    setDefaultAgentIdDraft(scope.defaultAgentId)
+    setDefaultSkillIdsDraft(scope.defaultSkillIds ?? [])
+    setWorkspaceTargetIdDraft(scope.selectedWorkspaceId ?? '')
     setCodexSaveMessage(null)
     setCodexSaveError(null)
-  }, [open, scope.project?.id, hydratedProjectId, scope.projectSettingsTab, scope.codexGatewayId, scope.codexRuntimeWorkspaceId, scope.codexDefaultModel, scope.codexDefaultPlanModel, scope.codexDefaultRunModel])
+    setDefaultsSaveMessage(null)
+    setDefaultsSaveError(null)
+  }, [open, scope.project?.id, hydratedProjectId, scope.projectSettingsTab, scope.codexGatewayId, scope.codexRuntimeWorkspaceId, scope.codexDefaultModel, scope.codexDefaultPlanModel, scope.codexDefaultRunModel, scope.codexLanguage, scope.codexPlanReasoningEffort, scope.codexRunReasoningEffort, scope.defaultAgentId, scope.defaultSkillIds, scope.selectedWorkspaceId])
 
   useEffect(() => {
     if (!open) setHydratedProjectId(null)
@@ -140,6 +165,17 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
   const localSelectedWorkspaceOption = useMemo(() => localWorkspaceOptions.find((option) => option.value === runtimeWorkspaceIdDraft) ?? null, [localWorkspaceOptions, runtimeWorkspaceIdDraft])
   const localSelectedPlanModelOption = useMemo(() => localModelOptions.find((option) => option.value === planModelDraft) ?? null, [localModelOptions, planModelDraft])
   const localSelectedRunModelOption = useMemo(() => localModelOptions.find((option) => option.value === runModelDraft) ?? null, [localModelOptions, runModelDraft])
+  const languageOptions = useMemo<AppSelectOption[]>(() => CODEX_LANGUAGE_OPTIONS.map((option) => ({ label: option.label, value: option.value })), [])
+  const reasoningOptions = useMemo<AppSelectOption[]>(() => CODEX_REASONING_EFFORT_OPTIONS.map((option) => ({ label: option.label, value: option.value })), [])
+  const selectedLanguageOption = useMemo(() => languageOptions.find((option) => option.value === languageDraft) ?? languageOptions[0] ?? null, [languageDraft, languageOptions])
+  const selectedPlanReasoningOption = useMemo(() => reasoningOptions.find((option) => option.value === planReasoningDraft) ?? reasoningOptions[2] ?? null, [planReasoningDraft, reasoningOptions])
+  const selectedRunReasoningOption = useMemo(() => reasoningOptions.find((option) => option.value === runReasoningDraft) ?? reasoningOptions[2] ?? null, [runReasoningDraft, reasoningOptions])
+  const agentOptions = useMemo<AppSelectOption[]>(() => (scope.agents ?? []).map((agent) => ({ label: agent.name, value: agent.id })).sort((a, b) => a.label.localeCompare(b.label, 'tr')), [scope.agents])
+  const selectedDefaultAgentOption = useMemo(() => agentOptions.find((option) => option.value === defaultAgentIdDraft) ?? null, [agentOptions, defaultAgentIdDraft])
+  const skillOptions = useMemo<AppSelectOption[]>(() => (scope.skills ?? []).filter((skill) => skill.status === 'active' || skill.enabled || defaultSkillIdsDraft.includes(skill.id)).map((skill) => ({ label: skill.name, value: skill.id })).sort((a, b) => a.label.localeCompare(b.label, 'tr')), [defaultSkillIdsDraft, scope.skills])
+  const selectedDefaultSkillOptions = useMemo(() => skillOptions.filter((option) => defaultSkillIdsDraft.includes(option.value)), [defaultSkillIdsDraft, skillOptions])
+  const workspaceTargetOption = useMemo(() => localWorkspaceOptions.find((option) => option.value === workspaceTargetIdDraft) ?? null, [localWorkspaceOptions, workspaceTargetIdDraft])
+  const workspaceTarget = useMemo(() => (scope.workspaces ?? []).find((workspace) => workspace.id === workspaceTargetIdDraft) ?? null, [scope.workspaces, workspaceTargetIdDraft])
 
   useEffect(() => {
     if (!gatewayIdDraft) return
@@ -156,16 +192,33 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
     setCodexSaveMessage(null)
     setCodexSaveError(null)
     try {
-      const saved = await s.onSaveProjectCodexSettings({ gatewayId: gatewayIdDraft, runtimeWorkspaceId: runtimeWorkspaceIdDraft, planModel: planModelDraft, runModel: runModelDraft })
+      const saved = await s.onSaveProjectCodexSettings({ gatewayId: gatewayIdDraft, runtimeWorkspaceId: runtimeWorkspaceIdDraft, planModel: planModelDraft, runModel: runModelDraft, language: languageDraft, planReasoningEffort: planReasoningDraft, runReasoningEffort: runReasoningDraft })
       if (saved && typeof saved === 'object') {
         setGatewayIdDraft(saved.gatewayId ?? '')
         setRuntimeWorkspaceIdDraft(saved.runtimeWorkspaceId ?? '')
         setPlanModelDraft(saved.planModel ?? saved.defaultModel ?? '')
         setRunModelDraft(saved.runModel ?? saved.defaultModel ?? '')
+        setLanguageDraft(normalizeCodexLanguage(saved.language ?? languageDraft))
+        setPlanReasoningDraft(normalizeCodexReasoningEffort(saved.planReasoningEffort ?? planReasoningDraft))
+        setRunReasoningDraft(normalizeCodexReasoningEffort(saved.runReasoningEffort ?? runReasoningDraft))
       }
       setCodexSaveMessage('Saved')
     } catch (error) {
       setCodexSaveError(error instanceof Error ? error.message : 'Unable to save Codex settings')
+    }
+  }
+
+  const handleSaveDefaultsSettings = async () => {
+    setDefaultsSaveMessage(null)
+    setDefaultsSaveError(null)
+    try {
+      await s.onSaveProjectDefaultsSettings({
+        defaultAgentId: defaultAgentIdDraft || null,
+        defaultSkillIds: defaultSkillIdsDraft
+      })
+      setDefaultsSaveMessage('Saved')
+    } catch (error) {
+      setDefaultsSaveError(error instanceof Error ? error.message : 'Unable to save project defaults')
     }
   }
 
@@ -204,14 +257,14 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
         </header>
         <div className={styles.tabs}>
           <div className={styles.tabList}>
-            {(['statuses', 'workspace', 'projectGroup', 'agents', 'codex'] as const).map((tab) => (
+            {(['statuses', 'agents', 'skills', 'models', 'language', 'workspace', 'projectGroup'] as const).map((tab) => (
               <button
                 key={tab}
                 type="button"
                 className={`${styles.tab} ${activeTab === tab ? styles.tabActive : ''}`}
                 onClick={() => handleTabChange(tab)}
               >
-                {tab === 'projectGroup' ? 'Project group' : tab === 'codex' ? 'Gateway settings' : tab === 'workspace' ? 'Workspace' : tab === 'agents' ? 'Agents' : 'Statuses'}
+                {tab === 'projectGroup' ? 'Project group' : tab === 'models' ? 'Models' : tab === 'language' ? 'Language' : tab === 'workspace' ? 'Workspace' : tab === 'agents' ? 'Agents' : tab === 'skills' ? 'Skills' : 'Statuses'}
               </button>
             ))}
           </div>
@@ -308,25 +361,53 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
               <div className={styles.settingsPanelHeader}>
                 <div>
                   <h4>Workspace</h4>
-                  <p>{s.selectedWorkspace ? 'Assigned workspace' : 'No workspace assigned'}</p>
+                  <p>Review the current workspace and choose an explicit target before moving files.</p>
                 </div>
                 <button type="button" className={styles.tabActionButton} onClick={() => s.setIsWorkspacePickerOpen?.(true)} disabled={s.movingWorkspace}>
-                  Change workspace
+                  New workspace
                 </button>
               </div>
               <div className={styles.settingsInfoGrid}>
                 <div>
-                  <span>Name</span>
+                  <span>Current workspace</span>
                   <strong>{s.selectedWorkspace?.name ?? 'No workspace'}</strong>
                 </div>
                 <div>
-                  <span>Root path</span>
+                  <span>Current root path</span>
                   <code>{s.selectedWorkspace?.rootPath ?? 'Project files are currently stored in staging until a workspace is assigned.'}</code>
                 </div>
                 <div>
                   <span>Project folder</span>
                   <code>{s.selectedWorkspace ? s.projectFolderPreview : 'Assign a workspace to create a project folder.'}</code>
                 </div>
+              </div>
+              <div className={styles.settingsFormGrid}>
+                <label>
+                  <span>Target workspace</span>
+                  <AppSelect
+                    value={workspaceTargetOption}
+                    options={localWorkspaceOptions}
+                    placeholder="Keep no workspace"
+                    isClearable
+                    onChange={(option) => {
+                      if (Array.isArray(option)) return
+                      setWorkspaceTargetIdDraft(option?.value ?? '')
+                    }}
+                  />
+                </label>
+                <label>
+                  <span>Target root path</span>
+                  <code>{workspaceTarget?.rootPath ?? 'No workspace selected'}</code>
+                </label>
+              </div>
+              <div className={styles.tabCtaCard}>
+                <div>
+                  <strong>{workspaceTargetIdDraft ? 'Move to selected workspace' : 'Detach workspace'}</strong>
+                  <span>{workspaceTargetIdDraft === (s.selectedWorkspaceId ?? '') ? 'Selected target matches the current workspace.' : 'This will move stored project attachments into the target project folder.'}</span>
+                </div>
+                <button type="button" className={styles.tabActionButton} disabled={s.movingWorkspace || workspaceTargetIdDraft === (s.selectedWorkspaceId ?? '')} onClick={() => void s.onMoveProjectWorkspace(workspaceTargetIdDraft || null)}>
+                  {s.movingWorkspace ? 'Moving...' : 'Apply workspace'}
+                </button>
               </div>
               {s.movingWorkspace ? (
                 <div className={styles.workspaceProgress} aria-label="Moving project workspace">
@@ -385,23 +466,48 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
               <div className={styles.settingsPanelHeader}>
                 <div>
                   <h4>Agents</h4>
-                  <p>Unique agents assigned to this project's tasks and subtasks.</p>
+                  <p>Select the project agent inherited by Task Detail when a task has no explicit agent.</p>
                 </div>
               </div>
+              <div className={styles.settingsFormGrid}>
+                <label>
+                  <span>Project agent</span>
+                  <AppSelect
+                    value={selectedDefaultAgentOption}
+                    options={agentOptions}
+                    placeholder="No project agent"
+                    isClearable
+                    onChange={(option) => {
+                      if (Array.isArray(option)) return
+                      setDefaultAgentIdDraft(option?.value ?? '')
+                      setDefaultsSaveMessage(null)
+                      setDefaultsSaveError(null)
+                    }}
+                  />
+                </label>
+              </div>
+              <div className={styles.settingsInfoGrid}>
+                <div>
+                  <span>Inherited agent</span>
+                  <strong>{selectedDefaultAgentOption?.label ?? 'None'}</strong>
+                </div>
+              </div>
+              {defaultsSaveError ? <div className={styles.settingsEmptyState}>{defaultsSaveError}</div> : null}
+              {defaultsSaveMessage ? <div className={styles.settingsEmptyState}>{defaultsSaveMessage}</div> : null}
               {s.projectAgentRows.length > 0 ? (
                 <div className={styles.settingsMiniTable}>
                   <div>
                     <span>Agent</span>
                     <span>Source count</span>
-                    <span>Status</span>
                     <span>Title</span>
+                    <span>Tags</span>
                   </div>
-                  {s.projectAgentRows.map(({ agent, count }: { agent: { id?: string; name: string; status?: string; title?: string }; count: number }) => (
+                  {s.projectAgentRows.map(({ agent, count }: { agent: Agent; count: number }) => (
                     <div key={agent.id}>
                       <strong>{agent.name}</strong>
                       <span>{count}</span>
-                      <span>{agent.status}</span>
                       <span>{agent.title || '-'}</span>
+                      <span>{(agent.tags ?? []).map((tag) => tag.name).join(', ') || '-'}</span>
                     </div>
                   ))}
                 </div>
@@ -411,12 +517,75 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
             </div>
           ) : null}
 
-          {activeTab === 'codex' ? (
+          {activeTab === 'skills' ? (
             <div className={styles.settingsPanel}>
               <div className={styles.settingsPanelHeader}>
                 <div>
-                  <h4>Gateway settings</h4>
-                  <p>Choose the CLI gateway, runtime workspace, and separate Plan/Run Codex models for this project.</p>
+                  <h4>Skills</h4>
+                  <p>Select the project skills inherited by Task Detail when a task has no explicit skills.</p>
+                </div>
+              </div>
+              <div className={styles.settingsFormGrid}>
+                <label>
+                  <span>Project skills</span>
+                  <AppSelect
+                    mode="multi"
+                    value={selectedDefaultSkillOptions}
+                    options={skillOptions}
+                    placeholder="No project skills"
+                    onChange={(options) => {
+                      setDefaultSkillIdsDraft(Array.isArray(options) ? options.map((option) => option.value) : [])
+                      setDefaultsSaveMessage(null)
+                      setDefaultsSaveError(null)
+                    }}
+                  />
+                </label>
+              </div>
+              <div className={styles.settingsInfoGrid}>
+                <div>
+                  <span>Inherited skills</span>
+                  <strong>{selectedDefaultSkillOptions.length} skill(s)</strong>
+                </div>
+              </div>
+              {defaultsSaveError ? <div className={styles.settingsEmptyState}>{defaultsSaveError}</div> : null}
+              {defaultsSaveMessage ? <div className={styles.settingsEmptyState}>{defaultsSaveMessage}</div> : null}
+            </div>
+          ) : null}
+
+          {activeTab === 'language' ? (
+            <div className={styles.settingsPanel}>
+              <div className={styles.settingsPanelHeader}>
+                <div>
+                  <h4>Language</h4>
+                  <p>Codex reads prompts, writes responses, asks planning questions, and updates task JSON in this language.</p>
+                </div>
+              </div>
+              <div className={styles.settingsFormGrid}>
+                <label>
+                  <span>Project Codex language</span>
+                  <AppSelect
+                    value={selectedLanguageOption}
+                    options={languageOptions}
+                    placeholder="Select language"
+                    onChange={(option) => {
+                      setLanguageDraft(normalizeCodexLanguage(option?.value))
+                      setCodexSaveMessage(null)
+                      setCodexSaveError(null)
+                    }}
+                  />
+                </label>
+              </div>
+              {codexSaveError ? <div className={styles.settingsEmptyState}>{codexSaveError}</div> : null}
+              {codexSaveMessage ? <div className={styles.settingsEmptyState}>{codexSaveMessage}</div> : null}
+            </div>
+          ) : null}
+
+          {activeTab === 'models' || activeTab === 'codex' ? (
+            <div className={styles.settingsPanel}>
+              <div className={styles.settingsPanelHeader}>
+                <div>
+                  <h4>Models</h4>
+                  <p>Choose the CLI gateway, runtime workspace, and separate Plan/Run Codex models and reasoning levels.</p>
                 </div>
               </div>
               <div className={styles.settingsFormGrid}>
@@ -455,6 +624,19 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                   />
                 </label>
                 <label>
+                  <span>Plan reasoning</span>
+                  <AppSelect
+                    value={selectedPlanReasoningOption}
+                    options={reasoningOptions}
+                    placeholder="Select reasoning"
+                    onChange={(option) => {
+                      setPlanReasoningDraft(normalizeCodexReasoningEffort(option?.value))
+                      setCodexSaveMessage(null)
+                      setCodexSaveError(null)
+                    }}
+                  />
+                </label>
+                <label>
                   <span>Run model</span>
                   <AppSelect
                     value={localSelectedRunModelOption}
@@ -463,6 +645,19 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     isDisabled={!gatewayIdDraft || localModelOptions.length === 0}
                     onChange={(option) => {
                       setRunModelDraft(option?.value ?? '')
+                      setCodexSaveMessage(null)
+                      setCodexSaveError(null)
+                    }}
+                  />
+                </label>
+                <label>
+                  <span>Run reasoning</span>
+                  <AppSelect
+                    value={selectedRunReasoningOption}
+                    options={reasoningOptions}
+                    placeholder="Select reasoning"
+                    onChange={(option) => {
+                      setRunReasoningDraft(normalizeCodexReasoningEffort(option?.value))
                       setCodexSaveMessage(null)
                       setCodexSaveError(null)
                     }}
@@ -504,7 +699,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                 {s.projectGroupForExport ? 'Save group' : 'Done'}
               </button>
             </>
-          ) : activeTab === 'codex' ? (
+          ) : activeTab === 'models' || activeTab === 'codex' ? (
             <>
               <span>{codexValidationMessage || 'Task and template model tabs inherit this gateway default unless they explicitly override it.'}</span>
               <button
@@ -512,13 +707,29 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                 onClick={() => void handleSaveCodexSettings()}
                 disabled={s.codexSaving || Boolean(codexValidationMessage)}
               >
-                {s.codexSaving ? 'Saving...' : 'Save Codex settings'}
+                {s.codexSaving ? 'Saving...' : 'Save Model Settings'}
               </button>
+            </>
+          ) : activeTab === 'language' ? (
+            <>
+              <span>Language is a high-priority Codex instruction for planning, running, chat, and JSON updates.</span>
+              <button
+                type="button"
+                onClick={() => void handleSaveCodexSettings()}
+                disabled={s.codexSaving}
+              >
+                {s.codexSaving ? 'Saving...' : 'Save language'}
+              </button>
+            </>
+          ) : activeTab === 'agents' ? (
+            <>
+              <span>The project agent is inherited by tasks without an explicit task agent and is sent to Codex.</span>
+              <button type="button" onClick={() => void handleSaveDefaultsSettings()}>Save agent</button>
             </>
           ) : (
             <>
-              <span>Agents are listed from current task and subtask assignments.</span>
-              <button type="button" onClick={onClose}>Done</button>
+              <span>Project skills are inherited by tasks without explicit skills and are sent to Codex on demand.</span>
+              <button type="button" onClick={() => void handleSaveDefaultsSettings()}>Save skills</button>
             </>
           )}
         </footer>

@@ -13,7 +13,8 @@ const emptyTemplate: ProjectInstructionTemplatePayload = {
   generalPrompt: '',
   planGuide: '',
   defaultOutput: '',
-  rules: ''
+  rules: '',
+  postRunPrompt: ''
 }
 
 type EditorMode = 'create' | 'edit' | 'copy'
@@ -30,7 +31,8 @@ const TEMPLATE_FIELD_BY_TAB: Record<ProjectPromptTab, keyof ProjectInstructionTe
   prompt: 'generalPrompt',
   planGuide: 'planGuide',
   output: 'defaultOutput',
-  rules: 'rules'
+  rules: 'rules',
+  postRun: 'postRunPrompt'
 }
 
 function normalizeTemplate(value?: ProjectInstructionTemplatePayload): ProjectInstructionTemplatePayload {
@@ -39,7 +41,8 @@ function normalizeTemplate(value?: ProjectInstructionTemplatePayload): ProjectIn
     generalPrompt: value?.generalPrompt ?? '',
     planGuide: value?.planGuide ?? '',
     defaultOutput: value?.defaultOutput ?? '',
-    rules: value?.rules ?? ''
+    rules: value?.rules ?? '',
+    postRunPrompt: value?.postRunPrompt ?? ''
   }
 }
 
@@ -49,7 +52,8 @@ function fieldCount(template: ProjectInstructionTemplatePayload): number {
     template.generalPrompt,
     template.planGuide,
     template.defaultOutput,
-    template.rules
+    template.rules,
+    template.postRunPrompt
   ].filter((value) => String(value ?? '').trim()).length
 }
 

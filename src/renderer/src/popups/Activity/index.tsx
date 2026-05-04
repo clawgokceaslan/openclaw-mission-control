@@ -1,10 +1,10 @@
-import type { DragEvent, RefObject } from 'react'
+import { useEffect, useMemo, useState, type DragEvent, type RefObject } from 'react'
 import { LuBot, LuCircleStop, LuCloudUpload, LuMessageSquare, LuPaperclip, LuPlay, LuPlus, LuSend, LuSettings2, LuSignal, LuSparkles, LuX } from 'react-icons/lu'
 import { formatUsageSummary } from '@shared/utils/codex-events'
 import type { Agent, Gateway, Skill, TaskEntity, Workspace } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
-import { CodexChatMessageItem } from '@renderer/components/projects/detail/chat/CodexChatMessageItem'
-import { formatChatTime } from '@renderer/screens/projects/detail/chat/chatUtils'
+import { CodexChatMessageItem, CodexWorkBlock } from '@renderer/components/projects/detail/chat/CodexChatMessageItem'
+import { formatChatTime, formatPlannerClarificationAnswer, groupCodexTranscriptMessages, plannerQuestionPromptFromMessages } from '@renderer/screens/projects/detail/chat/chatUtils'
 import type { ChatAttachmentDraft, ChatConversationSummary, SlashCommand, TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
@@ -84,6 +84,7 @@ interface ActivityPopupLegacyProps {
   onSlashCommandIndexChange: (updater: (value: number) => number) => void
   onClearSlashDraft: () => void
   onSend: () => void
+  onPlannerQuestionAnswer: (answer: string) => void
 }
 
 type ActivityPopupStateProps = Omit<
@@ -116,6 +117,7 @@ type ActivityPopupStateProps = Omit<
   | 'onSlashCommandIndexChange'
   | 'onClearSlashDraft'
   | 'onSend'
+  | 'onPlannerQuestionAnswer'
 >
 
 type ActivityPopupHandlerProps = Pick<
@@ -148,6 +150,7 @@ type ActivityPopupHandlerProps = Pick<
   | 'onSlashCommandIndexChange'
   | 'onClearSlashDraft'
   | 'onSend'
+  | 'onPlannerQuestionAnswer'
 >
 
 interface ActivityPopupProps extends Partial<ActivityPopupStateProps>, Partial<ActivityPopupHandlerProps> {
@@ -170,6 +173,18 @@ export function ActivityPopup({
 }: ActivityPopupProps) {
   const noOp = () => {}
   const state = (chatState ?? legacyState) as ActivityPopupStateProps | null
+  const plannerQuestionPrompt = useMemo(
+    () => plannerQuestionPromptFromMessages(state?.visibleMessages ?? []),
+    [state?.visibleMessages]
+  )
+  const [plannerQuestionSelections, setPlannerQuestionSelections] = useState<Record<string, string>>({})
+  const [plannerQuestionNotes, setPlannerQuestionNotes] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    setPlannerQuestionSelections({})
+    setPlannerQuestionNotes({})
+  }, [plannerQuestionPrompt?.messageId])
+
   if (!state) {
     return null
   }
@@ -201,7 +216,8 @@ export function ActivityPopup({
     onSlashCommandApply: chatHandlers?.onSlashCommandApply ?? legacyState.onSlashCommandApply ?? noOp,
     onSlashCommandIndexChange: chatHandlers?.onSlashCommandIndexChange ?? legacyState.onSlashCommandIndexChange ?? (() => {}),
     onClearSlashDraft: chatHandlers?.onClearSlashDraft ?? legacyState.onClearSlashDraft ?? noOp,
-    onSend: chatHandlers?.onSend ?? legacyState.onSend ?? noOp
+    onSend: chatHandlers?.onSend ?? legacyState.onSend ?? noOp,
+    onPlannerQuestionAnswer: chatHandlers?.onPlannerQuestionAnswer ?? legacyState.onPlannerQuestionAnswer ?? noOp
   }
 
   const {
@@ -221,7 +237,6 @@ export function ActivityPopup({
     codexRunLaunching,
     visibleMessages,
     renderedMessages,
-    hiddenMessageCount,
     localStatusMessage,
     activityFeedRef,
     chatGateway,
@@ -267,7 +282,6 @@ export function ActivityPopup({
     onStopChat,
     onPlan,
     onRun,
-    onLoadEarlier,
     onActivityScroll,
     onGatewayChange,
     onModelChange,
@@ -282,8 +296,24 @@ export function ActivityPopup({
     onSlashCommandApply,
     onSlashCommandIndexChange,
     onClearSlashDraft,
-    onSend
+    onSend,
+    onPlannerQuestionAnswer
   } = handlers
+
+  const canSubmitPlannerQuestion = Boolean(plannerQuestionPrompt && plannerQuestionPrompt.questions.every((question) => (
+    question.options.length > 0
+      ? Boolean(plannerQuestionSelections[question.id])
+      : Boolean(plannerQuestionNotes[question.id]?.trim())
+  )))
+
+  const submitPlannerQuestionAnswer = () => {
+    if (!plannerQuestionPrompt || !canSubmitPlannerQuestion) return
+    onPlannerQuestionAnswer(formatPlannerClarificationAnswer({
+      prompt: plannerQuestionPrompt,
+      selectedOptionIds: plannerQuestionSelections,
+      notes: plannerQuestionNotes
+    }))
+  }
 
   const isChatStopping = chatStopping
   const showRunActions = chatOptions?.showRunActions !== false
@@ -291,6 +321,11 @@ export function ActivityPopup({
   const subtitle = chatOptions?.subtitle ?? task?.title ?? 'Task'
   const sidebarTitle = chatOptions?.sidebarTitle ?? 'Chat'
   const sidebarSubtitle = chatOptions?.sidebarSubtitle ?? task?.title ?? 'Task'
+  const transcriptMessages = [
+    ...renderedMessages.filter((message) => !(message.role === 'system' && /^Started Codex/i.test(message.body))),
+    ...(localStatusMessage ? [localStatusMessage] : [])
+  ]
+  const transcriptItems = groupCodexTranscriptMessages(transcriptMessages)
   const conversationStatusLabel = (conversation: ChatConversationSummary) => (
     runningConversationIds.has(conversation.id)
       ? <em className={styles.chatSidebarLoader} aria-label="Codex chat is running"><i /><i /><i /></em>
@@ -378,12 +413,64 @@ export function ActivityPopup({
             </div>
           </header>
           <div className={styles.chatWorkspace}>
+            {plannerQuestionPrompt ? (
+              <div className={styles.plannerQuestionOverlay} role="dialog" aria-modal="false" aria-label="Planner clarification questions">
+                <div className={styles.plannerQuestionDialog}>
+                  <div className={styles.plannerQuestionHeader}>
+                    <span><LuSparkles size={16} /></span>
+                    <div>
+                      <h3>Planner needs input</h3>
+                      <p>{plannerQuestionPrompt.summary}</p>
+                    </div>
+                  </div>
+                  <div className={styles.plannerQuestionList}>
+                    {plannerQuestionPrompt.questions.map((question, questionIndex) => (
+                      <div key={question.id} className={styles.plannerQuestionCard}>
+                        <strong>{questionIndex + 1}. {question.question}</strong>
+                        {question.why ? <p>{question.why}</p> : null}
+                        {question.options.length > 0 ? (
+                          <div className={styles.plannerQuestionOptions}>
+                            {question.options.map((option) => (
+                              <label key={option.id} className={plannerQuestionSelections[question.id] === option.id ? styles.plannerQuestionOptionSelected : ''}>
+                                <input
+                                  type="radio"
+                                  name={`planner-question-${question.id}`}
+                                  checked={plannerQuestionSelections[question.id] === option.id}
+                                  onChange={() => setPlannerQuestionSelections((current) => ({ ...current, [question.id]: option.id }))}
+                                />
+                                <span>
+                                  <b>{option.label}</b>
+                                  {option.description ? <small>{option.description}</small> : null}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        ) : null}
+                        <textarea
+                          value={plannerQuestionNotes[question.id] ?? ''}
+                          onChange={(event) => setPlannerQuestionNotes((current) => ({ ...current, [question.id]: event.currentTarget.value }))}
+                          placeholder={question.options.length > 0 ? 'Optional note...' : 'Answer...'}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className={styles.plannerQuestionActions}>
+                    <button type="button" onClick={submitPlannerQuestionAnswer} disabled={!canSubmitPlannerQuestion || chatSending || codexPlanLaunching}>
+                      {chatSending || codexPlanLaunching ? <span className={styles.thinkingDots}><i /><i /><i /></span> : <LuSend size={15} />}
+                      Send answer
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
             <div className={styles.chatTranscript} ref={activityFeedRef} onScroll={onActivityScroll}>
               {visibleMessages.length > 0 ? (
                 <div className={styles.chatMessageList}>
-                  {hiddenMessageCount > 0 ? <button type="button" className={styles.chatLoadEarlierButton} onClick={onLoadEarlier}>Load earlier messages</button> : null}
-                  {renderedMessages.filter((message) => !(message.role === 'system' && /^Started Codex/i.test(message.body))).map((message) => <CodexChatMessageItem key={message.id} message={message} />)}
-                  {localStatusMessage ? <CodexChatMessageItem message={localStatusMessage} /> : null}
+                  {transcriptItems.map((item) => (
+                    item.kind === 'work-block'
+                      ? <CodexWorkBlock key={item.id} block={item.block} />
+                      : <CodexChatMessageItem key={item.id} message={item.message} />
+                  ))}
                 </div>
               ) : (
                 <div className={styles.chatEmptyState}>

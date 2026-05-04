@@ -13,6 +13,21 @@ import { copyFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
+const CODEX_LANGUAGE_VALUES = new Set(['tr', 'en'])
+const CODEX_REASONING_VALUES = new Set(['minimal', 'low', 'medium', 'high', 'xhigh'])
+
+function normalizeCodexLanguageValue(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  return CODEX_LANGUAGE_VALUES.has(normalized) ? normalized : null
+}
+
+function normalizeCodexReasoningValue(value: unknown): string {
+  if (typeof value !== 'string') return 'medium'
+  const normalized = value.trim().toLowerCase()
+  return CODEX_REASONING_VALUES.has(normalized) ? normalized : 'medium'
+}
+
 export class ProjectService {
   constructor(
     private readonly auth: AuthService,
@@ -94,12 +109,21 @@ export class ProjectService {
     const runModel = typeof codex.runModel === 'string' && codex.runModel.trim() ? codex.runModel.trim() : null
     const planModel = typeof codex.planModel === 'string' && codex.planModel.trim() ? codex.planModel.trim() : null
     const defaultModel = typeof codex.defaultModel === 'string' && codex.defaultModel.trim() ? codex.defaultModel.trim() : runModel
+    const language = normalizeCodexLanguageValue(codex.language)
+      ?? normalizeCodexLanguageValue(codex.outputLanguage)
+      ?? normalizeCodexLanguageValue(codex.inputLanguage)
+      ?? null
+    const planReasoningEffort = normalizeCodexReasoningValue(codex.planReasoningEffort)
+    const runReasoningEffort = normalizeCodexReasoningValue(codex.runReasoningEffort)
     return okResponse({
       gatewayId,
       runtimeWorkspaceId: runtimeWorkspaceId.data ?? null,
       defaultModel,
       planModel,
-      runModel
+      runModel,
+      language,
+      planReasoningEffort,
+      runReasoningEffort
     })
   }
 

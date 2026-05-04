@@ -15,7 +15,9 @@ Use this guide when planning or revising tasks. Read every available task field 
 - Make the task implementation-ready for Codex Run.
 - Prefer clear, verifiable scope over broad or vague instructions.
 - Refactor the entire subtasks array during planning. Treat existing subtasks, including completed/done/closed ones, as input context that can be rewritten into a clearer execution plan.
-- Use extreme subtask decomposition: split every meaningful operation, file/module group, UI state, backend/data-flow change, migration, verification step, and edge-case handling area into its own subtask.
+- Use balanced subtask decomposition: 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 12 subtasks for very large tasks.
+- Create subtasks for cohesive implementation areas, independent workflows, separate ownership boundaries, or meaningful verification paths.
+- Do not create a separate subtask for every file, UI state, edge case, or verification command; put those details inside the relevant subtask checklist.
 - Keep subtasks ordered by execution dependency.
 - Fill Acceptance Criteria when it is missing or incomplete.
 - Do not remove user-provided constraints from the description or comments.
@@ -45,8 +47,8 @@ Use this guide when planning or revising tasks. Read every available task field 
 - Update description with concise implementation context.
 - Set agenticInputs.acceptanceCriteria with measurable completion checks.
 - Add or revise checklist items for concrete verification steps.
-- Subtasks are the primary execution plan. Produce detailed subtasks even for short tasks when they clarify implementation.
-- Every subtask must include a markdown description with Objective, Task context, Exact work, Files/areas, and Done when sections.
+- Subtasks are the primary execution plan, but should stay compact enough to fit the task context.
+- Every subtask must include a concise implementation-ready description. Use Objective, Task context, Exact work, Files/areas, and Done when sections only when they improve clarity.
 - Every subtask must include unchecked checklist items that are specific to that subtask.
 - Do not write generic subtasks or checklist items such as "Test yap", "Run tests", "Fix bugs", "Implement feature", "Implement UI", or "Check everything".
 - Keep tags as names or ids.
@@ -60,5 +62,6 @@ Use this guide when planning or revising tasks. Read every available task field 
   rules: `- Do not ignore project-specific instructions.
 - Do not overwrite user work unless explicitly requested.
 - Do not mark work complete without implementation and verification notes.
-- Keep generated task updates compatible with Open Mission Control planner JSON.`
+- Keep generated task updates compatible with Open Mission Control planner JSON.`,
+  postRunPrompt: `Review the completed run output and workspace changes. Apply only final follow-up work that directly improves the completed task, such as targeted cleanup, documentation updates, or missing verification notes. Do not restart the task or broaden scope.`
 }

@@ -11,5 +11,6 @@ export const PROJECT_INSTRUCTION_TABS: Array<{
   { id: 'prompt', label: 'Prompt', title: 'General prompt', description: 'Shared behavior instructions for planning, running, and follow-up chat.', placeholder: 'Set shared instructions for this project...' },
   { id: 'planGuide', label: 'Plan guide', title: 'Plan guide', description: 'Instructions used specifically when Codex plans or revises a task.', placeholder: 'Tell Codex how to plan tasks in this project...' },
   { id: 'output', label: 'Output', title: 'Default output', description: 'Default response or deliverable format expected from agents.', placeholder: 'Set default output format...' },
-  { id: 'rules', label: 'Rules', title: 'Project rules', description: 'Hard rules that Codex must apply in Task.md, planning, run, and chat flows.', placeholder: 'Add project-specific rules, one per line...' }
+  { id: 'rules', label: 'Rules', title: 'Project rules', description: 'Hard rules that Codex must apply in Task.md, run, and chat flows.', placeholder: 'Add project-specific rules, one per line...' },
+  { id: 'postRun', label: 'Post-run', title: 'Post-run prompt', description: 'Prompt that runs automatically after a successful Codex exec run.', placeholder: 'Ask Codex to perform final cleanup, review, documentation, or verification after the first run succeeds...' }
 ]

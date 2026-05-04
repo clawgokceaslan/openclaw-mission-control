@@ -1,12 +1,23 @@
 import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LuRefreshCw } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
+import { DEFAULT_CODEX_LANGUAGE } from '@shared/utils/codex-language'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList } from '@renderer/utils/api'
 import { createSerializedAsyncRunner } from '@renderer/utils/serializedAsync'
 import { ActivityPopup } from '@renderer/popups/Activity'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
-import { activityMessagesFromTask, buildChatConversationSummaries, formatChatTime } from '@renderer/screens/projects/detail/chat/chatUtils'
+import {
+  CHAT_INITIAL_MESSAGE_LIMIT,
+  CHAT_MESSAGE_LOAD_STEP,
+  CHAT_TOP_LAZY_LOAD_THRESHOLD,
+  activityMessagesFromTask,
+  buildChatConversationSummaries,
+  formatChatTime,
+  preserveScrollTopAfterPrepend,
+  shouldLoadEarlierMessages,
+  visibleChatMessagesForLimit
+} from '@renderer/screens/projects/detail/chat/chatUtils'
 import { codexConfigOf, createLocalId, projectCodexSettings, readTaskCodexOverride } from '@renderer/screens/projects/detail/projectDetailUtils'
 import type { ChatAttachmentDraft, ChatConversationSummary, ChatOperationFeedbackData, SlashCommand, TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 import { type Gateway, type Project, type Skill, type TaskEntity, type Workspace } from '@shared/types/entities'
@@ -72,7 +83,6 @@ const GROUPS: GroupConfig[] = [
 ]
 
 const EMPTY_SLASH_COMMANDS: SlashCommand[] = []
-const MESSAGE_RENDER_LIMIT = 80
 const RESOLUTION_OPTIONS: AppSelectOption[] = [
   { value: 'stopped', label: 'Stopped' },
   { value: 'completed', label: 'Completed' },
@@ -188,7 +198,9 @@ export function LastChatsPage() {
   const [chatModel, setChatModel] = useState('')
   const [chatPlanModel, setChatPlanModel] = useState('')
   const [chatRunModel, setChatRunModel] = useState('')
+  const [codexLanguage, setCodexLanguage] = useState(DEFAULT_CODEX_LANGUAGE)
   const [chatIncludeContext, setChatIncludeContext] = useState(true)
+  const [chatVisibleLimit, setChatVisibleLimit] = useState(CHAT_INITIAL_MESSAGE_LIMIT)
   const [chatFeedback, setChatFeedback] = useState<ChatOperationFeedbackData | null>(null)
   const [stoppingConversationIds, setStoppingConversationIds] = useState<Set<string>>(() => new Set())
   const [localSettledConversationIds, setLocalSettledConversationIds] = useState<Set<string>>(() => new Set())
@@ -197,14 +209,18 @@ export function LastChatsPage() {
   const activityFeedRef = useRef<HTMLDivElement | null>(null)
   const draftTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const keepChatBottomRef = useRef(true)
+  const lazyLoadAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
+  const lazyLoadPendingRef = useRef(false)
 
   const loadData = useCallback(async (options: { silent?: boolean } = {}) => {
     if (!options.silent) setStatus('Loading...')
-    const [taskResponse, projectResponse, gatewayResponse, workspaceResponse] = await Promise.all([
+    const [taskResponse, projectResponse, gatewayResponse, workspaceResponse, languageResponse] = await Promise.all([
       loadList<TaskEntity[]>(IPC_CHANNELS.tasks.list, token),
       loadList<Project[]>(IPC_CHANNELS.projects.list, token),
       loadList<Gateway[]>(IPC_CHANNELS.gateways.list, token),
-      loadList<Workspace[]>(IPC_CHANNELS.workspaces.list, token)
+      loadList<Workspace[]>(IPC_CHANNELS.workspaces.list, token),
+      invokeBridge<{ language: string }>(IPC_CHANNELS.appSettings.getCodexLanguage, { actorToken: token })
     ])
 
     if (!taskResponse.ok) {
@@ -226,6 +242,7 @@ export function LastChatsPage() {
     setProjects(Array.isArray(projectResponse.data) ? projectResponse.data : [])
     setGateways(gatewayResponse.ok && Array.isArray(gatewayResponse.data) ? gatewayResponse.data : [])
     setWorkspaces(workspaceResponse.ok && Array.isArray(workspaceResponse.data) ? workspaceResponse.data : [])
+    setCodexLanguage(languageResponse.ok && languageResponse.data?.language ? languageResponse.data.language : DEFAULT_CODEX_LANGUAGE)
     setError(null)
     setStatus('Ready')
   }, [token])
@@ -345,11 +362,14 @@ export function LastChatsPage() {
   }, [isStartingNewChat, selectedConversationId, selectedTaskMessages])
 
   const renderedMessages = useMemo(
-    () => visibleMessages.length > MESSAGE_RENDER_LIMIT ? visibleMessages.slice(-MESSAGE_RENDER_LIMIT) : visibleMessages,
-    [visibleMessages]
+    () => visibleChatMessagesForLimit(visibleMessages, chatVisibleLimit),
+    [chatVisibleLimit, visibleMessages]
   )
 
   const projectCodex = useMemo(() => projectCodexSettings(selectedProject), [selectedProject])
+  const projectLanguage = projectCodex.language || projectCodex.outputLanguage || projectCodex.inputLanguage || codexLanguage
+  const planReasoningEffort = projectCodex.planReasoningEffort || 'medium'
+  const runReasoningEffort = projectCodex.runReasoningEffort || 'medium'
   const taskCodex = useMemo(() => readTaskCodexOverride(selectedTask), [selectedTask])
   const chatGateway = useMemo(
     () => gateways.find((gateway) => gateway.id === chatGatewayId) ?? null,
@@ -440,6 +460,13 @@ export function LastChatsPage() {
   }, [selectedTask, selectedTaskId])
 
   useEffect(() => {
+    setChatVisibleLimit(CHAT_INITIAL_MESSAGE_LIMIT)
+    keepChatBottomRef.current = true
+    lazyLoadAnchorRef.current = null
+    lazyLoadPendingRef.current = false
+  }, [isStartingNewChat, selectedConversationId, selectedTaskId])
+
+  useEffect(() => {
     if (!selectedTaskId) return
     const intervalMs = !documentVisible ? 15_000 : selectedChatIsRunning ? 2_500 : 12_000
     const timer = window.setInterval(() => {
@@ -461,11 +488,36 @@ export function LastChatsPage() {
   useEffect(() => {
     const feed = activityFeedRef.current
     if (!feed) return
+    const lazyAnchor = lazyLoadAnchorRef.current
+    if (lazyAnchor) {
+      const frame = requestAnimationFrame(() => {
+        feed.scrollTop = preserveScrollTopAfterPrepend(lazyAnchor.scrollTop, lazyAnchor.scrollHeight, feed.scrollHeight)
+        lazyLoadAnchorRef.current = null
+        lazyLoadPendingRef.current = false
+      })
+      return () => cancelAnimationFrame(frame)
+    }
+    const distanceToBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight
+    const shouldStickToBottom = keepChatBottomRef.current || distanceToBottom < CHAT_TOP_LAZY_LOAD_THRESHOLD
+    if (!shouldStickToBottom) return
     const frame = requestAnimationFrame(() => {
       feed.scrollTop = feed.scrollHeight
     })
     return () => cancelAnimationFrame(frame)
   }, [renderedMessages.length, renderedMessages[renderedMessages.length - 1]?.body.length, selectedConversationId, isStartingNewChat])
+
+  const handleActivityScroll = () => {
+    const feed = activityFeedRef.current
+    if (!feed) return
+    const distanceToBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight
+    keepChatBottomRef.current = distanceToBottom < CHAT_TOP_LAZY_LOAD_THRESHOLD
+    if (!lazyLoadPendingRef.current && shouldLoadEarlierMessages(feed.scrollTop, hiddenMessageCount, CHAT_TOP_LAZY_LOAD_THRESHOLD)) {
+      lazyLoadPendingRef.current = true
+      keepChatBottomRef.current = false
+      lazyLoadAnchorRef.current = { scrollTop: feed.scrollTop, scrollHeight: feed.scrollHeight }
+      setChatVisibleLimit((value) => Math.min(visibleMessages.length, value + CHAT_MESSAGE_LOAD_STEP))
+    }
+  }
 
   const totalConversations = conversations.length
 
@@ -514,12 +566,13 @@ export function LastChatsPage() {
     void addChatAttachments(event.dataTransfer.files)
   }
 
-  const sendCodexChatMessage = async () => {
+  const sendCodexChatMessage = async (draftOverride?: string) => {
     if (!selectedTask || !selectedProject) return
-    if (!chatDraft.trim() && chatAttachments.length === 0) return
+    const draftText = draftOverride ?? chatDraft
+    if (!draftText.trim() && chatAttachments.length === 0) return
     const effectiveSelectedChatSummary = isStartingNewChat ? null : selectedChatSummary
     const sendAsPlanRevision = !isStartingNewChat && effectiveSelectedChatSummary?.source === 'codex-plan'
-    const isPlanDraft = chatDraft.trim().toLowerCase().startsWith('/plan')
+    const isPlanDraft = draftText.trim().toLowerCase().startsWith('/plan')
     const mode = sendAsPlanRevision || isPlanDraft ? 'plan' : 'chat'
     const resolvedModel = mode === 'plan' ? (chatPlanModel || chatModel) : (chatRunModel || chatModel)
 
@@ -543,8 +596,10 @@ export function LastChatsPage() {
           projectId: selectedProject.id,
           gatewayId: chatGatewayId,
           model: resolvedModel,
+          language: projectLanguage,
+          reasoningEffort: planReasoningEffort,
           conversationId: selectedConversationId || undefined,
-          clarificationMessage: chatDraft.trim()
+          clarificationMessage: draftText.trim()
         })
         if (!response.ok || !response.data) {
           setChatFeedback({ state: 'error', title: 'Action needs attention', message: response.error?.message ?? 'Unable to send planner clarification.' })
@@ -562,9 +617,11 @@ export function LastChatsPage() {
         actorToken: token,
         taskId: selectedTask.id,
         projectId: selectedProject.id,
-        message: chatDraft.trim() || 'Review the attached file(s) in the task context.',
+        message: draftText.trim() || 'Review the attached file(s) in the task context.',
         gatewayId: chatGatewayId,
         model: resolvedModel,
+        language: projectLanguage,
+        reasoningEffort: mode === 'plan' ? planReasoningEffort : runReasoningEffort,
         conversationId: isStartingNewChat ? undefined : selectedConversationId || undefined,
         includeTaskContext: chatIncludeContext,
         mode,
@@ -738,7 +795,7 @@ export function LastChatsPage() {
     onPlan: () => {},
     onRun: () => {},
     onLoadEarlier: () => {},
-    onActivityScroll: () => {},
+    onActivityScroll: handleActivityScroll,
     onGatewayChange: (option: AppSelectOption | null) => {
       setChatGatewayId(option?.value ?? '')
       setChatModel('')
@@ -770,7 +827,8 @@ export function LastChatsPage() {
     onSlashCommandApply: () => {},
     onSlashCommandIndexChange: () => {},
     onClearSlashDraft: () => setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, '')),
-    onSend: () => void sendCodexChatMessage()
+    onSend: () => void sendCodexChatMessage(),
+    onPlannerQuestionAnswer: (answer: string) => void sendCodexChatMessage(answer)
   }
 
   return (

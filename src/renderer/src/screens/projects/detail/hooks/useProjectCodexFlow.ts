@@ -61,6 +61,9 @@ interface CodexTaskExportContext {
   tags: Tag[]
   customFields: CustomField[]
   projectStatuses?: ProjectStatus[]
+  codexLanguage?: string
+  codexPlanReasoningEffort?: string
+  codexRunReasoningEffort?: string
 }
 
 export interface ProjectCodexFlowContext {
@@ -81,6 +84,9 @@ export interface ProjectCodexFlowContext {
   chatModel: string
   chatPlanModel: string
   chatRunModel: string
+  codexLanguage: string
+  planReasoningEffort?: string
+  runReasoningEffort?: string
   chatIncludeContext: boolean
   chatComposerMode: 'chat' | 'steer'
   selectedChatConversationId: string
@@ -128,6 +134,7 @@ export interface UseProjectCodexFlowResult {
   runSelectedTaskWithCodex: () => Promise<void>
   planSelectedTaskWithCodex: () => Promise<void>
   sendCodexChatMessage: () => Promise<void>
+  sendPlannerClarification: (answer: string) => Promise<void>
   stopCodexChat: (conversationIdOverride?: string) => Promise<CodexStopResult>
   addChatAttachments: (files: FileList | File[]) => Promise<void>
   applySlashCommand: (command: SlashCommand) => Promise<void>
@@ -151,6 +158,9 @@ export function useProjectCodexFlow({
   chatModel,
   chatPlanModel,
   chatRunModel,
+  codexLanguage,
+  planReasoningEffort = 'medium',
+  runReasoningEffort = 'medium',
   chatIncludeContext,
   chatComposerMode,
   selectedChatConversationId,
@@ -271,6 +281,8 @@ export function useProjectCodexFlow({
         zipBytes: archive,
         gatewayId: resolvedTaskGatewayId,
         model: resolvedRunModel,
+        language: codexLanguage,
+        reasoningEffort: runReasoningEffort,
         generalContext: project.generalContext ?? '',
         generalPrompt: project.generalPrompt ?? '',
         defaultOutput: project.defaultOutput ?? ''
@@ -298,6 +310,8 @@ export function useProjectCodexFlow({
     selectedTaskExportContext,
     resolvedTaskGatewayId,
     resolvedRunModel,
+    codexLanguage,
+    runReasoningEffort,
     token,
     setCodexRunFeedback,
     setCodexRunLaunching,
@@ -339,6 +353,8 @@ export function useProjectCodexFlow({
         projectId: project.id,
         gatewayId: resolvedTaskGatewayId,
         model: resolvedPlanModel,
+        language: codexLanguage,
+        reasoningEffort: planReasoningEffort,
         generalContext: project.generalContext ?? '',
         generalPrompt: project.generalPrompt ?? '',
         defaultOutput: project.defaultOutput ?? ''
@@ -347,7 +363,7 @@ export function useProjectCodexFlow({
         setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex planner' })
         return
       }
-      if (response.data?.runId) setSelectedChatConversationId(response.data.runId)
+      if (response.data?.conversationId || response.data?.runId) setSelectedChatConversationId(response.data.conversationId ?? response.data.runId ?? '')
       setCodexRunFeedback({
         kind: 'success',
         message: response.data.executionMode === 'exec'
@@ -365,6 +381,8 @@ export function useProjectCodexFlow({
     selectedTask,
     resolvedTaskGatewayId,
     resolvedPlanModel,
+    codexLanguage,
+    planReasoningEffort,
     token,
     setCodexRunFeedback,
     setCodexPlanLaunching,
@@ -376,9 +394,10 @@ export function useProjectCodexFlow({
     setDetailTab
   ])
 
-  const sendCodexChatMessage = useCallback(async () => {
+  const sendCodexChatMessage = useCallback(async (draftOverride?: string) => {
     if (!selectedTask || !project) return
-    if (!chatDraft.trim() && chatAttachments.length === 0) return
+    const draftText = draftOverride ?? chatDraft
+    if (!draftText.trim() && chatAttachments.length === 0) return
     const effectiveSelectedChatSummary = isStartingNewChat ? null : selectedChatSummary
     const sendAsPlanRevision = chatMode !== 'steer' && !isStartingNewChat && effectiveSelectedChatSummary?.source === 'codex-plan'
     const effectiveChatMode = chatMode === 'steer' ? 'steer' : sendAsPlanRevision ? 'plan' : chatMode
@@ -411,8 +430,10 @@ export function useProjectCodexFlow({
           projectId: project.id,
           gatewayId: chatGatewayId,
           model: resolvedChatModel,
+          language: codexLanguage,
+          reasoningEffort: planReasoningEffort,
           conversationId: selectedChatConversationId,
-          clarificationMessage: chatDraft.trim()
+          clarificationMessage: draftText.trim()
         })
         if (!response.ok || !response.data) {
           setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to send planner clarification.' })
@@ -431,9 +452,11 @@ export function useProjectCodexFlow({
         actorToken: token,
         taskId: selectedTask.id,
         projectId: project.id,
-        message: chatDraft.trim() || 'Review the attached file(s) in the task context.',
+        message: draftText.trim() || 'Review the attached file(s) in the task context.',
         gatewayId: chatGatewayId,
         model: resolvedChatModel,
+        language: codexLanguage,
+        reasoningEffort: effectiveChatMode === 'plan' ? planReasoningEffort : runReasoningEffort,
         conversationId: isStartingNewChat ? undefined : selectedChatConversationId || undefined,
         includeTaskContext: chatIncludeContext,
         mode: effectiveChatMode,
@@ -468,6 +491,9 @@ export function useProjectCodexFlow({
     chatModel,
     chatPlanModel,
     chatRunModel,
+    codexLanguage,
+    planReasoningEffort,
+    runReasoningEffort,
     isStartingNewChat,
     chatIncludeContext,
     selectedChatConversationId,
@@ -482,6 +508,10 @@ export function useProjectCodexFlow({
     setChatAttachments,
     setChatSettingsOpen
   ])
+
+  const sendPlannerClarification = useCallback(async (answer: string) => {
+    await sendCodexChatMessage(answer)
+  }, [sendCodexChatMessage])
 
   const stopCodexChat = useCallback(async (conversationIdOverride?: string): Promise<CodexStopResult> => {
     const conversationId = conversationIdOverride || selectedChatConversationId
@@ -595,6 +625,7 @@ export function useProjectCodexFlow({
     runSelectedTaskWithCodex,
     planSelectedTaskWithCodex,
     sendCodexChatMessage,
+    sendPlannerClarification,
     stopCodexChat,
     addChatAttachments,
     applySlashCommand

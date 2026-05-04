@@ -3,11 +3,16 @@ import { type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { type Agent, type Gateway, type Skill, type TaskEntity, type Workspace } from '@shared/types/entities'
 import {
   CHAT_MESSAGE_LOAD_STEP,
+  CHAT_INITIAL_MESSAGE_LIMIT,
   CHAT_RUNNING_STATUS_LABELS,
+  CHAT_TOP_LAZY_LOAD_THRESHOLD,
   conversationIdOf,
   isFreshRunningMessage,
   isRunCompleteMessage,
-  usageFromMetadata
+  preserveScrollTopAfterPrepend,
+  shouldLoadEarlierMessages,
+  usageFromMetadata,
+  visibleChatMessagesForLimit
 } from '../chat/chatUtils'
 import type { CodexStopResult } from './useProjectCodexFlow'
 import type { ChatAttachmentDraft, ChatConversationSummary, ChatOperationFeedbackData, SlashCommand, TaskActivityMessage, TaskHistoryItem, ThreadEntry } from '../types'
@@ -95,6 +100,7 @@ interface ActivityPopupHandlers {
   onSlashCommandIndexChange: (updater: (value: number) => number) => void
   onClearSlashDraft: () => void
   onSend: () => void
+  onPlannerQuestionAnswer: (answer: string) => void
 }
 
 const LOCAL_CHAT_STATUS_RUN_ID = 'local-chat-status'
@@ -136,6 +142,7 @@ interface ActivityPopupParams {
   chatSending: boolean
   canSendChat: boolean
   chatAttachments: ChatAttachmentDraft[]
+  chatVisibleLimit: number
   chatGateway: Gateway | null
   chatGatewayOption: AppSelectOption | null
   chatGatewayOptions: AppSelectOption[]
@@ -184,6 +191,7 @@ interface ActivityPopupParams {
   runSelectedTaskWithCodex: () => Promise<void>
   planSelectedTaskWithCodex: () => Promise<void>
   sendCodexChatMessage: () => Promise<void>
+  sendPlannerClarification: (answer: string) => Promise<void>
   stopCodexChat: (conversationIdOverride?: string) => Promise<CodexStopResult>
   applySlashCommand: (command: SlashCommand) => Promise<void>
   addChatAttachments: (files: FileList | File[]) => Promise<void>
@@ -209,6 +217,7 @@ export function useProjectActivityPopup({
   chatSending,
   canSendChat,
   chatAttachments,
+  chatVisibleLimit,
   chatGateway,
   chatGatewayOption,
   chatGatewayOptions,
@@ -257,6 +266,7 @@ export function useProjectActivityPopup({
   runSelectedTaskWithCodex,
   planSelectedTaskWithCodex,
   sendCodexChatMessage,
+  sendPlannerClarification,
   stopCodexChat,
   applySlashCommand,
   addChatAttachments,
@@ -264,6 +274,8 @@ export function useProjectActivityPopup({
   setChatDragDepth
 }: ActivityPopupParams): UseProjectActivityPopupResult {
   const keepActivityBottomRef = useRef(true)
+  const lazyLoadAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
+  const lazyLoadPendingRef = useRef(false)
   const [stoppingConversationIds, setStoppingConversationIds] = useState<Set<string>>(() => new Set())
   const [localSettledConversationIds, setLocalSettledConversationIds] = useState<Set<string>>(() => new Set())
 
@@ -337,13 +349,9 @@ export function useProjectActivityPopup({
 
   const selectedChatIsRunning = Boolean(selectedChatSummary && runningConversationIds.has(selectedChatSummary.id))
 
-  const renderLimit = selectedChatIsRunning ? 20 : 40
   const renderedChatMessages = useMemo(
-    () => (visibleChatMessages.length > renderLimit
-      ? visibleChatMessages.slice(visibleChatMessages.length - renderLimit)
-      : visibleChatMessages
-    ),
-    [renderLimit, visibleChatMessages]
+    () => visibleChatMessagesForLimit(visibleChatMessages, chatVisibleLimit),
+    [chatVisibleLimit, visibleChatMessages]
   )
 
   const hiddenMessageCount = Math.max(0, visibleChatMessages.length - renderedChatMessages.length)
@@ -420,7 +428,7 @@ export function useProjectActivityPopup({
 
   useEffect(() => {
     if (!isChatModalMounted) return
-    setChatVisibleLimit((value) => value === 40 ? value : 40)
+    setChatVisibleLimit((value) => value === CHAT_INITIAL_MESSAGE_LIMIT ? value : CHAT_INITIAL_MESSAGE_LIMIT)
   }, [isChatModalMounted, selectedChatConversationId, selectedTask?.id])
 
   useEffect(() => {
@@ -433,6 +441,15 @@ export function useProjectActivityPopup({
     if (!isActivityModalOpen) return
     const feed = activityFeedRef.current
     if (!feed) return
+    const lazyAnchor = lazyLoadAnchorRef.current
+    if (lazyAnchor) {
+      const frame = requestAnimationFrame(() => {
+        feed.scrollTop = preserveScrollTopAfterPrepend(lazyAnchor.scrollTop, lazyAnchor.scrollHeight, feed.scrollHeight)
+        lazyLoadAnchorRef.current = null
+        lazyLoadPendingRef.current = false
+      })
+      return () => cancelAnimationFrame(frame)
+    }
     const distanceToBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight
     const shouldStickToBottom = keepActivityBottomRef.current || distanceToBottom < CHAT_BOTTOM_STICKY_THRESHOLD
     if (!shouldStickToBottom) return
@@ -470,6 +487,12 @@ export function useProjectActivityPopup({
     if (!feed) return
     const distanceToBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight
     keepActivityBottomRef.current = distanceToBottom < CHAT_BOTTOM_STICKY_THRESHOLD
+    if (!lazyLoadPendingRef.current && shouldLoadEarlierMessages(feed.scrollTop, hiddenMessageCount, CHAT_TOP_LAZY_LOAD_THRESHOLD)) {
+      lazyLoadPendingRef.current = true
+      keepActivityBottomRef.current = false
+      lazyLoadAnchorRef.current = { scrollTop: feed.scrollTop, scrollHeight: feed.scrollHeight }
+      setChatVisibleLimit((value) => Math.min(visibleChatMessages.length, value + CHAT_MESSAGE_LOAD_STEP))
+    }
   }
 
   const handleChatDragEnter = (event: DragEvent<HTMLElement>) => {
@@ -585,7 +608,7 @@ export function useProjectActivityPopup({
     },
     onPlan: () => void planSelectedTaskWithCodex(),
     onRun: () => void runSelectedTaskWithCodex(),
-    onLoadEarlier: () => setChatVisibleLimit((value) => value + CHAT_MESSAGE_LOAD_STEP),
+    onLoadEarlier: () => setChatVisibleLimit((value) => Math.min(visibleChatMessages.length, value + CHAT_MESSAGE_LOAD_STEP)),
     onActivityScroll,
     onGatewayChange: (option) => {
       setChatGatewayId(option?.value ?? '')
@@ -618,7 +641,8 @@ export function useProjectActivityPopup({
     onSlashCommandApply: applySlashCommand,
     onSlashCommandIndexChange: (updater) => setSlashCommandIndex((value) => updater(value)),
     onClearSlashDraft: () => setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, '')),
-    onSend: () => void sendCodexChatMessage()
+    onSend: () => void sendCodexChatMessage(),
+    onPlannerQuestionAnswer: (answer) => void sendPlannerClarification(answer)
   }
 
   return { chatState, chatHandlers, selectedChatSummary }

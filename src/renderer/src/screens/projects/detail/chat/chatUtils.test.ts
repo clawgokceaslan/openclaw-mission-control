@@ -3,9 +3,16 @@ import type { TaskActivityMessage } from '../types'
 import {
   buildChatConversationSummaries,
   codexChangesSummary,
+  formatCodexWorkDuration,
+  formatPlannerClarificationAnswer,
+  groupCodexTranscriptMessages,
   hasNoChangesMessage,
+  plannerQuestionPromptFromMessages,
+  preserveScrollTopAfterPrepend,
+  shouldLoadEarlierMessages,
   thinkingDurationLabel,
-  userMessageCount
+  userMessageCount,
+  visibleChatMessagesForLimit
 } from './chatUtils'
 
 function message(overrides: Partial<TaskActivityMessage>): TaskActivityMessage {
@@ -55,7 +62,175 @@ describe('chat conversation summaries', () => {
   })
 })
 
+describe('planner question helpers', () => {
+  it('extracts the latest unanswered planner question with options', () => {
+    const prompt = plannerQuestionPromptFromMessages([
+      message({
+        id: 'question-1',
+        source: 'codex-plan',
+        role: 'assistant',
+        createdAt: 10,
+        metadata: {
+          codexBlock: 'planner-question',
+          summary: 'Need scope.',
+          questions: [
+            {
+              id: 'scope',
+              question: 'Which scope should the planner use?',
+              why: 'Scope changes subtasks.',
+              options: [
+                { id: 'chat', label: 'Chat only', description: 'Limit changes to chat.' },
+                { id: 'all', label: 'All screens' }
+              ]
+            }
+          ]
+        }
+      })
+    ])
+
+    expect(prompt?.summary).toBe('Need scope.')
+    expect(prompt?.questions[0]).toMatchObject({
+      id: 'scope',
+      question: 'Which scope should the planner use?',
+      options: [{ id: 'chat', label: 'Chat only', description: 'Limit changes to chat.' }, { id: 'all', label: 'All screens' }]
+    })
+  })
+
+  it('does not return a planner question after a clarification answer', () => {
+    const prompt = plannerQuestionPromptFromMessages([
+      message({ id: 'question-1', source: 'codex-plan', role: 'assistant', createdAt: 10, metadata: { codexBlock: 'planner-question', questions: [{ id: 'scope', question: 'Scope?' }] } }),
+      message({ id: 'answer-1', source: 'codex-plan', role: 'user', createdAt: 11, body: 'Answer', metadata: { clarification: true } })
+    ])
+
+    expect(prompt).toBeNull()
+  })
+
+  it('formats selected options and free text as planner clarification', () => {
+    const prompt = plannerQuestionPromptFromMessages([
+      message({
+        id: 'question-1',
+        source: 'codex-plan',
+        role: 'assistant',
+        createdAt: 10,
+        metadata: {
+          codexBlock: 'planner-question',
+          questions: [
+            { id: 'scope', question: 'Scope?', options: [{ id: 'chat', label: 'Chat only' }] },
+            { id: 'note', question: 'Anything else?' }
+          ]
+        }
+      })
+    ])
+
+    expect(prompt).not.toBeNull()
+    const answer = formatPlannerClarificationAnswer({
+      prompt: prompt!,
+      selectedOptionIds: { scope: 'chat' },
+      notes: { note: 'Keep current design language.' }
+    })
+
+    expect(answer).toContain('Question: Scope?')
+    expect(answer).toContain('Answer: Chat only')
+    expect(answer).toContain('Answer: Keep current design language.')
+  })
+})
+
 describe('chat utils helpers', () => {
+  it('slices visible chat messages from the newest end', () => {
+    const rows = Array.from({ length: 5 }, (_, index) => `message-${index + 1}`)
+    expect(visibleChatMessagesForLimit(rows, 3)).toEqual(['message-3', 'message-4', 'message-5'])
+    expect(visibleChatMessagesForLimit(rows, 10)).toEqual(rows)
+  })
+
+  it('detects top-scroll lazy loading only when older messages are hidden', () => {
+    expect(shouldLoadEarlierMessages(24, 5)).toBe(true)
+    expect(shouldLoadEarlierMessages(120, 5)).toBe(false)
+    expect(shouldLoadEarlierMessages(24, 0)).toBe(false)
+  })
+
+  it('preserves scroll position after older messages are prepended', () => {
+    expect(preserveScrollTopAfterPrepend(40, 1_000, 1_480)).toBe(520)
+  })
+
+  it('groups codex runtime rows into a readable work block and leaves user/completion rows outside', () => {
+    const items = groupCodexTranscriptMessages([
+      message({ id: 'user', role: 'user', createdAt: 1 }),
+      message({ id: 'thinking', role: 'thinking', status: 'completed', body: 'Reading the current chat UI.', createdAt: 2, metadata: { codexBlock: 'thinking', thinkingDurationMs: 72_000 } }),
+      message({ id: 'search', role: 'tool', status: 'completed', body: 'Command: rg -n "chat" src\nStatus: completed', createdAt: 3, metadata: { codexBlock: 'command', command: 'rg -n "chat" src' } }),
+      message({ id: 'read', role: 'tool', status: 'completed', body: 'Command: sed -n 1,40p src/a.ts\nStatus: completed', createdAt: 4, metadata: { codexBlock: 'command', command: 'sed -n 1,40p src/a.ts' } }),
+      message({ id: 'assistant', role: 'assistant', body: 'I found the command spam source.', createdAt: 5, metadata: { codexBlock: 'assistant', runStatus: 'running' } }),
+      message({ id: 'run', role: 'tool', status: 'completed', body: 'Command: npm test\nStatus: completed\n\n```text\npassed\n```', createdAt: 6, metadata: { codexBlock: 'command', command: 'npm test' } }),
+      message({ id: 'changes', role: 'tool', status: 'completed', body: 'Changes', createdAt: 7, metadata: { codexBlock: 'changes', changeFiles: 1, changeFileStats: [{ path: 'src/new.ts', insertions: 3, deletions: 0, blocks: 0, untracked: true }], changeHasNoChanges: false } }),
+      message({ id: 'complete', role: 'system', status: 'completed', body: 'Codex chat completed.', createdAt: 8, metadata: { codexBlock: 'run-complete' } })
+    ], 10)
+
+    expect(items.map((item) => item.kind)).toEqual(['message', 'work-block', 'message'])
+    const block = items[1].kind === 'work-block' ? items[1].block : null
+    expect(block?.entries.some((entry) => entry.kind === 'text' && entry.message.body.includes('Reading'))).toBe(true)
+    expect(block?.summaryRows.map((row) => row.label)).toEqual([
+      'Explored 1 file, 1 search',
+      'Ran 1 command',
+      'Created 1 file'
+    ])
+    expect(block?.summaryRows[1].messages[0].body).toContain('passed')
+  })
+
+  it('uses thinking metadata before run timestamps for the work duration label', () => {
+    const items = groupCodexTranscriptMessages([
+      message({ id: 'thinking-duration', role: 'thinking', status: 'completed', createdAt: 1_000, updatedAt: 301_000, metadata: { codexBlock: 'thinking', thinkingDurationMs: 72_000 } }),
+      message({ id: 'command-duration', role: 'tool', status: 'completed', createdAt: 302_000, metadata: { codexBlock: 'command', command: 'npm test' } })
+    ], 400_000)
+
+    const block = items[0].kind === 'work-block' ? items[0].block : null
+    expect(block?.durationMs).toBe(72_000)
+    expect(formatCodexWorkDuration(block?.durationMs, false)).toBe('Worked for 1m 12s')
+  })
+
+  it('falls back to elapsed run timestamps when thinking duration is missing', () => {
+    const items = groupCodexTranscriptMessages([
+      message({ id: 'thinking-elapsed', role: 'thinking', status: 'completed', createdAt: 1_000, metadata: { codexBlock: 'thinking' } }),
+      message({ id: 'command-elapsed', role: 'tool', status: 'completed', createdAt: 4_400, metadata: { codexBlock: 'command', command: 'npm test' } })
+    ], 10_000)
+
+    const block = items[0].kind === 'work-block' ? items[0].block : null
+    expect(formatCodexWorkDuration(block?.durationMs, false)).toBe('Worked for 3s')
+  })
+
+  it('freezes a running work block when the matching run-complete row exists', () => {
+    const items = groupCodexTranscriptMessages([
+      message({ id: 'thinking-running', runId: 'run-freeze', conversationId: 'conversation-freeze', role: 'thinking', status: 'running', createdAt: 1_000, updatedAt: 2_000, metadata: { codexBlock: 'thinking', runStatus: 'running' } }),
+      message({ id: 'assistant-running', runId: 'run-freeze', conversationId: 'conversation-freeze', role: 'assistant', status: 'running', createdAt: 3_000, metadata: { runStatus: 'running' } }),
+      message({ id: 'complete-freeze', runId: 'run-freeze', conversationId: 'conversation-freeze', role: 'system', status: 'completed', createdAt: 5_000, metadata: { codexBlock: 'run-complete' } })
+    ], 60_000)
+
+    const block = items[0].kind === 'work-block' ? items[0].block : null
+    expect(block?.isRunning).toBe(false)
+    expect(block?.durationMs).toBe(4_000)
+  })
+
+  it('does not treat command completion or failure as whole-run completion', () => {
+    const items = groupCodexTranscriptMessages([
+      message({ id: 'thinking-fresh', runId: 'run-fresh', conversationId: 'conversation-fresh', role: 'thinking', status: 'running', createdAt: 1_000, updatedAt: 2_000, metadata: { codexBlock: 'thinking', runStatus: 'running' } }),
+      message({ id: 'command-failed', runId: 'run-fresh', conversationId: 'conversation-fresh', role: 'tool', status: 'failed', createdAt: 3_000, metadata: { codexBlock: 'command', command: 'npm test', runStatus: 'running' } })
+    ], 10_000)
+
+    const block = items[0].kind === 'work-block' ? items[0].block : null
+    expect(block?.isRunning).toBe(true)
+    expect(block?.durationMs).toBe(9_000)
+  })
+
+  it('freezes stale running work blocks at the last activity time without a terminal row', () => {
+    const now = 30 * 60 * 1000
+    const items = groupCodexTranscriptMessages([
+      message({ id: 'thinking-stale', runId: 'run-stale', conversationId: 'conversation-stale', role: 'thinking', status: 'running', createdAt: 1_000, updatedAt: 2_000, metadata: { codexBlock: 'thinking', runStatus: 'running' } }),
+      message({ id: 'assistant-stale', runId: 'run-stale', conversationId: 'conversation-stale', role: 'assistant', status: 'running', createdAt: 4_000, updatedAt: 5_000, metadata: { runStatus: 'running' } })
+    ], now)
+
+    const block = items[0].kind === 'work-block' ? items[0].block : null
+    expect(block?.isRunning).toBe(false)
+    expect(block?.durationMs).toBe(4_000)
+  })
+
   it('detects explicit no-change tool messages', () => {
     const noChanges = message({
       id: 'changes-none',

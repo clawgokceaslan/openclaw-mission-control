@@ -59,6 +59,7 @@ interface UseProjectWorkspaceSettingsContext {
     | 'setProjectPromptPlanGuide'
     | 'setProjectPromptOutput'
     | 'setProjectPromptRules'
+    | 'setProjectPromptPostRun'
     | 'setProjectPromptTab'
     | 'setProjectPromptError'
     | 'setIsProjectPromptSaving'
@@ -81,6 +82,7 @@ interface UseProjectWorkspaceSettingsContext {
     | 'projectPromptPlanGuide'
     | 'projectPromptOutput'
     | 'projectPromptRules'
+    | 'projectPromptPostRun'
     | 'projectPromptError'
     | 'isStatusTemplatePickerOpen'
     | 'pendingStatusTemplate'
@@ -117,7 +119,8 @@ interface UseProjectWorkspaceSettingsResult {
     chooseProjectWorkspaceFolder: () => Promise<void>
     createWorkspaceFromDraft: () => Promise<Workspace | null>
     updateProjectWorkspace: (workspaceId: string | null) => Promise<void>
-    saveProjectCodexSettings: (draft?: { gatewayId: string; runtimeWorkspaceId: string; planModel: string; runModel: string }) => Promise<ProjectCodexSettings>
+    saveProjectDefaultsSettings: (draft: { defaultAgentId: string | null; defaultSkillIds: string[] }) => Promise<Project>
+    saveProjectCodexSettings: (draft?: { gatewayId: string; runtimeWorkspaceId: string; planModel: string; runModel: string; language?: string; planReasoningEffort?: string; runReasoningEffort?: string }) => Promise<ProjectCodexSettings>
     updateProjectGroupMembership: (nextGroupId: string | null) => Promise<void>
     saveSelectedProjectGroup: () => Promise<void>
     syncProjectWorkspace: () => Promise<void>
@@ -182,6 +185,7 @@ export function useProjectWorkspaceSettings({
     setProjectPromptPlanGuide,
     setProjectPromptOutput,
     setProjectPromptRules,
+    setProjectPromptPostRun,
     setProjectPromptTab,
     setProjectPromptError,
     setIsProjectPromptSaving,
@@ -204,6 +208,7 @@ export function useProjectWorkspaceSettings({
     projectPromptPlanGuide,
     projectPromptOutput,
     projectPromptRules,
+    projectPromptPostRun,
     projectPromptError,
     isStatusTemplatePickerOpen,
     pendingStatusTemplate,
@@ -322,12 +327,38 @@ export function useProjectWorkspaceSettings({
     await refresh()
   }
 
-  const saveProjectCodexSettings = async (draft?: { gatewayId: string; runtimeWorkspaceId: string; planModel: string; runModel: string }): Promise<ProjectCodexSettings> => {
+  const saveProjectDefaultsSettings = async (draft: { defaultAgentId: string | null; defaultSkillIds: string[] }): Promise<Project> => {
+    if (!project) throw new Error('Project is not loaded')
+    const response = await invokeBridge<Project>(IPC_CHANNELS.projects.update, {
+      actorToken: token,
+      id: project.id,
+      metrics: {
+        ...(project.metrics ?? {}),
+        defaultAgentId: draft.defaultAgentId || null,
+        defaultSkillIds: Array.from(new Set(draft.defaultSkillIds.filter(Boolean)))
+      }
+    })
+    if (!response.ok || !response.data) {
+      const message = response.error?.message ?? 'Unable to save project defaults'
+      setError(message)
+      throw new Error(message)
+    }
+    setProject(response.data)
+    setError(null)
+    await refresh()
+    return response.data
+  }
+
+  const saveProjectCodexSettings = async (draft?: { gatewayId: string; runtimeWorkspaceId: string; planModel: string; runModel: string; language?: string; planReasoningEffort?: string; runReasoningEffort?: string }): Promise<ProjectCodexSettings> => {
     if (!project) throw new Error('Project is not loaded')
     const nextGatewayId = draft?.gatewayId ?? codexGatewayId
     const nextRuntimeWorkspaceId = draft?.runtimeWorkspaceId ?? codexRuntimeWorkspaceId
     const nextPlanModel = draft?.planModel ?? codexDefaultPlanModel
     const nextRunModel = draft?.runModel ?? codexDefaultRunModel
+    const savedCodex = projectCodexSettings(project)
+    const nextLanguage = draft?.language ?? savedCodex.language ?? null
+    const nextPlanReasoningEffort = draft?.planReasoningEffort ?? savedCodex.planReasoningEffort ?? 'medium'
+    const nextRunReasoningEffort = draft?.runReasoningEffort ?? savedCodex.runReasoningEffort ?? 'medium'
 
     setCodexSaving(true)
     const response = await invokeBridge<Project>(IPC_CHANNELS.projects.update, {
@@ -338,7 +369,10 @@ export function useProjectWorkspaceSettings({
         runtimeWorkspaceId: nextRuntimeWorkspaceId || null,
         defaultModel: nextRunModel || null,
         planModel: nextPlanModel || null,
-        runModel: nextRunModel || null
+        runModel: nextRunModel || null,
+        language: nextLanguage || null,
+        planReasoningEffort: nextPlanReasoningEffort || 'medium',
+        runReasoningEffort: nextRunReasoningEffort || 'medium'
       }
     })
     setCodexSaving(false)
@@ -476,6 +510,7 @@ export function useProjectWorkspaceSettings({
     setProjectPromptPlanGuide(typeof project.metrics?.projectPlanGuide === 'string' ? project.metrics.projectPlanGuide : '')
     setProjectPromptOutput(project.defaultOutput ?? '')
     setProjectPromptRules(typeof project.metrics?.projectRules === 'string' ? project.metrics.projectRules : '')
+    setProjectPromptPostRun(typeof project.metrics?.projectPostRunPrompt === 'string' ? project.metrics.projectPostRunPrompt : '')
     setProjectPromptError(null)
     setIsProjectPromptSettingsOpen(true)
   }
@@ -493,7 +528,8 @@ export function useProjectWorkspaceSettings({
       metrics: {
         ...(project.metrics ?? {}),
         projectPlanGuide: projectPromptPlanGuide,
-        projectRules: projectPromptRules
+        projectRules: projectPromptRules,
+        projectPostRunPrompt: projectPromptPostRun
       }
     })
     setIsProjectPromptSaving(false)
@@ -692,6 +728,7 @@ export function useProjectWorkspaceSettings({
       chooseProjectWorkspaceFolder,
       createWorkspaceFromDraft,
       updateProjectWorkspace,
+      saveProjectDefaultsSettings,
       saveProjectCodexSettings,
       updateProjectGroupMembership,
       saveSelectedProjectGroup,

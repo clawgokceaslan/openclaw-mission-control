@@ -8,18 +8,39 @@ import type {
 } from '@shared/types/entities'
 import type { ProjectTableViewConfig, TableColumnConfig, TaskActivityMessage } from './types'
 import type { ProjectStatusColumn } from './status'
+import { normalizeCodexLanguage, normalizeCodexReasoningEffort } from '@shared/utils/codex-language'
 
 export function projectCodexSettings(project: Project | null): ProjectCodexSettings {
   const value = project?.metrics?.codex
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   const record = value as Record<string, unknown>
+  const legacyLanguage = typeof record.outputLanguage === 'string'
+    ? record.outputLanguage
+    : typeof record.inputLanguage === 'string'
+      ? record.inputLanguage
+      : undefined
   return {
     gatewayId: typeof record.gatewayId === 'string' ? record.gatewayId : null,
     runtimeWorkspaceId: typeof record.runtimeWorkspaceId === 'string' ? record.runtimeWorkspaceId : null,
     defaultModel: typeof record.defaultModel === 'string' ? record.defaultModel : null,
     planModel: typeof record.planModel === 'string' ? record.planModel : null,
-    runModel: typeof record.runModel === 'string' ? record.runModel : null
+    runModel: typeof record.runModel === 'string' ? record.runModel : null,
+    language: typeof record.language === 'string' ? normalizeCodexLanguage(record.language) : legacyLanguage ? normalizeCodexLanguage(legacyLanguage) : null,
+    planReasoningEffort: normalizeCodexReasoningEffort(record.planReasoningEffort),
+    runReasoningEffort: normalizeCodexReasoningEffort(record.runReasoningEffort),
+    inputLanguage: typeof record.inputLanguage === 'string' ? record.inputLanguage : null,
+    outputLanguage: typeof record.outputLanguage === 'string' ? record.outputLanguage : null
   }
+}
+
+export function projectDefaultAgentId(project: Project | null): string {
+  const value = project?.metrics?.defaultAgentId
+  return typeof value === 'string' ? value : ''
+}
+
+export function projectDefaultSkillIds(project: Project | null): string[] {
+  const value = project?.metrics?.defaultSkillIds
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : []
 }
 
 export function codexConfigOf(gateway?: { template?: unknown; endpoint?: string | null } | null): CodexCliGatewayConfig {

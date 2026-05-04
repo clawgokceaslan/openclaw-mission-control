@@ -35,6 +35,12 @@ export interface ProjectCodexSettings {
   defaultModel?: string | null
   planModel?: string | null
   runModel?: string | null
+  language?: string | null
+  planReasoningEffort?: string | null
+  runReasoningEffort?: string | null
+  /** Legacy project language fields. Read as fallback only; new saves should write language. */
+  inputLanguage?: string | null
+  outputLanguage?: string | null
 }
 
 export interface Workspace {
@@ -175,6 +181,7 @@ export interface ProjectInstructionTemplatePayload {
   planGuide?: string
   defaultOutput?: string
   rules?: string
+  postRunPrompt?: string
 }
 
 export interface ProjectInstructionTemplate {

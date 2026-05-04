@@ -20,8 +20,78 @@ export type CodexChangesSummary = {
   canRenderCard: boolean
 }
 
+export type CodexWorkSummaryKind = 'explored' | 'ran' | 'changed' | 'log'
+
+export type CodexWorkSummaryRow = {
+  id: string
+  kind: CodexWorkSummaryKind
+  label: string
+  messages: TaskActivityMessage[]
+}
+
+export type CodexWorkBlockEntry = {
+  kind: 'text'
+  id: string
+  message: TaskActivityMessage
+} | {
+  kind: 'summary'
+  id: string
+  summary: CodexWorkSummaryRow
+}
+
+export type CodexWorkBlock = {
+  id: string
+  runId: string
+  conversationId?: string
+  source: ChatMessageSource
+  messages: TaskActivityMessage[]
+  entries: CodexWorkBlockEntry[]
+  summaryRows: CodexWorkSummaryRow[]
+  startedAt: number
+  endedAt: number
+  durationMs?: number
+  isRunning: boolean
+}
+
+type CodexWorkTerminalState = {
+  at: number
+  status: 'completed' | 'failed'
+  message: TaskActivityMessage
+}
+
+export type ChatTranscriptRenderItem = {
+  kind: 'message'
+  id: string
+  message: TaskActivityMessage
+} | {
+  kind: 'work-block'
+  id: string
+  block: CodexWorkBlock
+}
+
+export type PlannerQuestionOption = {
+  id: string
+  label: string
+  description?: string
+}
+
+export type PlannerQuestionItem = {
+  id: string
+  question: string
+  why?: string
+  options: PlannerQuestionOption[]
+}
+
+export type PlannerQuestionPrompt = {
+  messageId: string
+  conversationId: string
+  summary: string
+  questions: PlannerQuestionItem[]
+}
+
 export const CHAT_INITIAL_MESSAGE_LIMIT = 80
 export const CHAT_MESSAGE_LOAD_STEP = 80
+export const CHAT_TOP_LAZY_LOAD_THRESHOLD = 96
 export const CHAT_COMPOSER_MIN_HEIGHT = 72
 export const CHAT_COMPOSER_MAX_HEIGHT = 270
 export const CHAT_RUNNING_ACTIVITY_STALE_MS = 15 * 60 * 1000
@@ -45,6 +115,8 @@ export function conversationIdOf(message: TaskActivityMessage): string | null {
 export function isRunCompleteMessage(message: TaskActivityMessage): boolean {
   const runMetadata = asRecord(message.metadata)
   const runStatus = typeof runMetadata?.runStatus === 'string' ? runMetadata.runStatus : undefined
+  const codexBlock = typeof runMetadata?.codexBlock === 'string' ? runMetadata.codexBlock : undefined
+  if (codexBlock && ['command', 'log', 'changes'].includes(codexBlock)) return false
   return (
     message.metadata?.codexBlock === 'run-complete'
     || message.metadata?.stopped === true
@@ -66,6 +138,19 @@ export function isFreshRunningMessage(message: TaskActivityMessage, now: number)
 
 export function userMessageCount(messages: TaskActivityMessage[]): number {
   return messages.filter((message) => message.role === 'user').length
+}
+
+export function visibleChatMessagesForLimit<T>(messages: T[], limit: number): T[] {
+  const normalizedLimit = Math.max(1, Math.floor(limit))
+  return messages.length > normalizedLimit ? messages.slice(messages.length - normalizedLimit) : messages
+}
+
+export function shouldLoadEarlierMessages(scrollTop: number, hiddenMessageCount: number, threshold = CHAT_TOP_LAZY_LOAD_THRESHOLD): boolean {
+  return hiddenMessageCount > 0 && scrollTop <= threshold
+}
+
+export function preserveScrollTopAfterPrepend(previousScrollTop: number, previousScrollHeight: number, nextScrollHeight: number): number {
+  return Math.max(0, previousScrollTop + Math.max(0, nextScrollHeight - previousScrollHeight))
 }
 
 export function parseNumberMetadata(value: unknown): number {
@@ -134,6 +219,85 @@ export function codexChangesSummary(message: TaskActivityMessage): CodexChangesS
   }
 }
 
+function normalizePlannerQuestionOptions(value: unknown): PlannerQuestionOption[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((raw, index): PlannerQuestionOption[] => {
+    if (typeof raw === 'string') {
+      const label = raw.trim()
+      return label ? [{ id: `option-${index + 1}`, label }] : []
+    }
+    const record = asRecord(raw)
+    if (!record) return []
+    const label = typeof record.label === 'string'
+      ? record.label.trim()
+      : typeof record.title === 'string'
+        ? record.title.trim()
+        : typeof record.value === 'string'
+          ? record.value.trim()
+          : ''
+    if (!label) return []
+    const id = typeof record.id === 'string' && record.id.trim() ? record.id.trim() : `option-${index + 1}`
+    const description = typeof record.description === 'string' && record.description.trim() ? record.description.trim() : undefined
+    return [{ id, label, description }]
+  })
+}
+
+function normalizePlannerQuestions(value: unknown): PlannerQuestionItem[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((raw, index): PlannerQuestionItem[] => {
+    const record = asRecord(raw)
+    if (!record) return []
+    const question = typeof record.question === 'string' ? record.question.trim() : ''
+    if (!question) return []
+    const id = typeof record.id === 'string' && record.id.trim() ? record.id.trim() : `question-${index + 1}`
+    const why = typeof record.why === 'string' && record.why.trim() ? record.why.trim() : undefined
+    return [{ id, question, why, options: normalizePlannerQuestionOptions(record.options) }]
+  })
+}
+
+export function plannerQuestionPromptFromMessages(messages: TaskActivityMessage[]): PlannerQuestionPrompt | null {
+  const sorted = [...messages].sort((a, b) => a.createdAt - b.createdAt)
+  for (let index = sorted.length - 1; index >= 0; index -= 1) {
+    const message = sorted[index]
+    const metadata = asRecord(message.metadata)
+    if (message.source !== 'codex-plan' || message.role !== 'assistant' || metadata?.codexBlock !== 'planner-question') continue
+    const conversationId = conversationIdOf(message)
+    if (!conversationId) continue
+    const answered = sorted.some((candidate) => {
+      if (candidate.createdAt <= message.createdAt) return false
+      if (conversationIdOf(candidate) !== conversationId) return false
+      return candidate.role === 'user' && asRecord(candidate.metadata)?.clarification === true
+    })
+    if (answered) return null
+    const questions = normalizePlannerQuestions(metadata.questions)
+    if (questions.length === 0) return null
+    const summary = typeof metadata.summary === 'string' && metadata.summary.trim()
+      ? metadata.summary.trim()
+      : 'Planner needs clarification before updating this task.'
+    return { messageId: message.id, conversationId, summary, questions }
+  }
+  return null
+}
+
+export function formatPlannerClarificationAnswer(input: {
+  prompt: PlannerQuestionPrompt
+  selectedOptionIds: Record<string, string>
+  notes: Record<string, string>
+}): string {
+  return [
+    'Planner clarification answers:',
+    ...input.prompt.questions.flatMap((question, index) => {
+      const selectedOptionId = input.selectedOptionIds[question.id]
+      const selectedOption = question.options.find((option) => option.id === selectedOptionId)
+      const note = input.notes[question.id]?.trim()
+      const lines = [`${index + 1}. Question: ${question.question}`]
+      if (selectedOption) lines.push(`Answer: ${selectedOption.label}${selectedOption.description ? ` - ${selectedOption.description}` : ''}`)
+      if (note) lines.push(selectedOption ? `Additional note: ${note}` : `Answer: ${note}`)
+      return lines
+    })
+  ].join('\n')
+}
+
 function parseDurationMs(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, value)
   if (typeof value === 'string' && value.trim()) {
@@ -155,6 +319,23 @@ function parseDurationMsFromSeconds(value: unknown): number | undefined {
 function formatThinkingSeconds(totalSeconds: number | undefined): string | undefined {
   if (!Number.isFinite(totalSeconds) || totalSeconds === undefined || totalSeconds <= 0) return undefined
   return `Working for ${Math.max(1, Math.round(totalSeconds))} seconds`
+}
+
+function formatDurationCompact(totalSeconds: number): string {
+  const seconds = Math.max(1, Math.round(totalSeconds))
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const remainingSeconds = seconds % 60
+  if (hours > 0) return `${hours}h ${minutes}m ${remainingSeconds}s`
+  if (minutes > 0) return `${minutes}m ${remainingSeconds}s`
+  return `${remainingSeconds}s`
+}
+
+export function formatCodexWorkDuration(durationMs: number | undefined, isRunning = false): string {
+  if (durationMs !== undefined && Number.isFinite(durationMs) && durationMs > 0) {
+    return `Worked for ${formatDurationCompact(durationMs / 1000)}`
+  }
+  return isRunning ? 'Working...' : 'Worked'
 }
 
 export function thinkingDurationLabel(message: TaskActivityMessage, now = Date.now()): string {
@@ -182,6 +363,258 @@ export function thinkingDurationLabel(message: TaskActivityMessage, now = Date.n
   const ended = message.status === 'running' ? now : (endedAt ?? message.updatedAt ?? message.createdAt)
   const durationMs = typeof started === 'number' && Number.isFinite(started) && typeof ended === 'number' && Number.isFinite(ended) ? Math.max(0, ended - started) : undefined
   return formatThinkingSeconds(durationMs !== undefined ? durationMs / 1000 : undefined) ?? ''
+}
+
+function metadataCodexBlock(message: TaskActivityMessage): string {
+  return typeof message.metadata?.codexBlock === 'string' ? message.metadata.codexBlock : ''
+}
+
+function isWorkBlockTextMessage(message: TaskActivityMessage): boolean {
+  if (message.role === 'thinking') return true
+  if (message.role !== 'assistant') return false
+  const codexBlock = metadataCodexBlock(message)
+  return codexBlock !== 'planner-question'
+}
+
+function isWorkBlockToolMessage(message: TaskActivityMessage): boolean {
+  if (message.role !== 'tool') return false
+  return ['command', 'log', 'changes'].includes(metadataCodexBlock(message))
+}
+
+function isCodexWorkMessage(message: TaskActivityMessage): boolean {
+  if (!chatMessageSources.has(message.source)) return false
+  if (message.role === 'error' || message.role === 'user') return false
+  if (metadataCodexBlock(message) === 'run-complete') return false
+  return isWorkBlockTextMessage(message) || isWorkBlockToolMessage(message)
+}
+
+function workGroupKey(message: TaskActivityMessage): string {
+  return `${conversationIdOf(message) ?? message.runId}:${message.runId}`
+}
+
+function commandFromMessage(message: TaskActivityMessage): string {
+  if (typeof message.metadata?.command === 'string') return message.metadata.command.trim()
+  const commandLine = message.body.match(/^Command:\s*(.+)$/m)
+  return commandLine?.[1]?.trim() ?? ''
+}
+
+function commandSearchCount(command: string): number {
+  return /(^|[\s;&|({])(rg|grep|find)\b/.test(command) ? 1 : 0
+}
+
+function commandFileExploreCount(command: string): number {
+  return /(^|[\s;&|({])(sed|cat|nl|ls|wc|head|tail|pwd)\b/.test(command) || /\bgit\s+(show|diff|status|log|ls-files)\b/.test(command) ? 1 : 0
+}
+
+function commandSummaryKind(message: TaskActivityMessage): CodexWorkSummaryKind {
+  const codexBlock = metadataCodexBlock(message)
+  if (codexBlock === 'log') return 'log'
+  if (codexBlock === 'changes') return 'changed'
+  const command = commandFromMessage(message)
+  if (commandSearchCount(command) > 0 || commandFileExploreCount(command) > 0) return 'explored'
+  return 'ran'
+}
+
+function plural(value: number, singular: string, pluralValue = `${singular}s`): string {
+  return `${value} ${value === 1 ? singular : pluralValue}`
+}
+
+function exploredSummaryLabel(messages: TaskActivityMessage[]): string {
+  const counts = messages.reduce((summary, message) => {
+    const command = commandFromMessage(message)
+    return {
+      files: summary.files + commandFileExploreCount(command),
+      searches: summary.searches + commandSearchCount(command)
+    }
+  }, { files: 0, searches: 0 })
+  const parts = [
+    counts.files > 0 ? plural(counts.files, 'file') : '',
+    counts.searches > 0 ? plural(counts.searches, 'search', 'searches') : ''
+  ].filter(Boolean)
+  return parts.length > 0 ? `Explored ${parts.join(', ')}` : `Explored ${plural(messages.length, 'command')}`
+}
+
+function parseChangedStatusCounts(message: TaskActivityMessage): { created: number; edited: number; deleted: number } {
+  const metadata = message.metadata ?? {}
+  const rawStats = Array.isArray(metadata.changeFileStats) ? metadata.changeFileStats : []
+  const totalFiles = Math.max(parseNumberMetadata(metadata.changeFiles), rawStats.length)
+  const createdFromStats = rawStats.filter((entry) => {
+    const record = asRecord(entry)
+    return record?.untracked === true || record?.kind === 'created'
+  }).length
+  const deletedFromStats = rawStats.filter((entry) => {
+    const record = asRecord(entry)
+    return record?.deleted === true || record?.kind === 'deleted'
+  }).length
+  const editedFromStats = rawStats.filter((entry) => asRecord(entry)?.kind === 'edited').length
+  const statusLines = typeof metadata.changeStatus === 'string' ? metadata.changeStatus.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) : []
+  const createdFromStatus = statusLines.filter((line) => line.startsWith('?? ')).length
+  const deletedFromStatus = statusLines.filter((line) => /^[MADRCU?! ]?D\b|^D[ MADRCU?!]/.test(line)).length
+  const created = Math.max(createdFromStats, createdFromStatus)
+  const deleted = Math.max(deletedFromStats, deletedFromStatus)
+  const edited = editedFromStats > 0 ? editedFromStats : Math.max(0, totalFiles - created - deleted)
+  return { created, edited, deleted }
+}
+
+function changedSummaryLabel(messages: TaskActivityMessage[]): string {
+  const totals = messages.reduce((summary, message) => {
+    const next = parseChangedStatusCounts(message)
+    return {
+      created: summary.created + next.created,
+      edited: summary.edited + next.edited,
+      deleted: summary.deleted + next.deleted
+    }
+  }, { created: 0, edited: 0, deleted: 0 })
+  const parts = [
+    totals.created > 0 ? `Created ${plural(totals.created, 'file')}` : '',
+    totals.edited > 0 ? `Edited ${plural(totals.edited, 'file')}` : '',
+    totals.deleted > 0 ? `Deleted ${plural(totals.deleted, 'file')}` : ''
+  ].filter(Boolean)
+  if (parts.length > 0) return parts.join(', ')
+  const changesSummary = messages.map(codexChangesSummary).reduce((summary, item) => ({
+    files: summary.files + item.files,
+    hasNoChanges: summary.hasNoChanges && item.hasNoChanges
+  }), { files: 0, hasNoChanges: true })
+  if (changesSummary.hasNoChanges) return 'No workspace changes detected'
+  return `Edited ${plural(changesSummary.files || messages.length, 'file')}`
+}
+
+function summaryLabel(kind: CodexWorkSummaryKind, messages: TaskActivityMessage[]): string {
+  if (kind === 'explored') return exploredSummaryLabel(messages)
+  if (kind === 'changed') return changedSummaryLabel(messages)
+  if (kind === 'log') return `Read ${plural(messages.length, 'log')}`
+  return `Ran ${plural(messages.length, 'command')}`
+}
+
+function explicitThinkingDurationMs(message: TaskActivityMessage): number | undefined {
+  const metadata = message.metadata ?? {}
+  return parseDurationMs(metadata.thinkingDurationMs)
+    ?? parseDurationMs(metadata.durationMs)
+    ?? parseDurationMs(metadata.duration_ms)
+    ?? parseDurationMsFromSeconds(metadata.duration_sec)
+    ?? parseDurationMsFromSeconds(metadata.thinkingDurationSec)
+    ?? parseDurationMsFromSeconds(metadata.thinking_duration_sec)
+}
+
+function workBlockDurationMs(messages: TaskActivityMessage[], startedAt: number, endedAt: number): number | undefined {
+  const explicitDurations = messages
+    .filter((message) => message.role === 'thinking')
+    .map(explicitThinkingDurationMs)
+    .filter((value): value is number => value !== undefined && Number.isFinite(value) && value > 0)
+  if (explicitDurations.length > 0) return explicitDurations.reduce((sum, value) => sum + value, 0)
+  return endedAt > startedAt ? endedAt - startedAt : undefined
+}
+
+function createSummaryRow(kind: CodexWorkSummaryKind, messages: TaskActivityMessage[], index: number): CodexWorkSummaryRow {
+  return {
+    id: `summary-${index}-${messages.map((message) => message.id).join('-')}`,
+    kind,
+    label: summaryLabel(kind, messages),
+    messages
+  }
+}
+
+function buildWorkBlockEntries(messages: TaskActivityMessage[]): { entries: CodexWorkBlockEntry[]; summaryRows: CodexWorkSummaryRow[] } {
+  const entries: CodexWorkBlockEntry[] = []
+  const summaryRows: CodexWorkSummaryRow[] = []
+  let pendingKind: CodexWorkSummaryKind | null = null
+  let pendingMessages: TaskActivityMessage[] = []
+
+  const flushPending = () => {
+    if (!pendingKind || pendingMessages.length === 0) return
+    const row = createSummaryRow(pendingKind, pendingMessages, summaryRows.length)
+    summaryRows.push(row)
+    entries.push({ kind: 'summary', id: row.id, summary: row })
+    pendingKind = null
+    pendingMessages = []
+  }
+
+  for (const message of messages) {
+    if (isWorkBlockTextMessage(message)) {
+      flushPending()
+      entries.push({ kind: 'text', id: message.id, message })
+      continue
+    }
+    const nextKind = commandSummaryKind(message)
+    if (pendingKind && pendingKind !== nextKind) flushPending()
+    pendingKind = nextKind
+    pendingMessages.push(message)
+  }
+  flushPending()
+
+  return { entries, summaryRows }
+}
+
+function terminalStateForMessage(message: TaskActivityMessage): CodexWorkTerminalState | null {
+  if (!isRunCompleteMessage(message)) return null
+  return {
+    at: messageTimeOf(message),
+    status: message.role === 'error' || message.status === 'failed' || message.metadata?.runStatus === 'failed' ? 'failed' : 'completed',
+    message
+  }
+}
+
+function createCodexWorkBlock(messages: TaskActivityMessage[], now: number, terminal?: CodexWorkTerminalState): CodexWorkBlock {
+  const first = messages[0]
+  const startedAt = Math.min(...messages.map((message) => message.createdAt))
+  const endedAt = Math.max(...messages.map((message) => message.updatedAt ?? message.createdAt))
+  const hasFreshRunningMessage = messages.some((message) => isFreshRunningMessage(message, now))
+  const isRunning = !terminal && hasFreshRunningMessage
+  const durationEnd = terminal?.at ?? (isRunning ? Math.max(now, endedAt) : endedAt)
+  const { entries, summaryRows } = buildWorkBlockEntries(messages)
+  return {
+    id: `work-${first.conversationId ?? first.runId}-${first.runId}-${first.id}-${messages.at(-1)?.id ?? first.id}`,
+    runId: first.runId,
+    conversationId: first.conversationId,
+    source: first.source,
+    messages,
+    entries,
+    summaryRows,
+    startedAt,
+    endedAt: durationEnd,
+    durationMs: workBlockDurationMs(messages, startedAt, durationEnd),
+    isRunning
+  }
+}
+
+export function groupCodexTranscriptMessages(messages: TaskActivityMessage[], now = Date.now()): ChatTranscriptRenderItem[] {
+  const items: ChatTranscriptRenderItem[] = []
+  const terminalByWorkKey = new Map<string, CodexWorkTerminalState>()
+  for (const message of messages) {
+    const terminal = terminalStateForMessage(message)
+    if (!terminal) continue
+    terminalByWorkKey.set(workGroupKey(message), terminal)
+  }
+  let pending: TaskActivityMessage[] = []
+  let pendingKey = ''
+
+  const flushPending = () => {
+    if (pending.length === 0) return
+    if (pending.length === 1 && pending[0].role === 'assistant' && pending[0].metadata?.runStatus !== 'running') {
+      const message = pending[0]
+      items.push({ kind: 'message', id: message.id, message })
+    } else {
+      const block = createCodexWorkBlock(pending, now, terminalByWorkKey.get(pendingKey))
+      items.push({ kind: 'work-block', id: block.id, block })
+    }
+    pending = []
+    pendingKey = ''
+  }
+
+  for (const message of messages) {
+    if (!isCodexWorkMessage(message)) {
+      flushPending()
+      items.push({ kind: 'message', id: message.id, message })
+      continue
+    }
+    const nextKey = workGroupKey(message)
+    if (pending.length > 0 && pendingKey !== nextKey) flushPending()
+    pendingKey = nextKey
+    pending.push(message)
+  }
+  flushPending()
+
+  return items
 }
 
 export function chatConversationTitle(source: ChatMessageSource): string {

@@ -28,7 +28,7 @@ import type {
   UpdateTaskCommentRequest
 } from '../../shared/contracts/ipc.js'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
-import type { ProjectStatus, Skill, Tag, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask } from '../../shared/types/entities.js'
+import type { Agent, ProjectStatus, Skill, Tag, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask } from '../../shared/types/entities.js'
 import { AuthService } from './auth.service.js'
 import { TaskRepository, TaskSkillRepository, TaskSubtaskRepository, TaskTagRepository } from '../../db/repositories/task-repo.js'
 import { ProjectRepository } from '../../db/repositories/project-repo.js'
@@ -38,12 +38,13 @@ import { AgentRepository } from '../../db/repositories/agent-repo.js'
 import { StatusRepository } from '../../db/repositories/status-repo.js'
 import { AppSettingsRepository, WorkspaceRepository } from '../../db/repositories/workspace-repo.js'
 import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
-import { DEFAULT_AGENT_KEY } from './app-settings.service.js'
+import { CODEX_LANGUAGE_KEY, DEFAULT_AGENT_KEY } from './app-settings.service.js'
 import { TaskJsonImportNormalizer } from './task-json-import.js'
 import type { NormalizedTaskJsonImport } from './task-json-import.js'
 import { safeConsole } from '../utils/safe-output.js'
 import { maybeShowCodexChatCompletionNotification } from '../utils/codex-notifications.js'
 import { formatUsageSummary, parseCodexEvents, type CodexNormalizedEvent, type CodexUsageSummary } from '../../shared/utils/codex-events.js'
+import { codexLanguageDisplayName, normalizeCodexLanguage, normalizeCodexReasoningEffort, type CodexLanguagePair } from '../../shared/utils/codex-language.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -65,6 +66,9 @@ type PlannerBridgeContext = {
   conversationId?: string
   gatewayId?: string
   model?: string
+  language?: string
+  inputLanguage?: string
+  outputLanguage?: string
   mode?: 'plan' | 'execute'
   exportWorkspacePath?: string
   runtimeWorkspacePath?: string
@@ -104,12 +108,20 @@ type ProjectPromptSnapshot = {
   planGuide: string
   defaultOutput: string
   rules: string
+  postRunPrompt: string
+}
+
+export type PlannerQuestionOption = {
+  id: string
+  label: string
+  description?: string
 }
 
 export type PlannerQuestionItem = {
   id: string
   question: string
   why?: string
+  options?: PlannerQuestionOption[]
 }
 
 export type PlannerQuestionPayload = {
@@ -343,13 +355,176 @@ function projectPromptSnapshot(project: { generalContext?: string | null; genera
   const metrics = project.metrics && typeof project.metrics === 'object' && !Array.isArray(project.metrics) ? project.metrics : {}
   const rules = (metrics as Record<string, unknown>).projectRules
   const planGuide = (metrics as Record<string, unknown>).projectPlanGuide
+  const postRunPrompt = (metrics as Record<string, unknown>).projectPostRunPrompt
   return {
     generalContext: project.generalContext ?? '',
     generalPrompt: project.generalPrompt ?? '',
     planGuide: typeof planGuide === 'string' ? planGuide : '',
     defaultOutput: project.defaultOutput ?? '',
-    rules: typeof rules === 'string' ? rules : ''
+    rules: typeof rules === 'string' ? rules : '',
+    postRunPrompt: typeof postRunPrompt === 'string' ? postRunPrompt : ''
   }
+}
+
+function projectCodexLanguageValue(project: { metrics?: Record<string, unknown> | null }, key: 'language' | 'inputLanguage' | 'outputLanguage'): string | undefined {
+  const codex = project.metrics?.codex
+  if (!codex || typeof codex !== 'object' || Array.isArray(codex)) return undefined
+  const value = (codex as Record<string, unknown>)[key]
+  return typeof value === 'string' && value.trim() ? value : undefined
+}
+
+async function resolveCodexLanguageSetting(
+  repo: AppSettingsRepository,
+  organizationId: string,
+  project: { metrics?: Record<string, unknown> | null },
+  requested?: { language?: string; inputLanguage?: string; outputLanguage?: string }
+): Promise<string> {
+  const stored = await repo.get<string | null>(organizationId, CODEX_LANGUAGE_KEY).catch(() => null)
+  return normalizeCodexLanguage(
+    requested?.language?.trim()
+      || projectCodexLanguageValue(project, 'language')
+      || requested?.outputLanguage
+      || requested?.inputLanguage
+      || projectCodexLanguageValue(project, 'outputLanguage')
+      || projectCodexLanguageValue(project, 'inputLanguage')
+      || stored
+      || undefined
+  )
+}
+
+function codexLanguageInstruction(language?: string | CodexLanguagePair): string {
+  const selectedLanguage = typeof language === 'object' && language
+    ? normalizeCodexLanguage(language.outputLanguage)
+    : normalizeCodexLanguage(language)
+  return [
+    `Selected Codex language: ${codexLanguageDisplayName(selectedLanguage)}.`,
+    'Interpret user, task, and project text in this selected language when ambiguous.',
+    'Write all user-facing replies, plans, planner questions, task updates, subtask titles/descriptions, checklist items, final summaries, and verification notes in this selected language.'
+  ].join(' ')
+}
+
+function projectCodexReasoningEffort(project: { metrics?: Record<string, unknown> | null }, mode: 'plan' | 'run', requested?: string): string {
+  if (requested) return normalizeCodexReasoningEffort(requested)
+  const codex = project.metrics?.codex
+  if (!codex || typeof codex !== 'object' || Array.isArray(codex)) return 'medium'
+  const record = codex as Record<string, unknown>
+  return normalizeCodexReasoningEffort(mode === 'plan' ? record.planReasoningEffort : record.runReasoningEffort)
+}
+
+function codexReasoningConfigArg(reasoningEffort: string): string {
+  return `model_reasoning_effort="${normalizeCodexReasoningEffort(reasoningEffort)}"`
+}
+
+function projectDefaultAgentId(project: { metrics?: Record<string, unknown> | null }): string {
+  const value = project.metrics?.defaultAgentId
+  return typeof value === 'string' ? value : ''
+}
+
+function projectDefaultSkillIds(project: { metrics?: Record<string, unknown> | null }): string[] {
+  const value = project.metrics?.defaultSkillIds
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : []
+}
+
+type ProjectInstructionAudience = 'plan' | 'run' | 'chat'
+
+function projectInstructionsSection(projectPrompt?: Partial<ProjectPromptSnapshot> | null, options?: { audience?: ProjectInstructionAudience }): string {
+  const audience = options?.audience ?? 'run'
+  const rows = audience === 'plan'
+    ? [
+        projectPrompt?.planGuide?.trim() ? `Plan Guide:\n${projectPrompt.planGuide.trim()}` : ''
+      ].filter(Boolean)
+    : audience === 'chat'
+      ? [
+          projectPrompt?.generalContext?.trim() ? `General Context:\n${projectPrompt.generalContext.trim()}` : '',
+          projectPrompt?.generalPrompt?.trim() ? `General Prompt:\n${projectPrompt.generalPrompt.trim()}` : '',
+          projectPrompt?.defaultOutput?.trim() ? `Default Output:\n${projectPrompt.defaultOutput.trim()}` : '',
+          projectPrompt?.rules?.trim() ? `Project Rules:\n${projectPrompt.rules.trim()}` : ''
+        ].filter(Boolean)
+      : [
+          projectPrompt?.generalContext?.trim() ? `General Context:\n${projectPrompt.generalContext.trim()}` : '',
+          projectPrompt?.generalPrompt?.trim() ? `General Prompt:\n${projectPrompt.generalPrompt.trim()}` : '',
+          projectPrompt?.planGuide?.trim() ? `Plan Guide:\n${projectPrompt.planGuide.trim()}` : '',
+          projectPrompt?.defaultOutput?.trim() ? `Default Output:\n${projectPrompt.defaultOutput.trim()}` : '',
+          projectPrompt?.rules?.trim() ? `Project Rules:\n${projectPrompt.rules.trim()}` : ''
+        ].filter(Boolean)
+  return rows.length > 0
+    ? `High-priority Project Instructions:\n${rows.join('\n\n')}`
+    : 'High-priority Project Instructions: none configured.'
+}
+
+function projectInstructionsFromPlannerContext(context?: unknown): ProjectPromptSnapshot {
+  const contextRecord = context && typeof context === 'object' && !Array.isArray(context) ? context as Record<string, unknown> : {}
+  const projectRecord = contextRecord.project && typeof contextRecord.project === 'object' && !Array.isArray(contextRecord.project) ? contextRecord.project as Record<string, unknown> : {}
+  return {
+    generalContext: typeof projectRecord.generalContext === 'string' ? projectRecord.generalContext : '',
+    generalPrompt: typeof projectRecord.generalPrompt === 'string' ? projectRecord.generalPrompt : '',
+    planGuide: typeof projectRecord.planGuide === 'string' ? projectRecord.planGuide : '',
+    defaultOutput: typeof projectRecord.defaultOutput === 'string' ? projectRecord.defaultOutput : '',
+    rules: typeof projectRecord.rules === 'string' ? projectRecord.rules : '',
+    postRunPrompt: typeof projectRecord.postRunPrompt === 'string' ? projectRecord.postRunPrompt : ''
+  }
+}
+
+function projectSettingsSectionFromPlannerContext(context?: unknown): string {
+  const contextRecord = context && typeof context === 'object' && !Array.isArray(context) ? context as Record<string, unknown> : {}
+  const settings = contextRecord.projectSettings && typeof contextRecord.projectSettings === 'object' && !Array.isArray(contextRecord.projectSettings)
+    ? contextRecord.projectSettings as Record<string, unknown>
+    : {}
+  const codex = settings.codex && typeof settings.codex === 'object' && !Array.isArray(settings.codex)
+    ? settings.codex as Record<string, unknown>
+    : {}
+  const defaultSkills = Array.isArray(settings.defaultSkills)
+    ? settings.defaultSkills.map((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return ''
+        const record = item as Record<string, unknown>
+        return typeof record.name === 'string' ? record.name : typeof record.id === 'string' ? record.id : ''
+      }).filter(Boolean)
+    : []
+  const rows = [
+    settings.language ? `- Language: ${codexLanguageDisplayName(settings.language)}` : '',
+    settings.defaultAgentId ? `- Default agent id: ${String(settings.defaultAgentId)}` : '',
+    defaultSkills.length > 0 ? `- Default skills: ${defaultSkills.join(', ')}` : '',
+    codex.gatewayId ? `- Gateway: ${String(codex.gatewayId)}` : '',
+    codex.runtimeWorkspaceId ? `- Runtime workspace id: ${String(codex.runtimeWorkspaceId)}` : '',
+    codex.planModel ? `- Plan model: ${String(codex.planModel)} (${normalizeCodexReasoningEffort(codex.planReasoningEffort)} reasoning)` : '',
+    (codex.runModel || codex.defaultModel) ? `- Run model: ${String(codex.runModel ?? codex.defaultModel)} (${normalizeCodexReasoningEffort(codex.runReasoningEffort)} reasoning)` : ''
+  ].filter(Boolean)
+  return rows.length > 0 ? `High-priority Project settings:\n${rows.join('\n')}` : ''
+}
+
+function routedProjectContextForPrompt(context: unknown, audience: ProjectInstructionAudience): unknown {
+  if (!context || typeof context !== 'object' || Array.isArray(context)) return context
+  const record = { ...(context as Record<string, unknown>) }
+  const project = record.project && typeof record.project === 'object' && !Array.isArray(record.project)
+    ? { ...(record.project as Record<string, unknown>) }
+    : null
+  if (!project) return record
+  if (audience === 'plan') {
+    project.generalContext = ''
+    project.generalPrompt = ''
+    project.defaultOutput = ''
+    project.rules = ''
+    project.postRunPrompt = ''
+  } else if (audience === 'chat') {
+    project.planGuide = ''
+    project.postRunPrompt = ''
+  }
+  record.project = project
+  return record
+}
+
+function effectiveAgentSection(agent?: (Partial<Agent> & { inherited?: boolean }) | null): string {
+  if (!agent?.id && !agent?.name) return 'Effective agent: none assigned.'
+  const parts = [
+    agent.name ? `name=${agent.name}` : '',
+    agent.id ? `id=${agent.id}` : '',
+    agent.title ? `title=${agent.title}` : '',
+    agent.description ? `description=available` : '',
+    agent.tags?.length ? `tags=${agent.tags.map((tag) => tag.name).filter(Boolean).join(',')}` : '',
+    agent.trainingMarkdown?.trim() ? 'generalPrompt=available' : '',
+    agent.inherited ? 'source=default inherited agent' : 'source=task/project agent'
+  ].filter(Boolean)
+  return `Effective agent: ${parts.join(', ')}. Apply this agent's instructions as execution guidance; full active settings are available in Agents.md when exported.`
 }
 
 function codexTrustedProjectConfig(path: string): string {
@@ -384,11 +559,22 @@ function projectCodexRuntimeWorkspaceId(project: { metrics?: Record<string, unkn
   return typeof runtimeWorkspaceId === 'string' && runtimeWorkspaceId.trim() ? runtimeWorkspaceId.trim() : null
 }
 
-function initialCodexPrompt(exportWorkspacePath: string, runtimeWorkspacePath: string, projectId: string, taskId: string, omcInstructionsPath: string): string {
+export function initialCodexPrompt(
+  exportWorkspacePath: string,
+  runtimeWorkspacePath: string,
+  projectId: string,
+  taskId: string,
+  omcInstructionsPath: string,
+  options: { language?: string; languages?: CodexLanguagePair; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null } = {}
+): string {
+  const language = typeof options.languages === 'object' ? options.languages.outputLanguage : options.language
   return [
     `Open Mission Control runtime workspace is ${runtimeWorkspacePath}.`,
     `The exported task files are in ${exportWorkspacePath}.`,
     `The Open Mission Control project id is ${projectId} and task id is ${taskId}.`,
+    codexLanguageInstruction(language),
+    projectInstructionsSection(options.projectPrompt, { audience: 'run' }),
+    effectiveAgentSection(options.effectiveAgent),
     `Before making changes, read the run-specific .omc CLI instructions at ${omcInstructionsPath} in the runtime workspace.`,
     `Read ${exportWorkspacePath}/Task.md, ${exportWorkspacePath}/Agents.md, ${exportWorkspacePath}/Skills.md, and ${exportWorkspacePath}/attachments/ if present.`,
     'Apply the Project Rules section in Task.md before making implementation decisions.',
@@ -412,31 +598,24 @@ export const PLANNER_GENERIC_TEXT_REJECT_LIST = [
   'Check everything'
 ]
 
-const PLANNED_SUBTASK_REQUIRED_DESCRIPTION_SECTIONS = [
-  'Objective',
-  'Task context',
-  'Exact work',
-  'Files/areas',
-  'Done when'
-]
-
-function plannerJsonGuidance() {
+export function plannerJsonGuidance() {
   return {
     planningPolicy: {
       subtaskRewrite: 'Refactor the entire subtasks array on every planning update, including completed/done/closed subtasks. Treat current subtasks as input context, not immutable history.',
-      granularity: 'extreme',
+      granularity: 'balanced',
+      subtaskCount: 'Use 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 12 subtasks for very large tasks.',
       primaryExecutionPlan: 'Subtasks are the primary execution plan that will later be exported into Task.md for Codex Run.',
       noGenericWork: 'No generic tasks or checklist items such as Test yap, Run tests, Fix bugs, Implement feature, Implement UI, or Check everything.'
     },
     subtaskPolicy: [
-      'Create one subtask per meaningful operation, file/module group, UI state, backend/data-flow change, migration, verification step, and edge-case handling area.',
-      'Every subtask must include a detailed markdown description with Objective, Task context, Exact work, Files/areas, and Done when sections.',
-      'Every subtask must include unchecked checklist items that are specific to that subtask.',
-      'Checklist verification items must name concrete commands, screens, behaviors, or file areas.'
+      'Create subtasks for cohesive implementation areas, independent workflows, separate ownership boundaries, or meaningful verification paths.',
+      'Do not create a separate subtask for every file, UI state, edge case, or verification command; keep those details inside the relevant subtask checklist.',
+      'Every subtask must include a concise description and unchecked checklist items that are specific to that subtask.',
+      'Checklist verification items must name concrete commands, screens, behaviors, or file areas when verification is relevant.'
     ],
     plannedSubtaskTemplate: {
       title: 'Specific action-oriented subtask title',
-      description: '## Objective\n...\n\n## Task context\n...\n\n## Exact work\n...\n\n## Files/areas\n...\n\n## Done when\n...',
+      description: 'Concise implementation context, expected work, and completion signal for this cohesive area.',
       checklist: [
         { title: 'Specific implementation or verification item for this subtask', checked: false }
       ]
@@ -445,22 +624,36 @@ function plannerJsonGuidance() {
   }
 }
 
-export function initialPlannerPrompt(projectId: string, taskId: string, helperPath: string, contextPath: string, plannedTaskPath: string): string {
+export function initialPlannerPrompt(
+  projectId: string,
+  taskId: string,
+  helperPath: string,
+  contextPath: string,
+  plannedTaskPath: string,
+  options: { language?: string; languages?: CodexLanguagePair; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null } = {}
+): string {
   const questionsPath = plannedTaskPath.replace(/planned-task\.json$/i, 'questions.json')
+  const language = typeof options.languages === 'object' ? options.languages.outputLanguage : options.language
   return [
     'You are planning an Open Mission Control task inside Codex TUI.',
     'Do not use MCP for this flow. Use the local helper CLI in this workspace.',
     `First run: node ${helperPath} context > ${contextPath}`,
     `The project id is ${projectId} and the source task id is ${taskId}.`,
+    codexLanguageInstruction(language),
+    projectInstructionsSection(options.projectPrompt, { audience: 'plan' }),
+    effectiveAgentSection(options.effectiveAgent),
     'Plan the current task from its task-detail data: title, description, custom fields, checklist, comments, tags, and subtasks.',
-    'Apply the project context, prompt, Plan Guide, default output, and Project Rules from the context JSON before producing the planned task.',
-    `If critical details are missing and guessing would weaken the plan, write ${questionsPath} with { "summary": "...", "questions": [{ "id": "...", "question": "...", "why": "..." }] } and run: node ${helperPath} ask ${questionsPath}`,
+    'Apply the high-priority project instructions before producing the planned task. Use context JSON as supporting detail, not as a replacement for those instructions.',
+    `If critical details are missing and guessing would weaken the plan, write ${questionsPath} with { "summary": "...", "questions": [{ "id": "...", "question": "...", "why": "...", "options": [{ "id": "...", "label": "...", "description": "..." }] }] } and run: node ${helperPath} ask ${questionsPath}`,
+    'When useful choices are known, ask multiple-choice questions by adding options. Keep option labels short and concrete.',
     'The AI must produce the clarification questions itself. After ask succeeds, do not write planned-task.json, do not validate, and do not update the task.',
     'Refactor the entire subtasks array. Completed, done, and closed subtasks are input context and may be rewritten in the planned task JSON.',
-    'Use extreme decomposition: split every meaningful operation, file/module group, UI state, backend/data-flow change, migration, verification step, and edge-case handling area into its own subtask.',
+    'Use balanced decomposition: produce 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 12 subtasks for very large tasks.',
+    'Create a subtask only for a cohesive implementation area, independent workflow, separate ownership boundary, or meaningful verification path.',
+    'Do not split every file, UI state, edge case, or verification command into its own subtask. Put those details into the relevant subtask checklist.',
     'No generic test tasks or generic checklist items. Do not write vague items like Test yap, Run tests, Fix bugs, Implement feature, Implement UI, or Check everything.',
     'For every subtask, consider its title, description, custom fields, checklist, comments, tags, status, and due date.',
-    'Every planned subtask description must include Objective, Task context, Exact work, Files/areas, and Done when sections.',
+    'Every planned subtask description must be concise but implementation-ready. Use Objective, Task context, Exact work, Files/areas, and Done when sections only when they improve clarity.',
     'Every planned subtask must include concrete unchecked checklist items. Verification checklist items must name exact commands, screens, behaviors, or file areas.',
     `Use ${contextPath} currentTaskJson as the starting JSON shape and revise it into the planned task JSON.`,
     `Write the planned JSON to ${plannedTaskPath}.`,
@@ -476,6 +669,8 @@ function plannerClarificationPrompt(input: {
   conversationId: string
   clarificationMessage?: string
   transcript: TaskActivityMessage[]
+  language?: string
+  languages?: CodexLanguagePair
 }): string {
   if (!input.clarificationMessage?.trim() && input.transcript.length === 0) return ''
   const transcript = input.transcript
@@ -484,6 +679,7 @@ function plannerClarificationPrompt(input: {
     .join('\n\n')
   return [
     `This planning run continues plan conversation ${input.conversationId}.`,
+    codexLanguageInstruction(input.language ?? input.languages),
     input.clarificationMessage?.trim()
       ? `User clarification answer:\n${input.clarificationMessage.trim()}`
       : '',
@@ -582,11 +778,6 @@ function isGenericPlannerText(value: string): boolean {
   return false
 }
 
-function hasPlannerDescriptionSection(description: string, section: string): boolean {
-  const escaped = section.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('/', '\\s*/\\s*')
-  return new RegExp(`(^|\\n)\\s{0,3}(#{1,6}\\s*)?${escaped}\\s*:?`, 'iu').test(description)
-}
-
 export function validatePlannerTaskJsonQuality(normalized: NormalizedTaskJsonImport): string[] {
   const issues: string[] = []
   if (!normalized.description.trim()) issues.push('Task description is required for planner updates.')
@@ -599,10 +790,6 @@ export function validatePlannerTaskJsonQuality(normalized: NormalizedTaskJsonImp
     if (isGenericPlannerText(subtask.title)) issues.push(`${label}.title is too generic.`)
     if (!subtask.description.trim()) {
       issues.push(`${label}.description is required.`)
-    } else {
-      for (const section of PLANNED_SUBTASK_REQUIRED_DESCRIPTION_SECTIONS) {
-        if (!hasPlannerDescriptionSection(subtask.description, section)) issues.push(`${label}.description must include a "${section}" section.`)
-      }
     }
     if (subtask.checklistItems.length === 0) {
       issues.push(`${label}.checklist must include concrete unchecked items.`)
@@ -625,6 +812,8 @@ export function codexChatPrompt(input: {
   context?: unknown
   mode?: 'chat' | 'plan' | 'steer'
   attachments?: Array<{ name: string; path: string }>
+  language?: string
+  languages?: CodexLanguagePair
 }): string {
   const transcript = input.transcript
     .slice(-24)
@@ -639,9 +828,13 @@ export function codexChatPrompt(input: {
     ? `Attached files for this message:\n${input.attachments.map((item) => `- ${item.name}: ${item.path}`).join('\n')}`
     : ''
   const contextRecord = input.context && typeof input.context === 'object' && !Array.isArray(input.context) ? input.context as Record<string, unknown> : {}
-  const projectRecord = contextRecord.project && typeof contextRecord.project === 'object' && !Array.isArray(contextRecord.project) ? contextRecord.project as Record<string, unknown> : {}
-  const projectRules = typeof projectRecord.rules === 'string' && projectRecord.rules.trim() ? `Project Rules:\n${projectRecord.rules.trim()}` : ''
-  const projectPlanGuide = typeof projectRecord.planGuide === 'string' && projectRecord.planGuide.trim() ? `Project Plan Guide:\n${projectRecord.planGuide.trim()}` : ''
+  const projectInstructions = projectInstructionsFromPlannerContext(input.context)
+  const effectiveAgent = contextRecord.effectiveAgent && typeof contextRecord.effectiveAgent === 'object' && !Array.isArray(contextRecord.effectiveAgent)
+    ? contextRecord.effectiveAgent as Partial<Agent> & { inherited?: boolean }
+    : null
+  const language = typeof input.languages === 'object' ? input.languages.outputLanguage : input.language
+  const instructionAudience: ProjectInstructionAudience = input.mode === 'plan' ? 'plan' : 'chat'
+  const routedContext = routedProjectContextForPrompt(input.context, instructionAudience)
   const userPromptLabel = input.mode === 'steer'
     ? 'User steer instruction'
     : input.mode === 'plan'
@@ -651,14 +844,16 @@ export function codexChatPrompt(input: {
   return [
     'You are continuing an Open Mission Control task chat.',
     modeInstruction,
+    codexLanguageInstruction(language),
+    projectSettingsSectionFromPlannerContext(input.context),
     `${userPromptLabel}:\n${input.message}`,
+    projectInstructionsSection(projectInstructions, { audience: instructionAudience }),
+    effectiveAgentSection(effectiveAgent),
     importantComments,
     `Task id: ${input.task.id}`,
     `Task title: ${input.task.title}`,
     input.task.description ? `Task description:\n${input.task.description}` : '',
-    input.context ? `Current task context JSON:\n${JSON.stringify(input.context, null, 2)}` : '',
-    input.mode === 'plan' ? projectPlanGuide : '',
-    projectRules,
+    routedContext ? `Current task context JSON:\n${JSON.stringify(routedContext, null, 2)}` : '',
     transcript ? `Recent chat transcript:\n${transcript}` : '',
     attachments,
     'Respond with concrete next steps or implementation notes. If you make changes, summarize files and checks.',
@@ -950,6 +1145,25 @@ function parseGitNumstat(value: string): { files: number; insertions: number; de
   }, { files: 0, insertions: 0, deletions: 0, fileStats: [] as Array<{ path: string; insertions: number; deletions: number }> })
 }
 
+function combineGitNumstatStats(...stats: Array<{ fileStats: Array<{ path: string; insertions: number; deletions: number }> }>): { files: number; insertions: number; deletions: number; fileStats: Array<{ path: string; insertions: number; deletions: number }> } {
+  const pathMap = new Map<string, { path: string; insertions: number; deletions: number }>()
+  for (const stat of stats) {
+    for (const item of stat.fileStats) {
+      const current = pathMap.get(item.path) ?? { path: item.path, insertions: 0, deletions: 0 }
+      current.insertions += item.insertions
+      current.deletions += item.deletions
+      pathMap.set(item.path, current)
+    }
+  }
+  const fileStats = Array.from(pathMap.values())
+  return {
+    files: fileStats.length,
+    insertions: fileStats.reduce((sum, item) => sum + item.insertions, 0),
+    deletions: fileStats.reduce((sum, item) => sum + item.deletions, 0),
+    fileStats
+  }
+}
+
 function parsePatchPath(chunk: string): string | null {
   const plusLine = chunk.split(/\r?\n/).find((line) => line.startsWith('+++ '))
   if (plusLine) return plusLine.replace(/^\+\+\+\s+b\//, '').replace(/^\+\+\+\s+/, '').trim()
@@ -1016,7 +1230,66 @@ function mergeChangeFileStats(
   }
 }
 
-async function codexWorkspaceChanges(runtimeWorkspacePath: string, changesPath?: string): Promise<{
+function isOmcRuntimePath(path: string): boolean {
+  return path === '.omc' || path.startsWith('.omc/') || path.includes('/.omc/')
+}
+
+function isLikelyTextBuffer(buffer: Buffer): boolean {
+  if (buffer.length === 0) return true
+  if (buffer.includes(0)) return false
+  const sample = buffer.subarray(0, Math.min(buffer.length, 8192))
+  let suspicious = 0
+  for (const byte of sample) {
+    if (byte === 9 || byte === 10 || byte === 13) continue
+    if (byte >= 32 && byte <= 126) continue
+    if (byte >= 128) continue
+    suspicious += 1
+  }
+  return suspicious / sample.length < 0.08
+}
+
+function countTextLines(buffer: Buffer): number {
+  if (buffer.length === 0) return 0
+  let lines = 1
+  for (const byte of buffer) {
+    if (byte === 10) lines += 1
+  }
+  return buffer[buffer.length - 1] === 10 ? Math.max(0, lines - 1) : lines
+}
+
+async function untrackedWorkspaceFileStats(runtimeWorkspacePath: string, value: string): Promise<{
+  summary: string
+  fileStats: Array<{ path: string; insertions: number; deletions: number; blocks: number; untracked?: boolean; binary?: boolean }>
+}> {
+  const paths = value.trim().split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !isOmcRuntimePath(line))
+  const fileStats: Array<{ path: string; insertions: number; deletions: number; blocks: number; untracked?: boolean; binary?: boolean }> = []
+  for (const relativePath of paths) {
+    const absolutePath = resolve(runtimeWorkspacePath, relativePath)
+    if (absolutePath !== runtimeWorkspacePath && !absolutePath.startsWith(`${resolve(runtimeWorkspacePath)}${sep}`)) continue
+    try {
+      const info = await stat(absolutePath)
+      if (!info.isFile()) continue
+      const buffer = await readFile(absolutePath)
+      const isText = isLikelyTextBuffer(buffer)
+      fileStats.push({
+        path: relativePath,
+        insertions: isText ? countTextLines(buffer) : 0,
+        deletions: 0,
+        blocks: 0,
+        untracked: true,
+        binary: !isText
+      })
+    } catch {
+      fileStats.push({ path: relativePath, insertions: 0, deletions: 0, blocks: 0, untracked: true })
+    }
+  }
+  return {
+    summary: fileStats.map((item) => `?? ${item.path}${item.binary ? ' (binary)' : item.insertions ? ` (+${item.insertions})` : ''}`).join('\n'),
+    fileStats
+  }
+}
+
+export async function codexWorkspaceChanges(runtimeWorkspacePath: string, changesPath?: string): Promise<{
   body: string
   truncated: boolean
   unavailable?: boolean
@@ -1032,7 +1305,15 @@ async function codexWorkspaceChanges(runtimeWorkspacePath: string, changesPath?:
       cwd: runtimeWorkspacePath,
       maxBuffer: 2 * 1024 * 1024
     })
+    const cachedStatResult = await execFileAsync('git', ['diff', '--cached', '--stat', '--', '.', ':(exclude).omc/**'], {
+      cwd: runtimeWorkspacePath,
+      maxBuffer: 2 * 1024 * 1024
+    })
     const numstatResult = await execFileAsync('git', ['diff', '--numstat', '--', '.', ':(exclude).omc/**'], {
+      cwd: runtimeWorkspacePath,
+      maxBuffer: 2 * 1024 * 1024
+    })
+    const cachedNumstatResult = await execFileAsync('git', ['diff', '--cached', '--numstat', '--', '.', ':(exclude).omc/**'], {
       cwd: runtimeWorkspacePath,
       maxBuffer: 2 * 1024 * 1024
     })
@@ -1040,11 +1321,21 @@ async function codexWorkspaceChanges(runtimeWorkspacePath: string, changesPath?:
       cwd: runtimeWorkspacePath,
       maxBuffer: 8 * 1024 * 1024
     })
+    const cachedPatchResult = await execFileAsync('git', ['diff', '--cached', '--patch', '--', '.', ':(exclude).omc/**'], {
+      cwd: runtimeWorkspacePath,
+      maxBuffer: 8 * 1024 * 1024
+    })
+    const untrackedResult = await execFileAsync('git', ['ls-files', '--others', '--exclude-standard', '--', '.', ':(exclude).omc/**'], {
+      cwd: runtimeWorkspacePath,
+      maxBuffer: 2 * 1024 * 1024
+    })
     const status = String(statusResult.stdout).trim()
-    const stat = String(statResult.stdout).trim()
+    const stat = [String(cachedStatResult.stdout).trim(), String(statResult.stdout).trim()].filter(Boolean).join('\n')
     const numstat = String(numstatResult.stdout).trim()
-    const patch = String(patchResult.stdout).trim()
-    if (!status && !stat && !patch) return {
+    const cachedNumstat = String(cachedNumstatResult.stdout).trim()
+    const patch = [String(cachedPatchResult.stdout).trim(), String(patchResult.stdout).trim()].filter(Boolean).join('\n')
+    const untracked = await untrackedWorkspaceFileStats(runtimeWorkspacePath, String(untrackedResult.stdout))
+    if (!status && !stat && !patch && untracked.fileStats.length === 0) return {
       body: 'No workspace changes detected.',
       truncated: false,
       metadata: {
@@ -1061,22 +1352,27 @@ async function codexWorkspaceChanges(runtimeWorkspacePath: string, changesPath?:
     }
     if (changesPath && patch) await writeFile(changesPath, patch, 'utf8').catch(() => undefined)
     const truncatedPatch = truncateCodexText(patch, CODEX_DIFF_PATCH_LIMIT)
-    const numstatSummary = parseGitNumstat(numstat)
+    const numstatSummary = combineGitNumstatStats(parseGitNumstat(cachedNumstat), parseGitNumstat(numstat))
     const patchSummary = parseGitPatchStats(patch)
-    const mergedSummary = mergeChangeFileStats(numstatSummary, patchSummary)
+    const mergedSummary = mergeChangeFileStats(numstatSummary, {
+      files: patchSummary.files + untracked.fileStats.length,
+      blocks: patchSummary.blocks,
+      fileStats: [...patchSummary.fileStats, ...untracked.fileStats]
+    })
+    const statWithUntracked = [stat, untracked.summary ? `Untracked files counted from file contents:\n${untracked.summary}` : ''].filter(Boolean).join('\n\n')
     return {
       body: [
         'Changes',
         '',
         status ? ['Status', '````text', status, '````'].join('\n') : '',
-        stat ? ['Stat', '````text', stat, '````'].join('\n') : '',
+        statWithUntracked ? ['Stat', '````text', statWithUntracked, '````'].join('\n') : '',
         truncatedPatch.text ? ['', '````diff', truncatedPatch.text, '````'].join('\n') : ''
       ].filter(Boolean).join('\n'),
       truncated: truncatedPatch.truncated,
       changesPath: changesPath && patch ? changesPath : undefined,
       metadata: {
         changeStatus: status,
-        changeStat: stat,
+        changeStat: statWithUntracked,
         changeFiles: mergedSummary.files,
         changeInsertions: mergedSummary.insertions,
         changeDeletions: mergedSummary.deletions,
@@ -1099,6 +1395,251 @@ async function codexWorkspaceChanges(runtimeWorkspacePath: string, changesPath?:
       }
     }
   }
+}
+
+type CodexOutputChangeKind = 'created' | 'edited' | 'deleted'
+
+type CodexOutputChangeFile = {
+  path: string
+  kind: CodexOutputChangeKind
+  insertions: number
+  deletions: number
+  blocks: number
+  binary?: boolean
+}
+
+const CODEX_OUTPUT_PATH_RE = /(?:`([^`\r\n]+)`|(?:[A-Za-z0-9_.@+-]+\/)+[A-Za-z0-9_.@+-]+(?:\.[A-Za-z0-9_+-]+)?)/g
+
+function codexOutputText(rawEvents: string, finalMessage: string): string {
+  const lines: string[] = []
+  if (finalMessage.trim()) lines.push(finalMessage)
+  for (const line of rawEvents.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    try {
+      const parsed = JSON.parse(trimmed) as unknown
+      const collect = (value: unknown, depth = 0) => {
+        if (depth > 5) return
+        if (typeof value === 'string') {
+          if (value.trim()) lines.push(value)
+          return
+        }
+        if (Array.isArray(value)) {
+          value.forEach((item) => collect(item, depth + 1))
+          return
+        }
+        if (value && typeof value === 'object') {
+          for (const item of Object.values(value as Record<string, unknown>)) collect(item, depth + 1)
+        }
+      }
+      collect(parsed)
+    } catch {
+      lines.push(trimmed)
+    }
+  }
+  return lines.join('\n')
+}
+
+function cleanCodexOutputPath(value: string): string {
+  return value
+    .trim()
+    .replace(/^["'`]+|["'`,.:;]+$/g, '')
+    .replace(/^[ab]\//, '')
+    .replace(/^\.\//, '')
+}
+
+function isCodexOutputFilePath(value: string): boolean {
+  const path = cleanCodexOutputPath(value)
+  if (!path || path === '/dev/null' || isOmcRuntimePath(path)) return false
+  if (path.includes('://')) return false
+  if (path.startsWith('-') || path.startsWith('+')) return false
+  return path.includes('/') || /\.[A-Za-z0-9_+-]{1,12}$/.test(path)
+}
+
+function mergeCodexOutputKind(previous: CodexOutputChangeKind | undefined, next: CodexOutputChangeKind): CodexOutputChangeKind {
+  if (previous === 'deleted' || next === 'deleted') return 'deleted'
+  if (previous === 'created' || next === 'created') return 'created'
+  return 'edited'
+}
+
+function addCodexOutputChange(
+  map: Map<string, CodexOutputChangeFile>,
+  pathValue: string,
+  kind: CodexOutputChangeKind,
+  patch: Partial<Pick<CodexOutputChangeFile, 'insertions' | 'deletions' | 'blocks' | 'binary'>> = {}
+) {
+  const path = cleanCodexOutputPath(pathValue)
+  if (!isCodexOutputFilePath(path)) return
+  const current = map.get(path)
+  map.set(path, {
+    path,
+    kind: mergeCodexOutputKind(current?.kind, kind),
+    insertions: (current?.insertions ?? 0) + Math.max(0, patch.insertions ?? 0),
+    deletions: (current?.deletions ?? 0) + Math.max(0, patch.deletions ?? 0),
+    blocks: (current?.blocks ?? 0) + Math.max(0, patch.blocks ?? 0),
+    binary: current?.binary === true || patch.binary === true
+  })
+}
+
+function parseCodexOutputChangedFiles(rawEvents: string, finalMessage: string): CodexOutputChangeFile[] {
+  const text = codexOutputText(rawEvents, finalMessage)
+  const changes = new Map<string, CodexOutputChangeFile>()
+
+  for (const match of text.matchAll(/^\*\*\*\s+(Add|Update|Delete)\s+File:\s+(.+)$/gim)) {
+    const action = match[1]?.toLowerCase()
+    const kind: CodexOutputChangeKind = action === 'add' ? 'created' : action === 'delete' ? 'deleted' : 'edited'
+    addCodexOutputChange(changes, match[2] ?? '', kind)
+  }
+
+  const diffChunks = text.split(/\n(?=diff --git\s+a\/)/g)
+  for (const chunk of diffChunks) {
+    const header = chunk.match(/^diff --git\s+a\/(.+?)\s+b\/(.+)$/m)
+    const plus = chunk.match(/^\+\+\+\s+(?:b\/)?(.+)$/m)
+    const minus = chunk.match(/^---\s+(?:a\/)?(.+)$/m)
+    const targetPath = cleanCodexOutputPath(plus?.[1] && plus[1] !== '/dev/null' ? plus[1] : header?.[2] ?? minus?.[1] ?? '')
+    if (!targetPath) continue
+    const kind: CodexOutputChangeKind = /(?:^|\n)new file mode\b/.test(chunk)
+      ? 'created'
+      : /(?:^|\n)deleted file mode\b/.test(chunk) || plus?.[1] === '/dev/null'
+        ? 'deleted'
+        : 'edited'
+    const insertions = chunk.split(/\r?\n/).filter((line) => line.startsWith('+') && !line.startsWith('+++')).length
+    const deletions = chunk.split(/\r?\n/).filter((line) => line.startsWith('-') && !line.startsWith('---')).length
+    const blocks = chunk.split(/\r?\n/).filter((line) => line.startsWith('@@')).length
+    addCodexOutputChange(changes, targetPath, kind, { insertions, deletions, blocks })
+  }
+
+  const lines = text.split(/\r?\n/)
+  for (const line of lines) {
+    const verbSegments = line.matchAll(/\b(Created|Added|Edited|Updated|Modified|Changed|Deleted|Removed)\b([\s\S]*?)(?=\b(?:Created|Added|Edited|Updated|Modified|Changed|Deleted|Removed)\b|$)/gi)
+    for (const segment of verbSegments) {
+      const verb = segment[1].toLowerCase()
+      const kind: CodexOutputChangeKind = ['created', 'added'].includes(verb)
+        ? 'created'
+        : ['deleted', 'removed'].includes(verb)
+          ? 'deleted'
+          : 'edited'
+      for (const pathMatch of (segment[2] ?? '').matchAll(CODEX_OUTPUT_PATH_RE)) {
+        addCodexOutputChange(changes, pathMatch[1] ?? pathMatch[0], kind)
+      }
+    }
+  }
+
+  return [...changes.values()].sort((a, b) => a.path.localeCompare(b.path))
+}
+
+export function codexOutputChanges(rawEvents: string, finalMessage: string): {
+  hasChanges: boolean
+  body: string
+  truncated: boolean
+  metadata: Record<string, unknown>
+} {
+  const fileStats = parseCodexOutputChangedFiles(rawEvents, finalMessage)
+  if (fileStats.length === 0) {
+    return {
+      hasChanges: false,
+      body: '',
+      truncated: false,
+      metadata: {
+        changeSource: 'codex-output',
+        changeHasNoChanges: true,
+        changeFiles: 0,
+        changeInsertions: 0,
+        changeDeletions: 0,
+        changeBlocks: 0,
+        changeFileStats: [],
+        patchPreviewLanguage: 'text'
+      }
+    }
+  }
+  const rows = fileStats.map((item) => {
+    const label = item.kind === 'created' ? 'Created' : item.kind === 'deleted' ? 'Deleted' : 'Edited'
+    const stats = item.binary ? ' (binary)' : item.insertions || item.deletions ? ` (+${item.insertions} -${item.deletions})` : ''
+    return `${label} ${item.path}${stats}`
+  })
+  const preview = truncateCodexText(rows.join('\n'), CODEX_DIFF_PATCH_LIMIT)
+  const insertions = fileStats.reduce((sum, item) => sum + item.insertions, 0)
+  const deletions = fileStats.reduce((sum, item) => sum + item.deletions, 0)
+  const blocks = fileStats.reduce((sum, item) => sum + item.blocks, 0)
+  return {
+    hasChanges: true,
+    body: ['Codex reported file changes', '', '````text', preview.text, '````'].join('\n'),
+    truncated: preview.truncated,
+    metadata: {
+      changeSource: 'codex-output',
+      changeHasNoChanges: false,
+      changeFiles: fileStats.length,
+      changeInsertions: insertions,
+      changeDeletions: deletions,
+      changeBlocks: blocks,
+      changeFileStats: fileStats.map((item) => ({
+        path: item.path,
+        kind: item.kind,
+        insertions: item.insertions,
+        deletions: item.deletions,
+        blocks: item.blocks,
+        untracked: item.kind === 'created',
+        deleted: item.kind === 'deleted',
+        binary: item.binary === true
+      })),
+      patchPreviewLanguage: 'text'
+    }
+  }
+}
+
+export function shouldStartPostRunPrompt(code: number | null, executionMode: CodexExecutionMode, postRunPrompt?: string): boolean {
+  return executionMode === 'exec' && code === 0 && Boolean(postRunPrompt?.trim())
+}
+
+function extractCodexSessionId(rawEvents: string): string | undefined {
+  const keys = new Set(['session_id', 'sessionId', 'conversation_id', 'conversationId', 'thread_id', 'threadId'])
+  const visit = (value: unknown, depth = 0): string | undefined => {
+    if (depth > 5 || !value || typeof value !== 'object') return undefined
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = visit(item, depth + 1)
+        if (found) return found
+      }
+      return undefined
+    }
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (keys.has(key) && typeof item === 'string' && item.trim()) return item.trim()
+      const found = visit(item, depth + 1)
+      if (found) return found
+    }
+    return undefined
+  }
+  for (const line of rawEvents.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    try {
+      const found = visit(JSON.parse(trimmed) as unknown)
+      if (found) return found
+    } catch {
+      // Ignore raw non-JSON lines.
+    }
+  }
+  return undefined
+}
+
+function postRunContinuationPrompt(input: {
+  language?: string
+  projectPrompt: ProjectPromptSnapshot
+  effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null
+  primaryFinalMessage: string
+  primaryChanges: ReturnType<typeof codexOutputChanges>
+}): string {
+  return [
+    'You are continuing an Open Mission Control Codex Run after the primary exec process completed successfully.',
+    codexLanguageInstruction(input.language),
+    projectInstructionsSection(input.projectPrompt, { audience: 'run' }),
+    effectiveAgentSection(input.effectiveAgent),
+    'Do not restart the original task. Continue from the current workspace state and apply only the Post-run prompt.',
+    input.primaryFinalMessage.trim() ? `Primary run final message:\n${input.primaryFinalMessage.trim()}` : '',
+    input.primaryChanges.hasChanges ? `Primary run Codex-reported changes:\n${input.primaryChanges.body}` : '',
+    `Post-run prompt:\n${input.projectPrompt.postRunPrompt.trim()}`,
+    'When done, summarize only the post-run work, changed files, and verification.'
+  ].filter(Boolean).join('\n\n')
 }
 
 function summarizeCodexExecEvents(
@@ -1241,17 +1782,44 @@ export function normalizePlannerQuestionPayload(value: unknown): ServiceResponse
   const summary = typeof record.summary === 'string' && record.summary.trim()
     ? record.summary.trim()
     : 'Planner needs clarification before updating this task.'
-  const questions = Array.isArray(record.questions)
-    ? record.questions.flatMap((raw, index): PlannerQuestionItem[] => {
-        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
-        const questionRecord = raw as Record<string, unknown>
-        const question = typeof questionRecord.question === 'string' ? questionRecord.question.trim() : ''
-        if (!question) return []
-        const rawId = typeof questionRecord.id === 'string' ? questionRecord.id.trim() : ''
-        const why = typeof questionRecord.why === 'string' && questionRecord.why.trim() ? questionRecord.why.trim() : undefined
-        return [{ id: rawId || `question-${index + 1}`, question, why }]
-      })
-    : []
+  const questions: PlannerQuestionItem[] = []
+  if (Array.isArray(record.questions)) {
+    for (const [index, raw] of record.questions.entries()) {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue
+      const questionRecord = raw as Record<string, unknown>
+      const question = typeof questionRecord.question === 'string' ? questionRecord.question.trim() : ''
+      if (!question) continue
+      const rawId = typeof questionRecord.id === 'string' ? questionRecord.id.trim() : ''
+      const why = typeof questionRecord.why === 'string' && questionRecord.why.trim() ? questionRecord.why.trim() : undefined
+      let options: PlannerQuestionOption[] | undefined
+      if (questionRecord.options !== undefined) {
+        const rawOptions = questionRecord.options
+        if (!Array.isArray(rawOptions)) return errorResponse(ErrorCodes.Validation, 'Planner question options must be an array')
+        if (rawOptions.length === 0) return errorResponse(ErrorCodes.Validation, 'Planner question options must include at least one label')
+        options = rawOptions.flatMap((rawOption, optionIndex): PlannerQuestionOption[] => {
+          if (typeof rawOption === 'string') {
+            const label = rawOption.trim()
+            return label ? [{ id: `option-${optionIndex + 1}`, label }] : []
+          }
+          if (!rawOption || typeof rawOption !== 'object' || Array.isArray(rawOption)) return []
+          const optionRecord = rawOption as Record<string, unknown>
+          const label = typeof optionRecord.label === 'string'
+            ? optionRecord.label.trim()
+            : typeof optionRecord.title === 'string'
+              ? optionRecord.title.trim()
+              : typeof optionRecord.value === 'string'
+                ? optionRecord.value.trim()
+                : ''
+          if (!label) return []
+          const optionId = typeof optionRecord.id === 'string' && optionRecord.id.trim() ? optionRecord.id.trim() : `option-${optionIndex + 1}`
+          const description = typeof optionRecord.description === 'string' && optionRecord.description.trim() ? optionRecord.description.trim() : undefined
+          return [{ id: optionId, label, description }]
+        })
+        if (options.length === 0) return errorResponse(ErrorCodes.Validation, 'Planner question options must include at least one label')
+      }
+      questions.push({ id: rawId || `question-${index + 1}`, question, why, ...(options?.length ? { options } : {}) })
+    }
+  }
   if (questions.length === 0) return errorResponse(ErrorCodes.Validation, 'Planner ask requires at least one question')
   return okResponse({ summary, questions })
 }
@@ -1266,6 +1834,10 @@ function plannerQuestionBody(payload: PlannerQuestionPayload): string {
     ...payload.questions.flatMap((item, index) => {
       const lines = [`${index + 1}. ${item.question}`]
       if (item.why) lines.push(`   Why: ${item.why}`)
+      if (item.options?.length) {
+        lines.push('   Options:')
+        lines.push(...item.options.map((option) => `   - ${option.label}${option.description ? `: ${option.description}` : ''}`))
+      }
       return lines
     })
   ].join('\n')
@@ -1373,6 +1945,8 @@ export function omcCliInstructions(context: {
   projectId: string
   taskId: string
   runId: string
+  language?: string
+  languages?: CodexLanguagePair
   helperRelativePath: string
   contextRelativePath: string
   plannedTaskRelativePath: string
@@ -1381,6 +1955,7 @@ export function omcCliInstructions(context: {
 }): string {
   const helper = context.helperRelativePath
   const questionsRelativePath = plannerRunRelativePath(context.runId, 'questions.json')
+  const language = typeof context.languages === 'object' ? context.languages.outputLanguage : context.language
   const lines = [
     '# Open Mission Control CLI',
     '',
@@ -1389,6 +1964,7 @@ export function omcCliInstructions(context: {
     `- Mode: ${context.mode}`,
     `- Project id: ${context.projectId}`,
     `- Task id: ${context.taskId}`,
+    `- Codex language: ${codexLanguageDisplayName(language)}`,
     `- Runtime workspace: ${context.runtimeWorkspacePath}`,
     `- Run folder: .omc/runs/${context.runId}`,
     ...(context.exportWorkspacePath ? [`- Export workspace: ${context.exportWorkspacePath}`] : []),
@@ -1405,15 +1981,19 @@ export function omcCliInstructions(context: {
     '',
     '## Rules',
     '',
+    `- ${codexLanguageInstruction(language)}`,
     '- Run context before planning or when you need project/task metadata.',
     '- Run validate before create or update.',
     '- Planning runs should write planned-task.json, validate it, update the scoped task, then finish.',
-    '- If missing information would materially reduce plan quality, do not guess. Write questions.json with { summary, questions: [{ id, question, why }] } and run ask instead.',
+    '- If missing information would materially reduce plan quality, do not guess. Write questions.json with { summary, questions: [{ id, question, why, options: [{ id, label, description }] }] } and run ask instead.',
+    '- When choices are known, ask multiple-choice clarification questions with options so Open Mission Control can show a question popup.',
     '- After running ask, do not write planned-task.json, do not validate, and do not update the task. Stop and wait for the user answer in chat.',
     '- Planning runs must refactor the entire subtasks array, including completed/done/closed subtasks. Existing subtasks are context, not protected history.',
-    '- Planning granularity is extreme: split each operation, file/module group, UI state, backend/data-flow change, migration, verification step, and edge-case handling area into its own subtask.',
+    '- Planning granularity is balanced: use 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 12 subtasks for very large tasks.',
+    '- Create subtasks for cohesive implementation areas, independent workflows, separate ownership boundaries, or meaningful verification paths.',
+    '- Do not split every file, UI state, edge case, or verification command into its own subtask. Put those details in the relevant subtask checklist.',
     '- No generic test tasks or generic checklist items. Avoid Test yap, Run tests, Fix bugs, Implement feature, Implement UI, and Check everything.',
-    '- Every planned subtask needs Objective, Task context, Exact work, Files/areas, and Done when sections plus concrete unchecked checklist items.',
+    '- Every planned subtask needs a concise implementation-ready description plus concrete unchecked checklist items.',
     '- Execution runs should edit project files first, run appropriate checks, then use ready-for-review only when the implementation is complete.',
     '- The helper is scoped to this project and task through session.json; do not edit session.json.'
   ]
@@ -1493,6 +2073,20 @@ export class TaskService {
     const payload = asPayload(task.payload)
     await this.repo.update(task.id, { payload: { ...payload, codexPlanState } })
     this.emitTaskUpdated(task.projectId, task.id, 'codex_plan_state')
+  }
+
+  private async effectiveAgentForTask(task: TaskEntity, organizationId: string, project?: { metrics?: Record<string, unknown> | null }): Promise<(Partial<Agent> & { inherited?: boolean }) | null> {
+    if (task.agentId) {
+      const agent = await this.agents.get(task.agentId)
+      return agent && agent.organizationId === organizationId
+        ? { id: agent.id, name: agent.name, title: agent.title, description: agent.description, trainingMarkdown: agent.trainingMarkdown, tags: agent.tags, inherited: false }
+        : { id: task.agentId, inherited: false }
+    }
+    const defaultAgentId = projectDefaultAgentId(project ?? {}) || await this.appSettings.get<string | null>(organizationId, DEFAULT_AGENT_KEY)
+    const defaultAgent = defaultAgentId ? await this.agents.get(defaultAgentId) : undefined
+    return defaultAgent && defaultAgent.organizationId === organizationId
+      ? { id: defaultAgent.id, name: defaultAgent.name, title: defaultAgent.title, description: defaultAgent.description, trainingMarkdown: defaultAgent.trainingMarkdown, tags: defaultAgent.tags, inherited: true }
+      : null
   }
 
   private async finishPlannerBridgeRuntime(context: PlannerBridgeContext): Promise<void> {
@@ -1822,16 +2416,27 @@ export class TaskService {
     if (!project || project.id !== access.data.task.projectId) return errorResponse(ErrorCodes.NotFound, 'Project not found')
     if (project.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
     const [task] = await this.enrichTasks([access.data.task])
-    const defaultAgentId = await this.appSettings.get<string | null>(access.data.actorOrgId, DEFAULT_AGENT_KEY)
-    const defaultAgent = defaultAgentId ? await this.agents.get(defaultAgentId) : undefined
+    const inheritedAgentId = projectDefaultAgentId(project) || await this.appSettings.get<string | null>(access.data.actorOrgId, DEFAULT_AGENT_KEY)
+    const defaultAgent = inheritedAgentId ? await this.agents.get(inheritedAgentId) : undefined
     const effectiveDefaultAgent = defaultAgent?.organizationId === access.data.actorOrgId ? defaultAgent : undefined
+    const taskAgent = task.agentId ? await this.agents.get(task.agentId) : undefined
+    const effectiveTaskAgent = taskAgent?.organizationId === access.data.actorOrgId ? taskAgent : undefined
     const taskForContext = !task.agentId && effectiveDefaultAgent ? { ...task, agentId: effectiveDefaultAgent.id } : task
+    const language = await resolveCodexLanguageSetting(this.appSettings, access.data.actorOrgId, project)
+    const projectPrompt = projectPromptSnapshot(project)
     const [tags, skills, customFields, statuses] = await Promise.all([
       this.tags.list(access.data.actorOrgId),
       this.skills.list(access.data.actorOrgId),
       this.customFields.list(access.data.actorOrgId),
       this.statuses.ensureProjectDefaults(project.id, access.data.actorOrgId)
     ])
+    const inheritedSkillIds = new Set(projectDefaultSkillIds(project))
+    const effectiveSkills = (task.skills?.length ?? 0) > 0
+      ? task.skills ?? []
+      : skills.filter((skill) => inheritedSkillIds.has(skill.id))
+    const taskForContextWithSkills = (taskForContext.skills?.length ?? 0) > 0 || effectiveSkills.length === 0
+      ? taskForContext
+      : { ...taskForContext, skills: effectiveSkills }
 
     return okResponse({
       project: {
@@ -1841,16 +2446,29 @@ export class TaskService {
         generalContext: project.generalContext ?? '',
         generalPrompt: project.generalPrompt ?? '',
         defaultOutput: project.defaultOutput ?? '',
-        planGuide: projectPromptSnapshot(project).planGuide,
-        rules: projectPromptSnapshot(project).rules
+        planGuide: projectPrompt.planGuide,
+        rules: projectPrompt.rules,
+        postRunPrompt: projectPrompt.postRunPrompt
       },
-      task: taskForContext,
-      effectiveAgent: effectiveDefaultAgent ? {
+      task: taskForContextWithSkills,
+      effectiveAgent: effectiveTaskAgent ? {
+        id: effectiveTaskAgent.id,
+        name: effectiveTaskAgent.name,
+        inherited: false
+      } : effectiveDefaultAgent ? {
         id: effectiveDefaultAgent.id,
         name: effectiveDefaultAgent.name,
-        inherited: !task.agentId
+        inherited: true
       } : null,
-      currentTaskJson: taskPlannerJson(taskForContext, customFields),
+      codexLanguage: language,
+      projectSettings: {
+        language,
+        defaultAgentId: projectDefaultAgentId(project) || null,
+        defaultSkills: skills.filter((skill) => inheritedSkillIds.has(skill.id)).map((skill) => ({ id: skill.id, name: skill.name })),
+        codex: project.metrics?.codex ?? {}
+      },
+      effectiveSkills: effectiveSkills.map((skill) => ({ id: skill.id, name: skill.name, slug: skill.slug })),
+      currentTaskJson: taskPlannerJson(taskForContextWithSkills, customFields),
       allowed: {
         tags: tags.map((tag) => ({ id: tag.id, name: tag.name })),
         skills: skills.map((skill) => ({ id: skill.id, name: skill.name, slug: skill.slug })),
@@ -1994,6 +2612,9 @@ export class TaskService {
     const runtimeWorkspace = await this.workspaces.get(runtimeWorkspaceId)
     if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
     const projectPrompt = projectPromptSnapshot(project)
+    const language = await resolveCodexLanguageSetting(this.appSettings, access.data.actorOrgId, project, payload)
+    const reasoningEffort = projectCodexReasoningEffort(project, 'run', payload.reasoningEffort)
+    const effectiveAgent = await this.effectiveAgentForTask(access.data.task, access.data.actorOrgId, project)
 
     const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-codex-run-'))
     let bridge: { url: string; close: () => Promise<void> } | null = null
@@ -2036,7 +2657,11 @@ export class TaskService {
       const contextRelativePath = plannerRunRelativePath(runId, 'context.json')
       const plannedTaskRelativePath = plannerRunRelativePath(runId, 'planned-task.json')
       const instructionsRelativePath = plannerRunRelativePath(runId, 'OMC_CLI.md')
-      const prompt = initialCodexPrompt(exportWorkspacePath, runtimeWorkspacePath, project.id, access.data.task.id, instructionsRelativePath)
+      const prompt = initialCodexPrompt(exportWorkspacePath, runtimeWorkspacePath, project.id, access.data.task.id, instructionsRelativePath, {
+        language,
+        projectPrompt,
+        effectiveAgent
+      })
       const workspaceRunPath = join(runtimeWorkspacePath, '.omc', 'runs', runId)
       workspaceRunPathForCleanup = workspaceRunPath
       const bridgeToken = randomUUID()
@@ -2048,6 +2673,7 @@ export class TaskService {
         terminalTitle: runTerminalTitle,
         workspaceRunPath,
         runId,
+        language,
         mode: 'execute',
         exportWorkspacePath,
         runtimeWorkspacePath
@@ -2068,6 +2694,9 @@ export class TaskService {
         exportWorkspacePath,
         workspaceRunPath,
         projectPrompt,
+        language,
+        reasoningEffort,
+        effectiveAgent,
         bridgeUrl: bridge.url,
         bridgeToken,
         createdAt: new Date().toISOString()
@@ -2081,7 +2710,8 @@ export class TaskService {
         contextRelativePath,
         plannedTaskRelativePath,
         exportWorkspacePath,
-        runtimeWorkspacePath
+        runtimeWorkspacePath,
+        language,
       }), 'utf8')
       const codexCommand = [
         shellQuote(codexPath),
@@ -2090,6 +2720,7 @@ export class TaskService {
         '--model', shellQuote(model),
         '--sandbox', 'workspace-write',
         '--dangerously-bypass-approvals-and-sandbox',
+        '-c', shellQuote(codexReasoningConfigArg(reasoningEffort)),
         '-c', shellQuote(codexTrustedProjectConfig(runtimeWorkspacePath)),
         '-c', shellQuote(codexTrustedProjectConfig(exportWorkspacePath)),
         shellQuote(prompt)
@@ -2102,6 +2733,7 @@ export class TaskService {
         '--output-last-message', execFinalMessagePath,
         '--cd', runtimeWorkspacePath,
         '--model', model,
+        '-c', codexReasoningConfigArg(reasoningEffort),
         '--skip-git-repo-check',
         '--dangerously-bypass-approvals-and-sandbox',
         '--color', 'never',
@@ -2163,6 +2795,8 @@ export class TaskService {
         bridgeUrl: bridge.url,
         zipName: payload.zipName,
         projectPrompt,
+        language,
+        effectiveAgent,
         finishFilePath,
         terminalTitle: runTerminalTitle,
         executionMode,
@@ -2181,7 +2815,7 @@ export class TaskService {
           role: 'system',
           status: 'running',
           body: `Started Codex exec run with ${model}.`,
-          metadata: { gatewayId: gateway.id, model, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath }
+          metadata: { gatewayId: gateway.id, model, language, reasoningEffort, effectiveAgent, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath }
         })
         await this.appendTaskActivityMessage(taskId, {
           runId,
@@ -2215,6 +2849,158 @@ export class TaskService {
         child.stderr.setEncoding('utf8')
         child.stdout.on('data', (chunk: string) => streamer.writeStdout(chunk))
         child.stderr.on('data', (chunk: string) => streamer.writeStderr(chunk))
+        const runPostRunPrompt = async (
+          primaryEventRaw: string,
+          primaryFinalMessage: string,
+          primaryChanges: ReturnType<typeof codexOutputChanges>
+        ): Promise<number | null> => {
+          const postRunId = plannerRunId(`${taskId}-post-run`)
+          const postEventsPath = join(runFolderPath, 'post-run-events.jsonl')
+          const postFinalMessagePath = join(runFolderPath, 'post-run-final-message.md')
+          const postPrompt = postRunContinuationPrompt({
+            language,
+            projectPrompt,
+            effectiveAgent,
+            primaryFinalMessage,
+            primaryChanges
+          })
+          const sessionId = extractCodexSessionId(primaryEventRaw)
+          const postArgs = sessionId
+            ? [
+                'exec',
+                'resume',
+                '--json',
+                '--output-last-message', postFinalMessagePath,
+                '--model', model,
+                '-c', codexReasoningConfigArg(reasoningEffort),
+                '--skip-git-repo-check',
+                '--dangerously-bypass-approvals-and-sandbox',
+                sessionId,
+                postPrompt
+              ]
+            : [
+                'exec',
+                '--json',
+                '--output-last-message', postFinalMessagePath,
+                '--cd', runtimeWorkspacePath,
+                '--model', model,
+                '-c', codexReasoningConfigArg(reasoningEffort),
+                '--skip-git-repo-check',
+                '--dangerously-bypass-approvals-and-sandbox',
+                '--color', 'never',
+                postPrompt
+              ]
+          const postCommand = [shellQuote(codexPath), ...postArgs.map(shellQuote)].join(' ')
+          await this.appendTaskActivityMessage(taskId, {
+            runId: postRunId,
+            conversationId: runId,
+            source: 'codex-run',
+            role: 'system',
+            status: 'running',
+            body: 'Starting Codex post-run prompt.',
+            metadata: { codexBlock: 'post-run-start', parentRunId: runId, sessionId, command: postCommand, model, language, reasoningEffort }
+          })
+          await this.appendTaskActivityMessage(taskId, {
+            runId: postRunId,
+            conversationId: runId,
+            source: 'codex-run',
+            role: 'user',
+            status: 'completed',
+            body: projectPrompt.postRunPrompt.trim(),
+            metadata: { codexBlock: 'post-run-prompt', parentRunId: runId, command: postCommand }
+          })
+          const postStreamer = createCodexActivityStreamer({
+            taskId,
+            runId: postRunId,
+            conversationId: runId,
+            source: 'codex-run',
+            eventsPath: postEventsPath
+          }, (message) => this.appendTaskActivityMessage(taskId, message))
+          return await new Promise<number | null>((resolvePostRun) => {
+            let settled = false
+            const settle = (value: number | null) => {
+              if (settled) return
+              settled = true
+              resolvePostRun(value)
+            }
+            const postChild = spawn(codexPath, postArgs, {
+              cwd: runtimeWorkspacePath,
+              env: process.env,
+              stdio: ['ignore', 'pipe', 'pipe']
+            })
+            postChild.stdout.setEncoding('utf8')
+            postChild.stderr.setEncoding('utf8')
+            postChild.stdout.on('data', (chunk: string) => postStreamer.writeStdout(chunk))
+            postChild.stderr.on('data', (chunk: string) => postStreamer.writeStderr(chunk))
+            postChild.on('error', (error) => {
+              void this.appendTaskActivityMessage(taskId, {
+                runId: postRunId,
+                conversationId: runId,
+                source: 'codex-run',
+                role: 'error',
+                status: 'failed',
+                body: error.message,
+                metadata: { codexBlock: 'run-complete', parentRunId: runId, command: postCommand }
+              })
+              settle(1)
+            })
+            postChild.on('close', (postCode, postSignal) => {
+              if (settled) return
+              void (async () => {
+                await postStreamer.flush()
+                const postFinalMessage = await readFile(postFinalMessagePath, 'utf8').catch(() => '')
+                const postEventRaw = await readFile(postEventsPath, 'utf8').catch(() => '')
+                const postEventSummary = summarizeCodexExecEvents(postEventRaw)
+                const postUsage = postEventSummary.usage ?? postStreamer.latestUsage()
+                const postChanges = codexOutputChanges(postEventRaw, postFinalMessage)
+                if (postChanges.hasChanges) {
+                  await this.appendTaskActivityMessage(taskId, {
+                    runId: postRunId,
+                    conversationId: runId,
+                    source: 'codex-run',
+                    role: 'tool',
+                    status: 'completed',
+                    body: postChanges.body,
+                    metadata: { codexBlock: 'changes', code: postCode, signal: postSignal, eventsPath: postEventsPath, usage: postUsage, truncated: postChanges.truncated, ...postChanges.metadata }
+                  })
+                }
+                await this.appendTaskActivityMessage(taskId, {
+                  runId: postRunId,
+                  conversationId: runId,
+                  source: 'codex-run',
+                  role: 'system',
+                  status: postCode === 0 ? 'completed' : 'failed',
+                  body: postCode === 0 ? 'Codex post-run prompt completed.' : `Codex post-run prompt failed with code ${postCode ?? 'unknown'}.`,
+                  metadata: { codexBlock: 'run-complete', parentRunId: runId, code: postCode, signal: postSignal, eventsPath: postEventsPath, finalMessagePath: postFinalMessagePath, usage: postUsage }
+                })
+                if (postCode === 0) {
+                  if (!postStreamer.hasAssistantMessage()) {
+                    await this.appendTaskActivityMessage(taskId, {
+                      runId: postRunId,
+                      conversationId: runId,
+                      source: 'codex-run',
+                      role: 'assistant',
+                      status: 'completed',
+                      body: postFinalMessage.trim() || 'Codex post-run prompt completed.',
+                      metadata: { code: postCode, signal: postSignal, eventsPath: postEventsPath, finalMessagePath: postFinalMessagePath, usage: postUsage, codexBlock: 'final-fallback' }
+                    })
+                  }
+                } else {
+                  await this.appendTaskActivityMessage(taskId, {
+                    runId: postRunId,
+                    conversationId: runId,
+                    source: 'codex-run',
+                    role: 'error',
+                    status: 'failed',
+                    body: postFinalMessage.trim() || `Codex post-run prompt exited with code ${postCode ?? 'unknown'}.`,
+                    metadata: { code: postCode, signal: postSignal, eventsPath: postEventsPath, finalMessagePath: postFinalMessagePath, usage: postUsage, rawTail: postEventSummary.rawTail }
+                  })
+                }
+                settle(postCode)
+              })()
+            })
+          })
+        }
         child.on('error', (error) => {
           void this.appendTaskActivityMessage(taskId, {
             runId,
@@ -2233,15 +3019,17 @@ export class TaskService {
             const eventRaw = await readFile(execEventsPath, 'utf8').catch(() => '')
             const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
             const usage = eventSummary.usage ?? streamer.latestUsage()
-            const changes = await codexWorkspaceChanges(runtimeWorkspacePath, join(runFolderPath, 'changes.diff'))
-            await this.appendTaskActivityMessage(taskId, {
-              runId,
-              source: 'codex-run',
-              role: 'tool',
-              status: changes.unavailable ? 'failed' : 'completed',
-              body: changes.body,
-              metadata: { codexBlock: 'changes', code, signal, eventsPath: execEventsPath, changesPath: changes.changesPath, usage, truncated: changes.truncated, unavailable: changes.unavailable, ...(changes.metadata ?? {}) }
-            })
+            const changes = codexOutputChanges(eventRaw, finalMessage)
+            if (changes.hasChanges) {
+              await this.appendTaskActivityMessage(taskId, {
+                runId,
+                source: 'codex-run',
+                role: 'tool',
+                status: 'completed',
+                body: changes.body,
+                metadata: { codexBlock: 'changes', code, signal, eventsPath: execEventsPath, usage, truncated: changes.truncated, ...changes.metadata }
+              })
+            }
             await this.appendTaskActivityMessage(taskId, {
               runId,
               source: 'codex-run',
@@ -2261,7 +3049,12 @@ export class TaskService {
                   metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, codexBlock: 'final-fallback' }
                 })
               }
-              await this.markTaskReadyForReview({ actorToken: payload.actorToken, projectId: project.id, taskId }).catch(() => undefined)
+              const postRunCode = shouldStartPostRunPrompt(code, executionMode, projectPrompt.postRunPrompt)
+                ? await runPostRunPrompt(eventRaw, finalMessage, changes)
+                : 0
+              if (postRunCode === 0) {
+                await this.markTaskReadyForReview({ actorToken: payload.actorToken, projectId: project.id, taskId }).catch(() => undefined)
+              }
             } else {
               await this.appendTaskActivityMessage(taskId, {
                 runId,
@@ -2398,9 +3191,13 @@ export class TaskService {
           result = okResponse({ name: 'openmissioncontrol-planner-api' })
         } else if (request.method === 'GET' && path === '/context') {
           const contextResponse = await this.plannerContext({ actorToken: context.actorToken, projectId: context.projectId, taskId: context.taskId })
+          const routedData = contextResponse.ok
+            ? routedProjectContextForPrompt(contextResponse.data, context.mode === 'plan' ? 'plan' : 'run') as Record<string, unknown>
+            : undefined
           result = contextResponse.ok
             ? okResponse({
-              ...(contextResponse.data ?? {}),
+              ...(routedData ?? {}),
+              codexLanguage: context.language ?? (routedData?.codexLanguage as string | undefined) ?? normalizeCodexLanguage(undefined),
               omc: {
                 mode: context.mode ?? 'plan',
                 runId: context.runId ?? null,
@@ -2525,6 +3322,9 @@ export class TaskService {
     const runtimeWorkspace = await this.workspaces.get(runtimeWorkspaceId)
     if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
     const projectPrompt = projectPromptSnapshot(project)
+    const language = await resolveCodexLanguageSetting(this.appSettings, access.data.actorOrgId, project, payload)
+    const reasoningEffort = projectCodexReasoningEffort(project, 'plan', payload.reasoningEffort)
+    const effectiveAgent = await this.effectiveAgentForTask(access.data.task, access.data.actorOrgId, project)
 
     const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-codex-planner-'))
     let bridge: { url: string; close: () => Promise<void> } | null = null
@@ -2560,6 +3360,7 @@ export class TaskService {
         conversationId,
         gatewayId: gateway.id,
         model,
+        language,
         mode: 'plan',
         runtimeWorkspacePath
       }, bridgeToken)
@@ -2577,9 +3378,12 @@ export class TaskService {
         taskId: access.data.task.id,
         gatewayId: gateway.id,
         model,
+        language,
+        reasoningEffort,
         runtimeWorkspacePath,
         workspaceRunPath,
         projectPrompt,
+        effectiveAgent,
         bridgeUrl: bridge.url,
         bridgeToken,
         createdAt: new Date().toISOString()
@@ -2589,6 +3393,7 @@ export class TaskService {
         projectId: project.id,
         taskId: access.data.task.id,
         runId,
+        language,
         helperRelativePath,
         contextRelativePath,
         plannedTaskRelativePath,
@@ -2601,8 +3406,12 @@ export class TaskService {
         .filter((item) => (item.conversationId || item.runId) === conversationId)
       const prompt = [
         `Read ${instructionsRelativePath} first.`,
-        initialPlannerPrompt(project.id, access.data.task.id, helperRelativePath, contextRelativePath, plannedTaskRelativePath),
-        plannerClarificationPrompt({ conversationId, clarificationMessage, transcript })
+        initialPlannerPrompt(project.id, access.data.task.id, helperRelativePath, contextRelativePath, plannedTaskRelativePath, {
+          language,
+          projectPrompt,
+          effectiveAgent
+        }),
+        plannerClarificationPrompt({ conversationId, clarificationMessage, transcript, language })
       ].join(' ')
       const codexCommand = [
         shellQuote(codexPath),
@@ -2610,6 +3419,7 @@ export class TaskService {
         '--model', shellQuote(model),
         '--sandbox', 'workspace-write',
         '--dangerously-bypass-approvals-and-sandbox',
+        '-c', shellQuote(codexReasoningConfigArg(reasoningEffort)),
         '-c', shellQuote(codexTrustedProjectConfig(runtimeWorkspacePath)),
         shellQuote(prompt)
       ].join(' ')
@@ -2621,6 +3431,7 @@ export class TaskService {
         '--output-last-message', execFinalMessagePath,
         '--cd', runtimeWorkspacePath,
         '--model', model,
+        '-c', codexReasoningConfigArg(reasoningEffort),
         '--skip-git-repo-check',
         '--dangerously-bypass-approvals-and-sandbox',
         '--color', 'never',
@@ -2671,6 +3482,8 @@ export class TaskService {
         runtimeWorkspaceId,
         runtimeWorkspacePath,
         workspaceRunPath,
+        language,
+        effectiveAgent,
         clientScriptPath,
         sessionPath,
         helperRelativePath,
@@ -2700,7 +3513,7 @@ export class TaskService {
           role: 'system',
           status: 'running',
           body: `Started Codex exec planner with ${model}.`,
-          metadata: { gatewayId: gateway.id, model, executionMode, runtimeWorkspacePath, runFolderPath }
+          metadata: { gatewayId: gateway.id, model, language, reasoningEffort, effectiveAgent, executionMode, runtimeWorkspacePath, runFolderPath }
         })
         await this.appendTaskActivityMessage(taskId, {
           runId,
@@ -2709,7 +3522,7 @@ export class TaskService {
           role: 'user',
           status: 'running',
           body: clarificationMessage || prompt,
-          metadata: { command: execCommand, clarification: Boolean(clarificationMessage) }
+          metadata: { command: execCommand, language, clarification: Boolean(clarificationMessage) }
         })
         await this.appendTaskActivityMessage(taskId, {
           runId,
@@ -2765,16 +3578,18 @@ export class TaskService {
             const eventRaw = await readFile(execEventsPath, 'utf8').catch(() => '')
             const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
             const usage = eventSummary.usage ?? streamer.latestUsage()
-            const changes = await codexWorkspaceChanges(runtimeWorkspacePath, join(runFolderPath, 'changes.diff'))
-            await this.appendTaskActivityMessage(taskId, {
-              runId,
-              conversationId,
-              source: 'codex-plan',
-              role: 'tool',
-              status: changes.unavailable ? 'failed' : 'completed',
-              body: changes.body,
-              metadata: { codexBlock: 'changes', code, signal, eventsPath: execEventsPath, changesPath: changes.changesPath, usage, truncated: changes.truncated, unavailable: changes.unavailable, ...(changes.metadata ?? {}) }
-            })
+            const changes = codexOutputChanges(eventRaw, finalMessage)
+            if (changes.hasChanges) {
+              await this.appendTaskActivityMessage(taskId, {
+                runId,
+                conversationId,
+                source: 'codex-plan',
+                role: 'tool',
+                status: 'completed',
+                body: changes.body,
+                metadata: { codexBlock: 'changes', code, signal, eventsPath: execEventsPath, usage, truncated: changes.truncated, ...changes.metadata }
+              })
+            }
             await this.appendTaskActivityMessage(taskId, {
               runId,
               conversationId,
@@ -2916,6 +3731,7 @@ export class TaskService {
     if (!runtimeWorkspaceId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is required')
     const runtimeWorkspace = await this.workspaces.get(runtimeWorkspaceId)
     if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
+    const language = await resolveCodexLanguageSetting(this.appSettings, access.data.actorOrgId, project, payload)
 
     const taskId = access.data.task.id
     const taskTitle = access.data.task.title
@@ -2954,7 +3770,8 @@ export class TaskService {
     }
     const eventsPath = join(runFolderPath, 'codex-events.jsonl')
     const finalMessagePath = join(runFolderPath, 'final-message.md')
-    const prompt = codexChatPrompt({ task: access.data.task, message: normalizedMessage, transcript, context, mode, attachments })
+    const reasoningEffort = projectCodexReasoningEffort(project, mode === 'plan' ? 'plan' : 'run', payload.reasoningEffort)
+    const prompt = codexChatPrompt({ task: access.data.task, message: normalizedMessage, transcript, context, mode, attachments, language })
     const activitySource: TaskActivityMessage['source'] = mode === 'plan' ? 'codex-plan' : 'codex-chat'
     const execArgs = [
       'exec',
@@ -2962,6 +3779,7 @@ export class TaskService {
       '--output-last-message', finalMessagePath,
       '--cd', runtimeWorkspacePath,
       '--model', model,
+      '-c', codexReasoningConfigArg(reasoningEffort),
       '--skip-git-repo-check',
       '--dangerously-bypass-approvals-and-sandbox',
       '--color', 'never',
@@ -2977,7 +3795,7 @@ export class TaskService {
       role: 'user',
       status: 'completed',
       body: mode === 'plan' ? `/plan ${normalizedMessage}` : normalizedMessage,
-      metadata: { gatewayId: gateway.id, model, mode, attachments }
+      metadata: { gatewayId: gateway.id, model, language, reasoningEffort, mode, attachments }
     })
     await this.appendTaskActivityMessage(taskId, {
       runId,
@@ -3000,6 +3818,7 @@ export class TaskService {
         '--model', shellQuote(model),
         '--sandbox', 'workspace-write',
         '--dangerously-bypass-approvals-and-sandbox',
+        '-c', shellQuote(codexReasoningConfigArg(reasoningEffort)),
         '-c', shellQuote(codexTrustedProjectConfig(runtimeWorkspacePath)),
         shellQuote(prompt)
       ].join(' ')
@@ -3079,16 +3898,18 @@ export class TaskService {
         const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
         const finalMessage = await readFile(finalMessagePath, 'utf8').catch(() => '')
         const usage = eventSummary.usage ?? streamer.latestUsage()
-        const changes = await codexWorkspaceChanges(runtimeWorkspacePath, join(runFolderPath, 'changes.diff'))
-        await this.appendTaskActivityMessage(taskId, {
-          runId,
-          conversationId,
-          source: activitySource,
-          role: 'tool',
-          status: changes.unavailable ? 'failed' : 'completed',
-          body: changes.body,
-          metadata: { codexBlock: 'changes', code, signal, eventsPath, changesPath: changes.changesPath, usage, truncated: changes.truncated, unavailable: changes.unavailable, ...(changes.metadata ?? {}) }
-        })
+        const changes = codexOutputChanges(eventRaw, finalMessage)
+        if (changes.hasChanges) {
+          await this.appendTaskActivityMessage(taskId, {
+            runId,
+            conversationId,
+            source: activitySource,
+            role: 'tool',
+            status: 'completed',
+            body: changes.body,
+            metadata: { codexBlock: 'changes', code, signal, eventsPath, usage, truncated: changes.truncated, ...changes.metadata }
+          })
+        }
         await this.appendTaskActivityMessage(taskId, {
           runId,
           conversationId,

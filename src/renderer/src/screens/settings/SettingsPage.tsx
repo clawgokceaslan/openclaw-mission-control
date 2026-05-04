@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { LuBot, LuCheck, LuClipboard, LuFileText, LuPlay, LuTerminal } from 'react-icons/lu'
+import { LuBot, LuCheck, LuClipboard, LuFileText, LuLanguages, LuPlay, LuTerminal } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
+import { CODEX_LANGUAGE_OPTIONS, DEFAULT_CODEX_LANGUAGE } from '@shared/utils/codex-language'
 import type { Agent } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { useAuth } from '@renderer/providers/auth/auth-state'
@@ -23,7 +24,7 @@ const planningFlow = [
   'Codex reads OMC_CLI.md before planning.',
   'Codex runs context to fetch the source task, project rules, allowed statuses, tags, skills, and custom fields.',
   'Codex writes planned-task.json into the run folder.',
-  'If critical details are missing, Codex writes questions.json and calls ask so the questions appear in chat.',
+  'If critical details are missing, Codex writes questions.json with optional choices and calls ask so the questions appear in chat as a popup.',
   'Codex validates planned-task.json through the local CLI.',
   'Codex updates the scoped source task from the validated JSON.',
   'Codex runs finish so the temporary bridge and run folder can close.'
@@ -55,6 +56,9 @@ export function SettingsPage() {
   const [copied, setCopied] = useState<string | null>(null)
   const [agents, setAgents] = useState<Agent[]>([])
   const [defaultAgentId, setDefaultAgentId] = useState('')
+  const [codexLanguage, setCodexLanguage] = useState(DEFAULT_CODEX_LANGUAGE)
+  const [codexLanguageSaving, setCodexLanguageSaving] = useState(false)
+  const [codexLanguageMessage, setCodexLanguageMessage] = useState<string | null>(null)
   const [defaultAgentSaving, setDefaultAgentSaving] = useState(false)
   const [defaultAgentMessage, setDefaultAgentMessage] = useState<string | null>(null)
 
@@ -63,15 +67,18 @@ export function SettingsPage() {
     if (!token) {
       setAgents([])
       setDefaultAgentId('')
+      setCodexLanguage(DEFAULT_CODEX_LANGUAGE)
       return
     }
     void Promise.all([
       loadList<Agent[]>(IPC_CHANNELS.agents.list, token),
-      invokeBridge<{ agentId: string | null }>(IPC_CHANNELS.appSettings.getDefaultAgent, { actorToken: token })
-    ]).then(([agentResponse, defaultResponse]) => {
+      invokeBridge<{ agentId: string | null }>(IPC_CHANNELS.appSettings.getDefaultAgent, { actorToken: token }),
+      invokeBridge<{ language: string }>(IPC_CHANNELS.appSettings.getCodexLanguage, { actorToken: token })
+    ]).then(([agentResponse, defaultResponse, languageResponse]) => {
       if (cancelled) return
       setAgents(Array.isArray(agentResponse.data) ? agentResponse.data : [])
       setDefaultAgentId(defaultResponse.ok && defaultResponse.data?.agentId ? defaultResponse.data.agentId : '')
+      setCodexLanguage(languageResponse.ok && languageResponse.data?.language ? languageResponse.data.language : DEFAULT_CODEX_LANGUAGE)
     }).catch(() => {
       if (!cancelled) setDefaultAgentMessage('Unable to load default task agent.')
     })
@@ -89,6 +96,17 @@ export function SettingsPage() {
   const selectedDefaultAgentOption = useMemo<AppSelectOption | null>(() => {
     return agentOptions.find((option) => option.value === defaultAgentId) ?? null
   }, [agentOptions, defaultAgentId])
+
+  const codexLanguageOptions = useMemo<AppSelectOption[]>(() => (
+    CODEX_LANGUAGE_OPTIONS.map((option) => ({
+      value: option.value,
+      label: option.value === 'tr' ? 'Türkçe' : option.label
+    }))
+  ), [])
+
+  const selectedCodexLanguageOption = useMemo<AppSelectOption | null>(() => {
+    return codexLanguageOptions.find((option) => option.value === codexLanguage) ?? codexLanguageOptions[0] ?? null
+  }, [codexLanguage, codexLanguageOptions])
 
   const copy = async (key: string, value: string) => {
     await navigator.clipboard.writeText(value)
@@ -114,6 +132,27 @@ export function SettingsPage() {
       setDefaultAgentMessage(error instanceof Error ? error.message : 'Unable to update default task agent.')
     } finally {
       setDefaultAgentSaving(false)
+    }
+  }
+
+  const saveCodexLanguage = async (option: AppSelectOption | null) => {
+    setCodexLanguageSaving(true)
+    setCodexLanguageMessage(null)
+    try {
+      const response = await invokeBridge<{ language: string }>(IPC_CHANNELS.appSettings.setCodexLanguage, {
+        actorToken: token,
+        language: option?.value ?? DEFAULT_CODEX_LANGUAGE
+      })
+      if (!response.ok) {
+        setCodexLanguageMessage(response.error?.message ?? 'Unable to update Codex language.')
+        return
+      }
+      setCodexLanguage(response.data?.language ?? DEFAULT_CODEX_LANGUAGE)
+      setCodexLanguageMessage('Codex language updated.')
+    } catch (error) {
+      setCodexLanguageMessage(error instanceof Error ? error.message : 'Unable to update Codex language.')
+    } finally {
+      setCodexLanguageSaving(false)
     }
   }
 
@@ -149,6 +188,30 @@ export function SettingsPage() {
           <span>{defaultAgentSaving ? 'Saving...' : selectedDefaultAgentOption ? `${selectedDefaultAgentOption.label} is inherited by unassigned tasks.` : 'No default agent selected.'}</span>
         </div>
         {defaultAgentMessage ? <p className={styles.settingMessage}>{defaultAgentMessage}</p> : null}
+      </section>
+
+      <section className={styles.panel}>
+        <div className={styles.panelHeader}>
+          <span className={styles.panelIcon}><LuLanguages size={19} /></span>
+          <div>
+            <h2>Codex language</h2>
+            <p>Planning, running, follow-up, steer, questions, task updates, and checklist output use this language.</p>
+          </div>
+        </div>
+        <div className={styles.defaultAgentRow}>
+          <AppSelect
+            mode="single"
+            value={selectedCodexLanguageOption}
+            options={codexLanguageOptions}
+            placeholder="Choose Codex language"
+            isDisabled={codexLanguageSaving}
+            onChange={(option) => {
+              if (!Array.isArray(option)) void saveCodexLanguage(option)
+            }}
+          />
+          <span>{codexLanguageSaving ? 'Saving...' : `${selectedCodexLanguageOption?.label ?? 'Türkçe'} is sent as a high-priority Codex instruction.`}</span>
+        </div>
+        {codexLanguageMessage ? <p className={styles.settingMessage}>{codexLanguageMessage}</p> : null}
       </section>
 
       <section className={styles.panel}>

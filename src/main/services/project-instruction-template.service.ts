@@ -12,7 +12,8 @@ function normalizeTemplate(value: unknown): ProjectInstructionTemplatePayload {
     generalPrompt: typeof template.generalPrompt === 'string' ? template.generalPrompt : '',
     planGuide: typeof template.planGuide === 'string' ? template.planGuide : '',
     defaultOutput: typeof template.defaultOutput === 'string' ? template.defaultOutput : '',
-    rules: typeof template.rules === 'string' ? template.rules : ''
+    rules: typeof template.rules === 'string' ? template.rules : '',
+    postRunPrompt: typeof template.postRunPrompt === 'string' ? template.postRunPrompt : ''
   }
 }
 

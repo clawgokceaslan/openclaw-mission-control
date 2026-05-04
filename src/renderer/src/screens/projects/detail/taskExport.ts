@@ -10,6 +10,9 @@ type ExportContext = {
   tags: Tag[]
   customFields: CustomField[]
   projectStatuses?: ProjectStatus[]
+  codexLanguage?: string
+  codexPlanReasoningEffort?: string
+  codexRunReasoningEffort?: string
 }
 
 type ZipInput = Record<string, Uint8Array>
@@ -106,6 +109,12 @@ function getProjectPlanGuide(project?: Project | null): string {
   const metrics = project?.metrics && typeof project.metrics === 'object' && !Array.isArray(project.metrics) ? project.metrics : {}
   const guide = (metrics as Record<string, unknown>).projectPlanGuide
   return typeof guide === 'string' ? guide.trim() : ''
+}
+
+function getProjectPostRunPrompt(project?: Project | null): string {
+  const metrics = project?.metrics && typeof project.metrics === 'object' && !Array.isArray(project.metrics) ? project.metrics : {}
+  const value = (metrics as Record<string, unknown>).projectPostRunPrompt
+  return typeof value === 'string' ? value.trim() : ''
 }
 
 function acceptanceCriteriaMarkdown(task: TaskEntity): string {
@@ -477,7 +486,21 @@ export function buildTaskMarkdown(context: ExportContext, exportStatuses: Attach
   const taskAttachments = getTaskAttachments(task)
   const subtaskAttachments = subtasks.flatMap(getSubtaskAttachments)
   const sections = [`# ${task.title}`]
+  const codexSettings = context.project?.metrics?.codex && typeof context.project.metrics.codex === 'object' && !Array.isArray(context.project.metrics.codex)
+    ? context.project.metrics.codex as Record<string, unknown>
+    : {}
+  const defaultSkillIds = Array.isArray(context.project?.metrics?.defaultSkillIds) ? context.project.metrics.defaultSkillIds.filter((item): item is string => typeof item === 'string') : []
+  const defaultAgentId = typeof context.project?.metrics?.defaultAgentId === 'string' ? context.project.metrics.defaultAgentId : ''
+  const defaultAgentName = defaultAgentId ? context.agents.find((agent) => agent.id === defaultAgentId)?.name ?? defaultAgentId : ''
+  const defaultSkillNames = defaultSkillIds.map((skillId) => context.skills.find((skill) => skill.id === skillId)?.name ?? skillId)
   const projectInputs = [
+    context.codexLanguage ? `- Selected Codex language: ${context.codexLanguage}` : '',
+    defaultAgentName ? `- Project default agent: ${defaultAgentName}` : '',
+    defaultSkillNames.length > 0 ? `- Project default skills: ${defaultSkillNames.join(', ')}` : '',
+    codexSettings.gatewayId ? `- Project Codex gateway: ${String(codexSettings.gatewayId)}` : '',
+    codexSettings.runtimeWorkspaceId ? `- Runtime workspace: ${String(codexSettings.runtimeWorkspaceId)}` : '',
+    codexSettings.planModel ? `- Plan model: ${String(codexSettings.planModel)} (${context.codexPlanReasoningEffort ?? codexSettings.planReasoningEffort ?? 'medium'} reasoning)` : '',
+    codexSettings.runModel || codexSettings.defaultModel ? `- Run model: ${String(codexSettings.runModel ?? codexSettings.defaultModel)} (${context.codexRunReasoningEffort ?? codexSettings.runReasoningEffort ?? 'medium'} reasoning)` : '',
     `- Project: ${context.project?.name ?? task.projectId}`,
     `- Project ID: ${task.projectId}`,
     context.projectGroup?.name ? `- Project group: ${context.projectGroup.name}` : '',
@@ -487,7 +510,8 @@ export function buildTaskMarkdown(context: ExportContext, exportStatuses: Attach
     context.project?.generalPrompt?.trim() ? `### General Prompt\n${context.project.generalPrompt.trim()}` : '',
     getProjectPlanGuide(context.project) ? `### Plan Guide\n${getProjectPlanGuide(context.project)}` : '',
     context.project?.defaultOutput?.trim() ? `### Default Output\n${context.project.defaultOutput.trim()}` : '',
-    getProjectRules(context.project) ? `### Project Rules\n${getProjectRules(context.project)}` : ''
+    getProjectRules(context.project) ? `### Project Rules\n${getProjectRules(context.project)}` : '',
+    getProjectPostRunPrompt(context.project) ? `### Post-run Prompt\n${getProjectPostRunPrompt(context.project)}` : ''
   ].filter(Boolean).join('\n\n')
   pushSection(sections, 'AI Execution Flow', buildAiExecutionFlow(context))
   pushSection(sections, 'Project Inputs', projectInputs)

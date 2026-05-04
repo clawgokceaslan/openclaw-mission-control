@@ -5,6 +5,7 @@ import {
   LuPlus
 } from 'react-icons/lu'
 import { IPC_CHANNELS, type AppNavigateState } from '@shared/contracts/ipc'
+import { DEFAULT_CODEX_LANGUAGE } from '@shared/utils/codex-language'
 import { invokeBridge } from '@renderer/utils/api'
 import { clearRendererDiagnosticContext, setRendererDiagnosticContext } from '@renderer/utils/rendererResilience'
 import { Agent, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, CustomField } from '@shared/types/entities'
@@ -43,6 +44,8 @@ import {
   customFieldValueToDraft,
   getTableViewConfig,
   orderedTasksForStatus,
+  projectDefaultAgentId,
+  projectDefaultSkillIds,
   readTaskCodexOverride,
   reorderTasksForDrop,
   taskCodexGatewayId,
@@ -238,6 +241,8 @@ export function ProjectDetailPage() {
     setProjectPromptOutput,
     projectPromptRules,
     setProjectPromptRules,
+    projectPromptPostRun,
+    setProjectPromptPostRun,
     projectPromptError,
     setProjectPromptError,
     isProjectPromptSaving,
@@ -427,6 +432,7 @@ export function ProjectDetailPage() {
   const [isRecentChatsView, setIsRecentChatsView] = useState(false)
   const [pendingChatOpen, setPendingChatOpen] = useState<{ taskId: string; conversationId: string } | null>(null)
   const [defaultAgentId, setDefaultAgentId] = useState<string>('')
+  const [codexLanguage, setCodexLanguage] = useState<string>(DEFAULT_CODEX_LANGUAGE)
   const {
     refresh,
     projectLoadError
@@ -456,15 +462,23 @@ export function ProjectDetailPage() {
     let cancelled = false
     if (!token) {
       setDefaultAgentId('')
+      setCodexLanguage(DEFAULT_CODEX_LANGUAGE)
       return
     }
-    void invokeBridge<{ agentId: string | null }>(IPC_CHANNELS.appSettings.getDefaultAgent, { actorToken: token })
-      .then((response) => {
+    void Promise.all([
+      invokeBridge<{ agentId: string | null }>(IPC_CHANNELS.appSettings.getDefaultAgent, { actorToken: token }),
+      invokeBridge<{ language: string }>(IPC_CHANNELS.appSettings.getCodexLanguage, { actorToken: token })
+    ])
+      .then(([agentResponse, languageResponse]) => {
         if (cancelled) return
-        setDefaultAgentId(response.ok && response.data?.agentId ? response.data.agentId : '')
+        setDefaultAgentId(agentResponse.ok && agentResponse.data?.agentId ? agentResponse.data.agentId : '')
+        setCodexLanguage(languageResponse.ok && languageResponse.data?.language ? languageResponse.data.language : DEFAULT_CODEX_LANGUAGE)
       })
       .catch(() => {
-        if (!cancelled) setDefaultAgentId('')
+        if (!cancelled) {
+          setDefaultAgentId('')
+          setCodexLanguage(DEFAULT_CODEX_LANGUAGE)
+        }
       })
     return () => {
       cancelled = true
@@ -548,6 +562,7 @@ export function ProjectDetailPage() {
       chooseProjectWorkspaceFolder,
       createWorkspaceFromDraft,
       updateProjectWorkspace,
+      saveProjectDefaultsSettings,
       saveProjectCodexSettings,
       updateProjectGroupMembership,
       saveSelectedProjectGroup,
@@ -583,6 +598,10 @@ export function ProjectDetailPage() {
     refresh,
     state: projectDetailState
   })
+
+  const projectCodexLanguage = savedCodexSettings.language || savedCodexSettings.outputLanguage || savedCodexSettings.inputLanguage || codexLanguage
+  const projectCodexPlanReasoningEffort = savedCodexSettings.planReasoningEffort || 'medium'
+  const projectCodexRunReasoningEffort = savedCodexSettings.runReasoningEffort || 'medium'
 
   const chatGateway = useMemo(() => gateways.find((gateway) => gateway.id === chatGatewayId) ?? null, [chatGatewayId, gateways])
   const chatGatewayConfig = useMemo(() => codexConfigOf(chatGateway), [chatGateway])
@@ -903,12 +922,33 @@ export function ProjectDetailPage() {
     return agents.find((item) => item.id === defaultAgentId) ?? null
   }, [agents, defaultAgentId])
 
-  const selectedTaskAgentIsDefault = Boolean(selectedTask && !selectedTask.agentId && defaultAgent)
+  const projectDefaultAgent = useMemo(() => {
+    const agentId = projectDefaultAgentId(project)
+    if (!agentId) return null
+    return agents.find((item) => item.id === agentId) ?? null
+  }, [agents, project])
+
+  const projectDefaultSkills = useMemo(() => {
+    const skillIds = new Set(projectDefaultSkillIds(project))
+    return skills.filter((skill) => skillIds.has(skill.id)).sort((a, b) => a.name.localeCompare(b.name, 'tr'))
+  }, [project, skills])
+
+  const selectedTaskAgentIsDefault = Boolean(selectedTask && !selectedTask.agentId && (projectDefaultAgent || defaultAgent))
+  const selectedTaskAgentDefaultLabel = selectedTask && !selectedTask.agentId
+    ? projectDefaultAgent ? 'Project default' : defaultAgent ? 'Default' : undefined
+    : undefined
 
   const selectedTaskAgent = useMemo(() => {
     if (selectedTask?.agentId) return agents.find((item) => item.id === selectedTask.agentId) ?? null
-    return defaultAgent
-  }, [agents, defaultAgent, selectedTask])
+    return projectDefaultAgent ?? defaultAgent
+  }, [agents, defaultAgent, projectDefaultAgent, selectedTask])
+
+  const selectedTaskSkills = useMemo(() => {
+    if (!selectedTask) return []
+    return (selectedTask.skills?.length ?? 0) > 0 ? selectedTask.skills ?? [] : projectDefaultSkills
+  }, [projectDefaultSkills, selectedTask])
+
+  const selectedTaskSkillsAreDefault = Boolean(selectedTask && (selectedTask.skills?.length ?? 0) === 0 && projectDefaultSkills.length > 0)
 
   const selectedTaskOutputFormatOption: AppSelectOption | null = useMemo(() => {
     const outputFormatId = getTaskOutputFormatId(selectedTask)
@@ -1056,15 +1096,17 @@ export function ProjectDetailPage() {
     }
     return rows.sort((a, b) => b.at - a.at).slice(0, 10)
   }, [tasks])
-  const taskContextSkills = selectedTask?.skills ?? []
+  const taskContextSkills = selectedTaskSkills
 
   const selectedTaskExportContext = useMemo(() => {
     if (!selectedTask) return null
-    const effectiveTask = selectedTask.agentId || !defaultAgent
-      ? selectedTask
-      : { ...selectedTask, agentId: defaultAgent.id }
-    return { task: effectiveTask, project, projectGroup: projectGroupForExport, agents, skills, tags, customFields, projectStatuses }
-  }, [agents, customFields, defaultAgent, project, projectGroupForExport, projectStatuses, selectedTask, skills, tags])
+    const effectiveTask = {
+      ...selectedTask,
+      agentId: selectedTask.agentId || selectedTaskAgent?.id || null,
+      skills: selectedTaskSkills
+    }
+    return { task: effectiveTask, project, projectGroup: projectGroupForExport, agents, skills, tags, customFields, projectStatuses, codexLanguage: projectCodexLanguage, codexPlanReasoningEffort: projectCodexPlanReasoningEffort, codexRunReasoningEffort: projectCodexRunReasoningEffort }
+  }, [agents, customFields, project, projectCodexLanguage, projectCodexPlanReasoningEffort, projectCodexRunReasoningEffort, projectGroupForExport, projectStatuses, selectedTask, selectedTaskAgent, selectedTaskSkills, skills, tags])
   const selectedTaskAgentMarkdown = selectedTaskExportContext ? buildAgentMarkdown(selectedTaskExportContext) : ''
   const selectedTaskSkillsMarkdown = selectedTaskExportContext ? buildSkillsMarkdown(selectedTaskExportContext) : ''
 
@@ -1096,7 +1138,7 @@ export function ProjectDetailPage() {
     setViewMode(mode)
   }
 
-  const { canRunSelectedTaskWithCodex, canPlanSelectedTaskWithCodex, canSendChat, chatOperationFeedback, refreshCodexGatewayModels, runSelectedTaskWithCodex, planSelectedTaskWithCodex, sendCodexChatMessage, stopCodexChat, addChatAttachments, applySlashCommand } = useProjectCodexFlow({
+  const { canRunSelectedTaskWithCodex, canPlanSelectedTaskWithCodex, canSendChat, chatOperationFeedback, refreshCodexGatewayModels, runSelectedTaskWithCodex, planSelectedTaskWithCodex, sendCodexChatMessage, sendPlannerClarification, stopCodexChat, addChatAttachments, applySlashCommand } = useProjectCodexFlow({
     token,
     project,
     selectedTask,
@@ -1114,6 +1156,9 @@ export function ProjectDetailPage() {
     chatModel,
     chatPlanModel,
     chatRunModel,
+    codexLanguage: projectCodexLanguage,
+    planReasoningEffort: projectCodexPlanReasoningEffort,
+    runReasoningEffort: projectCodexRunReasoningEffort,
     chatIncludeContext,
     chatComposerMode,
     selectedChatConversationId,
@@ -1162,6 +1207,7 @@ export function ProjectDetailPage() {
     chatSending,
     canSendChat,
     chatAttachments,
+    chatVisibleLimit,
     chatGateway,
     chatGatewayOption,
     chatGatewayOptions: codexGatewayOptions,
@@ -1209,6 +1255,7 @@ export function ProjectDetailPage() {
     runSelectedTaskWithCodex,
     planSelectedTaskWithCodex,
     sendCodexChatMessage,
+    sendPlannerClarification,
     stopCodexChat,
     applySlashCommand,
     addChatAttachments,
@@ -2633,6 +2680,9 @@ export function ProjectDetailPage() {
     codexDefaultModel,
     codexDefaultPlanModel,
     codexDefaultRunModel,
+    codexLanguage: projectCodexLanguage,
+    codexPlanReasoningEffort: projectCodexPlanReasoningEffort,
+    codexRunReasoningEffort: projectCodexRunReasoningEffort,
     codexGatewayId,
     codexRuntimeWorkspaceId,
     onSetCodexGatewayId: setCodexGateway,
@@ -2642,6 +2692,11 @@ export function ProjectDetailPage() {
     onSetCodexRuntimeWorkspaceId: setCodexRuntimeWorkspaceId,
     onSetCodexModelError: setCodexModelError,
     codexSaving,
+    agents,
+    skills,
+    defaultAgentId: projectDefaultAgentId(project),
+    defaultSkillIds: projectDefaultSkillIds(project),
+    onSaveProjectDefaultsSettings: saveProjectDefaultsSettings,
     onSaveProjectCodexSettings: saveProjectCodexSettings,
     onRefreshCodexGatewayModels: refreshCodexGatewayModels,
     projectCodexModelOptions,
@@ -2848,6 +2903,7 @@ export function ProjectDetailPage() {
         projectPromptPlanGuide={projectPromptPlanGuide}
         projectPromptOutput={projectPromptOutput}
         projectPromptRules={projectPromptRules}
+        projectPromptPostRun={projectPromptPostRun}
         projectPromptError={projectPromptError}
         projectPromptSaving={isProjectPromptSaving}
         onProjectPromptTabChange={setProjectPromptTab}
@@ -2856,6 +2912,7 @@ export function ProjectDetailPage() {
         onProjectPromptPlanGuideChange={setProjectPromptPlanGuide}
         onProjectPromptOutputChange={setProjectPromptOutput}
         onProjectPromptRulesChange={setProjectPromptRules}
+        onProjectPromptPostRunChange={setProjectPromptPostRun}
         onProjectPromptClose={() => setIsProjectPromptSettingsOpen(false)}
         onProjectPromptSave={() => void saveProjectPromptSettings()}
         isCustomFieldModalOpen={isCustomFieldModalOpen}
@@ -3007,8 +3064,11 @@ export function ProjectDetailPage() {
               setError,
               selectedTaskAgent,
               selectedTaskAgentIsDefault,
+              selectedTaskAgentDefaultLabel,
               agents,
               setTaskAgent,
+              selectedTaskSkills,
+              selectedTaskSkillsAreDefault,
               selectedTaskSkillOptions,
               skills,
               setTaskSkills,

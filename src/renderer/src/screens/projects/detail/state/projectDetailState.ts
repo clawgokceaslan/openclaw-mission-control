@@ -53,6 +53,7 @@ export interface ProjectDetailUiState {
   projectPromptPlanGuide: string
   projectPromptOutput: string
   projectPromptRules: string
+  projectPromptPostRun: string
   projectPromptError: string | null
   isProjectPromptSaving: boolean
   error: string | null
@@ -283,6 +284,7 @@ export const PROJECT_DETAIL_INITIAL_STATE: ProjectDetailState = {
     projectPromptPlanGuide: '',
     projectPromptOutput: '',
     projectPromptRules: '',
+    projectPromptPostRun: '',
     projectPromptError: null,
     isProjectPromptSaving: false,
     error: null,
@@ -423,6 +425,7 @@ const PROJECT_DETAIL_FIELD_TO_PATH = {
   projectPromptPlanGuide: ['ui', 'projectPromptPlanGuide'],
   projectPromptOutput: ['ui', 'projectPromptOutput'],
   projectPromptRules: ['ui', 'projectPromptRules'],
+  projectPromptPostRun: ['ui', 'projectPromptPostRun'],
   projectPromptError: ['ui', 'projectPromptError'],
   isProjectPromptSaving: ['ui', 'isProjectPromptSaving'],
   error: ['ui', 'error'],

@@ -131,6 +131,23 @@ function mergeUsage(current: CodexUsageSummary | undefined, next: CodexUsageSumm
   }
 }
 
+function textFromSummaryArray(value: unknown): string {
+  if (!Array.isArray(value)) return ''
+  return value.flatMap((item): string[] => {
+    const record = asRecord(item)
+    if (!record) return []
+    if (typeof record.text === 'string' && record.text.trim()) return [record.text.trim()]
+    if (typeof record.summary === 'string' && record.summary.trim()) return [record.summary.trim()]
+    return []
+  }).join('\n\n')
+}
+
+function commandTextFromValue(value: unknown): string {
+  if (typeof value === 'string') return value.trim()
+  if (Array.isArray(value)) return value.map((item) => String(item)).join(' ').trim()
+  return ''
+}
+
 function extractJsonObjects(text: string): string[] {
   const objects: string[] = []
   let start = -1
@@ -178,6 +195,25 @@ function jsonCandidates(raw: string): string[] {
 
 function normalizeEvent(rawEvent: Record<string, unknown>): CodexNormalizedEvent[] {
   const type = typeof rawEvent.type === 'string' ? rawEvent.type : 'event'
+  const payload = asRecord(rawEvent.payload)
+  const payloadType = typeof payload?.type === 'string' ? payload.type : ''
+  if (type === 'response_item' && payload) {
+    return normalizeEvent({ type: 'item.completed', item: payload, usage: rawEvent.usage ?? payload.usage })
+  }
+  if (type === 'event_msg' && payload) {
+    if (payloadType === 'agent_message' && typeof payload.message === 'string') {
+      return [{ kind: 'message', role: 'assistant', text: payload.message }]
+    }
+    if (payloadType === 'exec_command_begin' || payloadType === 'exec_command_end') {
+      return [{
+        kind: 'command',
+        status: payloadType === 'exec_command_begin' ? 'running' : 'completed',
+        command: commandTextFromValue(payload.command ?? payload.cmd ?? payload.argv),
+        output: typeof payload.output === 'string' ? payload.output : typeof payload.stdout === 'string' ? payload.stdout : undefined,
+        exitCode: finiteNumber(payload.exit_code ?? payload.exitCode)
+      }]
+    }
+  }
   const item = asRecord(rawEvent.item)
   const itemType = typeof item?.type === 'string' ? item.type : ''
   const usage = normalizeUsage(rawEvent.usage ?? rawEvent.token_usage ?? item?.usage)
@@ -197,7 +233,11 @@ function normalizeEvent(rawEvent: Record<string, unknown>): CodexNormalizedEvent
   }
 
   if ((itemType === 'reasoning' || itemType === 'reasoning_summary') && item) {
-    const text = typeof item.text === 'string' ? item.text : typeof item.summary === 'string' ? item.summary : ''
+    const text = typeof item.text === 'string'
+      ? item.text
+      : typeof item.summary === 'string'
+        ? item.summary
+        : textFromSummaryArray(item.summary)
     const durationMs = asDurationMs(item, ['duration_ms', 'durationMs', 'duration']) ?? asMsFromSeconds(item, ['duration_sec', 'durationSeconds', 'duration_second'])
     const startedAt = parseTimestampValue(item.started_at) ?? parseTimestampValue(item.startedAt)
       ?? parseTimestampValue(item.start_time) ?? parseTimestampValue(item.startTime) ?? parseTimestampValue(item.event_started_at) ?? parseTimestampValue(item.eventStartedAt)

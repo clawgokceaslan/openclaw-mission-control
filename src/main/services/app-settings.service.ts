@@ -5,9 +5,11 @@ import { AppSettingsRepository } from '../../db/repositories/workspace-repo.js'
 import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
 import { AgentRepository } from '../../db/repositories/agent-repo.js'
 import { AuthService } from './auth.service.js'
+import { DEFAULT_CODEX_LANGUAGE, normalizeCodexLanguage, type CodexLanguage } from '../../shared/utils/codex-language.js'
 
 const ACTIVE_GATEWAY_KEY = 'activeGatewayId'
 const DEFAULT_AGENT_KEY = 'defaultAgentId'
+const CODEX_LANGUAGE_KEY = 'codexLanguage'
 
 export class AppSettingsService {
   constructor(
@@ -68,6 +70,21 @@ export class AppSettingsService {
     await this.repo.set(actor.user.organizationId, DEFAULT_AGENT_KEY, agent.id)
     return okResponse({ agentId: agent.id, agent })
   }
+
+  async getCodexLanguage(payload: { actorToken?: string }): Promise<ServiceResponse<{ language: CodexLanguage }>> {
+    const actor = await this.auth.requireActor(payload?.actorToken)
+    const stored = await this.repo.get<string | null>(actor.user.organizationId, CODEX_LANGUAGE_KEY)
+    const language = normalizeCodexLanguage(stored)
+    if (stored && stored !== language) await this.repo.set(actor.user.organizationId, CODEX_LANGUAGE_KEY, language)
+    return okResponse({ language: stored ? language : DEFAULT_CODEX_LANGUAGE })
+  }
+
+  async setCodexLanguage(payload: { actorToken?: string; language?: string | null }): Promise<ServiceResponse<{ language: CodexLanguage }>> {
+    const actor = await this.auth.requireActor(payload?.actorToken)
+    const language = normalizeCodexLanguage(payload?.language)
+    await this.repo.set(actor.user.organizationId, CODEX_LANGUAGE_KEY, language)
+    return okResponse({ language })
+  }
 }
 
-export { ACTIVE_GATEWAY_KEY, DEFAULT_AGENT_KEY }
+export { ACTIVE_GATEWAY_KEY, DEFAULT_AGENT_KEY, CODEX_LANGUAGE_KEY }

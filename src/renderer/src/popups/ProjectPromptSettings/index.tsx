@@ -15,6 +15,7 @@ interface ProjectPromptSettingsPopupProps {
   planGuide: string
   output: string
   rules: string
+  postRun: string
   error?: string | null
   saving: boolean
   onTabChange: (tab: ProjectPromptTab) => void
@@ -23,6 +24,7 @@ interface ProjectPromptSettingsPopupProps {
   onPlanGuideChange: (value: string) => void
   onOutputChange: (value: string) => void
   onRulesChange: (value: string) => void
+  onPostRunChange: (value: string) => void
   onClose: () => void
   onSave: () => void
 }
@@ -37,7 +39,9 @@ Use this guide when planning or revising tasks. Read every available task field 
 - Make the task implementation-ready for Codex Run.
 - Prefer clear, verifiable scope over broad or vague instructions.
 - Refactor the entire subtasks array during planning. Treat existing subtasks, including completed/done/closed ones, as input context that can be rewritten into a clearer execution plan.
-- Use extreme subtask decomposition: split every meaningful operation, file/module group, UI state, backend/data-flow change, migration, verification step, and edge-case handling area into its own subtask.
+- Use balanced subtask decomposition: 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 12 subtasks for very large tasks.
+- Create subtasks for cohesive implementation areas, independent workflows, separate ownership boundaries, or meaningful verification paths.
+- Do not create a separate subtask for every file, UI state, edge case, or verification command; put those details inside the relevant subtask checklist.
 - Keep subtasks ordered by execution dependency.
 - Fill Acceptance Criteria when it is missing or incomplete.
 - Do not remove user-provided constraints from the description or comments.
@@ -98,8 +102,8 @@ When producing planned task JSON:
 - Update description with concise implementation context.
 - Set agenticInputs.acceptanceCriteria with measurable completion checks.
 - Add or revise checklist items for concrete verification steps.
-- Subtasks are the primary execution plan. Produce detailed subtasks even for short tasks when they clarify implementation.
-- Every subtask must include a markdown description with Objective, Task context, Exact work, Files/areas, and Done when sections.
+- Subtasks are the primary execution plan, but should stay compact enough to fit the task context.
+- Every subtask must include a concise implementation-ready description. Use Objective, Task context, Exact work, Files/areas, and Done when sections only when they improve clarity.
 - Every subtask must include unchecked checklist items that are specific to that subtask.
 - Do not write generic subtasks or checklist items such as "Test yap", "Run tests", "Fix bugs", "Implement feature", "Implement UI", or "Check everything".
 - Keep tags as names or ids.
@@ -141,6 +145,7 @@ export function ProjectPromptSettingsPopup({
   planGuide,
   output,
   rules,
+  postRun,
   error,
   saving,
   onTabChange,
@@ -149,6 +154,7 @@ export function ProjectPromptSettingsPopup({
   onPlanGuideChange,
   onOutputChange,
   onRulesChange,
+  onPostRunChange,
   onClose,
   onSave
 }: ProjectPromptSettingsPopupProps) {
@@ -156,9 +162,9 @@ export function ProjectPromptSettingsPopup({
   const [templates, setTemplates] = useState<ProjectInstructionTemplate[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const active = PROJECT_INSTRUCTION_TABS.find((item) => item.id === tab) ?? PROJECT_INSTRUCTION_TABS[0]
-  const value = tab === 'context' ? context : tab === 'prompt' ? prompt : tab === 'planGuide' ? planGuide : tab === 'output' ? output : rules
-  const onChange = tab === 'context' ? onContextChange : tab === 'prompt' ? onPromptChange : tab === 'planGuide' ? onPlanGuideChange : tab === 'output' ? onOutputChange : onRulesChange
-  const hasDraftContent = Boolean(context.trim() || prompt.trim() || planGuide.trim() || output.trim() || rules.trim())
+  const value = tab === 'context' ? context : tab === 'prompt' ? prompt : tab === 'planGuide' ? planGuide : tab === 'output' ? output : tab === 'rules' ? rules : postRun
+  const onChange = tab === 'context' ? onContextChange : tab === 'prompt' ? onPromptChange : tab === 'planGuide' ? onPlanGuideChange : tab === 'output' ? onOutputChange : tab === 'rules' ? onRulesChange : onPostRunChange
+  const hasDraftContent = Boolean(context.trim() || prompt.trim() || planGuide.trim() || output.trim() || rules.trim() || postRun.trim())
 
   useEffect(() => {
     let cancelled = false
@@ -183,6 +189,7 @@ export function ProjectPromptSettingsPopup({
     onPlanGuideChange(template.planGuide ?? '')
     onOutputChange(template.defaultOutput ?? '')
     onRulesChange(template.rules ?? '')
+    onPostRunChange(template.postRunPrompt ?? '')
   }
 
   return (
