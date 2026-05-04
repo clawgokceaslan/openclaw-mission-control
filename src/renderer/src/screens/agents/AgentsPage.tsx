@@ -4,55 +4,13 @@ import { LuDownload, LuPencil, LuPlus, LuTrash2, LuUpload, LuX } from 'react-ico
 import styles from './AgentsPage.module.scss'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
-import { Agent, AgentReasoningLevel, AgentStep } from '@shared/types/entities'
+import { Agent, AgentStep, Tag } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { buildSingleAgentMarkdown } from '@renderer/utils/entityMarkdown'
 import { downloadMarkdownFile } from '../projects/detail/taskExport'
-
-const REASONING_OPTIONS: Array<AppSelectOption & { value: AgentReasoningLevel }> = [
-  { label: 'Low', value: 'low' },
-  { label: 'Medium', value: 'medium' },
-  { label: 'High', value: 'high' },
-  { label: 'Extra high', value: 'extra_high' }
-]
-
-const STATUS_OPTIONS: Array<AppSelectOption & { value: Agent['status'] }> = [
-  { label: 'Idle', value: 'idle' },
-  { label: 'Busy', value: 'busy' },
-  { label: 'Offline', value: 'offline' }
-]
-
-const AGENT_IMPORT_EXAMPLE = `{
-  "name": "Research Agent",
-  "title": "Research specialist",
-  "description": "Agent scope",
-  "prompt": "Agent-level operating prompt",
-  "status": "idle",
-  "reasoningLevel": "medium",
-  "steps": [
-    {
-      "title": "Step title",
-      "description": "Step description",
-      "prompt": "Step prompt"
-    },
-    {
-      "title": "Another step title",
-      "description": "Another step description",
-      "prompt": "Another step prompt"
-    }
-  ]
-}`
-
-type AgentImportPatch = {
-  name: string
-  title?: string
-  description?: string
-  prompt?: string
-  status?: Agent['status']
-  reasoningLevel?: AgentReasoningLevel
-  steps?: AgentStep[]
-}
+import { AGENT_IMPORT_EXAMPLE, parseAgentImportJson } from './agentImport'
+import { TagPill } from '@renderer/components/tags/TagPill'
 
 function createStep(sortOrder: number): AgentStep {
   return {
@@ -64,88 +22,8 @@ function createStep(sortOrder: number): AgentStep {
   }
 }
 
-function reasoningLabel(value?: AgentReasoningLevel) {
-  return REASONING_OPTIONS.find((option) => option.value === value)?.label ?? 'Medium'
-}
-
 function formatDate(timestamp: number) {
   return new Date(timestamp).toLocaleDateString()
-}
-
-function createImportedStep(raw: Record<string, unknown>, index: number): AgentStep {
-  return {
-    id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-import-${index}`,
-    title: typeof raw.title === 'string' ? raw.title : '',
-    description: typeof raw.description === 'string' ? raw.description : '',
-    prompt: typeof raw.prompt === 'string' ? raw.prompt : '',
-    sortOrder: index
-  }
-}
-
-function parseAgentImportJson(value: string): { ok: true; patch: AgentImportPatch } | { ok: false; error: string } {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(value)
-  } catch {
-    return { ok: false, error: 'Enter valid JSON.' }
-  }
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { ok: false, error: 'JSON must be an object.' }
-  }
-
-  const source = parsed as Record<string, unknown>
-  if (typeof source.name !== 'string' || !source.name.trim()) {
-    return { ok: false, error: 'JSON must include a non-empty name.' }
-  }
-
-  const patch: AgentImportPatch = { name: source.name.trim() }
-
-  for (const key of ['title', 'description', 'prompt'] as const) {
-    if (source[key] !== undefined && typeof source[key] !== 'string') {
-      return { ok: false, error: `${key} must be a string.` }
-    }
-  }
-
-  if (typeof source.title === 'string') patch.title = source.title
-  if (typeof source.description === 'string') patch.description = source.description
-  if (typeof source.prompt === 'string') patch.prompt = source.prompt
-
-  if (source.status !== undefined) {
-    if (source.status !== 'idle' && source.status !== 'busy' && source.status !== 'offline') {
-      return { ok: false, error: 'status must be idle, busy, or offline.' }
-    }
-    patch.status = source.status
-  }
-
-  if (source.reasoningLevel !== undefined) {
-    if (source.reasoningLevel !== 'low' && source.reasoningLevel !== 'medium' && source.reasoningLevel !== 'high' && source.reasoningLevel !== 'extra_high') {
-      return { ok: false, error: 'reasoningLevel must be low, medium, high, or extra_high.' }
-    }
-    patch.reasoningLevel = source.reasoningLevel
-  }
-
-  if (source.steps !== undefined) {
-    if (!Array.isArray(source.steps)) {
-      return { ok: false, error: 'steps must be an array.' }
-    }
-    const importedSteps: AgentStep[] = []
-    for (const [index, rawStep] of source.steps.entries()) {
-      if (!rawStep || typeof rawStep !== 'object' || Array.isArray(rawStep)) {
-        return { ok: false, error: `steps[${index}] must be an object.` }
-      }
-      const step = rawStep as Record<string, unknown>
-      for (const key of ['title', 'description', 'prompt'] as const) {
-        if (step[key] !== undefined && typeof step[key] !== 'string') {
-          return { ok: false, error: `steps[${index}].${key} must be a string.` }
-        }
-      }
-      importedSteps.push(createImportedStep(step, index))
-    }
-    patch.steps = importedSteps
-  }
-
-  return { ok: true, patch }
 }
 
 export function AgentsPage() {
@@ -156,6 +34,9 @@ export function AgentsPage() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [tags, setTags] = useState<Tag[]>([])
+  const [tagsLoading, setTagsLoading] = useState(false)
+  const [tagsError, setTagsError] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [mode, setMode] = useState<'create' | 'edit'>('create')
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null)
@@ -164,8 +45,8 @@ export function AgentsPage() {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [trainingMarkdown, setTrainingMarkdown] = useState('')
-  const [status, setStatus] = useState<Agent['status']>('idle')
-  const [reasoningLevel, setReasoningLevel] = useState<AgentReasoningLevel>('medium')
+  const [config, setConfig] = useState<Record<string, unknown>>({})
+  const [selectedTags, setSelectedTags] = useState<AppSelectOption[]>([])
   const [steps, setSteps] = useState<AgentStep[]>([])
   const [formError, setFormError] = useState<string | null>(null)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
@@ -187,19 +68,33 @@ export function AgentsPage() {
     setError(null)
   }
 
+  const refreshTags = async () => {
+    setTagsLoading(true)
+    const response = await loadList<Tag[]>(IPC_CHANNELS.customFields.tagsList, token)
+    setTagsLoading(false)
+    if (!response.ok) {
+      setTagsError(response.error?.message ?? 'Unable to load tags')
+      return
+    }
+    setTags(Array.isArray(response.data) ? response.data : [])
+    setTagsError(null)
+  }
+
   useEffect(() => {
     void refresh()
+    void refreshTags()
   }, [token])
 
   const sortedItems = useMemo(() => [...items].sort((a, b) => b.updatedAt - a.updatedAt), [items])
+  const tagOptions = useMemo<AppSelectOption[]>(() => tags.map((tag) => ({ label: tag.name, value: tag.id, color: tag.color })), [tags])
 
   const resetForm = () => {
     setName('')
     setTitle('')
     setDescription('')
     setTrainingMarkdown('')
-    setStatus('idle')
-    setReasoningLevel('medium')
+    setConfig({})
+    setSelectedTags([])
     setSteps([])
     setFormError(null)
     setIsImportModalOpen(false)
@@ -234,8 +129,8 @@ export function AgentsPage() {
     setTitle(agent.title ?? '')
     setDescription(agent.description ?? '')
     setTrainingMarkdown(agent.trainingMarkdown ?? '')
-    setStatus(agent.status)
-    setReasoningLevel(agent.reasoningLevel ?? 'medium')
+    setConfig(agent.config ?? {})
+    setSelectedTags((agent.tags ?? []).map((tag) => ({ label: tag.name, value: tag.id, color: tag.color })))
     setSteps([...(agent.steps ?? [])].sort((a, b) => a.sortOrder - b.sortOrder))
     setFormError(null)
     setIsImportModalOpen(false)
@@ -276,7 +171,53 @@ export function AgentsPage() {
     setImportError(null)
   }
 
-  const importAgentJson = () => {
+  const createTagOption = async (name: string): Promise<AppSelectOption | null> => {
+    const response = await invokeBridge<Tag>(IPC_CHANNELS.customFields.tagsCreate, {
+      actorToken: token,
+      name
+    })
+    if (!response.ok || !response.data) {
+      setTagsError(response.error?.message ?? `Unable to create tag ${name}`)
+      return null
+    }
+    const tag = response.data
+    setTags((prev) => [...prev.filter((item) => item.id !== tag.id), tag])
+    return { label: tag.name, value: tag.id, color: tag.color }
+  }
+
+  const resolveImportedTags = async (tagValues: string[] | undefined): Promise<AppSelectOption[] | null> => {
+    if (!tagValues) return null
+    const resolved: AppSelectOption[] = []
+    let knownTags = tags
+    for (const rawValue of tagValues) {
+      const value = rawValue.trim()
+      if (!value) continue
+      const existing = knownTags.find((tag) => tag.id === value || tag.name.toLocaleLowerCase('tr') === value.toLocaleLowerCase('tr'))
+      if (existing) {
+        resolved.push({ label: existing.name, value: existing.id, color: existing.color })
+        continue
+      }
+      const created = await createTagOption(value)
+      if (!created) return null
+      resolved.push(created)
+      knownTags = [...knownTags, { id: created.value, organizationId: '', name: created.label, color: created.color, updatedAt: Date.now() }]
+    }
+    return resolved
+  }
+
+  const handleCreateTag = async (value: string) => {
+    const name = value.trim()
+    if (!name) return
+    const existing = tags.find((tag) => tag.name.toLocaleLowerCase('tr') === name.toLocaleLowerCase('tr'))
+    if (existing) {
+      setSelectedTags((prev) => [...prev.filter((option) => option.value !== existing.id), { label: existing.name, value: existing.id, color: existing.color }])
+      return
+    }
+    const created = await createTagOption(name)
+    if (created) setSelectedTags((prev) => [...prev, created])
+  }
+
+  const importAgentJson = async () => {
     const result = parseAgentImportJson(importJson)
     if (!result.ok) {
       setImportError(result.error)
@@ -287,10 +228,12 @@ export function AgentsPage() {
     if (result.patch.title !== undefined) setTitle(result.patch.title)
     if (result.patch.description !== undefined) setDescription(result.patch.description)
     if (result.patch.prompt !== undefined) setTrainingMarkdown(result.patch.prompt)
-    if (result.patch.status !== undefined) setStatus(result.patch.status)
-    if (result.patch.reasoningLevel !== undefined) setReasoningLevel(result.patch.reasoningLevel)
+    if (result.patch.config !== undefined) setConfig(result.patch.config)
     if (result.patch.steps !== undefined) setSteps(result.patch.steps)
+    const importedTags = await resolveImportedTags(result.patch.tags)
+    if (importedTags) setSelectedTags(importedTags)
     setFormError(null)
+    if (result.patch.warnings.length > 0) setNotice(result.patch.warnings.join(' '))
     closeImportModal()
   }
 
@@ -324,8 +267,8 @@ export function AgentsPage() {
       title: title.trim(),
       description: description.trim(),
       trainingMarkdown,
-      status,
-      reasoningLevel,
+      config,
+      tagIds: selectedTags.map((tag) => tag.value),
       steps: normalizedSteps
     })
     setLoading(false)
@@ -407,10 +350,10 @@ export function AgentsPage() {
       >
         <div className={styles.tableHead}>
           <span>Agent</span>
-          <span>Title</span>
-          <span>Reasoning</span>
+          <span>Title / description</span>
+          <span>Tags</span>
           <span>Steps</span>
-          <span>Status</span>
+          <span>Prompt</span>
           <span>Updated</span>
           <span>Actions</span>
         </div>
@@ -418,12 +361,18 @@ export function AgentsPage() {
           <div key={agent.id} className={styles.tableRow}>
             <span className={styles.agentCell}>
               <strong>{agent.name}</strong>
-              <small>{agent.trainingMarkdown ? 'Training added' : 'No training markdown'}</small>
+              <small>{agent.trainingMarkdown ? 'Prompt added' : 'No prompt'}</small>
             </span>
-            <span className={styles.mutedCell}>{agent.title || 'No title'}</span>
-            <span><span className={`${styles.reasoningPill} ${styles[`reasoning_${agent.reasoningLevel ?? 'medium'}`]}`}>{reasoningLabel(agent.reasoningLevel)}</span></span>
+            <span className={styles.agentCell}>
+              <strong>{agent.title || 'No title'}</strong>
+              <small>{agent.description || 'No description'}</small>
+            </span>
+            <span className={styles.tagList}>
+              {(agent.tags ?? []).length > 0 ? (agent.tags ?? []).slice(0, 3).map((tag) => <TagPill key={tag.id} tag={tag} compact />) : <em>No tags</em>}
+              {(agent.tags ?? []).length > 3 ? <small>+{(agent.tags ?? []).length - 3}</small> : null}
+            </span>
             <span className={styles.mutedCell}>{(agent.steps ?? []).length}</span>
-            <span><span className={`${styles.statusPill} ${styles[`status_${agent.status}`]}`}>{agent.status}</span></span>
+            <span className={styles.mutedCell}>{agent.trainingMarkdown?.trim() ? 'Ready' : 'Not set'}</span>
             <span className={styles.mutedCell}>{formatDate(agent.updatedAt)}</span>
             <span className={styles.actionsCell}>
               <button type="button" className={styles.iconButton} onClick={() => downloadAgent(agent)} aria-label={`Download ${agent.name} AGENT.md`}>
@@ -468,32 +417,30 @@ export function AgentsPage() {
                     <span>Title</span>
                     <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="What this agent does" />
                   </label>
-                  <label>
-                    <span>Status</span>
-                    <AppSelect
-                      mode="single"
-                      value={STATUS_OPTIONS.find((option) => option.value === status) ?? STATUS_OPTIONS[0]}
-                      options={STATUS_OPTIONS}
-                      onChange={(option) => {
-                        if (option?.value === 'idle' || option?.value === 'busy' || option?.value === 'offline') setStatus(option.value)
-                      }}
-                    />
-                  </label>
-                  <label>
-                    <span>Reasoning level</span>
-                    <AppSelect
-                      mode="single"
-                      value={REASONING_OPTIONS.find((option) => option.value === reasoningLevel) ?? REASONING_OPTIONS[1]}
-                      options={REASONING_OPTIONS}
-                      onChange={(option) => {
-                        if (option?.value === 'low' || option?.value === 'medium' || option?.value === 'high' || option?.value === 'extra_high') setReasoningLevel(option.value)
-                      }}
-                    />
-                  </label>
                 </div>
                 <label>
                   <span>Description</span>
                   <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} placeholder="Describe the agent's scope, strengths, and boundaries." />
+                </label>
+                <label>
+                  <span>Tags</span>
+                  <AppSelect
+                    mode="multi"
+                    creatable
+                    value={selectedTags}
+                    options={tagOptions}
+                    placeholder={tagsLoading ? 'Loading tags...' : tags.length ? 'Search or create tags...' : 'Create a tag...'}
+                    isDisabled={tagsLoading}
+                    onChange={setSelectedTags}
+                    onCreateOption={(value) => void handleCreateTag(value)}
+                  />
+                  {tagsError ? (
+                    <small className={styles.fieldHelp}>
+                      {tagsError} <button type="button" onClick={() => void refreshTags()}>Retry</button>
+                    </small>
+                  ) : tags.length === 0 && !tagsLoading ? (
+                    <small className={styles.fieldHelp}>No tags exist yet. Type a tag name and press Enter to create one.</small>
+                  ) : null}
                 </label>
                 <label>
                   <span>Agent prompt</span>
@@ -567,7 +514,7 @@ export function AgentsPage() {
                   </div>
                   <footer className={styles.modalFooter}>
                     <button type="button" className={styles.secondaryButton} onClick={closeImportModal}>Cancel</button>
-                    <button type="button" className={styles.primaryButton} onClick={importAgentJson} disabled={!importJson.trim()}>Import</button>
+                    <button type="button" className={styles.primaryButton} onClick={() => void importAgentJson()} disabled={!importJson.trim()}>Import</button>
                   </footer>
                 </div>
               </section>

@@ -196,7 +196,12 @@ function agentExtraConfig(agent: Agent): Record<string, unknown> {
   delete config.trainingMarkdown
   delete config.steps
   delete config.reasoningLevel
+  delete config.status
   return config
+}
+
+function agentTags(agent: Agent): string {
+  return (agent.tags ?? []).map((tag) => tag.name).filter(Boolean).join(', ')
 }
 
 function commentsMarkdown(comments: TaskComment[]): string {
@@ -546,8 +551,7 @@ export function buildAgentMarkdown(context: ExportContext): string {
         `| Name | ${markdownCell(agent.name)} |`,
         `| Title | ${markdownCell(agent.title ?? '-')} |`,
         `| Description | ${markdownCell(description || '-')} |`,
-        `| Status | ${markdownCell(agent.status)} |`,
-        `| Reasoning level | ${markdownCell(agent.reasoningLevel ?? '-')} |`,
+        `| Tags | ${markdownCell(agentTags(agent) || '-')} |`,
         `| Last heartbeat | ${markdownCell(formatDate(agent.heartbeatAt))} |`,
         `| Created | ${markdownCell(formatDate(agent.createdAt))} |`,
         `| Updated | ${markdownCell(formatDate(agent.updatedAt))} |`

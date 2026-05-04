@@ -1,7 +1,8 @@
 import { BaseRepository } from './base-repo.js'
 import { randomUUID } from 'node:crypto'
 import { SqliteAdapter } from '../adapter/sqlite.js'
-import type { Agent, AgentReasoningLevel, AgentStep } from '../../shared/types/entities.js'
+import type { Agent, AgentReasoningLevel, AgentStep, Tag } from '../../shared/types/entities.js'
+import { resolveTagColor } from './tag-color.js'
 
 function asConfig(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -32,42 +33,48 @@ export class AgentRepository extends BaseRepository<Agent> {
 
   async list(orgId: string): Promise<Agent[]> {
     const rows = await this.db.prepare('SELECT * FROM agents WHERE organization_id = @orgId ORDER BY created_at DESC').all({ orgId })
-    return rows.map((row: any) => this.map(row))
+    const agents = rows.map((row: any) => this.map(row))
+    return this.hydrateTags(agents)
   }
 
   async get(id: string): Promise<Agent | undefined> {
     const row = await this.db.prepare('SELECT * FROM agents WHERE id = @id').get({ id }) as any
-    return row ? this.map(row) : undefined
+    if (!row) return undefined
+    const [agent] = await this.hydrateTags([this.map(row)])
+    return agent
   }
 
-  async create(input: Omit<Agent, 'id' | 'createdAt' | 'updatedAt' | 'heartbeatAt'>): Promise<Agent> {
+  async create(input: Omit<Agent, 'id' | 'createdAt' | 'updatedAt' | 'heartbeatAt' | 'tags'> & { tagIds?: string[] }): Promise<Agent> {
     const now = Date.now()
     const row: Agent = {
       id: randomUUID(),
       organizationId: input.organizationId,
       name: input.name,
-      status: input.status,
+      status: input.status ?? 'idle',
       heartbeatAt: now,
       config: input.config,
       createdAt: now,
       updatedAt: now
     }
-    await this.db
-      .prepare(
-        `INSERT INTO agents (id, organization_id, name, status, heartbeat_at, config_json, created_at, updated_at)
-         VALUES (@id, @organizationId, @name, @status, @heartbeatAt, @configJson, @createdAt, @updatedAt)`
-      )
-      .run({
-        id: row.id,
-        organizationId: row.organizationId,
-        name: row.name,
-        status: row.status,
-        heartbeatAt: row.heartbeatAt,
-        configJson: this.toJson(row.config),
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt
-      })
-    return row
+    await this.db.transaction(async () => {
+      await this.db
+        .prepare(
+          `INSERT INTO agents (id, organization_id, name, status, heartbeat_at, config_json, created_at, updated_at)
+           VALUES (@id, @organizationId, @name, @status, @heartbeatAt, @configJson, @createdAt, @updatedAt)`
+        )
+        .run({
+          id: row.id,
+          organizationId: row.organizationId,
+          name: row.name,
+          status: row.status,
+          heartbeatAt: row.heartbeatAt,
+          configJson: this.toJson(row.config),
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt
+        })
+      await this.replaceAgentTags(row.id, input.tagIds ?? [])
+    })
+    return (await this.get(row.id)) ?? row
   }
 
   async updateHeartbeat(id: string): Promise<Agent | undefined> {
@@ -80,24 +87,105 @@ export class AgentRepository extends BaseRepository<Agent> {
     return { ...row, heartbeatAt: now, updatedAt: now }
   }
 
-  async update(id: string, patch: Partial<Agent>): Promise<Agent | undefined> {
+  async update(id: string, patch: Partial<Agent> & { tagIds?: string[] }): Promise<Agent | undefined> {
     const current = await this.get(id)
     if (!current) return undefined
     const next = { ...current, ...patch, updatedAt: Date.now() }
-    await this.db
-      .prepare('UPDATE agents SET name=@name, status=@status, config_json=@configJson, updated_at=@updatedAt WHERE id=@id')
-      .run({
-        id,
-        name: next.name,
-        status: next.status,
-        configJson: this.toJson(next.config),
-        updatedAt: next.updatedAt
-      })
-    return next
+    await this.db.transaction(async () => {
+      await this.db
+        .prepare('UPDATE agents SET name=@name, status=@status, config_json=@configJson, updated_at=@updatedAt WHERE id=@id')
+        .run({
+          id,
+          name: next.name,
+          status: next.status ?? 'idle',
+          configJson: this.toJson(next.config),
+          updatedAt: next.updatedAt
+        })
+      if (patch.tagIds !== undefined) {
+        await this.replaceAgentTags(id, patch.tagIds)
+      }
+    })
+    return this.get(id)
   }
 
   async remove(id: string): Promise<void> {
     await this.db.prepare('DELETE FROM agents WHERE id = @id').run({ id })
+  }
+
+  async listAgentTags(agentId: string): Promise<Tag[]> {
+    const rows = await this.db
+      .prepare(
+        `SELECT t.id, t.organization_id, t.name, t.color, t.description, t.updated_at, t.created_at
+         FROM agent_tags at
+         INNER JOIN tags t ON t.id = at.tag_id
+         WHERE at.agent_id = @agentId
+         ORDER BY t.name ASC`
+      )
+      .all({ agentId }) as Array<{ id: string; organization_id: string; name: string; color?: string; description?: string; updated_at?: number; created_at?: number }>
+    return rows.map((row) => this.mapTag(row))
+  }
+
+  async listTagsByAgentIds(agentIds: string[]): Promise<Record<string, Tag[]>> {
+    if (agentIds.length === 0) return {}
+    const placeholders = agentIds.map((_, index) => `@id${index}`).join(', ')
+    const params = agentIds.reduce<Record<string, string>>((acc, id, index) => {
+      acc[`id${index}`] = id
+      return acc
+    }, {})
+    const rows = await this.db
+      .prepare(
+        `SELECT at.agent_id, t.id, t.organization_id, t.name, t.color, t.description, t.updated_at, t.created_at
+         FROM agent_tags at
+         INNER JOIN tags t ON t.id = at.tag_id
+         WHERE at.agent_id IN (${placeholders})
+         ORDER BY at.agent_id ASC, t.name ASC`
+      )
+      .all(params) as Array<{ agent_id: string; id: string; organization_id: string; name: string; color?: string; description?: string; updated_at?: number; created_at?: number }>
+    const byAgentId: Record<string, Tag[]> = {}
+    for (const row of rows) {
+      byAgentId[row.agent_id] = byAgentId[row.agent_id] ?? []
+      byAgentId[row.agent_id].push(this.mapTag(row))
+    }
+    return byAgentId
+  }
+
+  private async hydrateTags(agents: Agent[]): Promise<Agent[]> {
+    const tagsByAgentId = await this.listTagsByAgentIds(agents.map((agent) => agent.id))
+    return agents.map((agent) => {
+      const tags = tagsByAgentId[agent.id] ?? []
+      return {
+        ...agent,
+        tags,
+        tagIds: tags.map((tag) => tag.id)
+      }
+    })
+  }
+
+  private async replaceAgentTags(agentId: string, tagIds: string[]): Promise<void> {
+    const normalized = Array.from(new Set(tagIds.filter((item) => typeof item === 'string' && item.length > 0)))
+    const now = Date.now()
+    await this.db.prepare('DELETE FROM agent_tags WHERE agent_id = @agentId').run({ agentId })
+    for (const tagId of normalized) {
+      await this.db
+        .prepare('INSERT INTO agent_tags (id, agent_id, tag_id, created_at) VALUES (@id, @agentId, @tagId, @createdAt)')
+        .run({
+          id: randomUUID(),
+          agentId,
+          tagId,
+          createdAt: now
+        })
+    }
+  }
+
+  private mapTag(row: { id: string; organization_id: string; name: string; color?: string; description?: string; updated_at?: number; created_at?: number }): Tag {
+    return {
+      id: row.id,
+      organizationId: row.organization_id,
+      name: row.name,
+      color: resolveTagColor(row.color, row.name),
+      description: row.description,
+      updatedAt: row.updated_at ?? row.created_at
+    }
   }
 
   private map(row: any): Agent {

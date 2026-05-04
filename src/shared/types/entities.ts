@@ -198,13 +198,17 @@ export interface Agent {
   id: string
   organizationId: string
   name: string
-  status: 'idle' | 'busy' | 'offline'
+  /** Legacy runtime status. Read for older rows only; new agent writes do not expose it. */
+  status?: 'idle' | 'busy' | 'offline'
   heartbeatAt: number
   config?: Record<string, unknown>
   title?: string
   description?: string
   trainingMarkdown?: string
   steps?: AgentStep[]
+  tags?: Tag[]
+  tagIds?: string[]
+  /** Legacy config field. Read for compatibility only; new agent writes do not expose it. */
   reasoningLevel?: AgentReasoningLevel
   createdAt: number
   updatedAt: number

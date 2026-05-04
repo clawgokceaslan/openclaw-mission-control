@@ -61,7 +61,8 @@ export function resolveMigrations(basePath: string): MigrationPlan[] {
     '013_output_format_role.sql',
     '014_workspaces_settings.sql',
     '015_openclaw_resource_mappings.sql',
-    '016_project_instruction_templates.sql'
+    '016_project_instruction_templates.sql',
+    '017_agent_tags.sql'
   ]
   return filenames.map((filename) => {
     const searchPaths = [

@@ -1,12 +1,9 @@
 import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
-import { Agent, AgentReasoningLevel, AgentStep } from '../../shared/types/entities.js'
+import { Agent, AgentStep } from '../../shared/types/entities.js'
 import { AuthService } from './auth.service.js'
 import { AgentRepository } from '../../db/repositories/agent-repo.js'
-
-function normalizeReasoning(value: unknown): AgentReasoningLevel {
-  return value === 'low' || value === 'medium' || value === 'high' || value === 'extra_high' ? value : 'medium'
-}
+import { TagRepository } from '../../db/repositories/custom-field-repo.js'
 
 function normalizeSteps(value: unknown): AgentStep[] {
   if (!Array.isArray(value)) return []
@@ -31,19 +28,19 @@ type AgentWritePayload = {
   actorToken?: string
   id?: string
   name?: string
-  status?: Agent['status']
   config?: Record<string, unknown>
   title?: string
   description?: string
   trainingMarkdown?: string
   steps?: AgentStep[]
-  reasoningLevel?: AgentReasoningLevel
+  tagIds?: string[]
 }
 
 export class AgentService {
   constructor(
     private readonly auth: AuthService,
-    private readonly repo: AgentRepository
+    private readonly repo: AgentRepository,
+    private readonly tags: TagRepository
   ) {}
 
   async list(payload: { actorToken?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<Agent[]>> {
@@ -63,19 +60,20 @@ export class AgentService {
   async create(payload: AgentWritePayload, _meta?: Record<string, unknown>): Promise<ServiceResponse<Agent>> {
     const actor = await this.auth.requireActor(payload?.actorToken)
     if (!payload?.name) return errorResponse(ErrorCodes.Validation, 'Agent name required')
+    const tagIds = await this.validateTagIds(payload.tagIds, actor.user.organizationId)
+    if (!tagIds.ok) return tagIds.response
     const config = {
       ...withoutOutputFormatId(payload.config ?? {}),
       title: payload.title ?? '',
       description: payload.description ?? '',
       trainingMarkdown: payload.trainingMarkdown ?? '',
-      steps: normalizeSteps(payload.steps),
-      reasoningLevel: normalizeReasoning(payload.reasoningLevel)
+      steps: normalizeSteps(payload.steps)
     }
     const created = await this.repo.create({
       organizationId: actor.user.organizationId,
       name: payload.name,
-      status: payload.status ?? 'idle',
-      config
+      config,
+      tagIds: tagIds.value
     })
     return okResponse(created)
   }
@@ -86,19 +84,22 @@ export class AgentService {
     const current = await this.repo.get(payload.id)
     if (!current) return errorResponse(ErrorCodes.NotFound, 'Agent not found')
     if (current.organizationId !== actor.user.organizationId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
+    const tagIds = await this.validateTagIds(payload.tagIds, actor.user.organizationId)
+    if (!tagIds.ok) return tagIds.response
     const config = {
       ...withoutOutputFormatId(current.config ?? {}),
       ...withoutOutputFormatId(payload.config ?? {}),
       ...(payload.title !== undefined ? { title: payload.title } : {}),
       ...(payload.description !== undefined ? { description: payload.description } : {}),
       ...(payload.trainingMarkdown !== undefined ? { trainingMarkdown: payload.trainingMarkdown } : {}),
-      ...(payload.steps !== undefined ? { steps: normalizeSteps(payload.steps) } : {}),
-      ...(payload.reasoningLevel !== undefined ? { reasoningLevel: normalizeReasoning(payload.reasoningLevel) } : {})
+      ...(payload.steps !== undefined ? { steps: normalizeSteps(payload.steps) } : {})
     }
+    delete config.reasoningLevel
     const updated = await this.repo.update(payload.id, {
       name: payload.name ?? current.name,
-      status: payload.status ?? current.status,
-      config
+      status: current.status,
+      config,
+      ...(payload.tagIds !== undefined ? { tagIds: tagIds.value } : {})
     })
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Agent not found')
     return okResponse(updated)
@@ -114,4 +115,20 @@ export class AgentService {
     return okResponse({ ok: true })
   }
 
+  private async validateTagIds(tagIds: unknown, organizationId: string): Promise<
+    { ok: true; value: string[] | undefined } |
+    { ok: false; response: ServiceResponse<Agent> }
+  > {
+    if (tagIds === undefined) return { ok: true, value: undefined }
+    if (!Array.isArray(tagIds) || !tagIds.every((tagId) => typeof tagId === 'string')) {
+      return { ok: false, response: errorResponse(ErrorCodes.Validation, 'tagIds must be an array of strings') }
+    }
+    const normalized = Array.from(new Set(tagIds.filter((tagId) => tagId.trim()).map((tagId) => tagId.trim())))
+    const allowed = new Set((await this.tags.list(organizationId)).map((tag) => tag.id))
+    const invalid = normalized.filter((tagId) => !allowed.has(tagId))
+    if (invalid.length > 0) {
+      return { ok: false, response: errorResponse(ErrorCodes.Validation, `Invalid agent tag ids: ${invalid.join(', ')}`) }
+    }
+    return { ok: true, value: normalized }
+  }
 }

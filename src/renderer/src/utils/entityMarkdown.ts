@@ -7,6 +7,14 @@ function markdownCell(value: unknown): string {
 }
 
 export function buildSingleAgentMarkdown(agent: Agent): string {
+  const tagNames = (agent.tags ?? []).map((tag) => tag.name).filter(Boolean).join(', ')
+  const extraConfig = agent.config && typeof agent.config === 'object' ? { ...agent.config } : {}
+  delete extraConfig.title
+  delete extraConfig.description
+  delete extraConfig.trainingMarkdown
+  delete extraConfig.steps
+  delete extraConfig.reasoningLevel
+  delete extraConfig.status
   const sections = [
     `# ${agent.name}`,
     [
@@ -17,8 +25,7 @@ export function buildSingleAgentMarkdown(agent: Agent): string {
       `| Name | ${markdownCell(agent.name)} |`,
       `| Title | ${markdownCell(agent.title || '-')} |`,
       `| Description | ${markdownCell(agent.description || '-')} |`,
-      `| Status | ${markdownCell(agent.status)} |`,
-      `| Reasoning level | ${markdownCell(agent.reasoningLevel ?? 'medium')} |`
+      `| Tags | ${markdownCell(tagNames || '-')} |`
     ].join('\n')
   ]
   if (agent.trainingMarkdown?.trim()) sections.push(`## Agent Prompt\n${agent.trainingMarkdown.trim()}`)
@@ -34,6 +41,9 @@ export function buildSingleAgentMarkdown(agent: Agent): string {
         step.prompt?.trim() ? `#### Prompt\n${step.prompt.trim()}` : ''
       ].filter(Boolean).join('\n\n'))
     ].join('\n\n'))
+  }
+  if (Object.keys(extraConfig).length > 0) {
+    sections.push(`## Extra Config\n\`\`\`json\n${JSON.stringify(extraConfig, null, 2)}\n\`\`\``)
   }
   return `${sections.join('\n\n')}\n`
 }

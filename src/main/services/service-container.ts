@@ -106,7 +106,7 @@ export async function createAppContext(): Promise<AppContext> {
     tasks,
     taskTemplates: new TaskTemplateService(auth, taskTemplateRepo, agentRepo, tagRepo, skillRepo, customFieldRepo),
     projectInstructionTemplates: new ProjectInstructionTemplateService(auth, projectInstructionTemplateRepo),
-    agents: new AgentService(auth, agentRepo),
+    agents: new AgentService(auth, agentRepo, tagRepo),
     gateways: new GatewayService(auth, gatewayRepo, eventBus, gatewayRuntime, appSettingsRepo),
     webhooks: new WebhookService(auth, webhookRepo),
     skills: new SkillService(auth, skillRepo, packRepo),

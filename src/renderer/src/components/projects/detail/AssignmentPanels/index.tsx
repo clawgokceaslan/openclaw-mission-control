@@ -19,6 +19,8 @@ interface SkillsAssignmentPanelProps {
   skills: Skill[]
   source: string
   ctaDescription: string
+  inheritedLabel?: string
+  canClear?: boolean
   onChange: (skillIds: string[]) => MaybePromise
 }
 
@@ -40,11 +42,6 @@ function formatTimestamp(value?: number): string {
   }).format(new Date(value))
 }
 
-function formatReasoning(value?: Agent['reasoningLevel']): string {
-  if (!value) return 'Not set'
-  return value.replace(/_/g, ' ')
-}
-
 export function AgentAssignmentPanel({ agent, agents, ctaDescription, inheritedLabel, canClear = Boolean(agent), onChange }: AgentAssignmentPanelProps) {
   const [isPickerOpen, setIsPickerOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -55,7 +52,7 @@ export function AgentAssignmentPanel({ agent, agents, ctaDescription, inheritedL
     return [...agents]
       .filter((item) => {
         if (!normalizedQuery) return true
-        return [item.name, item.title, item.status, item.reasoningLevel]
+        return [item.name, item.title, item.description, item.trainingMarkdown, ...(item.tags ?? []).map((tag) => tag.name)]
           .filter(Boolean)
           .some((value) => String(value).toLocaleLowerCase('tr').includes(normalizedQuery))
       })
@@ -91,9 +88,8 @@ export function AgentAssignmentPanel({ agent, agents, ctaDescription, inheritedL
           <thead>
             <tr>
               <th>Name</th>
-              <th>Status</th>
               <th>Title</th>
-              <th>Reasoning</th>
+              <th>Tags</th>
               <th>Steps</th>
               <th>Last heartbeat</th>
             </tr>
@@ -106,15 +102,14 @@ export function AgentAssignmentPanel({ agent, agents, ctaDescription, inheritedL
                   {inheritedLabel ? <span className={styles.assignmentInlineBadge}>{inheritedLabel}</span> : null}
                   <span className={styles.assignmentSecondary}>{markdownSnippet(agent.trainingMarkdown)}</span>
                 </td>
-                <td><span className={styles.assignmentBadge}>{agent.status}</span></td>
                 <td>{agent.title || 'Not set'}</td>
-                <td>{formatReasoning(agent.reasoningLevel)}</td>
+                <td>{(agent.tags ?? []).map((tag) => tag.name).join(', ') || 'No tags'}</td>
                 <td>{agent.steps?.length ?? 0}</td>
                 <td>{formatTimestamp(agent.heartbeatAt)}</td>
               </tr>
             ) : (
               <tr>
-                <td colSpan={6} className={styles.assignmentEmptyCell}>Unassigned</td>
+                <td colSpan={5} className={styles.assignmentEmptyCell}>Unassigned</td>
               </tr>
             )}
           </tbody>
@@ -140,9 +135,8 @@ export function AgentAssignmentPanel({ agent, agents, ctaDescription, inheritedL
                 <thead>
                   <tr>
                     <th>Name</th>
-                    <th>Status</th>
                     <th>Title</th>
-                    <th>Reasoning</th>
+                    <th>Tags</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -153,9 +147,8 @@ export function AgentAssignmentPanel({ agent, agents, ctaDescription, inheritedL
                         <span className={styles.assignmentPrimary}>{item.name}{inheritedLabel && item.id === agent?.id ? <span className={styles.assignmentInlineBadge}>{inheritedLabel}</span> : null}</span>
                         <span className={styles.assignmentSecondary}>{markdownSnippet(item.trainingMarkdown)}</span>
                       </td>
-                      <td><span className={styles.assignmentBadge}>{item.status}</span></td>
                       <td>{item.title || 'Not set'}</td>
-                      <td>{formatReasoning(item.reasoningLevel)}</td>
+                      <td>{(item.tags ?? []).map((tag) => tag.name).join(', ') || 'No tags'}</td>
                       <td>
                         <button
                           type="button"
@@ -186,7 +179,7 @@ export function AgentAssignmentPanel({ agent, agents, ctaDescription, inheritedL
   )
 }
 
-export function SkillsAssignmentPanel({ selectedSkills, skills, source, ctaDescription, onChange }: SkillsAssignmentPanelProps) {
+export function SkillsAssignmentPanel({ selectedSkills, skills, source, ctaDescription, inheritedLabel, canClear = selectedSkills.length > 0, onChange }: SkillsAssignmentPanelProps) {
   const [isPickerOpen, setIsPickerOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [draftSkillIds, setDraftSkillIds] = useState<string[]>([])
@@ -216,7 +209,7 @@ export function SkillsAssignmentPanel({ selectedSkills, skills, source, ctaDescr
     if (draftSkillIds.length === 0) return
     setIsSaving(true)
     try {
-      await onChange([...selectedSkillIds, ...draftSkillIds])
+      await onChange(Array.from(new Set([...selectedSkillIds, ...draftSkillIds])))
       setDraftSkillIds([])
       setQuery('')
       setIsPickerOpen(false)
@@ -229,11 +222,15 @@ export function SkillsAssignmentPanel({ selectedSkills, skills, source, ctaDescr
     await onChange(selectedRows.filter((skill) => skill.id !== skillId).map((skill) => skill.id))
   }
 
+  const clearSkills = async () => {
+    await onChange([])
+  }
+
   return (
     <div className={styles.assignmentPanel}>
       <div className={styles.tabCtaCard}>
         <div>
-          <strong>Attach skills</strong>
+          <strong>Attach skills{inheritedLabel ? <span className={styles.assignmentInlineBadge}>{inheritedLabel}</span> : null}</strong>
           <span>{ctaDescription}</span>
         </div>
         <button
@@ -266,13 +263,14 @@ export function SkillsAssignmentPanel({ selectedSkills, skills, source, ctaDescr
               <tr key={skill.id}>
                 <td>
                   <span className={styles.assignmentPrimary}>{skill.name}</span>
+                  {inheritedLabel ? <span className={styles.assignmentInlineBadge}>{inheritedLabel}</span> : null}
                   <span className={styles.assignmentSecondary}>{skill.category || skill.slug}</span>
                 </td>
                 <td><span className={styles.assignmentBadge}>{skill.status}</span></td>
                 <td>{markdownSnippet(skill.descriptionMarkdown)}</td>
                 <td>{source}</td>
                 <td>
-                  <button type="button" className={`${styles.assignmentTableAction} ${styles.assignmentDangerAction}`} onClick={() => void removeSkill(skill.id)}>
+                  <button type="button" className={`${styles.assignmentTableAction} ${styles.assignmentDangerAction}`} onClick={() => void removeSkill(skill.id)} disabled={Boolean(inheritedLabel)}>
                     <LuTrash2 size={14} />
                     Remove
                   </button>
@@ -346,6 +344,7 @@ export function SkillsAssignmentPanel({ selectedSkills, skills, source, ctaDescr
             </div>
             <footer>
               <button type="button" onClick={() => setIsPickerOpen(false)}>Cancel</button>
+              <button type="button" disabled={isSaving || !canClear} onClick={() => void clearSkills()}>Clear skills</button>
               <button type="button" disabled={isSaving || draftSkillIds.length === 0} onClick={() => void saveDraftSkills()}>
                 <LuSparkles size={15} />
                 Save skills

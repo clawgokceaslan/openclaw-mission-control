@@ -180,10 +180,10 @@ function buildMetrics(vm: DashboardVm) {
   const completed = vm.tasks.filter((task) => ['completed', 'done', 'closed'].includes(taskStatus(task))).length
   const failed = vm.tasks.filter((task) => ['failed', 'review'].includes(taskStatus(task))).length
   const activeTasks = vm.tasks.filter((task) => ['running', 'in_progress', 'active'].includes(taskStatus(task))).length
-  const onlineAgents = vm.agents.filter((agent) => agent.status !== 'offline').length
+  const configuredAgents = vm.agents.length
   const onlineGateways = vm.gateways.filter((gateway) => gateway.status === 'online').length
   const errorRate = completed + failed > 0 ? (failed / (completed + failed)) * 100 : 0
-  return { completed, failed, activeTasks, onlineAgents, onlineGateways, errorRate }
+  return { completed, failed, activeTasks, configuredAgents, onlineGateways, errorRate }
 }
 
 export function DashboardPage() {
@@ -226,7 +226,7 @@ export function DashboardPage() {
         <>
           <div className={styles.heroGrid}>
             <MetricCard label="Active tasks" value={metrics.activeTasks} hint={`${vm.tasks.length} total tasks`} icon={<LuBoxes size={17} />} />
-            <MetricCard label="Online agents" value={metrics.onlineAgents} hint={`${vm.agents.length} configured`} icon={<LuBot size={17} />} tone="success" />
+            <MetricCard label="Agents" value={metrics.configuredAgents} hint="configured" icon={<LuBot size={17} />} tone="success" />
             <MetricCard label="Gateways online" value={metrics.onlineGateways} hint={`${vm.gateways.length} configured`} icon={<LuWaypoints size={17} />} tone={metrics.onlineGateways === vm.gateways.length ? 'success' : 'warn'} />
             <MetricCard label="Error rate" value={percent(metrics.errorRate)} hint={`${metrics.failed} failed/review items`} icon={<LuActivity size={17} />} tone="warn" />
           </div>
@@ -286,7 +286,7 @@ export function DashboardPage() {
             <section className={styles.panelCard}>
               <h2>Readiness</h2>
               <div className={styles.snapshotList}>
-                <span><b>{vm.agents.filter((agent) => agent.status === 'idle').length}</b> idle agents</span>
+                <span><b>{vm.agents.filter((agent) => agent.trainingMarkdown?.trim()).length}</b> prompted agents</span>
                 <span><b>{vm.skills.filter((skill) => skill.status === 'active').length}</b> active skills</span>
                 <span><b>{vm.gateways.filter((gateway) => gateway.status === 'online').length}</b> online gateways</span>
                 <span><b>{vm.jobs.filter((job) => job.status === 'failed').length}</b> failed jobs</span>

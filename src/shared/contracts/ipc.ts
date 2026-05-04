@@ -246,6 +246,29 @@ export interface SetTaskSkillsRequest {
   skillIds?: string[]
 }
 
+export interface AgentStepWrite {
+  id?: string
+  title?: string
+  description?: string
+  prompt?: string
+  sortOrder?: number
+}
+
+export interface CreateAgentRequest {
+  actorToken?: string
+  name?: string
+  config?: Record<string, unknown>
+  title?: string
+  description?: string
+  trainingMarkdown?: string
+  steps?: AgentStepWrite[]
+  tagIds?: string[]
+}
+
+export interface UpdateAgentRequest extends CreateAgentRequest {
+  id?: string
+}
+
 export interface ImportTaskJsonRequest {
   actorToken?: string
   projectId?: string

@@ -109,9 +109,9 @@
 
 .tableHead,
 .tableRow {
-  min-width: 1080px;
+  min-width: 1120px;
   display: grid;
-  grid-template-columns: minmax(190px, 1.1fr) minmax(190px, 1fr) 130px 90px 110px 120px 168px;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.1fr) minmax(180px, 1fr) 72px 92px 120px 168px;
   gap: 16px;
   align-items: center;
 }
@@ -161,17 +161,6 @@
   white-space: nowrap;
 }
 
-.reasoningPill,
-.statusPill {
-  min-height: 24px;
-  border-radius: 999px;
-  padding: 0 9px;
-  display: inline-flex;
-  align-items: center;
-  font-size: 0.78rem;
-  font-weight: 850;
-}
-
 .outputCell {
   min-width: 0;
 
@@ -198,27 +187,19 @@
   }
 }
 
-.reasoning_low,
-.status_offline {
-  background: var(--omc-surface-muted);
-  color: var(--omc-text-muted);
-}
+.tagList {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
 
-.reasoning_medium,
-.status_idle {
-  background: var(--omc-active-bg);
-  color: var(--omc-primary-strong);
-}
-
-.reasoning_high,
-.status_busy {
-  background: var(--omc-warning-bg);
-  color: var(--omc-warning);
-}
-
-.reasoning_extra_high {
-  background: var(--omc-danger-bg);
-  color: var(--omc-danger);
+  em,
+  small {
+    color: var(--omc-text-muted);
+    font-style: normal;
+    font-weight: 700;
+  }
 }
 
 .actionsCell {
@@ -407,6 +388,21 @@
   textarea {
     min-height: 96px;
     resize: vertical;
+  }
+}
+
+.fieldHelp {
+  color: var(--omc-text-muted);
+  font-size: 0.83rem;
+  font-weight: 650;
+
+  button {
+    border: none;
+    background: transparent;
+    color: var(--omc-primary);
+    padding: 0;
+    font: inherit;
+    font-weight: 850;
   }
 }
 

@@ -400,7 +400,7 @@ function AgentPanel({
     return [...agents]
       .filter((item) => {
         if (!normalizedQuery) return true
-        return [item.name, item.title, item.status, item.description, item.trainingMarkdown]
+        return [item.name, item.title, item.description, item.trainingMarkdown, ...(item.tags ?? []).map((tag) => tag.name)]
           .filter(Boolean)
           .some((value) => String(value).toLocaleLowerCase('tr').includes(normalizedQuery))
       })
@@ -438,7 +438,7 @@ function AgentPanel({
               <tr>
                 <th>Name</th>
                 <th>Role</th>
-                <th>Status</th>
+                <th>Tags</th>
                 <th>Details</th>
                 <th>Actions</th>
               </tr>
@@ -447,7 +447,7 @@ function AgentPanel({
               <tr>
                 <td><span className={styles.skillPrimary}>{agent.name}</span></td>
                 <td>{agent.title || 'General'}</td>
-                <td><span className={styles.skillBadge}>{agent.status || 'active'}</span></td>
+                <td><span className={styles.skillBadge}>{(agent.tags ?? []).map((tag) => tag.name).join(', ') || 'No tags'}</span></td>
                 <td><span className={styles.skillDescription}>{markdownSnippet(agent.description || agent.trainingMarkdown)}</span></td>
                 <td>
                   <button type="button" className={styles.skillActionButton} onClick={() => void chooseAgent(null)}>
