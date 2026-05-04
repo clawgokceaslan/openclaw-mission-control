@@ -223,6 +223,7 @@ export function SkillsPage() {
             placeholder="Search skills..."
           />
           <AppSelect
+            className={styles.statusFilterSelect}
             mode="single"
             value={status}
             options={STATUS_OPTIONS}

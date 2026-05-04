@@ -1,5 +1,5 @@
 .page {
-  --skills-content-max: 1480px;
+  --skills-content-max: 1240px;
 
   display: block;
   min-width: 0;
@@ -70,7 +70,7 @@
 
 .filterBar {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(180px, 220px);
+  grid-template-columns: minmax(260px, 1fr) 146px;
   gap: 10px;
   align-items: center;
   min-width: 0;
@@ -93,6 +93,23 @@
   }
 }
 
+.statusFilterSelect {
+  width: 146px;
+  min-width: 0;
+
+  :global(.app-select__control) {
+    min-height: 40px;
+  }
+
+  :global(.app-select__value-container) {
+    padding-left: 10px;
+  }
+
+  :global(.app-select__indicators) {
+    flex: 0 0 auto;
+  }
+}
+
 .tableCard {
   border: 1px solid var(--omc-border-subtle);
   border-radius: 14px;
@@ -104,10 +121,11 @@
 
 .tableHead,
 .tableRow {
-  min-width: 1080px;
+  width: 100%;
+  min-width: 1020px;
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(260px, 1.4fr) 110px 190px 86px 132px;
-  gap: 16px;
+  grid-template-columns: minmax(170px, 0.95fr) minmax(250px, 1.35fr) 92px 176px 78px 120px;
+  gap: 14px;
   align-items: center;
 }
 
@@ -518,6 +536,10 @@
 
   .filterBar {
     grid-template-columns: 1fr;
+  }
+
+  .statusFilterSelect {
+    width: 100%;
   }
 }
 
