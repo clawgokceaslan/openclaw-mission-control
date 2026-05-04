@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { LuArrowRight, LuSend, LuSparkles } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
@@ -145,7 +146,7 @@ export function PlannerQuestionHost() {
   const displayProjectName = resolved?.project?.name || active.projectId
   const queueLabel = queue.length > 1 ? `Question ${1} of ${queue.length}` : 'Planner question'
 
-  return (
+  const modal = (
     <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Planner clarification questions">
       <section className={styles.dialog}>
         <header className={styles.header}>
@@ -196,7 +197,10 @@ export function PlannerQuestionHost() {
               ) : null}
               <textarea
                 value={notes[question.id] ?? ''}
-                onChange={(event) => setNotes((current) => ({ ...current, [question.id]: event.currentTarget.value }))}
+                onChange={(event) => {
+                  const value = event.currentTarget.value
+                  setNotes((current) => ({ ...current, [question.id]: value }))
+                }}
                 placeholder={question.options.length > 0 ? 'Optional note...' : 'Answer...'}
               />
             </article>
@@ -212,4 +216,7 @@ export function PlannerQuestionHost() {
       </section>
     </div>
   )
+
+  const target = typeof document === 'undefined' ? null : document.body
+  return target ? createPortal(modal, target) : modal
 }

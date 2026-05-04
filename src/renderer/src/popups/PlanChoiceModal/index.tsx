@@ -1,4 +1,5 @@
 import { LuSparkles, LuX } from 'react-icons/lu'
+import { createPortal } from 'react-dom'
 import type { PlannerClarificationMode } from '@renderer/screens/projects/detail/types'
 import styles from './index.module.scss'
 
@@ -11,8 +12,9 @@ interface PlanChoiceModalProps {
 
 export function PlanChoiceModal({ open, loading = false, onClose, onSelect }: PlanChoiceModalProps) {
   if (!open) return null
+  const target = typeof document === 'undefined' ? null : document.body
 
-  return (
+  const modal = (
     <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Choose Codex planning mode" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <div className={styles.dialog}>
         <header className={styles.header}>
@@ -36,4 +38,6 @@ export function PlanChoiceModal({ open, loading = false, onClose, onSelect }: Pl
       </div>
     </div>
   )
+
+  return target ? createPortal(modal, target) : modal
 }

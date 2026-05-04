@@ -78,9 +78,11 @@
 .headerActions {
   position: relative;
   z-index: 11;
+  flex: 0 1 auto;
   display: flex;
   align-items: center;
   gap: 5px;
+  min-width: 0;
   pointer-events: auto;
   -webkit-app-region: no-drag;
 }
@@ -91,6 +93,24 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
+
+  .primaryActionButton {
+    width: auto;
+    min-width: 32px;
+    gap: 6px;
+    padding: 0 10px;
+    font-size: 0.78rem;
+    font-weight: 800;
+    white-space: nowrap;
+
+    svg {
+      flex: 0 0 auto;
+    }
+
+    .primaryActionLabel {
+      line-height: 1;
+    }
+  }
 }
 
 .iconButton {

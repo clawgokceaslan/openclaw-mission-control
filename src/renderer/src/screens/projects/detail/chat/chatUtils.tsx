@@ -293,8 +293,8 @@ export function formatPlannerClarificationAnswer(input: {
       const selectedOption = question.options.find((option) => option.id === selectedOptionId)
       const note = input.notes[question.id]?.trim()
       const lines = [`${index + 1}. Question: ${question.question}`]
-      if (selectedOption) lines.push(`Answer: ${selectedOption.label}${selectedOption.description ? ` - ${selectedOption.description}` : ''}`)
-      if (note) lines.push(selectedOption ? `Additional note: ${note}` : `Answer: ${note}`)
+      if (selectedOption) lines.push(`Selected option: ${selectedOption.label}${selectedOption.description ? ` - ${selectedOption.description}` : ''}`)
+      if (note) lines.push(selectedOption ? `Additional context: ${note}` : `Answer: ${note}`)
       return lines
     })
   ].join('\n')

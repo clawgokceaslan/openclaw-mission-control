@@ -144,8 +144,35 @@ describe('planner question helpers', () => {
     })
 
     expect(answer).toContain('Question: Scope?')
-    expect(answer).toContain('Answer: Chat only')
+    expect(answer).toContain('Selected option: Chat only')
     expect(answer).toContain('Answer: Keep current design language.')
+  })
+
+  it('keeps selected options and typed notes as separate planner clarification signals', () => {
+    const prompt = plannerQuestionPromptFromMessages([
+      message({
+        id: 'question-1',
+        source: 'codex-plan',
+        role: 'assistant',
+        createdAt: 10,
+        metadata: {
+          codexBlock: 'planner-question',
+          questions: [
+            { id: 'scope', question: 'Scope?', options: [{ id: 'chat', label: 'Chat only', description: 'Stay in chat surfaces.' }] }
+          ]
+        }
+      })
+    ])
+
+    expect(prompt).not.toBeNull()
+    const answer = formatPlannerClarificationAnswer({
+      prompt: prompt!,
+      selectedOptionIds: { scope: 'chat' },
+      notes: { scope: 'Also keep the popup blocking.' }
+    })
+
+    expect(answer).toContain('Selected option: Chat only - Stay in chat surfaces.')
+    expect(answer).toContain('Additional context: Also keep the popup blocking.')
   })
 })
 

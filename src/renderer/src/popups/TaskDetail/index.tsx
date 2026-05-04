@@ -485,17 +485,20 @@ export function TaskDetailPopup({
           ) : null}
           <div className={styles.primaryActions}>
             {onPlanWithCodex ? (
-              <button type="button" className={`${styles.iconButton} ${styles.planButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isPlanWithCodexBusy && !isPlanWithCodexDisabled) onPlanWithCodex() })} disabled={isPlanWithCodexBusy || isPlanWithCodexDisabled} aria-label="Plan task with Codex" title={isPlanWithCodexDisabled ? 'Configure Codex gateway and model before planning this task.' : 'Plan task with Codex'}>
+              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.planButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isPlanWithCodexBusy && !isPlanWithCodexDisabled) onPlanWithCodex() })} disabled={isPlanWithCodexBusy || isPlanWithCodexDisabled} aria-label="Plan task with Codex" title={isPlanWithCodexDisabled ? 'Configure Codex gateway and model before planning this task.' : 'Plan task with Codex'}>
                 <LuSparkles size={16} />
+                <span className={styles.primaryActionLabel}>Plan</span>
               </button>
             ) : null}
             {onRunCodex ? (
-              <button type="button" className={`${styles.iconButton} ${styles.runButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isRunCodexBusy && !isRunCodexDisabled) onRunCodex() })} disabled={isRunCodexBusy || isRunCodexDisabled} aria-label="Run task with Codex" title={isRunCodexDisabled ? 'Configure Codex gateway and model before running this task.' : 'Run task with Codex'}>
+              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.runButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isRunCodexBusy && !isRunCodexDisabled) onRunCodex() })} disabled={isRunCodexBusy || isRunCodexDisabled} aria-label="Run task with Codex" title={isRunCodexDisabled ? 'Configure Codex gateway and model before running this task.' : 'Run task with Codex'}>
                 <LuPlay size={16} />
+                <span className={styles.primaryActionLabel}>Run</span>
               </button>
             ) : null}
-            <button type="button" className={`${styles.iconButton} ${styles.taskDetailOpenChatButton}`} onPointerDown={(event) => runHeaderAction(event, onOpenActivity)} aria-label="Open chat">
+            <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.taskDetailOpenChatButton}`} onPointerDown={(event) => runHeaderAction(event, onOpenActivity)} aria-label="Open chat">
               <LuMessageSquare size={16} />
+              <span className={styles.primaryActionLabel}>Chats</span>
             </button>
           </div>
           <div className={styles.menuWrap} ref={menuRef}>
