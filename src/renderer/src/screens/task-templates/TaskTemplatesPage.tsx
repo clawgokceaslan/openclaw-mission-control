@@ -30,6 +30,7 @@ import { createTaskWithTemplate, type CreateTaskInput } from '../projects/detail
 type CodexModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }
 
 const SAVE_DELAY_MS = 700
+const DESCRIPTION_AUTOSAVE_DELAY_MS = 1200
 const DEFAULT_DETAIL_RATIO = 0.72
 const MIN_DETAIL_WIDTH = 420
 const MIN_COMMENTS_WIDTH = 320
@@ -327,6 +328,7 @@ export function TaskTemplatesPage() {
   const templateBodyRef = useRef<HTMLDivElement | null>(null)
   const subtaskClickTimerRef = useRef<number | null>(null)
   const timerRef = useRef<number | null>(null)
+  const descriptionTimerRef = useRef<number | null>(null)
   const inFlightRef = useRef(false)
   const pendingRef = useRef(false)
   const editingRef = useRef<TaskTemplate | null>(null)
@@ -410,6 +412,7 @@ export function TaskTemplatesPage() {
   useEffect(() => {
     return () => {
       if (timerRef.current) window.clearTimeout(timerRef.current)
+      if (descriptionTimerRef.current) window.clearTimeout(descriptionTimerRef.current)
     }
   }, [])
 
@@ -585,6 +588,10 @@ export function TaskTemplatesPage() {
       window.clearTimeout(timerRef.current)
       timerRef.current = null
     }
+    if (descriptionTimerRef.current) {
+      window.clearTimeout(descriptionTimerRef.current)
+      descriptionTimerRef.current = null
+    }
     if (!nameRef.current.trim()) {
       setSaveState('failed')
       setSaveError('Template name is required.')
@@ -635,13 +642,26 @@ export function TaskTemplatesPage() {
     }, SAVE_DELAY_MS)
   }
 
-  const patchTemplate = (patch: Partial<TaskTemplatePayload>) => {
+  const scheduleDescriptionSave = () => {
+    setSaveState('dirty')
+    setSaveError(null)
+    if (timerRef.current) {
+      window.clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+    if (descriptionTimerRef.current) window.clearTimeout(descriptionTimerRef.current)
+    descriptionTimerRef.current = window.setTimeout(() => {
+      void persistNow()
+    }, DESCRIPTION_AUTOSAVE_DELAY_MS)
+  }
+
+  const patchTemplate = (patch: Partial<TaskTemplatePayload>, options?: { schedule?: boolean }) => {
     setTemplateDraft((current) => {
       const next = normalizeTemplate({ ...current, ...patch })
       templateRef.current = next
       return next
     })
-    scheduleSave()
+    if (options?.schedule !== false) scheduleSave()
   }
 
   const uploadTemplateAttachments = async (files: File[]) => {
@@ -1522,12 +1542,12 @@ export function TaskTemplatesPage() {
             setNameDraft(value)
             nameRef.current = value
             patchTemplate({ title: value })
-            scheduleSave()
           }}
           onDescriptionChange={(nextValue) => {
             setDescriptionDraft(nextValue)
             descriptionRef.current = nextValue
-            patchTemplate({ description: nextValue })
+            patchTemplate({ description: nextValue }, { schedule: false })
+            scheduleDescriptionSave()
           }}
           onPatchTemplate={patchTemplate}
           onPatchSubtasks={patchSubtasks}

@@ -142,6 +142,8 @@ function clampRatio(value: number) {
   return Math.max(0.45, Math.min(0.8, value))
 }
 
+const DESCRIPTION_AUTOSAVE_DELAY_MS = 1200
+
 function loadInitialRatio() {
   if (typeof window === 'undefined') return DEFAULT_DETAIL_RATIO
   const saved = window.localStorage.getItem(DETAIL_RATIO_KEY)
@@ -431,6 +433,13 @@ export function ProjectDetailPage() {
   const chatDraftTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const subtaskStatusMenuRef = useRef<HTMLDivElement | null>(null)
   const subtaskClickTimerRef = useRef<number | null>(null)
+  const descriptionAutosaveTimerRef = useRef<number | null>(null)
+  const descriptionAutosaveInFlightRef = useRef(false)
+  const descriptionAutosavePendingRef = useRef(false)
+  const descriptionAutosaveSnapshotRef = useRef('')
+  const descriptionAutosaveRequestIdRef = useRef(0)
+  const selectedTaskRef = useRef<TaskEntity | null>(null)
+  const descriptionDraftRef = useRef('')
   const lastCodexModelRefreshRef = useRef<string | null>(null)
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false)
   const [isRecentChatsView, setIsRecentChatsView] = useState(false)
@@ -625,6 +634,37 @@ export function ProjectDetailPage() {
   }, [detailRatio])
 
   useEffect(() => {
+    selectedTaskRef.current = selectedTask
+  }, [selectedTask])
+
+  useEffect(() => {
+    descriptionDraftRef.current = descriptionDraft
+  }, [descriptionDraft])
+
+  const clearDescriptionAutosaveTimer = () => {
+    if (!descriptionAutosaveTimerRef.current) return
+    window.clearTimeout(descriptionAutosaveTimerRef.current)
+    descriptionAutosaveTimerRef.current = null
+  }
+
+  useEffect(() => {
+    if (!selectedTask || detailViewMode !== 'task' || !isDescriptionEditing) {
+      clearDescriptionAutosaveTimer()
+      descriptionAutosaveRequestIdRef.current += 1
+      descriptionAutosaveInFlightRef.current = false
+      descriptionAutosavePendingRef.current = false
+      return
+    }
+    clearDescriptionAutosaveTimer()
+    descriptionAutosaveTimerRef.current = window.setTimeout(() => {
+      void saveDescription()
+    }, DESCRIPTION_AUTOSAVE_DELAY_MS)
+    return () => {
+      clearDescriptionAutosaveTimer()
+    }
+  }, [descriptionDraft, detailViewMode, isDescriptionEditing, selectedTask?.id])
+
+  useEffect(() => {
     if (!selectedTask) return
     const override = readTaskCodexOverride(selectedTask)
     const nextRunModel = override.runModel || override.legacyModel || savedCodexSettings.runModel || savedCodexSettings.defaultModel || ''
@@ -655,6 +695,8 @@ export function ProjectDetailPage() {
   const taskModelOptions = useMemo<AppSelectOption[]>(() => (codexConfigOf(effectiveTaskGateway).models ?? []).map((model) => ({ label: model.label || model.id, value: model.id })), [effectiveTaskGateway])
 
   useEffect(() => {
+    clearDescriptionAutosaveTimer()
+    descriptionAutosavePendingRef.current = false
     const nextDescription = prefixDataFormatTokens(
       selectedTask?.description ?? '',
       getTaskInputFormatId(selectedTask),
@@ -1492,30 +1534,71 @@ export function ProjectDetailPage() {
   }
 
   const saveDescription = async () => {
-    if (!selectedTask) return
-    if (descriptionDraft === (selectedTask.description ?? '')) {
+    const task = selectedTaskRef.current
+    const draft = descriptionDraftRef.current
+    if (!task) return true
+    const taskId = task.id
+    clearDescriptionAutosaveTimer()
+    if (draft === (task.description ?? '')) {
       setIsDescriptionEditing(false)
-      return
+      return true
     }
+    if (descriptionAutosaveInFlightRef.current) {
+      if (draft !== descriptionAutosaveSnapshotRef.current) {
+        descriptionAutosavePendingRef.current = true
+      }
+      return true
+    }
+    const requestId = ++descriptionAutosaveRequestIdRef.current
+    descriptionAutosaveInFlightRef.current = true
+    descriptionAutosaveSnapshotRef.current = draft
     setIsDescriptionSaving(true)
     const response = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
       actorToken: token,
-      id: selectedTask.id,
-      description: descriptionDraft,
+      id: task.id,
+      description: draft,
       payload: {
-        ...(selectedTask.payload ?? {}),
+        ...(task.payload ?? {}),
         inputFormatId: '',
         outputFormatId: ''
       }
     })
+    if (descriptionAutosaveRequestIdRef.current !== requestId) {
+      return true
+    }
+    descriptionAutosaveInFlightRef.current = false
     setIsDescriptionSaving(false)
+    if (selectedTaskRef.current?.id !== taskId) {
+      return true
+    }
     if (!response.ok) {
       setError(response.error?.message ?? 'Unable to update description')
-      setDescriptionDraft(selectedTask.description ?? '')
-      return
+      setDescriptionDraft(task.description ?? '')
+      descriptionDraftRef.current = task.description ?? ''
+      descriptionAutosavePendingRef.current = false
+      return false
+    }
+    selectedTaskRef.current = {
+      ...task,
+      description: draft,
+      payload: {
+        ...(task.payload ?? {}),
+        inputFormatId: '',
+        outputFormatId: ''
+      }
+    } as TaskEntity
+    if (descriptionAutosavePendingRef.current) {
+      descriptionAutosavePendingRef.current = false
+      return saveDescription()
     }
     setIsDescriptionEditing(false)
     await refresh()
+    return true
+  }
+
+  const setTaskDescriptionDraft = (next: string) => {
+    descriptionDraftRef.current = next
+    setDescriptionDraft(next)
   }
 
   const saveAcceptanceCriteria = async (value: string) => {
@@ -3069,7 +3152,7 @@ export function ProjectDetailPage() {
               setTaskTags,
               createTagAndAttach,
               descriptionDraft,
-              setDescriptionDraft,
+              setDescriptionDraft: setTaskDescriptionDraft,
               isDescriptionEditing,
               setIsDescriptionEditing,
               isDescriptionSaving,
