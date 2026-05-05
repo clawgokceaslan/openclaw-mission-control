@@ -300,6 +300,11 @@
   -webkit-app-region: drag;
 }
 
+:global(body.omc-modal-interactive) .topbar,
+:global(body.omc-modal-interactive) .topbarInner {
+  -webkit-app-region: no-drag;
+}
+
 .topbarInner {
   min-height: 64px;
   display: grid;

@@ -8,6 +8,7 @@ import { useConfirmation } from '@renderer/components/confirmation'
 import { MarkdownDescriptionEditor } from '@renderer/components/markdown/MarkdownDescriptionEditor'
 import { AgentAssignmentPanel, SkillsAssignmentPanel } from '@renderer/components/projects/detail/AssignmentPanels'
 import { codexConfigOf, customFieldValueLabel, customFieldValueToDraft, readTaskCodexOverride } from '@renderer/screens/projects/detail/projectDetailUtils'
+import { lockModalInteractionRegion } from '@renderer/utils/modalInteractionLock'
 import styles from './index.module.scss'
 
 const fallbackStatusColumn = (status: string) => ({
@@ -436,6 +437,8 @@ export function TaskDetailPopup({
   const dragDepthRef = useRef(0)
   const confirm = useConfirmation()
   const hasDownloadActions = Boolean(onDownloadZip || onDownloadTaskMarkdown || onDownloadAgentMarkdown || onDownloadSkillsMarkdown)
+
+  useEffect(() => lockModalInteractionRegion(), [])
 
   useEffect(() => {
     if (!isMenuOpen && !isDownloadMenuOpen) return

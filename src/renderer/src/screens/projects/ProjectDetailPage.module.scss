@@ -1636,6 +1636,7 @@
 .chatBackdrop {
   position: fixed;
   inset: 0;
+  -webkit-app-region: no-drag;
   background:
     radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--omc-primary) 14%, transparent), transparent 32%),
     color-mix(in srgb, var(--omc-overlay-strong) 92%, #000 8%);
@@ -1644,6 +1645,7 @@
 
 .modalShell {
   position: fixed;
+  -webkit-app-region: no-drag;
   inset: 2vh 2vw;
   min-height: 680px;
   background: var(--omc-surface);
@@ -2019,6 +2021,7 @@
 .chatTopbar {
   position: relative;
   z-index: 20;
+  -webkit-app-region: no-drag;
   min-height: 56px;
   border-bottom: 1px solid color-mix(in srgb, var(--omc-border-subtle) 66%, transparent);
   padding: 10px clamp(12px, 1.4vw, 18px) 10px clamp(14px, 3vw, 36px);
@@ -2185,6 +2188,7 @@
 .chatWorkspace {
   position: relative;
   z-index: 1;
+  -webkit-app-region: no-drag;
   min-height: 0;
   height: 100%;
   display: block;

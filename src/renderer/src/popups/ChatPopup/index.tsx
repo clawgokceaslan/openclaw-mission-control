@@ -6,6 +6,7 @@ import { AppSelect, type AppSelectOption } from '@renderer/components/select/App
 import { CodexChatMessageItem, CodexWorkBlock } from '@renderer/components/projects/detail/chat/CodexChatMessageItem'
 import { formatChatTime, groupCodexTranscriptMessages } from '@renderer/screens/projects/detail/chat/chatUtils'
 import type { ChatAttachmentDraft, ChatConversationSummary, GeneratedContextEntry, PlannerClarificationMode, SlashCommand, TaskActivityMessage } from '@renderer/screens/projects/detail/types'
+import { lockModalInteractionRegion } from '@renderer/utils/modalInteractionLock'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
 interface ChatPopupFlatProps {
@@ -185,6 +186,8 @@ export function ChatPopup({
   const [isContextDrawerOpen, setIsContextDrawerOpen] = useState(false)
   const [selectedContextEntryId, setSelectedContextEntryId] = useState<string>('')
   const isSteerMode = state?.chatMode === 'steer'
+
+  useEffect(() => lockModalInteractionRegion(), [])
 
   const configurationDetails = useMemo(() => {
     const workspaceLabel = state?.chatRuntimeWorkspace?.name || state?.runtimeWorkspaceId || 'Workspace required'
