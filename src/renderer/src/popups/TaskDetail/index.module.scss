@@ -119,18 +119,18 @@
   -webkit-app-region: no-drag;
   width: 32px;
   height: 32px;
-  border: 1px solid transparent;
-  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--omc-border) 60%, transparent);
+  border-radius: 7px;
   background: transparent;
-  color: var(--omc-text-muted);
+  color: var(--omc-text-strong);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   pointer-events: auto;
 
   &:hover {
-    border-color: var(--omc-border-subtle);
-    background: var(--omc-code-bg);
+    border-color: var(--omc-border-strong);
+    background: var(--omc-hover-bg);
     color: var(--omc-text-strong);
   }
 
@@ -164,105 +164,39 @@
 }
 
 .runButton {
-  border-color: color-mix(in srgb, var(--omc-success-strong) 64%, transparent);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--omc-success-strong) 92%, #ffffff) 0%, var(--omc-success-strong) 100%);
-  color: #042f1a;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 28%, transparent);
-
   svg {
     width: 15px;
     height: 15px;
-    fill: currentColor;
-    stroke: currentColor;
     stroke-width: 2.2;
     transform: translateX(1px);
-  }
-
-  &:hover:not(:disabled) {
-    border-color: var(--omc-success-strong);
-    background: linear-gradient(180deg, color-mix(in srgb, var(--omc-success-strong) 82%, #ffffff) 0%, color-mix(in srgb, var(--omc-success-strong) 90%, var(--omc-text-strong)) 100%);
-    color: #042f1a;
   }
 }
 
 .importButton,
 .downloadButton,
-.optionsButton {
-  color: var(--omc-inverse-text);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 22%, transparent);
+.optionsButton,
+.planButton,
+.taskDetailOpenChatButton {
+  border-color: color-mix(in srgb, var(--omc-border) 60%, transparent);
+  background: transparent;
+  color: var(--omc-text-strong);
 
   svg {
     stroke-width: 2.25;
   }
-}
-
-.importButton {
-  border-color: color-mix(in srgb, #7c3aed 48%, transparent);
-  background: linear-gradient(180deg, color-mix(in srgb, #7c3aed 72%, #1f2937) 0%, color-mix(in srgb, #7c3aed 82%, #111827) 100%);
-
-  &:hover {
-    border-color: #7c3aed;
-    background: linear-gradient(180deg, color-mix(in srgb, #7c3aed 78%, #1f2937) 0%, color-mix(in srgb, #7c3aed 88%, #111827) 100%);
-    color: var(--omc-inverse-text);
-  }
-}
-
-.downloadButton {
-  border-color: color-mix(in srgb, #0284c7 50%, transparent);
-  background: linear-gradient(180deg, color-mix(in srgb, #0284c7 74%, #1f2937) 0%, color-mix(in srgb, #0284c7 84%, #0f172a) 100%);
-
-  &:hover {
-    border-color: #0284c7;
-    background: linear-gradient(180deg, color-mix(in srgb, #0284c7 80%, #1f2937) 0%, color-mix(in srgb, #0284c7 90%, #0f172a) 100%);
-    color: var(--omc-inverse-text);
-  }
-}
-
-.optionsButton {
-  border-color: color-mix(in srgb, #f59e0b 62%, transparent);
-  background: color-mix(in srgb, #f59e0b 90%, #111827);
-  color: #111827;
-
-  &:hover {
-    border-color: #f59e0b;
-    background: color-mix(in srgb, #f59e0b 82%, #ffffff);
-    color: #111827;
-  }
-}
-
-.planButton {
-  border-color: color-mix(in srgb, var(--omc-primary) 48%, transparent);
-  background: color-mix(in srgb, var(--omc-primary) 92%, var(--omc-text-strong));
-  color: var(--omc-inverse-text);
-
-  &:hover:not(:disabled) {
-    border-color: var(--omc-primary);
-    background: color-mix(in srgb, var(--omc-primary) 82%, var(--omc-text-strong));
-    color: var(--omc-inverse-text);
-  }
-}
-
-.taskDetailOpenChatButton {
-  border-color: #f7c948;
-  background: #f7c948;
-  color: #050505;
-
-  svg {
-    color: currentColor;
-    stroke: currentColor;
-  }
 
   &:hover:not(:disabled),
   &:active:not(:disabled) {
-    border-color: #ffd666;
-    background: #ffd666;
-    color: #050505;
+    border-color: var(--omc-border-strong);
+    background: var(--omc-hover-bg);
+    color: var(--omc-text-strong);
   }
 }
 
 .iconButtonActive {
-  border-color: color-mix(in srgb, currentColor 64%, transparent);
-  filter: saturate(1.08) brightness(1.04);
+  border-color: var(--omc-primary) !important;
+  background: var(--omc-active-bg) !important;
+  color: var(--omc-primary-strong) !important;
 }
 
 .menuWrap {
