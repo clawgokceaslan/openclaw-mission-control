@@ -7,7 +7,7 @@ import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/stat
 import { statusOptionsFromColumns } from '@renderer/screens/projects/detail/status'
 import { TaskJsonImportPopup } from '@renderer/popups/TaskJsonImport'
 import { parseTaskJsonImportPreview } from '@renderer/screens/projects/detail/taskJsonImport'
-import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
+import styles from './index.module.scss'
 
 interface CreateTaskPopupProps {
   open: boolean
@@ -50,6 +50,7 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
   const [acceptanceCriteria, setAcceptanceCriteria] = useState('')
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [importJson, setImportJson] = useState<string | null>(null)
+  const [hasSubmitted, setHasSubmitted] = useState(false)
   const tagOptions = tags.map((tag) => ({ label: tag.name, value: tag.id, color: tag.color }))
   const agentOptions = agents.map((agent) => ({ label: agent.name, value: agent.id }))
   const templateOptions = templates.map((template) => ({ label: template.name, value: template.id }))
@@ -82,6 +83,7 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
     setAcceptanceCriteria('')
     setImportJson(null)
     setIsImportOpen(false)
+    setHasSubmitted(false)
     const templateOption = initialTemplateId ? templates.map((template) => ({ label: template.name, value: template.id })).find((option) => option.value === initialTemplateId) ?? null : null
     setSelectedTemplate(templateOption)
     if (templateOption) applyTemplate(templateOption)
@@ -96,6 +98,7 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
+    setHasSubmitted(true)
     if (!title.trim() || !currentProjectId) return
     onCreate({
       projectId: currentProjectId,
@@ -112,12 +115,17 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
     })
   }
 
+  const titleInvalid = hasSubmitted && !title.trim()
+  const projectInvalid = requiresProject && !currentProjectId
+  const titleDescriptionId = titleInvalid ? 'create-task-title-error' : undefined
+  const projectDescriptionId = projectInvalid ? 'create-task-project-error' : undefined
+
   return (
     <>
       <div className={styles.createTaskBackdrop} onClick={onClose} />
-      <section className={styles.createTaskModal} role="dialog" aria-modal="true" aria-label="Create task">
+      <section className={styles.createTaskModal} role="dialog" aria-modal="true" aria-labelledby="create-task-heading">
         <header className={styles.createTaskHeader}>
-          <div className={styles.createTaskTabs}><span className={styles.createTaskTabActive}>Task</span></div>
+          <div className={styles.createTaskTabs}><h2 id="create-task-heading" className={styles.createTaskTabActive}>Task</h2></div>
           <div className={styles.createTaskHeaderActions}>
             <button type="button" onClick={() => setIsImportOpen(true)} aria-label="Import task JSON"><LuUpload size={16} /> Import JSON</button>
             <button type="button" onClick={onClose} aria-label="Close create task"><LuX size={17} /></button>
@@ -142,6 +150,7 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
                 }}
                 placeholder="Choose project..."
               />
+              {projectInvalid ? <p id={projectDescriptionId} className={styles.fieldError}>Choose a project before creating the task.</p> : null}
             </div>
           ) : null}
           <div className={styles.createTaskTemplatePicker}>
@@ -159,7 +168,21 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
               isDisabled={!templateOptions.length}
             />
           </div>
-          <input className={styles.createTaskTitle} autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Task name" />
+          <div className={styles.createTaskTitleField}>
+            <input
+              id="create-task-title"
+              className={styles.createTaskTitle}
+              autoFocus
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              onBlur={() => setHasSubmitted(true)}
+              placeholder="Task name"
+              required
+              aria-invalid={titleInvalid}
+              aria-describedby={titleDescriptionId}
+            />
+            {titleInvalid ? <p id={titleDescriptionId} className={styles.fieldError}>Task name is required.</p> : null}
+          </div>
           <MarkdownDescriptionEditor
             className={styles.createTaskDescription}
             value={description}
@@ -212,7 +235,7 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
           </div>
           <div className={styles.createTaskFooter}>
             <span>{currentProject ? `Creates in ${currentProject.name}` : 'Choose a project to continue'}</span>
-            <button type="submit" disabled={busy || !title.trim() || !currentProjectId}>{busy ? 'Creating...' : 'Create Task'}</button>
+            <button type="submit" disabled={busy || !title.trim() || !currentProjectId} aria-busy={busy}>{busy ? 'Creating...' : 'Create Task'}</button>
           </div>
         </form>
       </section>

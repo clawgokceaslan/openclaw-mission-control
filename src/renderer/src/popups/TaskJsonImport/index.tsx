@@ -1,7 +1,7 @@
 import { DragEvent, useState } from 'react'
 import { LuDownload, LuUpload, LuX } from 'react-icons/lu'
 import { parseTaskJsonImportPreview, TASK_JSON_IMPORT_EXAMPLE, TASK_JSON_IMPORT_INSTRUCT } from '@renderer/screens/projects/detail/taskJsonImport'
-import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
+import styles from './index.module.scss'
 
 interface TaskJsonImportPopupProps {
   open: boolean
@@ -65,10 +65,10 @@ export function TaskJsonImportPopup({ open, title, busy = false, onClose, onImpo
   return (
     <>
       <div className={styles.nestedCreateBackdrop} onClick={onClose} />
-      <section className={styles.jsonImportModal} role="dialog" aria-modal="true" aria-label={title}>
+      <section className={styles.jsonImportModal} role="dialog" aria-modal="true" aria-labelledby="json-import-heading">
         <header className={styles.jsonImportHeader}>
           <div>
-            <h4>{title}</h4>
+            <h4 id="json-import-heading">{title}</h4>
             <p>Paste one task JSON or drop a .json file.</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close JSON import"><LuX size={16} /></button>
@@ -123,7 +123,7 @@ export function TaskJsonImportPopup({ open, title, busy = false, onClose, onImpo
         {error ? <p className={styles.formError}>{error}</p> : null}
         <footer className={styles.jsonImportFooter}>
           <button type="button" onClick={onClose} disabled={busy}>Cancel</button>
-          <button type="button" onClick={importJson} disabled={busy || !jsonText.trim()}>{busy ? 'Importing...' : 'Import'}</button>
+          <button type="button" onClick={importJson} disabled={busy || !jsonText.trim()} aria-busy={busy}>{busy ? 'Importing...' : 'Import'}</button>
         </footer>
       </section>
     </>
