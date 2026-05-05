@@ -977,29 +977,21 @@
 }
 
 .headerAddTaskButton {
-  min-height: 34px;
+  width: 34px;
+  height: 34px;
   border: 1px solid color-mix(in srgb, var(--omc-primary) 38%, var(--omc-border));
-  border-radius: 8px;
+  border-radius: 999px;
   background: var(--omc-primary);
   color: var(--omc-inverse-text);
-  padding: 0 11px;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  font-size: 0.82rem;
-  font-weight: 850;
-  white-space: nowrap;
   box-shadow: var(--omc-shadow);
+  flex: 0 0 auto;
 
   svg {
     flex: 0 0 auto;
-  }
-
-  span {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   &:hover {
@@ -1361,10 +1353,6 @@
   .headerAddTaskButton {
     width: 34px;
     padding: 0;
-
-    span {
-      display: none;
-    }
   }
 }
 

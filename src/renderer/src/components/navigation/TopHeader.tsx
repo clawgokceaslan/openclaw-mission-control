@@ -76,7 +76,6 @@ export function TopHeader({ user }: { user: User | null }) {
             title="Add task"
           >
             <LuPlus size={16} />
-            <span>Add Task</span>
           </button>
           <PlannedTasksMenu />
           <div className={styles.plannerQuestionTopArea}>
