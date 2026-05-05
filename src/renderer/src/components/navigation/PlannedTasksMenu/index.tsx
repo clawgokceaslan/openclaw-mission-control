@@ -4,6 +4,7 @@ import { IPC_CHANNELS, type PaginatedResponse, type PlannedCodexTaskRow } from '
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { useGlobalCodexChat } from '@renderer/providers/codex-global-chat'
 import { invokeBridge } from '@renderer/utils/api'
+import { useOutsidePointerDown } from '../useOutsidePointerDown'
 import styles from './index.module.scss'
 
 const PAGE_SIZE = 8
@@ -61,17 +62,7 @@ export function PlannedTasksMenu() {
     void loadPage(1)
   }, [loadPage, open])
 
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target
-      if (!(target instanceof Node)) return
-      if (containerRef.current?.contains(target)) return
-      setOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [open])
+  useOutsidePointerDown(open, containerRef, () => setOpen(false))
 
   const selectRow = async (row: PlannedCodexTaskRow) => {
     if (!row.runnable) {

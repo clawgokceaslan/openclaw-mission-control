@@ -14,6 +14,8 @@ export type PlannedCodexTaskRepositoryRow = {
   }
 }
 
+export type RunningCodexTaskRepositoryRow = PlannedCodexTaskRepositoryRow
+
 type TaskPayload = Record<string, unknown> & {
   description?: string
   comments?: TaskComment[]
@@ -113,6 +115,40 @@ export class TaskRepository extends BaseRepository<TaskEntity> {
         }
       }))
     }
+  }
+
+  async listRunningCodex(orgId: string): Promise<RunningCodexTaskRepositoryRow[]> {
+    const rows = await this.db
+      .prepare(
+        `SELECT
+           t.*,
+           p.id AS project_id_for_context,
+           p.name AS project_name,
+           p.description AS project_description,
+           p.metrics_json AS project_metrics_json
+         FROM tasks t
+         JOIN projects p ON t.project_id = p.id
+         LEFT JOIN project_statuses ps ON ps.id = t.status AND ps.project_id = t.project_id
+         WHERE p.organization_id = @orgId
+           AND COALESCE(ps.category, lower(t.status)) NOT IN ('done', 'closed')
+           AND EXISTS (
+             SELECT 1
+             FROM json_each(t.payload_json, '$.activityMessages') AS activity
+             WHERE json_extract(activity.value, '$.source') IN ('codex-plan', 'codex-run', 'codex-chat')
+           )
+         ORDER BY t.updated_at DESC`
+      )
+      .all({ orgId }) as any[]
+
+    return rows.map((row) => ({
+      task: this.map(row),
+      project: {
+        id: row.project_id_for_context,
+        name: row.project_name,
+        description: row.project_description ?? undefined,
+        metrics: this.parseJson<Record<string, unknown>>(row.project_metrics_json) ?? {}
+      }
+    }))
   }
 
   async get(id: string): Promise<TaskEntity | undefined> {

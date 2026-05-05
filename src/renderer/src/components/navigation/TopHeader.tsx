@@ -1,12 +1,14 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { Navbar, Container } from 'react-bootstrap'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { LuArrowRight, LuMessageCircleQuestion, LuPlus, LuSearch } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import type { User } from '@shared/types/entities'
 import { useLocalAvatar } from '@renderer/components/avatar/localAvatar'
 import { UserAvatar } from '@renderer/components/avatar/UserAvatar'
+import { RunningCodexMenu } from './RunningCodexMenu'
 import { usePlannerQuestions } from '@renderer/components/planner/PlannerQuestionHost'
+import { useOutsidePointerDown } from './useOutsidePointerDown'
 import styles from '@renderer/App.module.scss'
 import { GlobalCreateTaskModal } from './GlobalCreateTaskModal'
 import { PlannedTasksMenu } from './PlannedTasksMenu'
@@ -19,6 +21,7 @@ export function TopHeader({ user }: { user: User | null }) {
   const [open, setOpen] = useState(false)
   const [taskCreateInitial, setTaskCreateInitial] = useState<GlobalTaskCreateInitial | null>(null)
   const [questionPanelOpen, setQuestionPanelOpen] = useState(false)
+  const questionPanelRef = useRef<HTMLDivElement | null>(null)
   const { queue: plannerQuestions, hasConfigurationWarning, openQuestion } = usePlannerQuestions()
 
   useEffect(() => {
@@ -35,6 +38,8 @@ export function TopHeader({ user }: { user: User | null }) {
   useEffect(() => {
     if (plannerQuestions.length === 0) setQuestionPanelOpen(false)
   }, [plannerQuestions.length])
+
+  useOutsidePointerDown(questionPanelOpen, questionPanelRef, () => setQuestionPanelOpen(false))
 
   const openRelatedChat = (projectId: string, taskId: string, conversationId: string) => {
     setQuestionPanelOpen(false)
@@ -78,7 +83,8 @@ export function TopHeader({ user }: { user: User | null }) {
             <LuPlus size={16} />
           </button>
           <PlannedTasksMenu />
-          <div className={styles.plannerQuestionTopArea}>
+          <RunningCodexMenu />
+          <div className={styles.plannerQuestionTopArea} ref={questionPanelRef}>
             <button
               type="button"
               className={`${styles.plannerQuestionButton} ${plannerQuestions.length === 0 ? styles.plannerQuestionButtonIdle : ''} ${hasConfigurationWarning ? styles.plannerQuestionButtonWarning : ''}`}

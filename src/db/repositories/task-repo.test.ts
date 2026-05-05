@@ -134,3 +134,46 @@ describe('TaskRepository.listPlannedCodex', () => {
     await db.close()
   })
 })
+
+describe('TaskRepository.listRunningCodex', () => {
+  it('returns only tasks with Codex activity messages in the organization', async () => {
+    const db = await createDb()
+    const repo = new TaskRepository(db)
+    await insertProject(db, 'project-a', 'org-1', 'Alpha')
+    await insertProject(db, 'project-b', 'org-1', 'Beta')
+    await insertProject(db, 'project-c', 'org-2', 'Other')
+    await insertTask(db, 'task-plan', 'project-a', 'Plan task', 20, {
+      activityMessages: [
+        { id: 'm-1', runId: 'run-1', source: 'codex-plan', role: 'assistant', status: 'running', body: 'Planning', createdAt: 20 }
+      ]
+    })
+    await insertTask(db, 'task-run', 'project-b', 'Run task', 30, {
+      activityMessages: [
+        { id: 'm-2', runId: 'run-2', source: 'codex-run', role: 'thinking', status: 'running', body: 'Running', createdAt: 30 }
+      ]
+    })
+    await insertTask(db, 'task-chat', 'project-b', 'Chat task', 40, {
+      activityMessages: [
+        { id: 'm-3', runId: 'run-3', source: 'codex-chat', role: 'thinking', status: 'running', body: 'Chatting', createdAt: 40 }
+      ]
+    })
+    await insertTask(db, 'task-other', 'project-a', 'No codex activity', 50, {
+      activityMessages: [
+        { id: 'm-4', runId: 'run-4', source: 'comment', role: 'assistant', status: 'completed', body: 'Note', createdAt: 50 }
+      ]
+    })
+    await insertTask(db, 'task-other-org', 'project-c', 'Wrong org', 60, {
+      activityMessages: [
+        { id: 'm-5', runId: 'run-5', source: 'codex-run', role: 'thinking', status: 'running', body: 'Other org', createdAt: 60 }
+      ]
+    })
+
+    const rows = await repo.listRunningCodex('org-1')
+
+    expect(rows.map((row) => row.task.id)).toEqual(['task-chat', 'task-run', 'task-plan'])
+    expect(rows[0].project.name).toBe('Beta')
+    expect(rows[0].project.id).toBe('project-b')
+
+    await db.close()
+  })
+})

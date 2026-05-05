@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { execFile } from 'node:child_process'
 import EventEmitter from 'node:events'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -9,7 +9,7 @@ import { promisify } from 'node:util'
 import type { ProjectStatus, TaskChecklistItem, TaskEntity } from '../../shared/types/entities.js'
 import type { NormalizedTaskJsonImport, NormalizedImportedSubtask } from './task-json-import.js'
 import { TaskJsonImportNormalizer } from './task-json-import.js'
-import { codexChatPrompt, codexOutputChanges, codexWorkspaceChanges, initialCodexPrompt, initialPlannerPrompt, normalizePlannerQuestionPayload, omcCliInstructions, plannerJsonGuidance, shouldStartPostRunPrompt, TaskService, validatePlannerTaskJsonQuality, writeTaskSnapshotToExportWorkspace } from './task.service.js'
+import { codexChatPrompt, codexOutputChanges, codexWorkspaceChanges, initialCodexPrompt, initialPlannerPrompt, normalizePlannerQuestionPayload, omcCliInstructions, plannerJsonGuidance, shouldStartPostRunPrompt, summarizeRunningConversation, TaskService, validatePlannerTaskJsonQuality, writeTaskSnapshotToExportWorkspace } from './task.service.js'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 
 const execFileAsync = promisify(execFile)
@@ -790,6 +790,84 @@ describe('codex run snapshot export', () => {
       expect(result.skippedFiles).toEqual([])
     } finally {
       await rm(workspace, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('running Codex conversations', () => {
+  it('filters out settled conversations and keeps active plan/run/chat/steer rows', () => {
+    const now = 1_700_000_000_000
+    const task = {
+      id: 'task-1',
+      projectId: 'project-1',
+      title: 'Task',
+      status: 'active',
+      payload: {
+        activityMessages: [
+          { id: 'plan-live', runId: 'plan-run', source: 'codex-plan', role: 'thinking', status: 'running', body: 'Planning', createdAt: now - 60_000 },
+          { id: 'plan-done', runId: 'plan-run', source: 'codex-plan', role: 'system', status: 'completed', body: 'Done', createdAt: now - 30_000, metadata: { codexBlock: 'run-complete' } },
+          { id: 'run-live', runId: 'run-run', source: 'codex-run', role: 'thinking', status: 'running', body: 'Running task', createdAt: now - 20_000 },
+          { id: 'steer-live', runId: 'steer-run', conversationId: 'steer-run', source: 'codex-chat', role: 'thinking', status: 'running', body: 'Steering', createdAt: now - 15_000, metadata: { mode: 'steer' } },
+          { id: 'chat-live', runId: 'chat-run', conversationId: 'chat-run', source: 'codex-chat', role: 'thinking', status: 'running', body: 'Chatting', createdAt: now - 10_000 },
+          { id: 'chat-done', runId: 'chat-run', conversationId: 'chat-run', source: 'codex-chat', role: 'system', status: 'completed', body: 'Finished', createdAt: now - 5_000, metadata: { codexBlock: 'run-complete' } }
+        ]
+      },
+      createdAt: 1,
+      updatedAt: 1
+    } as TaskEntity
+
+    const rows = summarizeRunningConversation(task, { id: 'project-1', name: 'Project One', description: 'Desc' }, task.payload.activityMessages as any[], now)
+
+    expect(rows).toHaveLength(2)
+    expect(rows.map((row) => row.codexConversationId)).toEqual(['steer-run', 'run-run'])
+    expect(rows[0].conversationType).toBe('steer')
+    expect(rows[1].conversationType).toBe('run')
+    expect(rows[0].liveStatus).toBe('running')
+  })
+
+  it('paginates live conversation rows from listRunningCodex', async () => {
+    const eventBus = new EventEmitter()
+    const service = Object.create(TaskService.prototype) as TaskService & {
+      auth: { requireActor: (token?: string) => Promise<{ user: { organizationId: string } }> }
+      repo: { listRunningCodex: (orgId: string) => Promise<Array<{ task: TaskEntity; project: { id: string; name: string; description?: string } }>> }
+    }
+    const now = 1_700_000_000_000
+    const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(now)
+
+    const task: TaskEntity = {
+      id: 'task-1',
+      projectId: 'project-1',
+      title: 'Task',
+      status: 'active',
+      payload: {
+        activityMessages: [
+          { id: 'run-live', runId: 'run-run', source: 'codex-run', role: 'thinking', status: 'running', body: 'Working', createdAt: now - 25_000 }
+        ]
+      },
+      createdAt: 1,
+      updatedAt: 1
+    }
+
+    service.auth = {
+      requireActor: async () => ({ user: { organizationId: 'org-1' } })
+    } as any
+    service.repo = {
+      listRunningCodex: async () => ([
+        { task, project: { id: 'project-1', name: 'Project One' } }
+      ])
+    }
+    service.eventBus = eventBus
+
+    try {
+      const response = await service.listRunningCodex({ actorToken: 'token', page: 1, pageSize: 12 })
+
+      expect(response.ok).toBe(true)
+      expect(response.data?.total).toBe(1)
+      expect(response.data?.rows).toHaveLength(1)
+      expect(response.data?.rows[0].codexConversationId).toBe('run-run')
+      expect(response.data?.rows[0].latestActivitySummary).toBe('Working')
+    } finally {
+      dateNowSpy.mockRestore()
     }
   })
 })

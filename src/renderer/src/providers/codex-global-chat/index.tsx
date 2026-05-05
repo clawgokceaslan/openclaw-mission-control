@@ -5,6 +5,7 @@ import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { CustomField, Gateway, Project, ProjectStatus, Skill, Tag, TaskEntity, Workspace, Agent } from '@shared/types/entities'
 import { DEFAULT_CODEX_LANGUAGE } from '@shared/utils/codex-language'
 import { ChatPopup } from '@renderer/popups/ChatPopup'
+import { GlobalTaskDetailModal } from '@renderer/components/navigation/GlobalTaskDetailModal'
 import { useConfirmation } from '@renderer/components/confirmation'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
@@ -18,8 +19,16 @@ type LaunchRequest = {
   taskId: string
 }
 
+type OpenTaskConversationRequest = {
+  projectId: string
+  taskId: string
+  conversationId: string
+  conversationType?: 'plan' | 'run' | 'chat' | 'steer'
+}
+
 type GlobalCodexChatContextValue = {
   launchPlannedTaskRun: (request: LaunchRequest) => Promise<boolean>
+  openTaskConversation: (request: OpenTaskConversationRequest) => Promise<boolean>
   openProjectCodexSettings: (projectId: string, taskId?: string) => void
   busy: boolean
   error: string | null
@@ -56,9 +65,11 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [selectedConversationId, setSelectedConversationId] = useState('')
   const [popupOpen, setPopupOpen] = useState(false)
+  const [taskDetailTarget, setTaskDetailTarget] = useState<{ projectId: string; taskId: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [localStatus, setLocalStatus] = useState<TaskActivityMessage | null>(null)
+  const [chatMode, setChatMode] = useState<'chat' | 'steer'>('chat')
 
   const openProjectCodexSettings = useCallback((projectId: string, taskId?: string) => {
     navigate(`${APP_ROUTES.PROJECTS}/${projectId}`, {
@@ -108,6 +119,39 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
       workspaces: Array.isArray(workspacesResponse.data) ? workspacesResponse.data : []
     }
   }, [token])
+
+  const openTaskConversation = useCallback(async ({ projectId, taskId, conversationId, conversationType }: OpenTaskConversationRequest) => {
+    if (!token) {
+      setError('Sign in is required before opening a Codex conversation.')
+      return false
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const context = await loadRunContext(projectId, taskId)
+      const messages = activityMessagesFromTask(context.task)
+      const conversationExists = messages.some((message) => conversationIdOf(message) === conversationId)
+      if (!conversationExists) {
+        throw new Error('The selected conversation is no longer available.')
+      }
+
+      setTask(context.task)
+      setProject(context.project)
+      setGateways(context.gateways)
+      setWorkspaces(context.workspaces)
+      setSelectedConversationId(conversationId)
+      setTaskDetailTarget({ projectId, taskId })
+      setChatMode(conversationType === 'steer' ? 'steer' : 'chat')
+      setPopupOpen(true)
+      return true
+    } catch (openError) {
+      const message = openError instanceof Error ? openError.message : 'Unable to open the selected Codex conversation.'
+      setError(message)
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }, [loadRunContext, token])
 
   const launchPlannedTaskRun = useCallback(async ({ projectId, taskId }: LaunchRequest) => {
     if (!token) {
@@ -165,6 +209,8 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
       setProject(context.project)
       setGateways(context.gateways)
       setWorkspaces(context.workspaces)
+      setTaskDetailTarget(null)
+      setChatMode('chat')
       setPopupOpen(true)
       setLocalStatus({
         id: `global-run-${Date.now()}`,
@@ -277,7 +323,7 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
     chatHistoryCount: 0,
     contextEntries,
     chatSettingsOpen: false,
-    chatMode: 'chat' as const,
+    chatMode,
     selectedChatCanStop: Boolean(activeConversationId && runningConversationIds.has(activeConversationId)),
     chatStopping: false,
     codexPlanLaunching: false,
@@ -351,7 +397,7 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
     onPlannerQuestionAnswer: () => {}
   }
 
-  const value = useMemo(() => ({ launchPlannedTaskRun, openProjectCodexSettings, busy, error }), [busy, error, launchPlannedTaskRun, openProjectCodexSettings])
+  const value = useMemo(() => ({ launchPlannedTaskRun, openTaskConversation, openProjectCodexSettings, busy, error }), [busy, error, launchPlannedTaskRun, openProjectCodexSettings, openTaskConversation])
 
   return (
     <GlobalCodexChatContext.Provider value={value}>
@@ -361,6 +407,18 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
           chatState={chatState}
           chatHandlers={chatHandlers}
           chatOptions={{ title: 'Codex run', sidebarTitle: 'Global chat', showRunActions: false }}
+        />
+      ) : null}
+      {!popupOpen && taskDetailTarget ? (
+        <GlobalTaskDetailModal
+          taskId={taskDetailTarget.taskId}
+          projectId={taskDetailTarget.projectId}
+          onClose={() => {
+            setTaskDetailTarget(null)
+            setTask(null)
+            setProject(null)
+            setSelectedConversationId('')
+          }}
         />
       ) : null}
     </GlobalCodexChatContext.Provider>

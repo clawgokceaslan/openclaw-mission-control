@@ -49,6 +49,7 @@ export const IPC_CHANNELS = {
   tasks: {
     list: 'tasks:list',
     listPlannedCodex: 'tasks:list-planned-codex',
+    listRunningCodex: 'tasks:list-running-codex',
     get: 'tasks:get',
     create: 'tasks:create',
     update: 'tasks:update',
@@ -423,6 +424,29 @@ export interface PlannedCodexTaskRow {
   updatedAt: number
 }
 
+export interface ListRunningCodexTasksRequest {
+  actorToken?: string
+  page?: number
+  pageSize?: number
+}
+
+export type RunningCodexConversationType = 'plan' | 'run' | 'chat' | 'steer'
+
+export interface RunningCodexTaskRow {
+  taskId: string
+  projectId: string
+  taskTitle: string
+  taskStatus: string
+  projectName: string
+  projectDescription?: string
+  codexConversationId: string
+  source: 'codex-plan' | 'codex-run' | 'codex-chat'
+  conversationType: RunningCodexConversationType
+  liveStatus: 'queued' | 'running'
+  latestAt: number
+  latestActivitySummary: string
+}
+
 export interface AddTaskCommentRequest {
   actorToken?: string
   taskId?: string
@@ -561,7 +585,7 @@ export const SERVICE_MAP = {
   workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
   appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent', 'getDefaultAddTaskProject', 'setDefaultAddTaskProject', 'getCodexLanguage', 'setCodexLanguage'],
   statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
-  tasks: ['list', 'listPlannedCodex', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runCodex', 'planWithCodex', 'codexChatSend', 'codexChatStop', 'codexChatResolve', 'plannerContext', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
+  tasks: ['list', 'listPlannedCodex', 'listRunningCodex', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runCodex', 'planWithCodex', 'codexChatSend', 'codexChatStop', 'codexChatResolve', 'plannerContext', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
   taskTemplates: ['list', 'create', 'update', 'remove', 'importJson'],
   projectInstructionTemplates: ['list', 'create', 'update', 'remove'],
   attachments: ['upload'],
@@ -835,6 +859,13 @@ export const SERVICE_ROUTING: {
       action: 'listPlannedCodex',
       method: 'listPlannedCodex',
       channel: IPC_CHANNELS.tasks.listPlannedCodex,
+      requiresAuth: true
+    },
+    listRunningCodex: {
+      domain: 'tasks',
+      action: 'listRunningCodex',
+      method: 'listRunningCodex',
+      channel: IPC_CHANNELS.tasks.listRunningCodex,
       requiresAuth: true
     },
     get: {

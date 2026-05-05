@@ -18,6 +18,7 @@ import type {
   ExportTaskSnapshotRequest,
   ImportTaskJsonRequest,
   ListPlannedCodexTasksRequest,
+  ListRunningCodexTasksRequest,
   PaginatedResponse,
   PlanTaskCodexRequest,
   PlannedCodexTaskRow,
@@ -26,6 +27,7 @@ import type {
   RunTaskCodexRequest,
   SetTaskSkillsRequest,
   SetTaskTagsRequest,
+  RunningCodexTaskRow,
   TaskPlannerContextRequest,
   TaskPlannerJsonRequest,
   UpdateTaskSubtaskRequest,
@@ -153,12 +155,133 @@ type TaskActivityMessage = {
   updatedAt?: number
 }
 
+type RunningCodexConversationType = 'plan' | 'run' | 'chat' | 'steer'
+
+type RunningCodexConversationSummary = RunningCodexTaskRow & {
+  latestActivityBody: string
+}
+
+const RUNNING_CODEX_ACTIVITY_STALE_MS = 15 * 60 * 1000
+
 function asPayload(value: unknown): TaskPayload {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as TaskPayload) : {}
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function activityTimeOf(message: TaskActivityMessage): number {
+  return typeof message.updatedAt === 'number' && Number.isFinite(message.updatedAt)
+    ? message.updatedAt
+    : message.createdAt
+}
+
+function activityConversationIdOf(message: TaskActivityMessage): string | null {
+  return message.conversationId?.trim() || message.runId?.trim() || null
+}
+
+function isRunningCodexActivityMessage(message: TaskActivityMessage): boolean {
+  if (!message.source.startsWith('codex-')) return false
+  const metadata = asRecord(message.metadata)
+  const status = typeof message.status === 'string' ? message.status : typeof metadata.runStatus === 'string' ? metadata.runStatus : ''
+  return status === 'queued' || status === 'running'
+}
+
+function isTerminalCodexActivityMessage(message: TaskActivityMessage): boolean {
+  const metadata = asRecord(message.metadata)
+  const codexBlock = typeof metadata.codexBlock === 'string' ? metadata.codexBlock : ''
+  const runStatus = typeof metadata.runStatus === 'string' ? metadata.runStatus : ''
+  return (
+    codexBlock === 'run-complete'
+    || message.role === 'error'
+    || message.status === 'failed'
+    || runStatus === 'completed'
+    || runStatus === 'failed'
+    || metadata.stopped === true
+  )
+}
+
+function runningConversationTypeOf(message: TaskActivityMessage): RunningCodexConversationType {
+  if (message.source === 'codex-plan') return 'plan'
+  if (message.source === 'codex-run') return 'run'
+  const metadata = asRecord(message.metadata)
+  return typeof metadata.mode === 'string' && metadata.mode === 'steer' ? 'steer' : 'chat'
+}
+
+function runningConversationLabel(type: RunningCodexConversationType): string {
+  if (type === 'plan') return 'Plan'
+  if (type === 'run') return 'Run'
+  if (type === 'steer') return 'Steer chat'
+  return 'Chat'
+}
+
+function compactRunningActivitySummary(message: TaskActivityMessage): string {
+  const metadata = asRecord(message.metadata)
+  const compact = message.body.trim().replace(/\s+/g, ' ')
+  if (compact) return compact.length <= 140 ? compact : `${compact.slice(0, 139)}…`
+  const status = typeof message.status === 'string'
+    ? message.status
+    : typeof metadata.runStatus === 'string'
+      ? metadata.runStatus
+      : ''
+  return status === 'queued' ? 'Queued for Codex' : 'Codex is working...'
+}
+
+export function summarizeRunningConversation(
+  task: TaskEntity,
+  project: { id: string; name: string; description?: string },
+  messages: TaskActivityMessage[],
+  now = Date.now()
+): RunningCodexConversationSummary[] {
+  const grouped = new Map<string, TaskActivityMessage[]>()
+  for (const message of messages) {
+    const conversationId = activityConversationIdOf(message)
+    if (!conversationId) continue
+    const current = grouped.get(conversationId)
+    if (current) {
+      current.push(message)
+    } else {
+      grouped.set(conversationId, [message])
+    }
+  }
+
+  const rows: RunningCodexConversationSummary[] = []
+  grouped.forEach((conversationMessages, conversationId) => {
+    const ordered = [...conversationMessages].sort((a, b) => activityTimeOf(a) - activityTimeOf(b))
+    const latestLiveMessage = [...ordered].reverse().find((message) => isRunningCodexActivityMessage(message))
+    if (!latestLiveMessage) return
+
+    const latestLiveAt = activityTimeOf(latestLiveMessage)
+    const latestTerminalMessage = [...ordered].reverse().find((message) => isTerminalCodexActivityMessage(message))
+    const latestTerminalAt = latestTerminalMessage ? activityTimeOf(latestTerminalMessage) : -Infinity
+    if (latestTerminalAt >= latestLiveAt) return
+
+    const latestLiveMetadata = asRecord(latestLiveMessage.metadata)
+    const liveStatus = (latestLiveMessage.status === 'queued' || latestLiveMetadata.runStatus === 'queued')
+      ? 'queued'
+      : 'running'
+    if (liveStatus === 'running' && now - latestLiveAt > RUNNING_CODEX_ACTIVITY_STALE_MS) return
+
+    const conversationType = runningConversationTypeOf(latestLiveMessage)
+    rows.push({
+      taskId: task.id,
+      projectId: project.id,
+      taskTitle: task.title,
+      taskStatus: task.status,
+      projectName: project.name,
+      projectDescription: project.description,
+      codexConversationId: conversationId,
+      source: latestLiveMessage.source,
+      conversationType,
+      liveStatus,
+      latestAt: latestLiveAt,
+      latestActivitySummary: compactRunningActivitySummary(latestLiveMessage),
+      latestActivityBody: latestLiveMessage.body
+    })
+  })
+
+  return rows.sort((a, b) => b.latestAt - a.latestAt)
 }
 
 function asComments(value: unknown): TaskComment[] {
@@ -2516,6 +2639,27 @@ export class TaskService {
     })
     return okResponse({
       rows: plannedRows,
+      total,
+      page,
+      pageSize
+    })
+  }
+
+  async listRunningCodex(payload: ListRunningCodexTasksRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<PaginatedResponse<RunningCodexTaskRow>>> {
+    const actor = await this.auth.requireActor(payload?.actorToken)
+    const page = Math.max(1, Math.floor(Number(payload?.page ?? 1)))
+    const pageSize = Math.max(1, Math.min(50, Math.floor(Number(payload?.pageSize ?? 12))))
+    const candidates = await this.repo.listRunningCodex(actor.user.organizationId)
+    const runningRows = candidates.flatMap(({ task, project }) => summarizeRunningConversation(
+      task,
+      project,
+      taskActivityMessagesFromPayload(task.payload)
+    )).map(({ latestActivityBody, ...row }) => row)
+    const total = runningRows.length
+    const start = (page - 1) * pageSize
+    const rows = runningRows.slice(start, start + pageSize)
+    return okResponse({
+      rows,
       total,
       page,
       pageSize
