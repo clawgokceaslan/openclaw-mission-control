@@ -2623,7 +2623,7 @@ export class TaskService {
       })
     if (!taskRow) return errorResponse(ErrorCodes.NotFound, 'Task not found')
 
-    await this.taskTagRepo.setTaskTags(taskRow.id, imported.tagIds)
+    if (!targetTask || imported.tagIds.length > 0) await this.taskTagRepo.setTaskTags(taskRow.id, imported.tagIds)
     if (!targetTask) await this.taskSkillRepo.setTaskSkills(taskRow.id, imported.skillIds)
     await this.subtaskRepo.removeByTask(taskRow.id)
     for (const subtask of imported.subtasks) {

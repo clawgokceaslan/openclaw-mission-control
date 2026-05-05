@@ -449,6 +449,111 @@ describe('planner quality gate', () => {
   })
 })
 
+describe('task JSON update tag preservation', () => {
+  function createImportJsonService(tagsValue: unknown) {
+    const eventBus = new EventEmitter()
+    let currentTagIds = ['tag-keep']
+    let task: TaskEntity = {
+      id: 'task-1',
+      projectId: 'project-1',
+      title: 'Original title',
+      status: 'status-active',
+      payload: { description: 'Original description' },
+      result: {},
+      createdAt: 1,
+      updatedAt: 1
+    }
+    const updates: Array<Partial<TaskEntity>> = []
+    const setTaskTagsCalls: string[][] = []
+    const service = Object.create(TaskService.prototype) as any
+    service.auth = { requireActor: async () => ({ user: { organizationId: 'org-1' } }) }
+    service.projects = { get: async () => ({ id: 'project-1', organizationId: 'org-1' }) }
+    service.repo = {
+      get: async () => task,
+      update: async (_id: string, patch: Partial<TaskEntity>) => {
+        updates.push(patch)
+        task = { ...task, ...patch, updatedAt: 2 }
+        return task
+      }
+    }
+    service.statuses = {
+      ensureProjectDefaults: async () => [
+        { id: 'status-active', organizationId: 'org-1', projectId: 'project-1', name: 'Active', category: 'active', color: '#2F80ED', sortOrder: 0, isDefault: true, createdAt: 1, updatedAt: 1 }
+      ]
+    }
+    service.agents = {}
+    service.tags = {
+      list: async () => [
+        { id: 'tag-keep', organizationId: 'org-1', name: 'keep', color: '#0EA5E9' },
+        { id: 'tag-new', organizationId: 'org-1', name: 'new', color: '#10B981' }
+      ],
+      create: async (input: any) => ({ id: `tag-${input.name}`, ...input })
+    }
+    service.skills = {}
+    service.customFields = { list: async () => [], create: async (input: any) => ({ id: 'field-1', ...input }) }
+    service.taskTagRepo = {
+      setTaskTags: async (_taskId: string, tagIds: string[]) => {
+        setTaskTagsCalls.push(tagIds)
+        currentTagIds = tagIds
+      },
+      listByTaskIds: async (ids: string[]) => Object.fromEntries(ids.map((id) => [
+        id,
+        currentTagIds.map((tagId) => tagId === 'tag-new'
+          ? { id: 'tag-new', organizationId: 'org-1', name: 'new', color: '#10B981' }
+          : { id: 'tag-keep', organizationId: 'org-1', name: 'keep', color: '#0EA5E9' })
+      ]))
+    }
+    service.taskSkillRepo = { listByTaskIds: async () => ({}) }
+    service.subtaskRepo = {
+      removeByTask: async () => undefined,
+      listByTaskIds: async () => ({})
+    }
+    service.eventBus = eventBus
+
+    return {
+      service,
+      updates,
+      setTaskTagsCalls,
+      json: {
+        title: 'Updated title',
+        description: 'Updated description',
+        status: 'Active',
+        ...(tagsValue === Symbol.for('omit-tags') ? {} : { tags: tagsValue }),
+        subtasks: []
+      }
+    }
+  }
+
+  it.each([
+    ['omitted', Symbol.for('omit-tags')],
+    ['null', null],
+    ['empty', []]
+  ])('preserves existing parent task tags when update tags are %s', async (_label, tagsValue) => {
+    const { service, updates, setTaskTagsCalls, json } = createImportJsonService(tagsValue)
+
+    const response = await service.importJson({ actorToken: 'actor', taskId: 'task-1', json })
+
+    expect(response.ok).toBe(true)
+    expect(setTaskTagsCalls).toEqual([])
+    expect(response.data?.task?.tags?.map((tag: any) => tag.id)).toEqual(['tag-keep'])
+    expect(updates[0]).toMatchObject({
+      title: 'Updated title',
+      status: 'status-active'
+    })
+    expect((updates[0].payload as Record<string, unknown>).description).toBe('Updated description')
+  })
+
+  it('replaces parent task tags when update provides a non-empty tag list', async () => {
+    const { service, setTaskTagsCalls, json } = createImportJsonService(['new'])
+
+    const response = await service.importJson({ actorToken: 'actor', taskId: 'task-1', json })
+
+    expect(response.ok).toBe(true)
+    expect(setTaskTagsCalls).toEqual([['tag-new']])
+    expect(response.data?.task?.tags?.map((tag: any) => tag.id)).toEqual(['tag-new'])
+  })
+})
+
 describe('planner question payload', () => {
   it('accepts concrete AI-generated planner questions', () => {
     const response = normalizePlannerQuestionPayload({
