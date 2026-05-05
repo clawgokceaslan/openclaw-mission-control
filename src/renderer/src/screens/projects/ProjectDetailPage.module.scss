@@ -2017,6 +2017,8 @@
 }
 
 .chatTopbar {
+  position: relative;
+  z-index: 20;
   min-height: 56px;
   border-bottom: 1px solid color-mix(in srgb, var(--omc-border-subtle) 66%, transparent);
   padding: 10px clamp(12px, 1.4vw, 18px) 10px clamp(14px, 3vw, 36px);
@@ -2111,13 +2113,19 @@
 }
 
 .chatTopbarActions {
+  position: relative;
+  z-index: 21;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
+  pointer-events: auto;
 
   button {
+    position: relative;
+    z-index: 1;
+    pointer-events: auto;
     width: 30px;
     height: 30px;
     border: 1px solid color-mix(in srgb, var(--omc-border) 60%, transparent);
@@ -2176,6 +2184,7 @@
 
 .chatWorkspace {
   position: relative;
+  z-index: 1;
   min-height: 0;
   height: 100%;
   display: block;
