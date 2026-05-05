@@ -9,15 +9,13 @@ import {
   conversationIdOf,
   isFreshRunningMessage,
   isRunCompleteMessage,
-  asCommentThread,
-  parseHistoryPatch,
   preserveScrollTopAfterPrepend,
   shouldLoadEarlierMessages,
   usageFromMetadata,
   visibleChatMessagesForLimit
 } from '../chat/chatUtils'
 import type { CodexStopResult } from './useProjectCodexFlow'
-import type { ChatAttachmentDraft, ChatConversationSummary, ChatOperationFeedbackData, GeneratedContextEntry, PlannerClarificationMode, SlashCommand, TaskActivityMessage, TaskHistoryItem, ThreadEntry } from '../types'
+import type { ChatAttachmentDraft, ChatConversationSummary, ChatOperationFeedbackData, GeneratedContextEntry, PlannerClarificationMode, SlashCommand, TaskActivityMessage } from '../types'
 
 interface Setter<T> {
   (value: T | ((previous: T) => T)): void
@@ -33,7 +31,6 @@ export interface ChatPopupState {
   runningConversationIds: Set<string>
   stoppingConversationIds: Set<string>
   chatHistoryCount: number
-  chatHistoryEntries: ThreadEntry[]
   contextEntries: GeneratedContextEntry[]
   chatSettingsOpen: boolean
   chatMode?: 'chat' | 'steer'
@@ -181,8 +178,6 @@ interface ChatPopupParams {
   chatConversations: ChatConversationSummary[]
   chatActivityMessages: TaskActivityMessage[]
   contextEntries: GeneratedContextEntry[]
-  history: TaskHistoryItem[]
-  localChatEntries: ThreadEntry[]
   chatStopping: boolean
   selectedTaskAgent: Agent | null
   taskContextSkills: Skill[]
@@ -262,8 +257,6 @@ export function useProjectChatPopup({
   chatConversations,
   chatActivityMessages,
   contextEntries,
-  history,
-  localChatEntries,
   chatStopping,
   selectedTaskAgent,
   taskContextSkills,
@@ -342,18 +335,7 @@ export function useProjectChatPopup({
       : chatConversations.slice(0, 30)
   }, [chatConversations, selectedChatConversationId])
 
-  const chatHistoryEntries = useMemo(() => {
-    if (!isChatModalMounted) return []
-    const commentEntries = (selectedTask?.comments ?? []).map(asCommentThread)
-    const taskHistoryEntries = history.map(parseHistoryPatch)
-    return [...localChatEntries, ...commentEntries, ...taskHistoryEntries]
-      .sort((a, b) => b.at - a.at)
-      .slice(0, 12)
-  }, [history, isChatModalMounted, localChatEntries, selectedTask?.comments])
-
-  const chatHistoryCount = isChatModalMounted
-    ? (selectedTask?.comments?.length ?? 0) + history.length + localChatEntries.length
-    : 0
+  const chatHistoryCount = isChatModalMounted ? chatConversations.length : 0
 
   const visibleChatMessages = useMemo(() => {
     if (isStartingNewChat) return []
@@ -553,7 +535,6 @@ export function useProjectChatPopup({
     runningConversationIds,
     stoppingConversationIds,
     chatHistoryCount,
-    chatHistoryEntries,
     contextEntries,
     chatSettingsOpen,
     selectedChatCanStop: selectedChatCanStopComputed,

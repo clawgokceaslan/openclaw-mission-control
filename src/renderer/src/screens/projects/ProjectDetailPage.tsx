@@ -1272,8 +1272,6 @@ export function ProjectDetailPage() {
     chatConversations,
     chatActivityMessages,
     contextEntries: generatedContextEntries,
-    history,
-    localChatEntries,
     chatStopping,
     selectedTaskAgent,
     taskContextSkills,

@@ -746,7 +746,7 @@ export function LastChatsPage() {
     isStartingNewChat,
     runningConversationIds,
     stoppingConversationIds,
-    chatHistoryCount: selectedTask.comments?.length ?? 0,
+    chatHistoryCount: chatConversations.length,
     chatSettingsOpen,
     selectedChatCanStop,
     chatStopping,
