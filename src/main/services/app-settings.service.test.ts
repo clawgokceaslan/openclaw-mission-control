@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { AppSettingsService, CODEX_LANGUAGE_KEY, DEFAULT_AGENT_KEY } from './app-settings.service.js'
+import { AppSettingsService, CODEX_LANGUAGE_KEY, DEFAULT_ADD_TASK_PROJECT_KEY, DEFAULT_AGENT_KEY } from './app-settings.service.js'
 
-function serviceWithAgents(agents: Map<string, any>, store = new Map<string, unknown>()) {
+function serviceWithAgents(agents: Map<string, any>, store = new Map<string, unknown>(), projects = new Map<string, any>()) {
   const auth = {
     requireActor: async () => ({ user: { organizationId: 'org-1' } })
   }
@@ -17,7 +17,11 @@ function serviceWithAgents(agents: Map<string, any>, store = new Map<string, unk
   const agentRepo = {
     get: async (id: string) => agents.get(id)
   }
-  return new AppSettingsService(auth as any, repo as any, gateways as any, agentRepo as any)
+  const projectRepo = {
+    get: async (id: string) => projects.get(id),
+    list: async (orgId: string) => Array.from(projects.values()).filter((project) => project.organizationId === orgId)
+  }
+  return new AppSettingsService(auth as any, repo as any, gateways as any, agentRepo as any, projectRepo as any)
 }
 
 describe('AppSettingsService default agent', () => {
@@ -42,6 +46,37 @@ describe('AppSettingsService default agent', () => {
     expect(response.ok).toBe(true)
     expect(response.data?.agentId).toBeNull()
     expect(store.get(DEFAULT_AGENT_KEY)).toBeNull()
+  })
+})
+
+describe('AppSettingsService default Add Task project', () => {
+  it('saves an active organization project as the default Add Task project', async () => {
+    const projects = new Map<string, any>([
+      ['project-1', { id: 'project-1', organizationId: 'org-1', name: 'Ops', archived: false }]
+    ])
+    const service = serviceWithAgents(new Map(), new Map(), projects)
+
+    const response = await service.setDefaultAddTaskProject({ projectId: 'project-1' })
+
+    expect(response.ok).toBe(true)
+    expect(response.data?.projectId).toBe('project-1')
+  })
+
+  it('clears archived default Add Task projects and returns an active fallback', async () => {
+    const store = new Map<string, unknown>([[DEFAULT_ADD_TASK_PROJECT_KEY, 'project-archived']])
+    const projects = new Map<string, any>([
+      ['project-archived', { id: 'project-archived', organizationId: 'org-1', name: 'Old', archived: true }],
+      ['project-active', { id: 'project-active', organizationId: 'org-1', name: 'Active', archived: false }]
+    ])
+    const service = serviceWithAgents(new Map(), store, projects)
+
+    const response = await service.getDefaultAddTaskProject({})
+
+    expect(response.ok).toBe(true)
+    expect(response.data?.projectId).toBeNull()
+    expect(response.data?.fallbackProject?.id).toBe('project-active')
+    expect(response.data?.invalidStoredProjectId).toBe('project-archived')
+    expect(store.get(DEFAULT_ADD_TASK_PROJECT_KEY)).toBeNull()
   })
 })
 

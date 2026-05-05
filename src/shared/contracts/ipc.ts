@@ -31,6 +31,8 @@ export const IPC_CHANNELS = {
     setActiveGateway: 'app-settings:set-active-gateway',
     getDefaultAgent: 'app-settings:get-default-agent',
     setDefaultAgent: 'app-settings:set-default-agent',
+    getDefaultAddTaskProject: 'app-settings:get-default-add-task-project',
+    setDefaultAddTaskProject: 'app-settings:set-default-add-task-project',
     getCodexLanguage: 'app-settings:get-codex-language',
     setCodexLanguage: 'app-settings:set-codex-language'
   },
@@ -557,7 +559,7 @@ export const SERVICE_MAP = {
   auth: ['login', 'logout', 'me', 'inviteValidate', 'updateProfile'],
   projects: ['list', 'get', 'create', 'update', 'moveWorkspace', 'exportWorkspace', 'remove'],
   workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
-  appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent', 'getCodexLanguage', 'setCodexLanguage'],
+  appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent', 'getDefaultAddTaskProject', 'setDefaultAddTaskProject', 'getCodexLanguage', 'setCodexLanguage'],
   statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
   tasks: ['list', 'listPlannedCodex', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runCodex', 'planWithCodex', 'codexChatSend', 'codexChatStop', 'codexChatResolve', 'plannerContext', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
   taskTemplates: ['list', 'create', 'update', 'remove', 'importJson'],
@@ -731,6 +733,20 @@ export const SERVICE_ROUTING: {
       action: 'setDefaultAgent',
       method: 'setDefaultAgent',
       channel: IPC_CHANNELS.appSettings.setDefaultAgent,
+      requiresAuth: true
+    },
+    getDefaultAddTaskProject: {
+      domain: 'appSettings',
+      action: 'getDefaultAddTaskProject',
+      method: 'getDefaultAddTaskProject',
+      channel: IPC_CHANNELS.appSettings.getDefaultAddTaskProject,
+      requiresAuth: true
+    },
+    setDefaultAddTaskProject: {
+      domain: 'appSettings',
+      action: 'setDefaultAddTaskProject',
+      method: 'setDefaultAddTaskProject',
+      channel: IPC_CHANNELS.appSettings.setDefaultAddTaskProject,
       requiresAuth: true
     },
     getCodexLanguage: {

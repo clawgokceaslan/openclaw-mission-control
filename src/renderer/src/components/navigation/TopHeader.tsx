@@ -1,7 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { Navbar, Container } from 'react-bootstrap'
 import { useEffect, useState } from 'react'
-import { LuArrowRight, LuMessageCircleQuestion, LuSearch } from 'react-icons/lu'
+import { LuArrowRight, LuMessageCircleQuestion, LuPlus, LuSearch } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import type { User } from '@shared/types/entities'
 import { useLocalAvatar } from '@renderer/components/avatar/localAvatar'
@@ -68,6 +68,16 @@ export function TopHeader({ user }: { user: User | null }) {
         </button>
 
         <div className={styles.userCluster}>
+          <button
+            type="button"
+            className={styles.headerAddTaskButton}
+            onClick={() => setTaskCreateInitial({ title: '', projectId: '', templateId: null })}
+            aria-label="Add task"
+            title="Add task"
+          >
+            <LuPlus size={16} />
+            <span>Add Task</span>
+          </button>
           <PlannedTasksMenu />
           <div className={styles.plannerQuestionTopArea}>
             <button
