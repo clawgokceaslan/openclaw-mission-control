@@ -33,8 +33,9 @@ import {
 } from './detail/chat/chatUtils'
 import {
   activityMessagesFromTask,
+  buildGeneratedContextEntries,
+  buildLatestGeneratedFollowUpContext,
   formatChatTime,
-  buildLatestRunFollowUpContext,
   userMessageCount
 } from './detail/chat/chatUtils'
 import {
@@ -515,7 +516,8 @@ export function ProjectDetailPage() {
     isStartingNewChat
   })
 
-  const chatFollowUpContext = useMemo(() => buildLatestRunFollowUpContext(chatActivityMessages), [chatActivityMessages])
+  const generatedContextEntries = useMemo(() => buildGeneratedContextEntries(chatActivityMessages), [chatActivityMessages])
+  const chatFollowUpContext = useMemo(() => buildLatestGeneratedFollowUpContext(chatActivityMessages), [chatActivityMessages])
 
   useEffect(() => {
     setRendererDiagnosticContext({
@@ -1269,6 +1271,7 @@ export function ProjectDetailPage() {
     setChatVisibleLimit,
     chatConversations,
     chatActivityMessages,
+    contextEntries: generatedContextEntries,
     history,
     localChatEntries,
     chatStopping,

@@ -68,6 +68,18 @@ export type ChatConversationSummary = {
   model?: string
 }
 
+export type GeneratedContextEntry = {
+  id: string
+  conversationId: string
+  source: ChatMessageSource
+  title: string
+  status: ChatMessageStatus | 'event'
+  at: number
+  preview: string
+  body: string
+  metadata: Array<{ key: string; value: string }>
+}
+
 export type ChatComposerMode = 'chat' | 'steer'
 export type ChatAttachmentDraft = {
   id: string

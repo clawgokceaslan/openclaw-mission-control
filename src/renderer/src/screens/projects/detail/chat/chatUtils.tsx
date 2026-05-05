@@ -5,6 +5,7 @@ import type {
   ChatMessageRole,
   ChatMessageSource,
   ChatMessageStatus,
+  GeneratedContextEntry,
   TaskActivityMessage,
   TaskHistoryItem,
   ThreadEntry
@@ -97,6 +98,8 @@ export const CHAT_COMPOSER_MAX_HEIGHT = 270
 export const CHAT_RUNNING_ACTIVITY_STALE_MS = 15 * 60 * 1000
 const CHAT_FOLLOW_UP_CONTEXT_MAX_LENGTH = 2_800
 const CHAT_FOLLOW_UP_CONTEXT_RECENT_MESSAGES = 6
+const CHAT_CONTEXT_ENTRY_PREVIEW_LENGTH = 220
+const CHAT_CONTEXT_ENTRY_BODY_LENGTH = 2_400
 
 export const CHAT_RUNNING_STATUS_LABELS = ['queued', 'running', 'completed', 'failed'] as const
 
@@ -315,6 +318,11 @@ function truncateText(value: string, max = 500): string {
   return `${value.slice(0, max)}\n[truncated ${value.length - max} chars]`
 }
 
+function oneLine(value: string, max = CHAT_CONTEXT_ENTRY_PREVIEW_LENGTH): string {
+  const compact = value.trim().replace(/\s+/g, ' ')
+  return compact.length <= max ? compact : `${compact.slice(0, max - 1)}...`
+}
+
 function runCompleteMessage(message: TaskActivityMessage): message is TaskActivityMessage {
   if (!isRunCompleteMessage(message)) return false
   return message.role === 'system' || message.status === 'failed' || message.status === 'completed'
@@ -410,6 +418,91 @@ export function buildLatestRunFollowUpContext(messages: TaskActivityMessage[]): 
   ].filter(Boolean)
 
   return truncateText(lines.join('\n'), CHAT_FOLLOW_UP_CONTEXT_MAX_LENGTH)
+}
+
+function sourceContextTitle(source: ChatMessageSource): string {
+  if (source === 'codex-plan') return 'Plan context'
+  if (source === 'codex-run') return 'Run context'
+  return 'Chat context'
+}
+
+function contextMetadataValue(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (value == null) return ''
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function contextEntryFromConversation(conversationId: string, messages: TaskActivityMessage[]): GeneratedContextEntry | null {
+  const ordered = [...messages].sort((a, b) => a.createdAt - b.createdAt)
+  const last = ordered[ordered.length - 1]
+  if (!last) return null
+  const terminal = [...ordered].reverse().find((message) => runCompleteMessage(message))
+  const assistant = [...ordered].reverse().find((message) => message.role === 'assistant' && message.body.trim())
+  const changes = [...ordered].reverse().find((message) => message.role === 'tool' && message.metadata?.codexBlock === 'changes')
+  const userMessages = ordered.filter((message) => message.role === 'user').slice(-2)
+  const usage = usageFromMetadata(assistant?.metadata) ?? usageFromMetadata(changes?.metadata) ?? usageFromMetadata(terminal?.metadata)
+  const changesSummary = changes ? codexChangesSummary(changes) : null
+  const status = terminal
+    ? (terminal.role === 'error' || terminal.status === 'failed' || terminal.metadata?.runStatus === 'failed' ? 'failed' : 'completed')
+    : last.status ?? 'event'
+  const source = ordered.find((message) => message.source !== 'codex-chat')?.source ?? last.source
+  const result = describeRunResult(terminal?.metadata)
+  const recent = ordered.slice(-CHAT_FOLLOW_UP_CONTEXT_RECENT_MESSAGES).map(messageShortLabel)
+  const body = [
+    `${sourceContextTitle(source)} for conversation ${conversationId}`,
+    terminal ? `Status: ${terminal.body.trim() || status}` : `Status: ${status}`,
+    result ? `Result: ${result}` : '',
+    userMessages.length ? `Recent user direction:\n${userMessages.map((message) => `- ${truncateText(message.body.trim(), 280)}`).join('\n')}` : '',
+    assistant ? `Latest assistant output:\n${truncateText(assistant.body.trim(), 780)}` : '',
+    changesSummary ? `Reported changes: ${formatChangesSummary(changesSummary)}` : '',
+    usage ? `Usage: ${formatUsageSummary(usage)}` : '',
+    recent.length ? `Recent activity:\n${recent.map((row) => `- ${row}`).join('\n')}` : ''
+  ].filter(Boolean).join('\n\n')
+  const metadata = [
+    { key: 'conversation', value: conversationId },
+    { key: 'source', value: source },
+    { key: 'status', value: status },
+    last.metadata?.model ? { key: 'model', value: contextMetadataValue(last.metadata.model) } : null,
+    usage ? { key: 'usage', value: formatUsageSummary(usage) } : null
+  ].filter((item): item is { key: string; value: string } => Boolean(item?.value))
+
+  return {
+    id: `context-${conversationId}-${last.updatedAt ?? last.createdAt}`,
+    conversationId,
+    source,
+    title: sourceContextTitle(source),
+    status,
+    at: last.updatedAt ?? last.createdAt,
+    preview: oneLine(assistant?.body || terminal?.body || last.body),
+    body: truncateText(body, CHAT_CONTEXT_ENTRY_BODY_LENGTH),
+    metadata
+  }
+}
+
+export function buildGeneratedContextEntries(messages: TaskActivityMessage[]): GeneratedContextEntry[] {
+  const grouped = new Map<string, TaskActivityMessage[]>()
+  for (const message of messages) {
+    const conversationId = conversationIdOf(message)
+    if (!conversationId) continue
+    if (!['codex-plan', 'codex-run', 'codex-chat'].includes(message.source)) continue
+    const current = grouped.get(conversationId) ?? []
+    current.push(message)
+    grouped.set(conversationId, current)
+  }
+  return Array.from(grouped.entries())
+    .map(([conversationId, conversationMessages]) => contextEntryFromConversation(conversationId, conversationMessages))
+    .filter((entry): entry is GeneratedContextEntry => Boolean(entry))
+    .sort((a, b) => b.at - a.at)
+}
+
+export function buildLatestGeneratedFollowUpContext(messages: TaskActivityMessage[]): string {
+  const entry = buildGeneratedContextEntries(messages)[0]
+  return entry?.body ?? ''
 }
 
 function parseDurationMsFromSeconds(value: unknown): number | undefined {

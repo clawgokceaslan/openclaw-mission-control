@@ -8,6 +8,8 @@ import { CodexRunFeedback, ChatAttachmentDraft, ChatOperationFeedbackData, ChatC
 import type { ProjectDetailStateBindings } from '../state/projectDetailState'
 
 const slashPlanToken = /(?:^|\s)\/[a-z]*$/i
+const CHAT_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024
+const CHAT_ATTACHMENT_MAX_COUNT = 10
 
 interface CodexRunResponse {
   runFolderPath: string
@@ -603,15 +605,27 @@ export function useProjectCodexFlow({
 
   const addChatAttachments = useCallback(async (files: FileList | File[]) => {
     const next: ChatAttachmentDraft[] = []
-    for (const file of Array.from(files).slice(0, 6)) {
-      const bytes = Array.from(new Uint8Array(await file.arrayBuffer()))
-      next.push({ id: createLocalId(), name: file.name, size: file.size, bytes })
-    }
-    setChatAttachments((current) => [...current, ...next].slice(0, 10))
-    if (files.length === 0) {
+    const selectedFiles = Array.from(files)
+    if (selectedFiles.length === 0) {
       openChatAttachmentPicker()
+      return
     }
-  }, [openChatAttachmentPicker, setChatAttachments])
+    for (const file of selectedFiles.slice(0, CHAT_ATTACHMENT_MAX_COUNT)) {
+      if (file.size > CHAT_ATTACHMENT_MAX_BYTES) {
+        setCodexRunFeedback({ kind: 'error', message: `${file.name} is larger than 25 MB and was not attached.` })
+        continue
+      }
+      try {
+        const bytes = Array.from(new Uint8Array(await file.arrayBuffer()))
+        next.push({ id: createLocalId(), name: file.name, size: file.size, bytes })
+      } catch (error) {
+        setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : `Unable to read ${file.name}.` })
+      }
+    }
+    if (next.length > 0) {
+      setChatAttachments((current) => [...current, ...next].slice(0, CHAT_ATTACHMENT_MAX_COUNT))
+    }
+  }, [openChatAttachmentPicker, setChatAttachments, setCodexRunFeedback])
 
   const applySlashCommand = useCallback(async (command: SlashCommand) => {
     if (command.id === 'plan') {

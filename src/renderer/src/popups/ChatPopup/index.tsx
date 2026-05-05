@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState, type DragEvent, type RefObject } from 'react'
-import { LuBot, LuCircleStop, LuCloudUpload, LuMessageSquare, LuPaperclip, LuPlay, LuPlus, LuSend, LuSettings2, LuSignal, LuSparkles, LuX } from 'react-icons/lu'
+import { LuBot, LuCircleStop, LuCloudUpload, LuFileText, LuHistory, LuMessageSquare, LuPaperclip, LuPlay, LuPlus, LuSend, LuSettings2, LuSignal, LuSparkles, LuX } from 'react-icons/lu'
 import { formatUsageSummary } from '@shared/utils/codex-events'
 import type { Agent, Gateway, Skill, TaskEntity, Workspace } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { CodexChatMessageItem, CodexWorkBlock } from '@renderer/components/projects/detail/chat/CodexChatMessageItem'
 import { formatChatTime, groupCodexTranscriptMessages } from '@renderer/screens/projects/detail/chat/chatUtils'
-import type { ChatAttachmentDraft, ChatConversationSummary, PlannerClarificationMode, SlashCommand, TaskActivityMessage } from '@renderer/screens/projects/detail/types'
+import type { ChatAttachmentDraft, ChatConversationSummary, GeneratedContextEntry, PlannerClarificationMode, SlashCommand, TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
 interface ChatPopupFlatProps {
@@ -18,6 +18,7 @@ interface ChatPopupFlatProps {
   runningConversationIds: Set<string>
   stoppingConversationIds: Set<string>
   chatHistoryCount: number
+  contextEntries: GeneratedContextEntry[]
   chatSettingsOpen: boolean
   selectedChatCanStop: boolean
   chatStopping: boolean
@@ -181,6 +182,8 @@ export function ChatPopup({
   const noOp = () => {}
   const state = (chatState ?? flatProps) as ChatPopupStateProps | null
   const [isConfigurationDetailsOpen, setIsConfigurationDetailsOpen] = useState(false)
+  const [isContextDrawerOpen, setIsContextDrawerOpen] = useState(false)
+  const [selectedContextEntryId, setSelectedContextEntryId] = useState<string>('')
   const isSteerMode = state?.chatMode === 'steer'
 
   const configurationDetails = useMemo(() => {
@@ -289,6 +292,7 @@ export function ChatPopup({
     runningConversationIds,
     stoppingConversationIds,
     chatHistoryCount,
+    contextEntries = [],
     chatSettingsOpen,
     selectedChatCanStop,
     chatStopping,
@@ -369,6 +373,8 @@ export function ChatPopup({
     ...(localStatusMessage ? [localStatusMessage] : [])
   ]
   const transcriptItems = groupCodexTranscriptMessages(transcriptMessages)
+  const selectedContextEntry = contextEntries.find((entry) => entry.id === selectedContextEntryId) ?? contextEntries[0] ?? null
+  const showContextHistory = visibleMessages.length > 0 || contextEntries.length > 0
   const conversationStatusLabel = (conversation: ChatConversationSummary) => (
     runningConversationIds.has(conversation.id)
       ? <em className={styles.chatSidebarLoader} aria-label="Codex chat is running"><i /><i /><i /></em>
@@ -455,10 +461,11 @@ export function ChatPopup({
           <header className={styles.chatTopbar}>
             <div className={styles.chatTopbarTitle}><h2>{title}</h2><p title={subtitle}>{subtitle}</p></div>
             <div className={styles.chatTopbarActions}>
-              <button type="button" onClick={onSettingsToggle} className={`${styles.chatIconAction} ${chatSettingsOpen ? styles.chatActionActive : ''}`} aria-label="Chat settings" title="Chat settings"><LuSettings2 size={16} /></button>
-              {selectedChatCanStop ? <button type="button" onClick={() => onStopChat()} disabled={chatStopping} className={`${styles.chatIconAction} ${styles.chatStopAction}`} aria-label="Stop Codex chat" title="Stop Codex chat"><LuCircleStop size={16} /></button> : null}
-              {showRunActions ? <button type="button" onClick={onPlan} disabled={codexPlanLaunching} className={styles.chatIconAction} aria-label={codexPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'} title={codexPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'}><LuSparkles size={16} /></button> : null}
-              {showRunActions ? <button type="button" onClick={onRun} disabled={codexRunLaunching} className={styles.chatIconAction} aria-label={codexRunLaunching ? 'Running with Codex' : 'Run with Codex'} title={codexRunLaunching ? 'Running with Codex' : 'Run with Codex'}><LuPlay size={16} /></button> : null}
+              {showContextHistory ? <button type="button" onClick={() => setIsContextDrawerOpen(true)} className={`${styles.chatLabeledAction} ${isContextDrawerOpen ? styles.chatActionActive : ''}`} aria-label="Context history" title="Context history"><LuHistory size={16} /><span>Context</span></button> : null}
+              <button type="button" onClick={onSettingsToggle} className={`${styles.chatLabeledAction} ${chatSettingsOpen ? styles.chatActionActive : ''}`} aria-label="Chat settings" title="Chat settings"><LuSettings2 size={16} /><span>Settings</span></button>
+              {selectedChatCanStop ? <button type="button" onClick={() => onStopChat()} disabled={chatStopping} className={`${styles.chatLabeledAction} ${styles.chatStopAction}`} aria-label="Stop Codex chat" title="Stop Codex chat"><LuCircleStop size={16} /><span>Stop</span></button> : null}
+              {showRunActions ? <button type="button" onClick={onPlan} disabled={codexPlanLaunching} className={styles.chatLabeledAction} aria-label={codexPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'} title={codexPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'}><LuSparkles size={16} /><span>Plan</span></button> : null}
+              {showRunActions ? <button type="button" onClick={onRun} disabled={codexRunLaunching} className={styles.chatLabeledAction} aria-label={codexRunLaunching ? 'Running with Codex' : 'Run with Codex'} title={codexRunLaunching ? 'Running with Codex' : 'Run with Codex'}><LuPlay size={16} /><span>Run</span></button> : null}
               <button type="button" onClick={onClose} aria-label="Close chat" title="Close chat" className={styles.chatIconAction}><LuX size={16} /></button>
             </div>
           </header>
@@ -519,6 +526,42 @@ export function ChatPopup({
                 </label>
               </aside>
             ) : null}
+            {isContextDrawerOpen ? (
+              <aside className={styles.chatContextDrawer} aria-label="Context history">
+                <header className={styles.chatContextDrawerHeader}>
+                  <div><span>Generated context</span><h3>History</h3></div>
+                  <button type="button" onClick={() => setIsContextDrawerOpen(false)} aria-label="Close context history"><LuX size={15} /></button>
+                </header>
+                {contextEntries.length > 0 ? (
+                  <div className={styles.chatContextDrawerBody}>
+                    <div className={styles.chatContextTimeline}>
+                      {contextEntries.map((entry) => (
+                        <button key={entry.id} type="button" className={selectedContextEntry?.id === entry.id ? styles.chatContextEntryActive : styles.chatContextEntry} onClick={() => setSelectedContextEntryId(entry.id)}>
+                          <span className={styles.chatContextEntryIcon}>{entry.source === 'codex-plan' ? <LuFileText size={14} /> : entry.source === 'codex-run' ? <LuPlay size={14} /> : <LuMessageSquare size={14} />}</span>
+                          <span className={styles.chatContextEntryText}>
+                            <b>{entry.title}</b>
+                            <small>{formatChatTime(entry.at)} · {entry.status}</small>
+                            <em>{entry.preview}</em>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    <section className={styles.chatContextInspector}>
+                      {selectedContextEntry ? (
+                        <>
+                          <div className={styles.chatContextInspectorMeta}>
+                            {selectedContextEntry.metadata.map((item) => <span key={item.key}><b>{item.key}</b>{item.value}</span>)}
+                          </div>
+                          <pre>{selectedContextEntry.body}</pre>
+                        </>
+                      ) : null}
+                    </section>
+                  </div>
+                ) : (
+                  <p className={styles.chatContextEmpty}>Context will appear after Codex produces chat activity.</p>
+                )}
+              </aside>
+            ) : null}
           </div>
           <footer className={styles.chatComposer}>
             {attachments.length > 0 ? (
@@ -562,7 +605,7 @@ export function ChatPopup({
                       if (event.key === 'ArrowDown') { event.preventDefault(); onSlashCommandIndexChange((value) => (value + 1) % slashCommands.length); return }
                       if (event.key === 'ArrowUp') { event.preventDefault(); onSlashCommandIndexChange((value) => (value - 1 + slashCommands.length) % slashCommands.length); return }
                       if (event.key === 'Escape') { event.preventDefault(); onClearSlashDraft(); return }
-                      if (event.key === 'Enter') { event.preventDefault(); onSlashCommandApply(slashCommands[slashCommandIndex] ?? slashCommands[0]); return }
+                      if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); onSlashCommandApply(slashCommands[slashCommandIndex] ?? slashCommands[0]); return }
                     }
                     if (event.key === 'Enter' && !event.shiftKey) {
                       event.preventDefault()

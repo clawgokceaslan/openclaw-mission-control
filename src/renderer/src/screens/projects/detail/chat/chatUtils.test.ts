@@ -4,6 +4,8 @@ import type { TaskActivityMessage } from '../types'
 import {
   appendActivityMessageToTasks,
   buildChatConversationSummaries,
+  buildGeneratedContextEntries,
+  buildLatestGeneratedFollowUpContext,
   codexChangesSummary,
   buildLatestRunFollowUpContext,
   formatCodexWorkDuration,
@@ -442,6 +444,29 @@ describe('chat utils helpers', () => {
 
   it('returns empty follow-up context for tasks with no run messages', () => {
     expect(buildLatestRunFollowUpContext([message({ id: 'chat-only', source: 'codex-chat', createdAt: 1, body: 'hello' })])).toBe('')
+  })
+
+  it('builds generated context entries across plan, run, and chat conversations', () => {
+    const entries = buildGeneratedContextEntries([
+      message({ id: 'plan-user', source: 'codex-plan', conversationId: 'plan-1', runId: 'plan-1', role: 'user', createdAt: 1, body: '/plan update scope' }),
+      message({ id: 'plan-assistant', source: 'codex-plan', conversationId: 'plan-1', runId: 'plan-1', role: 'assistant', createdAt: 2, body: 'Planned the task structure.' }),
+      message({ id: 'run-user', source: 'codex-run', conversationId: 'run-1', runId: 'run-1', role: 'user', createdAt: 3, body: 'Run task' }),
+      message({ id: 'run-change', source: 'codex-run', conversationId: 'run-1', runId: 'run-1', role: 'tool', status: 'completed', createdAt: 4, body: 'changes', metadata: { codexBlock: 'changes', changeFiles: 1, changeInsertions: 2, changeDeletions: 0, changeFileStats: [] } }),
+      message({ id: 'run-complete', source: 'codex-run', conversationId: 'run-1', runId: 'run-1', role: 'system', status: 'completed', createdAt: 5, body: 'Codex run completed.', metadata: { codexBlock: 'run-complete', code: 0 } }),
+      message({ id: 'chat-user', source: 'codex-chat', conversationId: 'chat-1', runId: 'chat-1', role: 'user', createdAt: 6, body: 'Follow up' }),
+      message({ id: 'chat-assistant', source: 'codex-chat', conversationId: 'chat-1', runId: 'chat-1', role: 'assistant', createdAt: 7, body: 'Follow-up answer.' })
+    ])
+
+    expect(entries.map((entry) => [entry.conversationId, entry.title])).toEqual([
+      ['chat-1', 'Chat context'],
+      ['run-1', 'Run context'],
+      ['plan-1', 'Plan context']
+    ])
+    expect(entries.find((entry) => entry.conversationId === 'run-1')?.body).toContain('Reported changes: 1 file changed, +2 insertions')
+    expect(buildLatestGeneratedFollowUpContext(entries.length ? [
+      message({ id: 'chat-user', source: 'codex-chat', conversationId: 'chat-1', runId: 'chat-1', role: 'user', createdAt: 6, body: 'Follow up' }),
+      message({ id: 'chat-assistant', source: 'codex-chat', conversationId: 'chat-1', runId: 'chat-1', role: 'assistant', createdAt: 7, body: 'Follow-up answer.' })
+    ] : [])).toContain('Chat context for conversation chat-1')
   })
 
   it('summarizes patch block counts when metadata is unavailable', () => {

@@ -8,7 +8,7 @@ import { ChatPopup } from '@renderer/popups/ChatPopup'
 import { useConfirmation } from '@renderer/components/confirmation'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
-import { buildChatConversationSummaries, activityMessagesFromTask, appendActivityMessageToTasks, conversationIdOf, visibleChatMessagesForLimit } from '@renderer/screens/projects/detail/chat/chatUtils'
+import { buildChatConversationSummaries, buildGeneratedContextEntries, activityMessagesFromTask, appendActivityMessageToTasks, conversationIdOf, visibleChatMessagesForLimit } from '@renderer/screens/projects/detail/chat/chatUtils'
 import { buildProjectWorkspaceExportTaskPayload, buildTaskZipArchive } from '@renderer/screens/projects/detail/taskExport'
 import { codexConfigOf, projectCodexSettings, projectDefaultAgentId, projectDefaultSkillIds, readTaskCodexOverride } from '@renderer/screens/projects/detail/projectDetailUtils'
 import type { ChatConversationSummary, TaskActivityMessage } from '@renderer/screens/projects/detail/types'
@@ -246,6 +246,7 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
 
   const messages = useMemo(() => task ? activityMessagesFromTask(task) : [], [task])
   const conversations = useMemo(() => buildChatConversationSummaries(messages), [messages])
+  const contextEntries = useMemo(() => buildGeneratedContextEntries(messages), [messages])
   const activeConversationId = selectedConversationId || conversations[0]?.id || ''
   const visibleMessages = useMemo(() => {
     if (!activeConversationId) return []
@@ -274,6 +275,7 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
     runningConversationIds,
     stoppingConversationIds: new Set<string>(),
     chatHistoryCount: 0,
+    contextEntries,
     chatSettingsOpen: false,
     chatMode: 'chat' as const,
     selectedChatCanStop: Boolean(activeConversationId && runningConversationIds.has(activeConversationId)),

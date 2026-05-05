@@ -15,7 +15,7 @@ import {
   visibleChatMessagesForLimit
 } from '../chat/chatUtils'
 import type { CodexStopResult } from './useProjectCodexFlow'
-import type { ChatAttachmentDraft, ChatConversationSummary, ChatOperationFeedbackData, PlannerClarificationMode, SlashCommand, TaskActivityMessage, TaskHistoryItem, ThreadEntry } from '../types'
+import type { ChatAttachmentDraft, ChatConversationSummary, ChatOperationFeedbackData, GeneratedContextEntry, PlannerClarificationMode, SlashCommand, TaskActivityMessage, TaskHistoryItem, ThreadEntry } from '../types'
 
 interface Setter<T> {
   (value: T | ((previous: T) => T)): void
@@ -31,6 +31,7 @@ export interface ChatPopupState {
   runningConversationIds: Set<string>
   stoppingConversationIds: Set<string>
   chatHistoryCount: number
+  contextEntries: GeneratedContextEntry[]
   chatSettingsOpen: boolean
   chatMode?: 'chat' | 'steer'
   selectedChatCanStop: boolean
@@ -164,6 +165,7 @@ interface ChatPopupParams {
   chatOperationFeedback: ChatOperationFeedbackData | null
   codexPlanLaunching: boolean
   codexRunLaunching: boolean
+  planChoiceOpen: boolean
   selectedChatConversationId: string
   setSelectedChatConversationId: Setter<string>
   isStartingNewChat: boolean
@@ -175,6 +177,7 @@ interface ChatPopupParams {
   setChatVisibleLimit: Setter<number>
   chatConversations: ChatConversationSummary[]
   chatActivityMessages: TaskActivityMessage[]
+  contextEntries: GeneratedContextEntry[]
   history: TaskHistoryItem[]
   localChatEntries: ThreadEntry[]
   chatStopping: boolean
@@ -255,6 +258,7 @@ export function useProjectChatPopup({
   setChatVisibleLimit,
   chatConversations,
   chatActivityMessages,
+  contextEntries,
   history,
   localChatEntries,
   chatStopping,
@@ -481,10 +485,7 @@ export function useProjectChatPopup({
 
   useEffect(() => {
     if (!isChatModalMounted) return
-    if (chatConversations.length === 0) {
-      if (selectedChatConversationId) setSelectedChatConversationId('')
-      return
-    }
+    if (chatConversations.length === 0) return
     if (isStartingNewChat) return
     if (!selectedChatConversationId) {
       setSelectedChatConversationId(chatConversations[0].id)
@@ -540,6 +541,7 @@ export function useProjectChatPopup({
     runningConversationIds,
     stoppingConversationIds,
     chatHistoryCount,
+    contextEntries,
     chatSettingsOpen,
     selectedChatCanStop: selectedChatCanStopComputed,
     chatStopping,
