@@ -9,6 +9,8 @@ import {
   conversationIdOf,
   isFreshRunningMessage,
   isRunCompleteMessage,
+  asCommentThread,
+  parseHistoryPatch,
   preserveScrollTopAfterPrepend,
   shouldLoadEarlierMessages,
   usageFromMetadata,
@@ -31,6 +33,7 @@ export interface ChatPopupState {
   runningConversationIds: Set<string>
   stoppingConversationIds: Set<string>
   chatHistoryCount: number
+  chatHistoryEntries: ThreadEntry[]
   contextEntries: GeneratedContextEntry[]
   chatSettingsOpen: boolean
   chatMode?: 'chat' | 'steer'
@@ -339,6 +342,15 @@ export function useProjectChatPopup({
       : chatConversations.slice(0, 30)
   }, [chatConversations, selectedChatConversationId])
 
+  const chatHistoryEntries = useMemo(() => {
+    if (!isChatModalMounted) return []
+    const commentEntries = (selectedTask?.comments ?? []).map(asCommentThread)
+    const taskHistoryEntries = history.map(parseHistoryPatch)
+    return [...localChatEntries, ...commentEntries, ...taskHistoryEntries]
+      .sort((a, b) => b.at - a.at)
+      .slice(0, 12)
+  }, [history, isChatModalMounted, localChatEntries, selectedTask?.comments])
+
   const chatHistoryCount = isChatModalMounted
     ? (selectedTask?.comments?.length ?? 0) + history.length + localChatEntries.length
     : 0
@@ -541,6 +553,7 @@ export function useProjectChatPopup({
     runningConversationIds,
     stoppingConversationIds,
     chatHistoryCount,
+    chatHistoryEntries,
     contextEntries,
     chatSettingsOpen,
     selectedChatCanStop: selectedChatCanStopComputed,

@@ -275,6 +275,7 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
     runningConversationIds,
     stoppingConversationIds: new Set<string>(),
     chatHistoryCount: 0,
+    chatHistoryEntries: [],
     contextEntries,
     chatSettingsOpen: false,
     chatMode: 'chat' as const,

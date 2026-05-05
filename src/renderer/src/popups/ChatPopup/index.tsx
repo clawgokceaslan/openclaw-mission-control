@@ -5,7 +5,7 @@ import type { Agent, Gateway, Skill, TaskEntity, Workspace } from '@shared/types
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { CodexChatMessageItem, CodexWorkBlock } from '@renderer/components/projects/detail/chat/CodexChatMessageItem'
 import { formatChatTime, groupCodexTranscriptMessages } from '@renderer/screens/projects/detail/chat/chatUtils'
-import type { ChatAttachmentDraft, ChatConversationSummary, GeneratedContextEntry, PlannerClarificationMode, SlashCommand, TaskActivityMessage } from '@renderer/screens/projects/detail/types'
+import type { ChatAttachmentDraft, ChatConversationSummary, GeneratedContextEntry, PlannerClarificationMode, SlashCommand, TaskActivityMessage, ThreadEntry } from '@renderer/screens/projects/detail/types'
 import { lockModalInteractionRegion } from '@renderer/utils/modalInteractionLock'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
@@ -19,6 +19,7 @@ interface ChatPopupFlatProps {
   runningConversationIds: Set<string>
   stoppingConversationIds: Set<string>
   chatHistoryCount: number
+  chatHistoryEntries: ThreadEntry[]
   contextEntries: GeneratedContextEntry[]
   chatSettingsOpen: boolean
   selectedChatCanStop: boolean
@@ -295,6 +296,7 @@ export function ChatPopup({
     runningConversationIds,
     stoppingConversationIds,
     chatHistoryCount,
+    chatHistoryEntries = [],
     contextEntries = [],
     chatSettingsOpen,
     selectedChatCanStop,
@@ -391,6 +393,12 @@ export function ChatPopup({
     if (conversation.source === 'codex-run') return styles.chatSource_run
     return styles.chatSource_followUp
   }
+  const historySourceLabel = (entry: ThreadEntry) => {
+    if (entry.source === 'comment') return 'Comment'
+    if (entry.source === 'history') return 'History'
+    return entry.eventType || 'Update'
+  }
+  const historyPreview = (entry: ThreadEntry) => entry.evidence[0] || entry.fields[0]?.value || entry.summary
 
   return (
     <>
@@ -458,7 +466,23 @@ export function ChatPopup({
           ))}
           {conversations.length > sidebarConversations.length ? <p>{conversations.length - sidebarConversations.length} older conversations hidden for performance.</p> : null}
           {conversations.length === 0 ? <p>No Codex conversations yet.</p> : null}
-          {chatHistoryCount > 0 ? <div className={styles.chatHistoryNote}><span>Task history</span><b>{chatHistoryCount}</b></div> : null}
+          {chatHistoryCount > 0 ? (
+            <div className={styles.chatHistorySection}>
+              <div className={styles.chatHistoryNote}><span>Task history</span><b>{chatHistoryCount}</b></div>
+              <div className={styles.chatHistoryList}>
+                {chatHistoryEntries.map((entry) => (
+                  <article key={entry.id} className={styles.chatHistoryCard}>
+                    <span className={styles.chatConversationLine}>
+                      <b className={styles.chatHistorySourceBadge}>{historySourceLabel(entry)}</b>
+                      <small>{formatChatTime(entry.at)}</small>
+                    </span>
+                    <strong>{entry.summary}</strong>
+                    <em>{historyPreview(entry)}</em>
+                  </article>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </aside>
         <main className={styles.chatMain}>
           <header className={styles.chatTopbar}>
