@@ -4,15 +4,190 @@ import { getBootMotivation, splashConfig } from './splashContent'
 
 const appIconSrc = new URL('../../../../../../app-icon.png', import.meta.url).href
 
-const codeRain = [
-  'const mission = await loadWorkspace()',
-  'if (task.ready) queue.push(task)',
-  'gateway.stream({ mode: "plan" })',
-  'agent.apply(projectRules)',
-  'diff.scope(["renderer", "scss"])',
-  'await build.when(typecheck.green)',
-  'task.status = "review"',
-  'push({ branch: "main", clean: true })'
+interface CodeToken {
+  value: string
+  tone: 'keyword' | 'function' | 'string' | 'property' | 'number' | 'operator' | 'plain'
+}
+
+interface CodeLine {
+  lane: number
+  tokens: CodeToken[]
+}
+
+const codeRain: CodeLine[] = [
+  {
+    lane: 2,
+    tokens: [
+      { value: 'const ', tone: 'keyword' },
+      { value: 'missionRuntime ', tone: 'property' },
+      { value: '= await ', tone: 'keyword' },
+      { value: 'loadWorkspace', tone: 'function' },
+      { value: '({ projectId: ', tone: 'plain' },
+      { value: '"open-mission-control"', tone: 'string' },
+      { value: ', hydrate: ', tone: 'plain' },
+      { value: 'true', tone: 'keyword' },
+      { value: ' })', tone: 'plain' }
+    ]
+  },
+  {
+    lane: 9,
+    tokens: [
+      { value: 'const ', tone: 'keyword' },
+      { value: 'visibleTasks ', tone: 'property' },
+      { value: '= ', tone: 'operator' },
+      { value: 'taskGraph', tone: 'property' },
+      { value: '.filter', tone: 'function' },
+      { value: '(task => task.status !== ', tone: 'plain' },
+      { value: '"closed"', tone: 'string' },
+      { value: ').sort', tone: 'function' },
+      { value: '((a, b) => a.priority - b.priority)', tone: 'plain' }
+    ]
+  },
+  {
+    lane: 18,
+    tokens: [
+      { value: 'gateway', tone: 'property' },
+      { value: '.stream', tone: 'function' },
+      { value: '({ channel: ', tone: 'plain' },
+      { value: '"codex:activity"', tone: 'string' },
+      { value: ', mode: ', tone: 'plain' },
+      { value: '"plan-and-run"', tone: 'string' },
+      { value: ', heartbeatMs: ', tone: 'plain' },
+      { value: '1200', tone: 'number' },
+      { value: ' })', tone: 'plain' }
+    ]
+  },
+  {
+    lane: 29,
+    tokens: [
+      { value: 'await ', tone: 'keyword' },
+      { value: 'agent', tone: 'property' },
+      { value: '.applyProjectRules', tone: 'function' },
+      { value: '({ scssModules: ', tone: 'plain' },
+      { value: 'true', tone: 'keyword' },
+      { value: ', nestedSelectors: ', tone: 'plain' },
+      { value: 'true', tone: 'keyword' },
+      { value: ', scope: ', tone: 'plain' },
+      { value: '"renderer/splash"', tone: 'string' },
+      { value: ' })', tone: 'plain' }
+    ]
+  },
+  {
+    lane: 40,
+    tokens: [
+      { value: 'const ', tone: 'keyword' },
+      { value: 'reviewPayload ', tone: 'property' },
+      { value: '= ', tone: 'operator' },
+      { value: 'serializeTask', tone: 'function' },
+      { value: '({ title, status: ', tone: 'plain' },
+      { value: '"Review"', tone: 'string' },
+      { value: ', checklist: completedItems, comments })', tone: 'plain' }
+    ]
+  },
+  {
+    lane: 51,
+    tokens: [
+      { value: 'if ', tone: 'keyword' },
+      { value: '(', tone: 'plain' },
+      { value: 'build', tone: 'property' },
+      { value: '.typecheck', tone: 'property' },
+      { value: ' === ', tone: 'operator' },
+      { value: '"green"', tone: 'string' },
+      { value: ') ', tone: 'plain' },
+      { value: 'await ', tone: 'keyword' },
+      { value: 'git', tone: 'property' },
+      { value: '.push', tone: 'function' },
+      { value: '({ branch: ', tone: 'plain' },
+      { value: '"main"', tone: 'string' },
+      { value: ', includeDirtyFiles: ', tone: 'plain' },
+      { value: 'false', tone: 'keyword' },
+      { value: ' })', tone: 'plain' }
+    ]
+  },
+  {
+    lane: 63,
+    tokens: [
+      { value: 'dispatch', tone: 'function' },
+      { value: '(', tone: 'plain' },
+      { value: 'missionSlice', tone: 'property' },
+      { value: '.actions', tone: 'property' },
+      { value: '.setSplashReady', tone: 'function' },
+      { value: '({ minimumElapsed: ', tone: 'plain' },
+      { value: 'true', tone: 'keyword' },
+      { value: ', rendererReady: ', tone: 'plain' },
+      { value: 'Boolean', tone: 'function' },
+      { value: '(user || errorMessage) }))', tone: 'plain' }
+    ]
+  },
+  {
+    lane: 76,
+    tokens: [
+      { value: 'const ', tone: 'keyword' },
+      { value: 'timeline ', tone: 'property' },
+      { value: '= ', tone: 'operator' },
+      { value: 'activityMessages', tone: 'property' },
+      { value: '.map', tone: 'function' },
+      { value: '(({ phase, body }) => ', tone: 'plain' },
+      { value: 'formatEvent', tone: 'function' },
+      { value: '({ phase, body, colorize: ', tone: 'plain' },
+      { value: 'true', tone: 'keyword' },
+      { value: ' }))', tone: 'plain' }
+    ]
+  },
+  {
+    lane: 4,
+    tokens: [
+      { value: 'renderer', tone: 'property' },
+      { value: '.mount', tone: 'function' },
+      { value: '(<', tone: 'plain' },
+      { value: 'SplashOverlay', tone: 'function' },
+      { value: ' ready={initialized || Boolean(errorMessage)} intensity=', tone: 'plain' },
+      { value: '"cinematic"', tone: 'string' },
+      { value: ' />)', tone: 'plain' }
+    ]
+  },
+  {
+    lane: 34,
+    tokens: [
+      { value: 'const ', tone: 'keyword' },
+      { value: 'diffSummary ', tone: 'property' },
+      { value: '= ', tone: 'operator' },
+      { value: 'changedFiles', tone: 'property' },
+      { value: '.reduce', tone: 'function' },
+      { value: '((summary, file) => summary.add(file.path, file.insertions, file.deletions), ', tone: 'plain' },
+      { value: 'new ', tone: 'keyword' },
+      { value: 'DiffSummary', tone: 'function' },
+      { value: '())', tone: 'plain' }
+    ]
+  },
+  {
+    lane: 57,
+    tokens: [
+      { value: 'await ', tone: 'keyword' },
+      { value: 'omc', tone: 'property' },
+      { value: '.readyForReview', tone: 'function' },
+      { value: '({ taskId, status: ', tone: 'plain' },
+      { value: '"Review"', tone: 'string' },
+      { value: ', verification: ', tone: 'plain' },
+      { value: '"npm run build"', tone: 'string' },
+      { value: ', pushedCommit })', tone: 'plain' }
+    ]
+  },
+  {
+    lane: 84,
+    tokens: [
+      { value: 'queue', tone: 'property' },
+      { value: '.schedule', tone: 'function' },
+      { value: '({ kind: ', tone: 'plain' },
+      { value: '"subtask"', tone: 'string' },
+      { value: ', owner: activeAgent.name, dueAt: ', tone: 'plain' },
+      { value: 'Date', tone: 'function' },
+      { value: '.now', tone: 'function' },
+      { value: '() + ', tone: 'plain' },
+      { value: '60000', tone: 'number' },
+      { value: ' })', tone: 'plain' }
+    ]
+  }
 ]
 
 const taskTitles = [
@@ -33,6 +208,7 @@ const taskTags = ['renderer', 'electron', 'ux', 'build', 'gateway', 'planner']
 const taskOwners = ['Pilot', 'Agent', 'Control', 'Runtime', 'Review']
 const taskPoints = [2, 3, 5, 8, 13]
 const taskAccents = ['blue', 'green', 'violet', 'amber']
+const taskLanes = [0, 1, 2, 3, 4]
 const statusNodes = ['CONTEXT', 'TASKS', 'GATEWAY', 'AGENTS', 'BUILD', 'REVIEW']
 
 function pickRandom<T>(items: T[]): T {
@@ -40,7 +216,7 @@ function pickRandom<T>(items: T[]): T {
 }
 
 function buildTaskRain() {
-  return Array.from({ length: 12 }, (_, index) => ({
+  return Array.from({ length: 18 }, (_, index) => ({
     id: `${index}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     status: pickRandom(taskStatuses),
     title: pickRandom(taskTitles),
@@ -48,6 +224,7 @@ function buildTaskRain() {
     owner: pickRandom(taskOwners),
     points: pickRandom(taskPoints),
     accent: pickRandom(taskAccents),
+    lane: pickRandom(taskLanes),
     progress: 32 + Math.floor(Math.random() * 62)
   }))
 }
@@ -96,7 +273,18 @@ export function SplashOverlay({ ready }: SplashOverlayProps) {
         </div>
         <div className={styles.codeRain}>
           {codeRain.map((line, index) => (
-            <span key={line} style={{ '--line-index': index } as CSSProperties}>{line}</span>
+            <code
+              key={`${index}-${line.lane}`}
+              className={styles.codeLine}
+              style={{
+                '--line-index': index,
+                '--line-lane': line.lane
+              } as CSSProperties}
+            >
+              {line.tokens.map((token, tokenIndex) => (
+                <span key={`${token.value}-${tokenIndex}`} data-tone={token.tone}>{token.value}</span>
+              ))}
+            </code>
           ))}
         </div>
         <div className={styles.taskRain}>
@@ -106,6 +294,7 @@ export function SplashOverlay({ ready }: SplashOverlayProps) {
               className={styles.taskCard}
               style={{
                 '--task-index': index,
+                '--task-lane': task.lane,
                 '--task-progress': `${task.progress}%`
               } as CSSProperties}
               data-accent={task.accent}

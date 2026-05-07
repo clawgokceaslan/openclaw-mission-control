@@ -100,75 +100,104 @@
 
     .codeRain {
       position: absolute;
-      top: -18%;
-      bottom: -18%;
-      left: clamp(18px, 4vw, 64px);
-      width: min(44vw, 620px);
+      inset: -26% -18% -28% -10%;
       pointer-events: none;
-      counter-reset: code-line;
-      transform: skewY(-3deg);
+      counter-reset: code-line 10;
+      transform: skewY(-2.2deg);
 
       &::before {
-        content: 'src/mission/control.ts';
+        content: 'workspace://open-mission-control/src/renderer/runtime.tsx';
         position: absolute;
-        top: 12%;
-        left: 0;
-        width: min(100%, 520px);
-        padding: 8px 14px 9px 38px;
+        top: 10%;
+        left: clamp(20px, 4vw, 72px);
+        width: min(72vw, 960px);
+        padding: 9px 16px 10px 48px;
         border-bottom: 1px solid rgba(236, 242, 255, 0.08);
         background:
-          radial-gradient(circle at 16px 50%, rgba(255, 95, 86, 0.72) 0 4px, transparent 5px),
-          radial-gradient(circle at 30px 50%, rgba(255, 189, 46, 0.72) 0 4px, transparent 5px),
-          radial-gradient(circle at 44px 50%, rgba(39, 201, 63, 0.72) 0 4px, transparent 5px),
-          rgba(8, 13, 20, 0.34);
+          radial-gradient(circle at 18px 50%, rgba(255, 95, 86, 0.72) 0 4px, transparent 5px),
+          radial-gradient(circle at 34px 50%, rgba(255, 189, 46, 0.72) 0 4px, transparent 5px),
+          radial-gradient(circle at 50px 50%, rgba(39, 201, 63, 0.72) 0 4px, transparent 5px),
+          rgba(8, 13, 20, 0.28);
         color: rgba(227, 238, 255, 0.38);
         font-family: 'SFMono-Regular', Consolas, monospace;
         font-size: 0.66rem;
+        letter-spacing: 0;
       }
 
-      span {
+      .codeLine {
         position: absolute;
-        top: -20%;
-        left: 0;
-        width: min(100%, 520px);
-        padding: 9px 18px 9px 48px;
+        top: -22%;
+        left: calc(var(--line-lane) * 1vw);
+        width: min(76vw, 980px);
+        min-width: 520px;
+        padding: 10px 20px 10px 54px;
         border-left: 1px solid rgba(116, 154, 255, 0.22);
         background:
-          linear-gradient(90deg, rgba(116, 154, 255, 0.055), transparent 82%),
-          rgba(8, 13, 20, 0.22);
+          linear-gradient(90deg, rgba(116, 154, 255, 0.07), transparent 86%),
+          rgba(8, 13, 20, 0.18);
         color: rgba(227, 238, 255, 0.44);
         font-family: 'SFMono-Regular', Consolas, monospace;
-        font-size: clamp(0.62rem, 1.4vw, 0.82rem);
+        font-size: clamp(0.66rem, 1.05vw, 0.88rem);
+        line-height: 1.45;
+        letter-spacing: 0;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        animation: codeStream calc(8.5s + (var(--line-index) * 0.7s)) linear infinite;
-        animation-delay: calc(var(--line-index) * -0.82s);
+        animation: codeStream calc(9.2s + (var(--line-index) * 0.48s)) linear infinite;
+        animation-delay: calc(var(--line-index) * -0.96s);
 
         &::before {
           content: counter(code-line, decimal-leading-zero);
           counter-increment: code-line;
           position: absolute;
-          left: 14px;
+          left: 16px;
           color: rgba(227, 238, 255, 0.22);
+        }
+
+        span {
+          &[data-tone='keyword'] {
+            color: rgba(255, 136, 198, 0.78);
+          }
+
+          &[data-tone='function'] {
+            color: rgba(116, 196, 255, 0.82);
+          }
+
+          &[data-tone='string'] {
+            color: rgba(126, 231, 169, 0.78);
+          }
+
+          &[data-tone='property'] {
+            color: rgba(255, 216, 122, 0.78);
+          }
+
+          &[data-tone='number'] {
+            color: rgba(183, 154, 255, 0.8);
+          }
+
+          &[data-tone='operator'] {
+            color: rgba(236, 242, 255, 0.48);
+          }
+
+          &[data-tone='plain'] {
+            color: rgba(227, 238, 255, 0.5);
+          }
         }
       }
     }
 
     .taskRain {
       position: absolute;
-      top: -28%;
-      right: clamp(12px, 3vw, 48px);
-      bottom: -24%;
-      width: min(32vw, 340px);
+      inset: -34% 0 -28% 0;
       pointer-events: none;
       perspective: 900px;
 
       .taskCard {
         position: absolute;
-        top: -24%;
-        right: 0;
-        width: min(100%, 304px);
+        top: -26%;
+        right: calc(16px + (var(--task-lane) * min(15vw, 170px)));
+        width: min(28vw, 310px);
+        min-width: 218px;
         display: grid;
         gap: 9px;
         padding: 13px 14px 12px;
@@ -179,8 +208,8 @@
           rgba(8, 13, 20, 0.52);
         box-shadow: 0 18px 42px rgba(0, 0, 0, 0.2);
         color: rgba(248, 251, 255, 0.76);
-        animation: taskStream calc(7.4s + (var(--task-index) * 0.46s)) cubic-bezier(0.42, 0, 0.24, 1) infinite;
-        animation-delay: calc(var(--task-index) * -0.74s);
+        animation: taskStream calc(8.2s + (var(--task-index) * 0.34s)) cubic-bezier(0.42, 0, 0.24, 1) infinite;
+        animation-delay: calc(var(--task-index) * -0.62s);
         transform-origin: 100% 0;
 
         &::before {
@@ -464,18 +493,28 @@
       }
 
       .codeRain {
-        left: 18px;
-        width: 58vw;
+        inset: -24% -80% -28% -24%;
         opacity: 0.66;
+
+        &::before {
+          left: 18px;
+          width: 92vw;
+        }
+
+        .codeLine {
+          min-width: 360px;
+          width: 92vw;
+        }
       }
 
       .taskRain {
-        right: 12px;
-        width: 42vw;
+        inset: -34% -4% -24% 0;
         opacity: 0.74;
 
         .taskCard {
-          width: min(100%, 240px);
+          right: calc(8px + (var(--task-lane) * 30vw));
+          width: min(58vw, 240px);
+          min-width: 176px;
           padding: 10px 11px;
         }
       }
@@ -499,7 +538,7 @@
     &::before,
     .animationField .signalGrid,
     .animationField .orbit,
-    .animationField .codeRain span,
+    .animationField .codeRain .codeLine,
     .animationField .codeRain::before,
     .animationField .taskRain .taskCard,
     .splashPanel,
