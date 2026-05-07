@@ -455,8 +455,8 @@ export function AutoPlansPage() {
       <div className={`${styles.layout} ${activeStep === 'scope' || activeStep === 'queue' ? styles.layoutFull : ''}`}>
         {activeStep === 'tasks' || activeStep === 'confirm' ? <aside className={styles.selector}>
           <header>
-            <div><strong>{activeStep === 'confirm' ? 'Review selection' : 'Plan task selection'}</strong><span>Drag cards to the queue target on the right.</span></div>
-            <button type="button" onClick={addSelectedToQueue} disabled={selectedTaskIds.length === 0}>Add selected</button>
+            <div><strong>{activeStep === 'confirm' ? 'Seçimi kontrol et' : 'Planlanacak tasklar'}</strong><span>Kartları sağdaki kuyruk alanına sürükle.</span></div>
+            <button type="button" onClick={addSelectedToQueue} disabled={selectedTaskIds.length === 0}>Seçilenleri ekle</button>
           </header>
           <div className={styles.taskList}>
             {loading ? <LoadingState variant="skeleton" rows={5} columns={2} messageIndex={1} /> : filteredTasks.length ? filteredTasks.map((task) => {
@@ -483,20 +483,20 @@ export function AutoPlansPage() {
                   <div className={styles.taskCardBody}>
                     <span>{project?.name ?? 'No project'} · {status?.name ?? 'No status'}</span>
                     <strong>{task.title}</strong>
-                    <small>{missing || (queuedTaskIds.has(task.id) ? 'Already queued' : 'Planlamaya hazır')}</small>
+                    <small>{missing || (queuedTaskIds.has(task.id) ? 'Zaten kuyrukta' : 'Planlamaya hazır')}</small>
                   </div>
                   <div className={styles.cardActions}>
                     <button type="button" onClick={(event) => {
                       event.stopPropagation()
                       addToQueue(task)
-                    }} disabled={disabled} title={missing || (queuedTaskIds.has(task.id) ? 'Already queued' : 'Add to plan queue')}><LuPlay size={15} /></button>
+                    }} disabled={disabled} title={missing || (queuedTaskIds.has(task.id) ? 'Zaten kuyrukta' : 'Plan kuyruğuna ekle')}><LuPlay size={15} /></button>
                   </div>
                 </article>
               )
-            }) : <div className={styles.emptyState}>No NOT PLANNED tasks match this project.</div>}
+            }) : <div className={styles.emptyState}>Bu projede plan bekleyen uygun task bulunamadı.</div>}
             {otherTasks.length ? (
               <details className={styles.otherTasks}>
-                <summary>Other current-project tasks <span>{otherTasks.length}</span></summary>
+                <summary>Bu projedeki diğer tasklar <span>{otherTasks.length}</span></summary>
                 <div className={styles.otherTaskList}>
                   {otherTasks.map((task) => (
                     <button key={task.id} type="button" onClick={() => setDetailTarget({ projectId: task.projectId, taskId: task.id })}>
@@ -513,9 +513,9 @@ export function AutoPlansPage() {
         <section className={styles.workbench}>
           {activeStep === 'scope' ? (
             <div className={styles.panel}>
-              <header><div><strong>Scope</strong><span>Default lists stay limited to the current project.</span></div></header>
+              <header><div><strong>Kapsam</strong><span>Varsayılan listeler geçerli projeyle sınırlı kalır.</span></div></header>
               <div className={styles.queueList}>
-                <div className={styles.emptyState}>Choose another project only when you need to continue from that project's task details.</div>
+                <div className={styles.emptyState}>Yalnızca başka bir projenin task detayından devam etmen gerekiyorsa projeyi değiştir.</div>
               </div>
             </div>
           ) : null}
@@ -523,10 +523,10 @@ export function AutoPlansPage() {
           {activeStep === 'queue' || activeStep === 'confirm' ? (
             <div className={`${styles.panel} ${draggingTaskId ? styles.dropReady : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={onQueuePanelDrop}>
               <header>
-                <div><strong>Plan kuyruğu</strong><span>{queueSummary.waiting} pending · {queueSummary.running} active · {queueSummary.completed} completed · {queueSummary.failed} failed · {mode === 'ask-first' ? 'ask-first mode' : 'direct mode'}</span></div>
+                <div><strong>Plan kuyruğu</strong><span>{queueSummary.waiting} bekliyor · {queueSummary.running} aktif · {queueSummary.completed} tamamlandı · {queueSummary.failed} hatalı · {mode === 'ask-first' ? 'önce sor modu' : 'doğrudan mod'}</span></div>
                 <div className={styles.panelActions}>
-                  <button type="button" onClick={() => void startQueue()} disabled={queueBusy || !queue.some((item) => item.state === 'waiting')}><LuPlay size={15} /> Start</button>
-                  <button type="button" onClick={() => void stopQueue()} disabled={!queueBusy && !queue.some((item) => item.state === 'waiting' || item.state === 'running')}><LuCircleStop size={15} /> Stop</button>
+                  <button type="button" onClick={() => void startQueue()} disabled={queueBusy || !queue.some((item) => item.state === 'waiting')}><LuPlay size={15} /> Başlat</button>
+                  <button type="button" onClick={() => void stopQueue()} disabled={!queueBusy && !queue.some((item) => item.state === 'waiting' || item.state === 'running')}><LuCircleStop size={15} /> Durdur</button>
                 </div>
               </header>
               <div className={styles.queueList}>
@@ -553,14 +553,14 @@ export function AutoPlansPage() {
                       </div>
                     </article>
                   )
-                }) : <div className={styles.emptyState}>Drop task cards here or add selected tasks from the left.</div>}
+                }) : <div className={styles.emptyState}>Task kartlarını buraya bırak veya soldan seçilen taskları ekle.</div>}
               </div>
             </div>
           ) : null}
 
           {activeStep === 'confirm' ? (
             <div className={styles.panel}>
-              <header><div><strong>Running plans</strong><span>{runningRows.length} active plan record{runningRows.length === 1 ? '' : 's'}</span></div></header>
+              <header><div><strong>Çalışan planlar</strong><span>{runningRows.length} aktif plan kaydı</span></div></header>
               <div className={styles.queueList}>
                 {runningRows.length ? runningRows.map((row) => (
                   <article key={row.gatewayConversationId} className={styles.queueRow}>
@@ -571,24 +571,24 @@ export function AutoPlansPage() {
                       <button type="button" onClick={() => void stopRunningRow(row)} title="Stop"><LuCircleStop size={15} /></button>
                     </div>
                   </article>
-                )) : <div className={styles.emptyState}>No active planning run is currently visible.</div>}
+                )) : <div className={styles.emptyState}>Şu anda görünen aktif planlama yok.</div>}
               </div>
             </div>
           ) : null}
 
           {activeStep === 'confirm' ? (
             <div className={styles.panel}>
-              <header><div><strong>Planned tasks</strong><span>{plannedRows.length} task{plannedRows.length === 1 ? '' : 's'}</span></div></header>
+              <header><div><strong>Planlanan tasklar</strong><span>{plannedRows.length} task</span></div></header>
               <div className={styles.queueList}>
                 {plannedRows.length ? plannedRows.map((row) => (
                   <article key={row.taskId} className={styles.queueRow}>
-                    <span className={styles.queueIndex}>{row.runnable ? 'Ready' : 'Missing'}</span>
+                    <span className={styles.queueIndex}>{row.runnable ? 'Hazır' : 'Eksik'}</span>
                     <div><strong>{row.taskTitle}</strong><span>{row.projectName} - {row.runnable ? 'Çalıştırma kuyruğunda kullanılabilir' : row.missing.join(', ')}</span></div>
                     <div className={styles.cardActions}>
                       <button type="button" onClick={() => setDetailTarget({ projectId: row.projectId, taskId: row.taskId })} title="Open task details"><LuExternalLink size={15} /></button>
                     </div>
                   </article>
-                )) : <div className={styles.emptyState}>No planned tasks are visible yet.</div>}
+                )) : <div className={styles.emptyState}>Henüz görünen planlanmış task yok.</div>}
               </div>
             </div>
           ) : null}
@@ -596,9 +596,9 @@ export function AutoPlansPage() {
       </div>
 
       <nav className={styles.flowNav} aria-label="Plan kuyruğu navigasyonu">
-        <button type="button" onClick={() => goToRelativeStep(-1)} disabled={activeStepIndex === 0}>Previous</button>
+        <button type="button" onClick={() => goToRelativeStep(-1)} disabled={activeStepIndex === 0}>Önceki</button>
         <span>{stepLabels[activeStep]}</span>
-        <button type="button" onClick={() => goToRelativeStep(1)} disabled={activeStepIndex === stepOrder.length - 1 || ((stepOrder[activeStepIndex + 1] === 'queue' || stepOrder[activeStepIndex + 1] === 'confirm') && queue.length === 0)}>Next</button>
+        <button type="button" onClick={() => goToRelativeStep(1)} disabled={activeStepIndex === stepOrder.length - 1 || ((stepOrder[activeStepIndex + 1] === 'queue' || stepOrder[activeStepIndex + 1] === 'confirm') && queue.length === 0)}>Sonraki</button>
       </nav>
 
       {projectPickerOpen ? (

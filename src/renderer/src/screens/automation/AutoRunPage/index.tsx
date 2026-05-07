@@ -19,12 +19,12 @@ type GatewayRunResponse = { executionMode?: 'terminal' | 'exec'; runId?: string;
 type DefaultProjectResponse = { projectId: string | null; project?: Project | null; fallbackProject?: Project | null; invalidStoredProjectId?: string | null }
 
 const PAGE_SIZE = 60
-const stepLabels: Record<StepKey, string> = { scope: 'Scope', tasks: 'Tasks', queue: 'Queue', confirm: 'Review' }
+const stepLabels: Record<StepKey, string> = { scope: 'Kapsam', tasks: 'Tasklar', queue: 'Kuyruk', confirm: 'Kontrol' }
 const stepDescriptions: Record<StepKey, string> = {
-  scope: 'Project boundary',
-  tasks: 'Pick work items',
-  queue: 'Order the run',
-  confirm: 'Start safely'
+  scope: 'Proje sınırı',
+  tasks: 'Çalıştırılacak taskları seç',
+  queue: 'Çalıştırma sırasını düzenle',
+  confirm: 'Güvenle başlat'
 }
 const stepOrder: StepKey[] = ['scope', 'tasks', 'queue', 'confirm']
 
@@ -34,9 +34,9 @@ function formatDate(value: number) {
 
 function missingRunLabel(project: Project | undefined) {
   const codex = projectGatewaySettings(project ?? null)
-  if (!codex.gatewayId && !(codex.runModel || codex.defaultModel)) return 'Project gateway and run model are missing'
-  if (!codex.gatewayId) return 'Project gateway is missing'
-  if (!(codex.runModel || codex.defaultModel)) return 'Project run model is missing'
+  if (!codex.gatewayId && !(codex.runModel || codex.defaultModel)) return 'Proje gateway ve çalıştırma modeli eksik'
+  if (!codex.gatewayId) return 'Proje gateway ayarı eksik'
+  if (!(codex.runModel || codex.defaultModel)) return 'Proje çalıştırma modeli eksik'
   return ''
 }
 
@@ -443,13 +443,13 @@ export function AutoRunPage() {
         <div className={styles.taskCardBody}>
           <span>{project?.name ?? 'No project'} · {status?.name ?? 'No status'}</span>
           <strong>{task.title}</strong>
-          <small>{missing || (queuedTaskIds.has(task.id) ? 'Already queued' : 'Planned and ready for auto run')}</small>
+          <small>{missing || (queuedTaskIds.has(task.id) ? 'Zaten kuyrukta' : 'Çalıştırmaya hazır')}</small>
         </div>
         <div className={styles.cardActions}>
           <button type="button" onClick={(event) => {
             event.stopPropagation()
             addToQueue(task)
-          }} disabled={disabled} title={missing || (queuedTaskIds.has(task.id) ? 'Already queued' : 'Add to queue')}>
+          }} disabled={disabled} title={missing || (queuedTaskIds.has(task.id) ? 'Zaten kuyrukta' : 'Kuyruğa ekle')}>
             <LuPlay size={15} />
           </button>
         </div>
@@ -459,11 +459,11 @@ export function AutoRunPage() {
 
   const runTaskReason = (task: TaskEntity) => {
     const secondStatusId = secondStatusByProject[task.projectId]
-    if (task.projectId !== currentProjectId) return 'Different project'
-    if (task.status !== secondStatusId) return `Status: ${taskStatus(task)?.name ?? 'Unknown'}`
-    if (!isTaskPlanned(task)) return 'Plan is not ready'
-    if (isTaskWorking(task)) return 'Codex is active'
-    if (hasRunHistory(task)) return 'Already has run history'
+    if (task.projectId !== currentProjectId) return 'Farklı proje'
+    if (task.status !== secondStatusId) return `Durum: ${taskStatus(task)?.name ?? 'Bilinmiyor'}`
+    if (!isTaskPlanned(task)) return 'Plan hazır değil'
+    if (isTaskWorking(task)) return 'Ajan aktif'
+    if (hasRunHistory(task)) return 'Çalıştırma geçmişi var'
     return ''
   }
 
@@ -482,7 +482,7 @@ export function AutoRunPage() {
           <h1>Çalıştırma Kuyruğu</h1>
           <p>Tek task pipeline ana akıştır; birden fazla planlanmış taskı sırayla çalıştırmak için bu ikincil kuyruğu kullan.</p>
         </div>
-        <button type="button" onClick={() => void loadData()} disabled={loading}><LuRefreshCw size={15} /> Refresh</button>
+        <button type="button" onClick={() => void loadData()} disabled={loading}><LuRefreshCw size={15} /> Yenile</button>
       </header>
 
       {error ? <div className={styles.notice}>{error}</div> : null}
@@ -492,31 +492,31 @@ export function AutoRunPage() {
         <div className={styles.scopeSummary}>
           <div className={styles.scopeIcon}><LuListFilter size={18} /></div>
           <div className={styles.scopeCopy}>
-            <span>Current project</span>
-            <strong>{currentProject?.name ?? 'No project selected'}</strong>
-            <small>Default results stay scoped here.</small>
+            <span>Geçerli proje</span>
+            <strong>{currentProject?.name ?? 'Proje seçilmedi'}</strong>
+            <small>Varsayılan sonuçlar bu kapsamda kalır.</small>
           </div>
-          <button type="button" onClick={() => setProjectPickerOpen(true)}>Switch</button>
+          <button type="button" onClick={() => setProjectPickerOpen(true)}>Değiştir</button>
         </div>
         <label className={styles.searchBox}>
-          <span>Search tasks</span>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Title, description, or project" />
+          <span>Task ara</span>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Başlık, açıklama veya proje" />
         </label>
         <div className={styles.controlStat}>
-          <span>Eligible</span>
+          <span>Uygun</span>
           <strong>{filteredTasks.length}</strong>
-          <small>planned run tasks</small>
+          <small>çalıştırılabilir task</small>
         </div>
       </section>
 
       <section className={styles.stepperShell} aria-label="Çalıştırma kuyruğu ilerlemesi">
         <header className={styles.stepperHeader}>
           <div>
-            <span>Workflow</span>
+            <span>Akış</span>
             <strong>{stepLabels[activeStep]}</strong>
             <small>{stepDescriptions[activeStep]}</small>
           </div>
-          <p>{queue.length} queued · {filteredTasks.length} eligible</p>
+          <p>{queue.length} kuyrukta · {filteredTasks.length} uygun</p>
         </header>
         <div className={styles.stepperTrack} aria-hidden="true">
           <span style={{ width: stepProgress }} />
@@ -539,14 +539,14 @@ export function AutoRunPage() {
       <div className={`${styles.layout} ${activeStep === 'scope' || activeStep === 'queue' ? styles.layoutFull : ''}`}>
         {activeStep === 'tasks' || activeStep === 'confirm' ? <aside className={styles.selector}>
           <header>
-            <div><strong>{activeStep === 'confirm' ? 'Review selection' : 'Task selection'}</strong><span>Drag cards to the queue target on the right.</span></div>
-            <button type="button" onClick={addSelectedToQueue} disabled={selectedTaskIds.length === 0}>Add selected</button>
+            <div><strong>{activeStep === 'confirm' ? 'Seçimi kontrol et' : 'Çalıştırılacak tasklar'}</strong><span>Kartları sağdaki kuyruk alanına sürükle.</span></div>
+            <button type="button" onClick={addSelectedToQueue} disabled={selectedTaskIds.length === 0}>Seçilenleri ekle</button>
           </header>
           <div className={styles.taskList}>
-            {loading ? <LoadingState variant="skeleton" rows={5} columns={2} messageIndex={0} /> : filteredTasks.length ? filteredTasks.map(renderTaskCard) : <div className={styles.emptyState}>No second-status PLANNED tasks match this project.</div>}
+            {loading ? <LoadingState variant="skeleton" rows={5} columns={2} messageIndex={0} /> : filteredTasks.length ? filteredTasks.map(renderTaskCard) : <div className={styles.emptyState}>Bu projede çalıştırmaya uygun planlanmış task bulunamadı.</div>}
             {otherTasks.length ? (
               <details className={styles.otherTasks}>
-                <summary>Other current-project tasks <span>{otherTasks.length}</span></summary>
+                <summary>Bu projedeki diğer tasklar <span>{otherTasks.length}</span></summary>
                 <div className={styles.otherTaskList}>
                   {otherTasks.map((task) => (
                     <button key={task.id} type="button" onClick={() => setDetailTarget({ projectId: task.projectId, taskId: task.id })}>
@@ -563,9 +563,9 @@ export function AutoRunPage() {
         <section className={styles.workbench}>
           {activeStep === 'scope' ? (
             <div className={styles.panel}>
-              <header><div><strong>Scope</strong><span>Default lists stay limited to the current project.</span></div></header>
+              <header><div><strong>Kapsam</strong><span>Varsayılan listeler geçerli projeyle sınırlı kalır.</span></div></header>
               <div className={styles.queueList}>
-                <div className={styles.emptyState}>Use the project picker only when you need tasks from another project. Task selection continues from the next step.</div>
+                <div className={styles.emptyState}>Yalnızca başka bir projedeki tasklara geçmen gerekiyorsa proje seçiciyi kullan. Task seçimi sonraki adımda devam eder.</div>
               </div>
             </div>
           ) : null}
@@ -573,10 +573,10 @@ export function AutoRunPage() {
           {activeStep === 'queue' || activeStep === 'confirm' ? (
             <div className={`${styles.panel} ${draggingTaskId ? styles.dropReady : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={onQueuePanelDrop}>
               <header>
-                <div><strong>Run queue</strong><span>{queueSummary.waiting} pending · {queueSummary.running} active · {queueSummary.completed} completed · {queueSummary.failed} failed</span></div>
+                <div><strong>Çalıştırma kuyruğu</strong><span>{queueSummary.waiting} bekliyor · {queueSummary.running} aktif · {queueSummary.completed} tamamlandı · {queueSummary.failed} hatalı</span></div>
                 <div className={styles.panelActions}>
-                  <button type="button" onClick={() => void startQueue()} disabled={queueBusy || !queue.some((item) => item.state === 'waiting')}><LuPlay size={15} /> Start</button>
-                  <button type="button" onClick={() => void stopQueue()} disabled={!queueBusy && !queue.some((item) => item.state === 'waiting' || item.state === 'running')}><LuCircleStop size={15} /> Stop</button>
+                  <button type="button" onClick={() => void startQueue()} disabled={queueBusy || !queue.some((item) => item.state === 'waiting')}><LuPlay size={15} /> Başlat</button>
+                  <button type="button" onClick={() => void stopQueue()} disabled={!queueBusy && !queue.some((item) => item.state === 'waiting' || item.state === 'running')}><LuCircleStop size={15} /> Durdur</button>
                 </div>
               </header>
               <div className={styles.queueList}>
@@ -603,14 +603,14 @@ export function AutoRunPage() {
                       </div>
                     </article>
                   )
-                }) : <div className={styles.emptyState}>Drop task cards here or add selected tasks from the left.</div>}
+                }) : <div className={styles.emptyState}>Task kartlarını buraya bırak veya soldan seçilen taskları ekle.</div>}
               </div>
             </div>
           ) : null}
 
           {activeStep === 'confirm' ? (
             <div className={styles.panel}>
-              <header><div><strong>Running activity</strong><span>{runningRows.length} active record{runningRows.length === 1 ? '' : 's'}</span></div></header>
+              <header><div><strong>Çalışan aktivite</strong><span>{runningRows.length} aktif kayıt</span></div></header>
               <div className={styles.queueList}>
                 {runningRows.length ? runningRows.map((row) => (
                   <article key={row.gatewayConversationId} className={styles.queueRow}>
@@ -621,24 +621,24 @@ export function AutoRunPage() {
                       <button type="button" onClick={() => void stopRunningRow(row)} title="Stop"><LuCircleStop size={15} /></button>
                     </div>
                   </article>
-                )) : <div className={styles.emptyState}>No active run is currently visible.</div>}
+                )) : <div className={styles.emptyState}>Şu anda görünen aktif çalışma yok.</div>}
               </div>
             </div>
           ) : null}
 
           {activeStep === 'confirm' ? (
             <div className={styles.panel}>
-              <header><div><strong>Planned run candidates</strong><span>{plannedRows.length} task{plannedRows.length === 1 ? '' : 's'}</span></div></header>
+              <header><div><strong>Planlı çalıştırma adayları</strong><span>{plannedRows.length} task</span></div></header>
               <div className={styles.queueList}>
                 {plannedRows.length ? plannedRows.map((row) => (
                   <article key={row.taskId} className={styles.queueRow}>
-                    <span className={styles.queueIndex}>{row.runnable ? 'Ready' : 'Missing'}</span>
-                    <div><strong>{row.taskTitle}</strong><span>{row.projectName} - {row.runnable ? 'Available from task details' : row.missing.join(', ')}</span></div>
+                    <span className={styles.queueIndex}>{row.runnable ? 'Hazır' : 'Eksik'}</span>
+                    <div><strong>{row.taskTitle}</strong><span>{row.projectName} - {row.runnable ? 'Task detayından kullanılabilir' : row.missing.join(', ')}</span></div>
                     <div className={styles.cardActions}>
                       <button type="button" onClick={() => setDetailTarget({ projectId: row.projectId, taskId: row.taskId })} title="Open task details"><LuExternalLink size={15} /></button>
                     </div>
                   </article>
-                )) : <div className={styles.emptyState}>No planned tasks are ready for review.</div>}
+                )) : <div className={styles.emptyState}>Kontrol için hazır planlanmış task yok.</div>}
               </div>
             </div>
           ) : null}
@@ -646,9 +646,9 @@ export function AutoRunPage() {
       </div>
 
       <nav className={styles.flowNav} aria-label="Çalıştırma kuyruğu navigasyonu">
-        <button type="button" onClick={() => goToRelativeStep(-1)} disabled={activeStepIndex === 0}>Previous</button>
+        <button type="button" onClick={() => goToRelativeStep(-1)} disabled={activeStepIndex === 0}>Önceki</button>
         <span>{stepLabels[activeStep]}</span>
-        <button type="button" onClick={() => goToRelativeStep(1)} disabled={activeStepIndex === stepOrder.length - 1 || ((stepOrder[activeStepIndex + 1] === 'queue' || stepOrder[activeStepIndex + 1] === 'confirm') && queue.length === 0)}>Next</button>
+        <button type="button" onClick={() => goToRelativeStep(1)} disabled={activeStepIndex === stepOrder.length - 1 || ((stepOrder[activeStepIndex + 1] === 'queue' || stepOrder[activeStepIndex + 1] === 'confirm') && queue.length === 0)}>Sonraki</button>
       </nav>
 
       {projectPickerOpen ? (
