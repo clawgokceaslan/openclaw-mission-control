@@ -19,6 +19,12 @@ type DefaultProjectResponse = { projectId: string | null; project?: Project | nu
 
 const PAGE_SIZE = 60
 const stepLabels: Record<StepKey, string> = { scope: 'Scope', tasks: 'Tasks', queue: 'Queue', confirm: 'Review' }
+const stepDescriptions: Record<StepKey, string> = {
+  scope: 'Project boundary',
+  tasks: 'Pick work items',
+  queue: 'Order the run',
+  confirm: 'Start safely'
+}
 const stepOrder: StepKey[] = ['scope', 'tasks', 'queue', 'confirm']
 
 function formatDate(value: number) {
@@ -73,6 +79,8 @@ export function AutoRunPage() {
   const queuedTaskIds = useMemo(() => new Set(queue.filter((item) => item.state === 'waiting' || item.state === 'running').map((item) => item.taskId)), [queue])
   const currentProject = projectsById.get(currentProjectId)
   const activeAutomationLabel = automationSnapshot.active ? `${automationSnapshot.active.type === 'plan' ? 'Auto Plan' : 'Auto Run'} is running` : null
+  const activeStepIndex = Math.max(0, stepOrder.indexOf(activeStep))
+  const stepProgress = `${Math.round(((activeStepIndex + 1) / stepOrder.length) * 100)}%`
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -422,13 +430,31 @@ export function AutoRunPage() {
         <div className={styles.controlStat}><LuListFilter size={16} /><strong>{filteredTasks.length}</strong><span>planned run tasks</span></div>
       </section>
 
-      <section className={styles.stepper} aria-label="Auto Run steps">
-        {stepOrder.map((step, index) => (
-          <button key={step} type="button" className={activeStep === step ? styles.stepActive : ''} onClick={() => setActiveStep(step)} disabled={(step === 'queue' || step === 'confirm') && queue.length === 0}>
-            <span>{index + 1}</span>
-            <strong>{stepLabels[step]}</strong>
-          </button>
-        ))}
+      <section className={styles.stepperShell} aria-label="Auto Run progress">
+        <header className={styles.stepperHeader}>
+          <div>
+            <span>Workflow</span>
+            <strong>{stepLabels[activeStep]}</strong>
+            <small>{stepDescriptions[activeStep]}</small>
+          </div>
+          <p>{queue.length} queued · {filteredTasks.length} eligible</p>
+        </header>
+        <div className={styles.stepperTrack} aria-hidden="true">
+          <span style={{ width: stepProgress }} />
+        </div>
+        <div className={styles.stepper} role="tablist" aria-label="Auto Run steps">
+          {stepOrder.map((step, index) => {
+            const isActive = activeStep === step
+            const isComplete = stepOrder.indexOf(step) < activeStepIndex
+            return (
+              <button key={step} type="button" className={`${isActive ? styles.stepActive : ''} ${isComplete ? styles.stepComplete : ''}`} onClick={() => setActiveStep(step)} disabled={(step === 'queue' || step === 'confirm') && queue.length === 0}>
+                <span>{index + 1}</span>
+                <b>{stepLabels[step]}</b>
+                <small>{stepDescriptions[step]}</small>
+              </button>
+            )
+          })}
+        </div>
       </section>
 
       <div className={`${styles.layout} ${activeStep !== 'tasks' ? styles.layoutFull : ''}`}>
