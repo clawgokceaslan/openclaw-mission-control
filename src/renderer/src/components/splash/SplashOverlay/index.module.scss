@@ -100,7 +100,7 @@
 
     .codeRain {
       position: absolute;
-      inset: -34% -20% -34% -12%;
+      inset: -70% -24% -70% -16%;
       pointer-events: none;
       transform: skewY(-1.8deg);
 
@@ -113,10 +113,10 @@
 
       .codeBlock {
         position: absolute;
-        top: -42%;
+        top: -18%;
         left: calc(var(--block-lane) * 1vw);
-        width: min(74vw, 1040px);
-        min-width: 620px;
+        width: min(82vw, 1180px);
+        min-width: 780px;
         overflow: hidden;
         border-left: 1px solid rgba(116, 154, 255, 0.24);
         border-radius: 8px;
@@ -124,9 +124,9 @@
           linear-gradient(90deg, rgba(116, 154, 255, 0.09), transparent 88%),
           rgba(8, 13, 20, 0.42);
         box-shadow: 0 24px 58px rgba(0, 0, 0, 0.22);
-        opacity: 0.76;
-        animation: codePageStream calc(10s + (var(--block-index) * 0.8s)) linear infinite;
-        animation-delay: calc(var(--block-index) * -1.55s);
+        opacity: 0.82;
+        animation: codePageStream 6.8s linear infinite;
+        animation-delay: calc(var(--block-index) * -0.85s);
 
         .codeBlockChrome {
           min-width: 0;
@@ -155,11 +155,11 @@
             position: relative;
             display: block;
             min-width: 0;
-            padding: 7px 22px 7px 62px;
-            color: rgba(227, 238, 255, 0.58);
+            padding: 8px 24px 8px 66px;
+            color: rgba(227, 238, 255, 0.64);
             font-family: 'SFMono-Regular', Consolas, monospace;
-            font-size: clamp(0.78rem, 1.1vw, 0.98rem);
-            line-height: 1.55;
+            font-size: clamp(0.9rem, 1.24vw, 1.08rem);
+            line-height: 1.52;
             letter-spacing: 0;
             white-space: nowrap;
             overflow: hidden;
@@ -209,19 +209,19 @@
 
     .taskRain {
       position: absolute;
-      inset: -34% 0 -28% 0;
+      inset: -56% 0 -56% 0;
       pointer-events: none;
       perspective: 900px;
 
       .taskCard {
         position: absolute;
-        top: -30%;
+        top: -18%;
         right: calc(18px + (var(--task-lane) * min(16vw, 190px)));
-        width: min(31vw, 360px);
-        min-width: 260px;
+        width: min(34vw, 390px);
+        min-width: 286px;
         display: grid;
-        gap: 11px;
-        padding: 16px 17px 15px;
+        gap: 13px;
+        padding: 18px 19px 17px;
         border: 1px solid rgba(236, 242, 255, 0.16);
         border-radius: 8px;
         background:
@@ -229,9 +229,9 @@
           rgba(8, 13, 20, 0.62);
         box-shadow: 0 22px 52px rgba(0, 0, 0, 0.24);
         color: rgba(248, 251, 255, 0.86);
-        opacity: 0.86;
-        animation: taskStream calc(9s + (var(--task-index) * 0.36s)) linear infinite;
-        animation-delay: calc(var(--task-index) * -0.66s);
+        opacity: 0.92;
+        animation: taskStream 5.8s linear infinite;
+        animation-delay: calc(var(--task-index) * -0.16s);
         transform-origin: 100% 0;
 
         &::before {
@@ -277,7 +277,7 @@
         .taskCardHeader {
           span {
             color: rgba(72, 205, 145, 0.82);
-            font-size: 0.7rem;
+            font-size: 0.78rem;
             font-weight: 780;
             letter-spacing: 0.12em;
             text-transform: uppercase;
@@ -285,7 +285,7 @@
 
           small {
             color: rgba(227, 238, 255, 0.34);
-            font-size: 0.72rem;
+            font-size: 0.8rem;
             font-weight: 720;
           }
         }
@@ -293,7 +293,7 @@
         strong {
           min-width: 0;
           color: rgba(248, 251, 255, 0.84);
-          font-size: clamp(0.92rem, 1.28vw, 1.08rem);
+          font-size: clamp(1.04rem, 1.42vw, 1.18rem);
           font-weight: 760;
           letter-spacing: 0;
           line-height: 1.25;
@@ -306,7 +306,7 @@
           span {
             min-width: 0;
             color: rgba(227, 238, 255, 0.38);
-            font-size: 0.76rem;
+            font-size: 0.84rem;
             font-weight: 650;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -515,12 +515,12 @@
       }
 
       .codeRain {
-        inset: -30% -120% -34% -34%;
+        inset: -64% -156% -64% -44%;
         opacity: 0.66;
 
         .codeBlock {
-          min-width: 520px;
-          width: 112vw;
+          min-width: 620px;
+          width: 132vw;
 
           .codeBlockBody {
             .codeLine {
@@ -531,14 +531,14 @@
       }
 
       .taskRain {
-        inset: -34% -4% -24% 0;
+        inset: -56% -4% -56% 0;
         opacity: 0.74;
 
         .taskCard {
           right: calc(8px + (var(--task-lane) * 30vw));
-          width: min(72vw, 300px);
-          min-width: 220px;
-          padding: 13px 14px;
+          width: min(78vw, 330px);
+          min-width: 240px;
+          padding: 15px 16px;
         }
       }
     }
@@ -611,21 +611,21 @@
 
 @keyframes codePageStream {
   from {
-    transform: translate3d(0, -34vh, 0);
+    transform: translate3d(0, -44vh, 0);
   }
 
   to {
-    transform: translate3d(0, 138vh, 0);
+    transform: translate3d(0, 118vh, 0);
   }
 }
 
 @keyframes taskStream {
   from {
-    transform: translate3d(22px, -24vh, 0) rotateX(8deg) scale(0.98);
+    transform: translate3d(18px, -38vh, 0) rotateX(8deg) scale(1);
   }
 
   to {
-    transform: translate3d(-10px, 138vh, 0) rotateX(0deg) scale(1);
+    transform: translate3d(-10px, 120vh, 0) rotateX(0deg) scale(1);
   }
 }
 

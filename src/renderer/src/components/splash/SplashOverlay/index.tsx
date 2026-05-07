@@ -196,12 +196,14 @@ const codeRain: CodeLine[] = [
 ]
 
 const codeBlocks: CodeBlock[] = [
-  { lane: 0, lines: [codeRain[0], codeRain[1], codeRain[2], codeRain[3], codeRain[4]] },
-  { lane: 18, lines: [codeRain[5], codeRain[6], codeRain[7], codeRain[8], codeRain[9]] },
-  { lane: 40, lines: [codeRain[10], codeRain[11], codeRain[0], codeRain[2], codeRain[5]] },
-  { lane: 62, lines: [codeRain[3], codeRain[4], codeRain[7], codeRain[9], codeRain[11]] },
-  { lane: 8, lines: [codeRain[1], codeRain[6], codeRain[8], codeRain[10], codeRain[0]] },
-  { lane: 52, lines: [codeRain[2], codeRain[5], codeRain[6], codeRain[7], codeRain[11]] }
+  { lane: -8, lines: [codeRain[0], codeRain[1], codeRain[2], codeRain[3], codeRain[4], codeRain[5], codeRain[6], codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11]] },
+  { lane: 4, lines: [codeRain[1], codeRain[2], codeRain[3], codeRain[4], codeRain[5], codeRain[6], codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11], codeRain[0]] },
+  { lane: 18, lines: [codeRain[2], codeRain[3], codeRain[4], codeRain[5], codeRain[6], codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11], codeRain[0], codeRain[1]] },
+  { lane: 32, lines: [codeRain[3], codeRain[4], codeRain[5], codeRain[6], codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11], codeRain[0], codeRain[1], codeRain[2]] },
+  { lane: 46, lines: [codeRain[4], codeRain[5], codeRain[6], codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11], codeRain[0], codeRain[1], codeRain[2], codeRain[3]] },
+  { lane: 60, lines: [codeRain[5], codeRain[6], codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11], codeRain[0], codeRain[1], codeRain[2], codeRain[3], codeRain[4]] },
+  { lane: 74, lines: [codeRain[6], codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11], codeRain[0], codeRain[1], codeRain[2], codeRain[3], codeRain[4], codeRain[5]] },
+  { lane: 88, lines: [codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11], codeRain[0], codeRain[1], codeRain[2], codeRain[3], codeRain[4], codeRain[5], codeRain[6]] }
 ]
 
 const taskTitles = [
@@ -230,7 +232,7 @@ function pickRandom<T>(items: T[]): T {
 }
 
 function buildTaskRain() {
-  return Array.from({ length: 18 }, (_, index) => ({
+  return Array.from({ length: 36 }, (_, index) => ({
     id: `${index}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     status: pickRandom(taskStatuses),
     title: pickRandom(taskTitles),
