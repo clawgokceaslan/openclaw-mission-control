@@ -3892,10 +3892,11 @@ export class TaskService {
           const message = error instanceof Error ? error.message : 'Invalid task JSON'
           throw new Error(items.length > 1 ? `tasks[${item.index}]: ${message}` : message)
         }
-        const qualityIssues = validatePlannerTaskJsonQuality(normalized)
-        if (qualityIssues.length > 0) {
-          const issues = items.length > 1 ? qualityIssues.map((issue) => `tasks[${item.index}]: ${issue}`) : qualityIssues
-          return errorResponse(ErrorCodes.Validation, `Planner JSON quality check failed: ${issues[0]}`, { issues })
+        if (!item.fromArray) {
+          const qualityIssues = validatePlannerTaskJsonQuality(normalized)
+          if (qualityIssues.length > 0) {
+            return errorResponse(ErrorCodes.Validation, `Planner JSON quality check failed: ${qualityIssues[0]}`, { issues: qualityIssues })
+          }
         }
         normalizedItems.push(normalized)
       }

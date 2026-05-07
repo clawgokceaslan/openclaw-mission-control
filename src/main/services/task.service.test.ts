@@ -432,6 +432,32 @@ describe('planner quality gate', () => {
     expect(response.error?.message).toContain('tasks[1]: title is required.')
   })
 
+  it('validates batch create JSON without requiring planner-update subtasks', async () => {
+    const service = Object.create(TaskService.prototype) as TaskService & any
+    service.auth = { requireActor: async () => ({ user: { organizationId: 'org-1' } }) }
+    service.findProjectOrg = async () => 'org-1'
+    service.agents = {}
+    service.tags = { list: async () => [] }
+    service.skills = {}
+    service.customFields = { list: async () => [] }
+
+    const response = await service.plannerValidateJson({
+      actorToken: 'actor',
+      projectId: 'project-1',
+      json: [
+        { title: 'Discovery task', description: 'Define scope.' },
+        { title: 'Delivery task', description: 'Ship the UI.' }
+      ]
+    })
+
+    expect(response.ok).toBe(true)
+    expect(response.data?.batch).toBe(true)
+    expect(response.data?.normalized).toEqual([
+      expect.objectContaining({ title: 'Discovery task', subtaskCount: 0 }),
+      expect.objectContaining({ title: 'Delivery task', subtaskCount: 0 })
+    ])
+  })
+
   it('creates batch planner JSON tasks and adds a trace comment to the source task', async () => {
     const service = Object.create(TaskService.prototype) as TaskService & any
     const importedJson: unknown[] = []
