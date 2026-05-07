@@ -18,10 +18,13 @@ const app = electronRuntime.app
 const BrowserWindow = electronRuntime.BrowserWindow
 const Tray = electronRuntime.Tray
 const nativeImage = electronRuntime.nativeImage
+const dialog = electronRuntime.dialog
+const shell = electronRuntime.shell
 const ipcMain = electronRuntime.ipcMain
 const powerMonitor = electronRuntime.powerMonitor
 
 const isDev = process.env.ELECTRON_RENDERER_URL !== undefined || process.env.NODE_ENV === 'development' || app?.isPackaged === false
+const FULL_DISK_ACCESS_SETTING_URL = 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'
 
 function fileExists(path: string): boolean {
   return existsSync(path)
@@ -256,6 +259,28 @@ function createCompanionTray(): void {
   trayRef.on('click', toggleCompanionWindow)
 }
 
+function requestFullDiskAccessIfNeeded(): void {
+  if (!app || process.platform !== 'darwin' || !app.isPackaged || !dialog || !shell) {
+    return
+  }
+
+  void dialog.showMessageBox({
+    title: 'Tam Disk Erişimi İsteği',
+    type: 'info',
+    message: 'Open Mission Control, DMG sürümünde bazı klasör ve dosyalara erişim için Tam Disk Erişimi gerektirebilir.',
+    detail: 'Bu erişimi açmak için Sistem Tercihleri → Gizlilik ve Güvenlik → Tam Disk Erişimi altında Open Mission Control uygulamasını etkinleştirin.',
+    buttons: ['Sistem Ayarlarını Aç', 'Daha Sonra'],
+    defaultId: 0,
+    cancelId: 1
+  }).then((response) => {
+    if (response.response === 0) {
+      void shell.openExternal(FULL_DISK_ACCESS_SETTING_URL)
+    }
+  }).catch(() => {
+    // ignore dialog/openExternal errors during bootstrap
+  })
+}
+
 export async function bootstrapApp(): Promise<void> {
   if (!app) {
     throw new Error('Electron app runtime is unavailable')
@@ -286,6 +311,8 @@ export async function bootstrapApp(): Promise<void> {
       registerCompanionIpcRoutes()
       ipcRoutesRegistered = true
     }
+
+    requestFullDiskAccessIfNeeded()
 
     const scheduler = new JobScheduler(context.services.jobs.repository, context.eventBus, 1500)
     scheduler.start()
