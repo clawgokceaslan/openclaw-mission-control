@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatRunningCodexActivitySummary, runningCodexConversationTypeLabel, runningCodexGroupLabel, runningCodexLiveStatusLabel } from './runningCodexMenuUtils'
+import { formatRunningGatewayActivitySummary, runningCodexConversationTypeLabel, runningCodexGroupLabel, runningCodexLiveStatusLabel } from './runningGatewayMenuUtils'
 
 describe('running Codex menu helpers', () => {
   it('labels conversation types and live states clearly', () => {
@@ -18,7 +18,7 @@ describe('running Codex menu helpers', () => {
   })
 
   it('compacts long activity summaries', () => {
-    const summary = formatRunningCodexActivitySummary('  Working on a long\n\n   conversation summary that should be compacted for the menu  ', 40)
+    const summary = formatRunningGatewayActivitySummary('  Working on a long\n\n   conversation summary that should be compacted for the menu  ', 40)
 
     expect(summary).toBe('Working on a long conversation summary…')
   })

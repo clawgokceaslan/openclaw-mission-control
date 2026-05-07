@@ -1,6 +1,6 @@
-import type { RunningCodexConversationType, RunningCodexGroupKey } from '@shared/contracts/ipc'
+import type { RunningGatewayConversationType, RunningGatewayGroupKey } from '@shared/contracts/ipc'
 
-export function runningCodexConversationTypeLabel(type: RunningCodexConversationType | string): string {
+export function runningCodexConversationTypeLabel(type: RunningGatewayConversationType | string): string {
   if (type === 'plan') return 'Planning'
   if (type === 'run') return 'Working'
   if (type === 'steer') return 'Following Up'
@@ -13,14 +13,14 @@ export function runningCodexLiveStatusLabel(status: 'queued' | 'running'): strin
   return status === 'queued' ? 'Queued' : 'Working'
 }
 
-export function runningCodexGroupLabel(group: RunningCodexGroupKey): string {
+export function runningCodexGroupLabel(group: RunningGatewayGroupKey): string {
   if (group === 'planning') return 'Planning'
   if (group === 'postRunning') return 'Post Running'
   if (group === 'running') return 'Working'
   return 'All'
 }
 
-export function formatRunningCodexActivitySummary(value: string, maxLength = 120): string {
+export function formatRunningGatewayActivitySummary(value: string, maxLength = 120): string {
   const compact = value.trim().replace(/\s+/g, ' ')
   if (!compact) return ''
   if (compact.length <= maxLength) return compact

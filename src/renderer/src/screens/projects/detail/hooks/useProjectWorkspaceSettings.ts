@@ -1,12 +1,12 @@
 import { useEffect, useMemo } from 'react'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { AppSelectOption } from '@renderer/components/select/AppSelect'
-import type { Gateway, Project, ProjectCodexSettings, ProjectGroup, ProjectStatus, StatusTemplate, Workspace, Tag, Skill, Agent, CustomField, TaskEntity } from '@shared/types/entities'
+import type { Gateway, Project, ProjectGatewaySettings, ProjectGroup, ProjectStatus, StatusTemplate, Workspace, Tag, Skill, Agent, CustomField, TaskEntity } from '@shared/types/entities'
 import { invokeBridge } from '@renderer/utils/api'
 import {
   codexConfigOf,
   createLocalId,
-  projectCodexSettings,
+  projectGatewaySettings,
   projectWorkspaceFolder
 } from '../projectDetailUtils'
 import { buildProjectWorkspaceExportTaskPayload } from '../taskExport'
@@ -28,11 +28,11 @@ interface UseProjectWorkspaceSettingsContext {
   refresh: () => Promise<void>
   state: Pick<
     ProjectDetailStateBindings,
-    | 'codexGatewayId'
-    | 'codexRuntimeWorkspaceId'
-    | 'codexDefaultModel'
-    | 'codexDefaultPlanModel'
-    | 'codexDefaultRunModel'
+    | 'gatewayId'
+    | 'gatewayRuntimeWorkspaceId'
+    | 'gatewayDefaultModel'
+    | 'gatewayDefaultPlanModel'
+    | 'gatewayDefaultRunModel'
     | 'workspaceDraftName'
     | 'workspaceDraftPath'
     | 'projectGroupNameDraft'
@@ -61,12 +61,12 @@ interface UseProjectWorkspaceSettingsContext {
     | 'setProjectPromptError'
     | 'setIsProjectPromptSaving'
     | 'setIsProjectPromptSettingsOpen'
-    | 'setCodexGatewayId'
-    | 'setCodexRuntimeWorkspaceId'
-    | 'setCodexDefaultModel'
-    | 'setCodexDefaultPlanModel'
-    | 'setCodexDefaultRunModel'
-    | 'setCodexModelError'
+    | 'setGatewayId'
+    | 'setGatewayRuntimeWorkspaceId'
+    | 'setGatewayDefaultModel'
+    | 'setGatewayDefaultPlanModel'
+    | 'setGatewayDefaultRunModel'
+    | 'setGatewayModelError'
     | 'setIsStatusTemplatePickerOpen'
     | 'setPendingStatusTemplate'
     | 'setIsStatusEditorOpen'
@@ -95,29 +95,29 @@ interface UseProjectWorkspaceSettingsContext {
 interface UseProjectWorkspaceSettingsResult {
   state: {
     selectedWorkspace: Workspace | null
-    selectedCodexGateway: Gateway | null
+    selectedGateway: Gateway | null
     selectedCodexConfig: ReturnType<typeof codexConfigOf>
-    codexModelOptions: ReturnType<typeof codexConfigOf>['models']
-    codexGatewayOptions: AppSelectOption[]
+    gatewayModelOptions: ReturnType<typeof codexConfigOf>['models']
+    gatewayOptions: AppSelectOption[]
     workspaceOptions: AppSelectOption[]
-    projectCodexModelOptions: AppSelectOption[]
-    selectedCodexGatewayOption: AppSelectOption | null
+    projectGatewayModelOptions: AppSelectOption[]
+    selectedGatewayOption: AppSelectOption | null
     selectedRuntimeWorkspaceOption: AppSelectOption | null
     selectedDefaultModelOption: AppSelectOption | null
     selectedDefaultPlanModelOption: AppSelectOption | null
     selectedDefaultRunModelOption: AppSelectOption | null
     chatRuntimeWorkspace: Workspace | null
     projectGroupForExport: ProjectGroup | null
-    savedCodexSettings: ReturnType<typeof projectCodexSettings>
-    codexModelOptionsNormalized: ReturnType<typeof codexConfigOf>['models']
-    codexGatewayOptionsNormalized: AppSelectOption[]
+    savedGatewaySettings: ReturnType<typeof projectGatewaySettings>
+    gatewayModelOptionsNormalized: ReturnType<typeof codexConfigOf>['models']
+    gatewayOptionsNormalized: AppSelectOption[]
   }
   actions: {
     chooseProjectWorkspaceFolder: () => Promise<void>
     createWorkspaceFromDraft: () => Promise<Workspace | null>
     updateProjectWorkspace: (workspaceId: string | null) => Promise<void>
     saveProjectDefaultsSettings: (draft: { defaultAgentId: string | null; defaultSkillIds: string[] }) => Promise<Project>
-    saveProjectCodexSettings: (draft?: { gatewayId?: string; runtimeWorkspaceId?: string; planModel?: string; runModel?: string; language?: string; promptShape?: ProjectCodexSettings['promptShape']; planReasoningEffort?: string; runReasoningEffort?: string }) => Promise<ProjectCodexSettings>
+    saveProjectGatewaySettings: (draft?: { gatewayId?: string; runtimeWorkspaceId?: string; planModel?: string; runModel?: string; language?: string; promptShape?: ProjectGatewaySettings['promptShape']; planReasoningEffort?: string; runReasoningEffort?: string }) => Promise<ProjectGatewaySettings>
     updateProjectGroupMembership: (nextGroupId: string | null) => Promise<void>
     saveSelectedProjectGroup: () => Promise<void>
     syncProjectWorkspace: () => Promise<void>
@@ -129,7 +129,7 @@ interface UseProjectWorkspaceSettingsResult {
     removeStatusDraft: (status: ProjectStatus) => void
     applyStatusTemplate: (template: StatusTemplate) => Promise<void>
     saveProjectStatuses: () => Promise<void>
-    setCodexGateway: (value: string) => void
+    setGateway: (value: string) => void
   }
 }
 
@@ -150,11 +150,11 @@ export function useProjectWorkspaceSettings({
   state
 }: UseProjectWorkspaceSettingsContext): UseProjectWorkspaceSettingsResult {
   const {
-    codexGatewayId,
-    codexRuntimeWorkspaceId,
-    codexDefaultModel,
-    codexDefaultPlanModel,
-    codexDefaultRunModel,
+    gatewayId,
+    gatewayRuntimeWorkspaceId,
+    gatewayDefaultModel,
+    gatewayDefaultPlanModel,
+    gatewayDefaultRunModel,
     workspaceDraftName,
     workspaceDraftPath,
     projectGroupNameDraft,
@@ -183,12 +183,12 @@ export function useProjectWorkspaceSettings({
     setProjectPromptError,
     setIsProjectPromptSaving,
     setIsProjectPromptSettingsOpen,
-    setCodexGatewayId,
-    setCodexRuntimeWorkspaceId,
-    setCodexDefaultModel,
-    setCodexDefaultPlanModel,
-    setCodexDefaultRunModel,
-    setCodexModelError,
+    setGatewayId,
+    setGatewayRuntimeWorkspaceId,
+    setGatewayDefaultModel,
+    setGatewayDefaultPlanModel,
+    setGatewayDefaultRunModel,
+    setGatewayModelError,
     setIsStatusTemplatePickerOpen,
     setPendingStatusTemplate,
     setIsStatusEditorOpen,
@@ -218,14 +218,14 @@ export function useProjectWorkspaceSettings({
     return workspaces.find((workspace) => workspace.id === project.workspaceId) ?? null
   }, [project?.workspaceId, workspaces])
 
-  const savedCodexSettings = useMemo(() => projectCodexSettings(project), [project])
-  const selectedCodexGateway = useMemo(
-    () => gateways.find((gateway) => gateway.id === (codexGatewayId || savedCodexSettings.gatewayId)) ?? null,
-    [codexGatewayId, gateways, savedCodexSettings.gatewayId]
+  const savedGatewaySettings = useMemo(() => projectGatewaySettings(project), [project])
+  const selectedGateway = useMemo(
+    () => gateways.find((gateway) => gateway.id === (gatewayId || savedGatewaySettings.gatewayId)) ?? null,
+    [gatewayId, gateways, savedGatewaySettings.gatewayId]
   )
-  const selectedCodexConfig = useMemo(() => codexConfigOf(selectedCodexGateway), [selectedCodexGateway])
-  const codexModelOptions = selectedCodexConfig.models ?? []
-  const codexGatewayOptions = useMemo<AppSelectOption[]>(
+  const selectedCodexConfig = useMemo(() => codexConfigOf(selectedGateway), [selectedGateway])
+  const gatewayModelOptions = selectedCodexConfig.models ?? []
+  const gatewayOptions = useMemo<AppSelectOption[]>(
     () => gateways.map((gateway) => ({ label: gateway.name, value: gateway.id })),
     [gateways]
   )
@@ -233,19 +233,19 @@ export function useProjectWorkspaceSettings({
     () => workspaces.map((workspace) => ({ label: workspace.name, value: workspace.id })),
     [workspaces]
   )
-  const projectCodexModelOptions = useMemo<AppSelectOption[]>(
-    () => codexModelOptions.map((model) => ({ label: model.label || model.id, value: model.id })),
-    [codexModelOptions]
+  const projectGatewayModelOptions = useMemo<AppSelectOption[]>(
+    () => gatewayModelOptions.map((model) => ({ label: model.label || model.id, value: model.id })),
+    [gatewayModelOptions]
   )
-  const selectedCodexGatewayOption = codexGatewayOptions.find((option) => option.value === codexGatewayId) ?? null
-  const selectedRuntimeWorkspaceOption = workspaceOptions.find((option) => option.value === codexRuntimeWorkspaceId) ?? null
-  const selectedDefaultModelOption = projectCodexModelOptions.find((option) => option.value === codexDefaultModel) ?? null
-  const selectedDefaultPlanModelOption = projectCodexModelOptions.find((option) => option.value === (codexDefaultPlanModel || codexDefaultModel)) ?? null
-  const selectedDefaultRunModelOption = projectCodexModelOptions.find((option) => option.value === (codexDefaultRunModel || codexDefaultModel)) ?? null
+  const selectedGatewayOption = gatewayOptions.find((option) => option.value === gatewayId) ?? null
+  const selectedRuntimeWorkspaceOption = workspaceOptions.find((option) => option.value === gatewayRuntimeWorkspaceId) ?? null
+  const selectedDefaultModelOption = projectGatewayModelOptions.find((option) => option.value === gatewayDefaultModel) ?? null
+  const selectedDefaultPlanModelOption = projectGatewayModelOptions.find((option) => option.value === (gatewayDefaultPlanModel || gatewayDefaultModel)) ?? null
+  const selectedDefaultRunModelOption = projectGatewayModelOptions.find((option) => option.value === (gatewayDefaultRunModel || gatewayDefaultModel)) ?? null
 
   const chatRuntimeWorkspace = useMemo(
-    () => workspaces.find((workspace) => workspace.id === savedCodexSettings.runtimeWorkspaceId) ?? null,
-    [savedCodexSettings.runtimeWorkspaceId, workspaces]
+    () => workspaces.find((workspace) => workspace.id === savedGatewaySettings.runtimeWorkspaceId) ?? null,
+    [savedGatewaySettings.runtimeWorkspaceId, workspaces]
   )
 
   const projectGroupForExport = useMemo(
@@ -342,23 +342,23 @@ export function useProjectWorkspaceSettings({
     return response.data
   }
 
-  const saveProjectCodexSettings = async (draft?: { gatewayId?: string; runtimeWorkspaceId?: string; planModel?: string; runModel?: string; language?: string; promptShape?: ProjectCodexSettings['promptShape']; planReasoningEffort?: string; runReasoningEffort?: string }): Promise<ProjectCodexSettings> => {
+  const saveProjectGatewaySettings = async (draft?: { gatewayId?: string; runtimeWorkspaceId?: string; planModel?: string; runModel?: string; language?: string; promptShape?: ProjectGatewaySettings['promptShape']; planReasoningEffort?: string; runReasoningEffort?: string }): Promise<ProjectGatewaySettings> => {
     if (!project) throw new Error('Project is not loaded')
-    const nextGatewayId = draft?.gatewayId ?? codexGatewayId
-    const nextRuntimeWorkspaceId = draft?.runtimeWorkspaceId ?? codexRuntimeWorkspaceId
-    const nextPlanModel = draft?.planModel ?? codexDefaultPlanModel
-    const nextRunModel = draft?.runModel ?? codexDefaultRunModel
-    const savedCodex = projectCodexSettings(project)
-    const nextLanguage = draft?.language ?? savedCodex.language ?? null
-    const nextPromptShape = draft?.promptShape ?? savedCodex.promptShape ?? 'markdown'
-    const nextPlanReasoningEffort = draft?.planReasoningEffort ?? savedCodex.planReasoningEffort ?? null
-    const nextRunReasoningEffort = draft?.runReasoningEffort ?? savedCodex.runReasoningEffort ?? null
+    const nextGatewayId = draft?.gatewayId ?? gatewayId
+    const nextRuntimeWorkspaceId = draft?.runtimeWorkspaceId ?? gatewayRuntimeWorkspaceId
+    const nextPlanModel = draft?.planModel ?? gatewayDefaultPlanModel
+    const nextRunModel = draft?.runModel ?? gatewayDefaultRunModel
+    const savedGateway = projectGatewaySettings(project)
+    const nextLanguage = draft?.language ?? savedGateway.language ?? null
+    const nextPromptShape = draft?.promptShape ?? savedGateway.promptShape ?? 'markdown'
+    const nextPlanReasoningEffort = draft?.planReasoningEffort ?? savedGateway.planReasoningEffort ?? null
+    const nextRunReasoningEffort = draft?.runReasoningEffort ?? savedGateway.runReasoningEffort ?? null
 
     setCodexSaving(true)
     const response = await invokeBridge<Project>(IPC_CHANNELS.projects.update, {
       actorToken: token,
       id: project.id,
-      codex: {
+      gateway: {
         gatewayId: nextGatewayId || null,
         runtimeWorkspaceId: nextRuntimeWorkspaceId || null,
         defaultModel: nextRunModel || null,
@@ -376,13 +376,13 @@ export function useProjectWorkspaceSettings({
       setError(message)
       throw new Error(message)
     }
-    const saved = projectCodexSettings(response.data)
+    const saved = projectGatewaySettings(response.data)
     setProject(response.data)
-    setCodexGatewayId(saved.gatewayId ?? '')
-    setCodexRuntimeWorkspaceId(saved.runtimeWorkspaceId ?? '')
-    setCodexDefaultModel(saved.defaultModel ?? saved.runModel ?? '')
-    setCodexDefaultPlanModel(saved.planModel ?? saved.defaultModel ?? '')
-    setCodexDefaultRunModel(saved.runModel ?? saved.defaultModel ?? '')
+    setGatewayId(saved.gatewayId ?? '')
+    setGatewayRuntimeWorkspaceId(saved.runtimeWorkspaceId ?? '')
+    setGatewayDefaultModel(saved.defaultModel ?? saved.runModel ?? '')
+    setGatewayDefaultPlanModel(saved.planModel ?? saved.defaultModel ?? '')
+    setGatewayDefaultRunModel(saved.runModel ?? saved.defaultModel ?? '')
     setError(null)
     await refresh()
     return saved
@@ -655,42 +655,42 @@ export function useProjectWorkspaceSettings({
     await refresh()
   }
 
-  const setCodexGateway = (value: string) => {
+  const setGateway = (value: string) => {
     const nextGateway = gateways.find((item) => item.id === value)
     const models = codexConfigOf(nextGateway).models ?? []
-    setCodexGatewayId(value)
-    setCodexModelError(null)
-    if (!models.some((model) => model.id === codexDefaultModel)) setCodexDefaultModel('')
-    if (!models.some((model) => model.id === codexDefaultPlanModel)) setCodexDefaultPlanModel('')
-    if (!models.some((model) => model.id === codexDefaultRunModel)) setCodexDefaultRunModel('')
+    setGatewayId(value)
+    setGatewayModelError(null)
+    if (!models.some((model) => model.id === gatewayDefaultModel)) setGatewayDefaultModel('')
+    if (!models.some((model) => model.id === gatewayDefaultPlanModel)) setGatewayDefaultPlanModel('')
+    if (!models.some((model) => model.id === gatewayDefaultRunModel)) setGatewayDefaultRunModel('')
   }
 
   return {
     state: {
       selectedWorkspace,
-      selectedCodexGateway,
+      selectedGateway,
       selectedCodexConfig,
-      codexModelOptions,
-      codexGatewayOptions,
+      gatewayModelOptions,
+      gatewayOptions,
       workspaceOptions,
-      projectCodexModelOptions,
-      selectedCodexGatewayOption,
+      projectGatewayModelOptions,
+      selectedGatewayOption,
       selectedRuntimeWorkspaceOption,
       selectedDefaultModelOption,
       selectedDefaultPlanModelOption,
       selectedDefaultRunModelOption,
       chatRuntimeWorkspace,
       projectGroupForExport,
-      savedCodexSettings,
-      codexModelOptionsNormalized: codexModelOptions,
-      codexGatewayOptionsNormalized: codexGatewayOptions
+      savedGatewaySettings,
+      gatewayModelOptionsNormalized: gatewayModelOptions,
+      gatewayOptionsNormalized: gatewayOptions
     },
     actions: {
       chooseProjectWorkspaceFolder,
       createWorkspaceFromDraft,
       updateProjectWorkspace,
       saveProjectDefaultsSettings,
-      saveProjectCodexSettings,
+      saveProjectGatewaySettings,
       updateProjectGroupMembership,
       saveSelectedProjectGroup,
       syncProjectWorkspace,
@@ -702,7 +702,7 @@ export function useProjectWorkspaceSettings({
       removeStatusDraft,
       applyStatusTemplate,
       saveProjectStatuses,
-      setCodexGateway
+      setGateway
     }
   }
 }

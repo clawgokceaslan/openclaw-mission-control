@@ -6,7 +6,7 @@ import { APP_ROUTES } from '@shared/constants/ui-routes'
 import type { User } from '@shared/types/entities'
 import { UserAvatar } from '@renderer/components/avatar/UserAvatar'
 import { useLocalAvatar } from '@renderer/components/avatar/localAvatar'
-import { RunningCodexMenu } from './RunningCodexMenu'
+import { RunningGatewayMenu } from './RunningCodexMenu'
 import { usePlannerQuestions } from '@renderer/components/planner/PlannerQuestionHost'
 import { useOutsidePointerDown } from './useOutsidePointerDown'
 import styles from '@renderer/App.module.scss'
@@ -87,7 +87,7 @@ export function TopHeader({ user }: { user: User | null }) {
             <LuPlus size={16} />
           </button>
           <PlannedTasksMenu />
-          <RunningCodexMenu />
+          <RunningGatewayMenu />
           <div className={styles.plannerQuestionTopArea} ref={questionPanelRef}>
             <button
               type="button"

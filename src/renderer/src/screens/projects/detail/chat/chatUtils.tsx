@@ -1,5 +1,5 @@
-import { formatUsageSummary, parseCodexEvents, type CodexUsageSummary } from '@shared/utils/codex-events'
-import { codexChatPhaseActionLabel, inferCodexChatPhase } from '@shared/utils/codex-chat-phase'
+import { formatUsageSummary, parseGatewayEvents, type GatewayUsageSummary } from '@shared/utils/gateway-events'
+import { gatewayChatPhaseActionLabel, inferGatewayChatPhase } from '@shared/utils/gateway-chat-phase'
 import type { TaskComment, TaskEntity } from '@shared/types/entities'
 import type {
   ChatConversationSummary,
@@ -107,7 +107,7 @@ export const CHAT_RUNNING_STATUS_LABELS = ['queued', 'running', 'completed', 'fa
 
 const TIMESTAMP_MS_THRESHOLD = 1_000_000_000_000
 
-const chatMessageSources = new Set<ChatMessageSource>(['codex-plan', 'codex-run', 'codex-chat'])
+const chatMessageSources = new Set<ChatMessageSource>(['gateway-plan', 'gateway-run', 'gateway-chat'])
 const chatMessageRoles = new Set<ChatMessageRole>(['user', 'assistant', 'tool', 'system', 'error', 'thinking'])
 const chatMessageStatuses = new Set<ChatMessageStatus>(CHAT_RUNNING_STATUS_LABELS)
 
@@ -122,10 +122,10 @@ export function conversationIdOf(message: TaskActivityMessage): string | null {
 export function isRunCompleteMessage(message: TaskActivityMessage): boolean {
   const runMetadata = asRecord(message.metadata)
   const runStatus = typeof runMetadata?.runStatus === 'string' ? runMetadata.runStatus : undefined
-  const codexBlock = typeof runMetadata?.codexBlock === 'string' ? runMetadata.codexBlock : undefined
-  if (codexBlock && ['command', 'log', 'changes'].includes(codexBlock)) return false
+  const gatewayBlock = typeof runMetadata?.gatewayBlock === 'string' ? runMetadata.gatewayBlock : undefined
+  if (gatewayBlock && ['command', 'log', 'changes'].includes(gatewayBlock)) return false
   return (
-    message.metadata?.codexBlock === 'run-complete'
+    message.metadata?.gatewayBlock === 'run-complete'
     || message.metadata?.stopped === true
     || message.role === 'error'
     || message.status === 'failed'
@@ -267,7 +267,7 @@ export function plannerQuestionPromptFromMessages(messages: TaskActivityMessage[
   for (let index = sorted.length - 1; index >= 0; index -= 1) {
     const message = sorted[index]
     const metadata = asRecord(message.metadata)
-    if (message.source !== 'codex-plan' || message.role !== 'assistant' || metadata?.codexBlock !== 'planner-question') continue
+    if (message.source !== 'gateway-plan' || message.role !== 'assistant' || metadata?.gatewayBlock !== 'planner-question') continue
     const conversationId = conversationIdOf(message)
     if (!conversationId) continue
     const answered = sorted.some((candidate) => {
@@ -401,7 +401,7 @@ function latestNextChatHandoff(messages: TaskActivityMessage[]): string | null {
 }
 
 export function buildLatestRunFollowUpContext(messages: TaskActivityMessage[]): string {
-  const runMessages = messages.filter((message) => inferCodexChatPhase(message) === 'RUN')
+  const runMessages = messages.filter((message) => inferGatewayChatPhase(message) === 'RUN')
   const conversationId = buildConversationIdLatest(runMessages)
   if (!conversationId) return ''
 
@@ -415,7 +415,7 @@ export function buildLatestRunFollowUpContext(messages: TaskActivityMessage[]): 
     message.role === 'assistant' && typeof message.body === 'string' && message.body.trim()
   ))
   const reportedChanges = [...conversationMessages]
-    .filter((message) => message.role === 'tool' && message.metadata?.codexBlock === 'changes')
+    .filter((message) => message.role === 'tool' && message.metadata?.gatewayBlock === 'changes')
     .slice(-1)[0]
   const usage = usageFromMetadata(finalAssistant?.metadata) ?? usageFromMetadata(reportedChanges?.metadata) ?? usageFromMetadata(runComplete?.metadata)
   const result = describeRunResult(runComplete?.metadata)
@@ -441,7 +441,7 @@ export function buildLatestRunFollowUpContext(messages: TaskActivityMessage[]): 
 }
 
 function phaseContextTitle(message: TaskActivityMessage): string {
-  const phase = inferCodexChatPhase(message)
+  const phase = inferGatewayChatPhase(message)
   if (phase === 'PLAN') return 'Plan context'
   if (phase === 'RUN') return 'Run context'
   if (phase === 'POST-RUNNING') return 'Post-running context'
@@ -465,16 +465,16 @@ function contextEntryFromConversation(conversationId: string, messages: TaskActi
   if (!last) return null
   const terminal = [...ordered].reverse().find((message) => runCompleteMessage(message))
   const assistant = [...ordered].reverse().find((message) => message.role === 'assistant' && message.body.trim())
-  const changes = [...ordered].reverse().find((message) => message.role === 'tool' && message.metadata?.codexBlock === 'changes')
+  const changes = [...ordered].reverse().find((message) => message.role === 'tool' && message.metadata?.gatewayBlock === 'changes')
   const userMessages = ordered.filter((message) => message.role === 'user').slice(-2)
   const usage = usageFromMetadata(assistant?.metadata) ?? usageFromMetadata(changes?.metadata) ?? usageFromMetadata(terminal?.metadata)
   const changesSummary = changes ? codexChangesSummary(changes) : null
   const status = terminal
     ? (terminal.role === 'error' || terminal.status === 'failed' || terminal.metadata?.runStatus === 'failed' ? 'failed' : 'completed')
     : last.status ?? 'event'
-  const phaseMessage = ordered.find((message) => inferCodexChatPhase(message) !== 'FOLLOW UP') ?? last
-  const source = ordered.find((message) => message.source !== 'codex-chat')?.source ?? last.source
-  const phase = inferCodexChatPhase(phaseMessage)
+  const phaseMessage = ordered.find((message) => inferGatewayChatPhase(message) !== 'FOLLOW UP') ?? last
+  const source = ordered.find((message) => message.source !== 'gateway-chat')?.source ?? last.source
+  const phase = inferGatewayChatPhase(phaseMessage)
   const result = describeRunResult(terminal?.metadata)
   const recent = ordered.slice(-CHAT_FOLLOW_UP_CONTEXT_RECENT_MESSAGES).map(messageShortLabel)
   const body = [
@@ -514,8 +514,8 @@ export function buildGeneratedContextEntries(messages: TaskActivityMessage[]): G
   for (const message of messages) {
     const conversationId = conversationIdOf(message)
     if (!conversationId) continue
-    if (!['codex-plan', 'codex-run', 'codex-chat'].includes(message.source)) continue
-    if (inferCodexChatPhase(message) === 'POST-RUNNING') continue
+    if (!['gateway-plan', 'gateway-run', 'gateway-chat'].includes(message.source)) continue
+    if (inferGatewayChatPhase(message) === 'POST-RUNNING') continue
     const current = grouped.get(conversationId) ?? []
     current.push(message)
     grouped.set(conversationId, current)
@@ -555,7 +555,7 @@ function formatDurationCompact(totalSeconds: number): string {
   return `${remainingSeconds}s`
 }
 
-export function formatCodexWorkDuration(durationMs: number | undefined, isRunning = false): string {
+export function formatGatewayWorkDuration(durationMs: number | undefined, isRunning = false): string {
   if (durationMs !== undefined && Number.isFinite(durationMs) && durationMs > 0) {
     return `Worked for ${formatDurationCompact(durationMs / 1000)}`
   }
@@ -590,14 +590,14 @@ export function thinkingDurationLabel(message: TaskActivityMessage, now = Date.n
 }
 
 function metadataCodexBlock(message: TaskActivityMessage): string {
-  return typeof message.metadata?.codexBlock === 'string' ? message.metadata.codexBlock : ''
+  return typeof message.metadata?.gatewayBlock === 'string' ? message.metadata.gatewayBlock : ''
 }
 
 function isWorkBlockTextMessage(message: TaskActivityMessage): boolean {
   if (message.role === 'thinking') return true
   if (message.role !== 'assistant') return false
-  const codexBlock = metadataCodexBlock(message)
-  return codexBlock !== 'planner-question'
+  const gatewayBlock = metadataCodexBlock(message)
+  return gatewayBlock !== 'planner-question'
 }
 
 function isWorkBlockToolMessage(message: TaskActivityMessage): boolean {
@@ -631,9 +631,9 @@ function commandFileExploreCount(command: string): number {
 }
 
 function commandSummaryKind(message: TaskActivityMessage): CodexWorkSummaryKind {
-  const codexBlock = metadataCodexBlock(message)
-  if (codexBlock === 'log') return 'log'
-  if (codexBlock === 'changes') return 'changed'
+  const gatewayBlock = metadataCodexBlock(message)
+  if (gatewayBlock === 'log') return 'log'
+  if (gatewayBlock === 'changes') return 'changed'
   const command = commandFromMessage(message)
   if (commandSearchCount(command) > 0 || commandFileExploreCount(command) > 0) return 'explored'
   return 'ran'
@@ -842,8 +842,8 @@ export function groupCodexTranscriptMessages(messages: TaskActivityMessage[], no
 }
 
 export function chatConversationTitle(source: ChatMessageSource): string {
-  if (source === 'codex-plan') return 'Plan'
-  if (source === 'codex-run') return 'Run'
+  if (source === 'gateway-plan') return 'Plan'
+  if (source === 'gateway-run') return 'Run'
   return 'Follow-up'
 }
 
@@ -867,8 +867,8 @@ export function buildChatConversationSummaries(messages: TaskActivityMessage[], 
     if (!id) continue
     const at = messageTimeOf(message)
     const current = grouped.get(id)
-    const phase = inferCodexChatPhase(message)
-    const nextTitle = codexChatPhaseActionLabel(phase)
+    const phase = inferGatewayChatPhase(message)
+    const nextTitle = gatewayChatPhaseActionLabel(phase)
     const messageModel = typeof message.metadata?.model === 'string' ? message.metadata.model : undefined
     const nextStatus = message.status ?? 'event'
     const terminalStatus = isRunCompleteMessage(message)
@@ -941,7 +941,7 @@ export function normalizeActivityMessage(raw: unknown): TaskActivityMessage | nu
     : Date.now()
   const source = typeof candidate.source === 'string' && chatMessageSources.has(candidate.source as ChatMessageSource)
     ? candidate.source as ChatMessageSource
-    : 'codex-chat'
+    : 'gateway-chat'
   const role = typeof candidate.role === 'string' && chatMessageRoles.has(candidate.role as ChatMessageRole)
     ? candidate.role as ChatMessageRole
     : 'assistant'
@@ -957,7 +957,7 @@ export function normalizeActivityMessage(raw: unknown): TaskActivityMessage | nu
     runId: candidate.runId,
     conversationId: typeof candidate.conversationId === 'string' ? candidate.conversationId : undefined,
     source,
-    phase: inferCodexChatPhase({
+    phase: inferGatewayChatPhase({
       phase: candidate.phase,
       source,
       runId: candidate.runId,
@@ -1009,8 +1009,8 @@ export function appendActivityMessageToTasks(
   return changed ? nextTasks : tasks
 }
 
-export function formatCodexToolBody(body: string): string {
-  const parsed = parseCodexEvents(body)
+export function formatGatewayToolBody(body: string): string {
+  const parsed = parseGatewayEvents(body)
   if (parsed.parsedCount === 0) return body
   const commands = parsed.commands.map((event) => {
     const output = event.output?.trim()
@@ -1028,10 +1028,10 @@ export function formatCodexToolBody(body: string): string {
   ].filter(Boolean).join('\n\n') || 'Codex completed tool steps.'
 }
 
-export function usageFromMetadata(metadata: Record<string, unknown> | undefined): CodexUsageSummary | undefined {
+export function usageFromMetadata(metadata: Record<string, unknown> | undefined): GatewayUsageSummary | undefined {
   const value = asRecord(metadata?.usage)
   if (!value) return undefined
-  const summary: CodexUsageSummary = {}
+  const summary: GatewayUsageSummary = {}
   if (typeof value.inputTokens === 'number') summary.inputTokens = value.inputTokens
   if (typeof value.cachedInputTokens === 'number') summary.cachedInputTokens = value.cachedInputTokens
   if (typeof value.outputTokens === 'number') summary.outputTokens = value.outputTokens
@@ -1041,7 +1041,7 @@ export function usageFromMetadata(metadata: Record<string, unknown> | undefined)
 }
 
 export function asCodexThread(message: TaskActivityMessage): ThreadEntry {
-  const phase = inferCodexChatPhase(message)
+  const phase = inferGatewayChatPhase(message)
   const label = phase === 'PLAN' ? 'Codex Plan' : phase === 'RUN' ? 'Codex Run' : phase === 'POST-RUNNING' ? 'Codex Post-Running' : 'Codex Chat'
   return {
     id: `codex-${message.id}`,

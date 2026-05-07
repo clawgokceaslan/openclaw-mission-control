@@ -14,7 +14,7 @@ function message(overrides: Partial<TaskActivityMessage>): TaskActivityMessage {
     id: overrides.id ?? 'message-1',
     runId: overrides.runId ?? 'run-1',
     conversationId: overrides.conversationId ?? 'conversation-1',
-    source: overrides.source ?? 'codex-plan',
+    source: overrides.source ?? 'gateway-plan',
     role: overrides.role ?? 'assistant',
     status: overrides.status,
     body: overrides.body ?? 'body',
@@ -49,7 +49,7 @@ describe('planner question queue', () => {
         id: 'question-1',
         createdAt: 10,
         metadata: {
-          codexBlock: 'planner-question',
+          gatewayBlock: 'planner-question',
           projectId: 'project-1',
           taskId: 'task-1',
           taskTitle: 'Plan task',
@@ -82,12 +82,12 @@ describe('planner question queue', () => {
     const older = plannerQuestionItemFromActivity({
       projectId: 'project-1',
       taskId: 'task-1',
-      message: message({ id: 'older', createdAt: 1, metadata: { codexBlock: 'planner-question', questions: [{ id: 'q', question: 'Older?' }] } })
+      message: message({ id: 'older', createdAt: 1, metadata: { gatewayBlock: 'planner-question', questions: [{ id: 'q', question: 'Older?' }] } })
     })!
     const newer = plannerQuestionItemFromActivity({
       projectId: 'project-1',
       taskId: 'task-1',
-      message: message({ id: 'newer', createdAt: 5, metadata: { codexBlock: 'planner-question', questions: [{ id: 'q', question: 'Newer?' }] } })
+      message: message({ id: 'newer', createdAt: 5, metadata: { gatewayBlock: 'planner-question', questions: [{ id: 'q', question: 'Newer?' }] } })
     })!
 
     const queue = enqueuePlannerQuestion(enqueuePlannerQuestion(enqueuePlannerQuestion([], newer), older), older)
@@ -98,7 +98,7 @@ describe('planner question queue', () => {
     const item = plannerQuestionItemFromActivity({
       projectId: 'project-1',
       taskId: 'task-1',
-      message: message({ id: 'question', createdAt: 10, metadata: { codexBlock: 'planner-question', questions: [{ id: 'q', question: 'Question?' }] } })
+      message: message({ id: 'question', createdAt: 10, metadata: { gatewayBlock: 'planner-question', questions: [{ id: 'q', question: 'Question?' }] } })
     })!
     const queue = removeAnsweredPlannerQuestions([item], message({
       id: 'answer',
@@ -114,14 +114,14 @@ describe('planner question queue', () => {
     const item = plannerQuestionItemFromActivity({
       projectId: 'project-1',
       taskId: 'task-1',
-      message: message({ id: 'question', metadata: { codexBlock: 'planner-question', questions: [{ id: 'q', question: 'Question?' }] } })
+      message: message({ id: 'question', metadata: { gatewayBlock: 'planner-question', questions: [{ id: 'q', question: 'Question?' }] } })
     })!
     const project: Project = {
       id: 'project-1',
       organizationId: 'org-1',
       name: 'Project',
       archived: false,
-      metrics: { codex: { gatewayId: 'gateway-project', planModel: 'plan-model', language: 'en', planReasoningEffort: 'high' } },
+      metrics: { gateway: { gatewayId: 'gateway-project', planModel: 'plan-model', language: 'en', planReasoningEffort: 'high' } },
       createdAt: 1,
       updatedAt: 1
     }
@@ -156,7 +156,7 @@ describe('planner question queue', () => {
             id: 'question-a',
             conversationId: 'conversation-a',
             createdAt: 20,
-            metadata: { codexBlock: 'planner-question', questions: [{ id: 'q', question: 'A?' }] }
+            metadata: { gatewayBlock: 'planner-question', questions: [{ id: 'q', question: 'A?' }] }
           })
         ]
       }),
@@ -169,7 +169,7 @@ describe('planner question queue', () => {
             id: 'question-b',
             conversationId: 'conversation-b',
             createdAt: 10,
-            metadata: { codexBlock: 'planner-question', questions: [{ id: 'q', question: 'B?' }] }
+            metadata: { gatewayBlock: 'planner-question', questions: [{ id: 'q', question: 'B?' }] }
           })
         ]
       })
@@ -187,7 +187,7 @@ describe('planner question queue', () => {
             id: 'question',
             conversationId: 'conversation-answered',
             createdAt: 10,
-            metadata: { codexBlock: 'planner-question', questions: [{ id: 'q', question: 'Question?' }] }
+            metadata: { gatewayBlock: 'planner-question', questions: [{ id: 'q', question: 'Question?' }] }
           }),
           message({
             id: 'answer',
@@ -210,7 +210,7 @@ describe('planner question queue', () => {
           message({
             id: 'question',
             createdAt: 10,
-            metadata: { codexBlock: 'planner-question', questions: [{ id: 'q', question: 'Question?' }] }
+            metadata: { gatewayBlock: 'planner-question', questions: [{ id: 'q', question: 'Question?' }] }
           })
         ]
       })
@@ -218,7 +218,7 @@ describe('planner question queue', () => {
     const live = plannerQuestionItemFromActivity({
       projectId: 'project-1',
       taskId: 'task-1',
-      message: message({ id: 'question', createdAt: 10, metadata: { codexBlock: 'planner-question', questions: [{ id: 'q', question: 'Question?' }] } })
+      message: message({ id: 'question', createdAt: 10, metadata: { gatewayBlock: 'planner-question', questions: [{ id: 'q', question: 'Question?' }] } })
     })!
 
     expect(enqueuePlannerQuestion(bootstrapped, live)).toHaveLength(1)
@@ -230,7 +230,7 @@ describe('planner question queue', () => {
         messages: [
           message({
             id: 'question',
-            metadata: { codexBlock: 'planner-question', questions: [{ id: 'q', question: 'Question?' }] }
+            metadata: { gatewayBlock: 'planner-question', questions: [{ id: 'q', question: 'Question?' }] }
           })
         ]
       })

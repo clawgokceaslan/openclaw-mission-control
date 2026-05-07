@@ -3,12 +3,12 @@ import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 import { safeConsole } from './safe-output.js'
 import { electronRuntime } from './electron-runtime.js'
 
-export type CodexNotificationKind = 'completed' | 'failed' | 'stopped' | 'question'
-export type CodexNotificationMode = 'chat' | 'plan' | 'run' | 'steer'
+export type GatewayNotificationKind = 'completed' | 'failed' | 'stopped' | 'question'
+export type GatewayNotificationMode = 'chat' | 'plan' | 'run' | 'steer'
 
-export type CodexNotificationInput = {
-  kind: CodexNotificationKind
-  mode: CodexNotificationMode
+export type GatewayNotificationInput = {
+  kind: GatewayNotificationKind
+  mode: GatewayNotificationMode
   taskTitle: string
   taskId: string
   projectId: string
@@ -19,12 +19,12 @@ export type CodexNotificationInput = {
   summary?: string | null
 }
 
-type LegacyCodexChatNotificationInput = Omit<CodexNotificationInput, 'kind' | 'mode'> & {
-  mode: Extract<CodexNotificationMode, 'chat' | 'plan' | 'steer'>
+type LegacyGatewayChatNotificationInput = Omit<GatewayNotificationInput, 'kind' | 'mode'> & {
+  mode: Extract<GatewayNotificationMode, 'chat' | 'plan' | 'steer'>
   success: boolean
 }
 
-type LegacyCodexChatCompletionNotificationInput = LegacyCodexChatNotificationInput & {
+type LegacyGatewayChatCompletionNotificationInput = LegacyGatewayChatNotificationInput & {
   executionMode: 'exec' | 'terminal'
   stopped?: boolean
 }
@@ -43,15 +43,15 @@ function titleCase(value: string): string {
   return `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`
 }
 
-function modeLabel(mode: CodexNotificationMode): string {
+function modeLabel(mode: GatewayNotificationMode): string {
   return titleCase(mode)
 }
 
-function kindLabel(kind: CodexNotificationKind): string {
+function kindLabel(kind: GatewayNotificationKind): string {
   return titleCase(kind)
 }
 
-function buildNotificationCopy(input: CodexNotificationInput): { title: string; subtitle: string; body: string } {
+function buildNotificationCopy(input: GatewayNotificationInput): { title: string; subtitle: string; body: string } {
   const mode = modeLabel(input.mode)
   const kind = kindLabel(input.kind)
   const taskTitle = safeText(input.taskTitle, NOTIFICATION_TITLE_LIMIT)
@@ -126,12 +126,12 @@ function openProjectTaskChat(projectId: string, state: AppNavigateOpenTaskChatSt
   send()
 }
 
-export function shouldShowCodexChatCompletionNotification(input: Pick<LegacyCodexChatCompletionNotificationInput, 'executionMode' | 'stopped'>): boolean {
+export function shouldShowGatewayChatCompletionNotification(input: Pick<LegacyGatewayChatCompletionNotificationInput, 'executionMode' | 'stopped'>): boolean {
   return input.executionMode === 'exec'
 }
 
-export function buildCodexNotificationOptions(
-  input: CodexNotificationInput,
+export function buildGatewayNotificationOptions(
+  input: GatewayNotificationInput,
   platform: NodeJS.Platform = process.platform
 ): Electron.NotificationConstructorOptions {
   const copy = buildNotificationCopy(input)
@@ -159,12 +159,12 @@ export function buildCodexNotificationOptions(
   return options
 }
 
-export function showCodexNotification(input: CodexNotificationInput, runtime = electronRuntime): void {
+export function showGatewayNotification(input: GatewayNotificationInput, runtime = electronRuntime): void {
   const Notification = runtime.Notification
   if (!Notification || !Notification.isSupported()) return
 
   try {
-    const notification = new Notification(buildCodexNotificationOptions(input))
+    const notification = new Notification(buildGatewayNotificationOptions(input))
 
     const state: AppNavigateOpenTaskChatState = {
       openTaskId: input.taskId,
@@ -182,20 +182,20 @@ export function showCodexNotification(input: CodexNotificationInput, runtime = e
   }
 }
 
-export function maybeShowCodexNotification(input: CodexNotificationInput, runtime = electronRuntime): void {
-  showCodexNotification(input, runtime)
+export function maybeShowGatewayNotification(input: GatewayNotificationInput, runtime = electronRuntime): void {
+  showGatewayNotification(input, runtime)
 }
 
-export function showCodexChatCompletionNotification(input: LegacyCodexChatNotificationInput, runtime = electronRuntime): void {
-  showCodexNotification({
+export function showGatewayChatCompletionNotification(input: LegacyGatewayChatNotificationInput, runtime = electronRuntime): void {
+  showGatewayNotification({
     ...input,
     kind: input.success ? 'completed' : 'failed'
   }, runtime)
 }
 
-export function maybeShowCodexChatCompletionNotification(input: LegacyCodexChatCompletionNotificationInput, runtime = electronRuntime): void {
-  if (!shouldShowCodexChatCompletionNotification(input)) return
-  showCodexNotification({
+export function maybeShowGatewayChatCompletionNotification(input: LegacyGatewayChatCompletionNotificationInput, runtime = electronRuntime): void {
+  if (!shouldShowGatewayChatCompletionNotification(input)) return
+  showGatewayNotification({
     ...input,
     kind: input.stopped ? 'stopped' : input.success ? 'completed' : 'failed'
   }, runtime)

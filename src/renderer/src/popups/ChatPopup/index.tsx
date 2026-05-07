@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState, type DragEvent, type RefObject } from 'react'
 import { LuBot, LuCircleStop, LuCloudUpload, LuFileText, LuHistory, LuMessageSquare, LuPaperclip, LuPlay, LuPlus, LuSend, LuSettings2, LuSignal, LuSparkles, LuX } from 'react-icons/lu'
-import { formatUsageSummary } from '@shared/utils/codex-events'
+import { formatUsageSummary } from '@shared/utils/gateway-events'
 import type { Agent, Gateway, Skill, TaskEntity, Workspace } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
-import { CodexChatMessageItem, CodexWorkBlock } from '@renderer/components/projects/detail/chat/CodexChatMessageItem'
+import { GatewayChatMessageItem, CodexWorkBlock } from '@renderer/components/projects/detail/chat/CodexChatMessageItem'
 import { formatChatTime, groupCodexTranscriptMessages } from '@renderer/screens/projects/detail/chat/chatUtils'
 import type { ChatAttachmentDraft, ChatConversationSummary, GeneratedContextEntry, PlannerClarificationMode, SlashCommand, TaskActivityMessage } from '@renderer/screens/projects/detail/types'
-import { codexChatLifecycleStatusKey, codexChatPhaseTone, codexLifecycleStatusMeta } from '@shared/utils/codex-chat-phase'
+import { gatewayChatLifecycleStatusKey, gatewayChatPhaseTone, gatewayLifecycleStatusMeta } from '@shared/utils/gateway-chat-phase'
 import { lockModalInteractionRegion } from '@renderer/utils/modalInteractionLock'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
@@ -24,8 +24,8 @@ interface ChatPopupFlatProps {
   chatSettingsOpen: boolean
   selectedChatCanStop: boolean
   chatStopping: boolean
-  codexPlanLaunching: boolean
-  codexRunLaunching: boolean
+  gatewayPlanLaunching: boolean
+  gatewayRunLaunching: boolean
   planChoiceOpen: boolean
   visibleMessages: TaskActivityMessage[]
   renderedMessages: TaskActivityMessage[]
@@ -318,8 +318,8 @@ export function ChatPopup({
     chatSettingsOpen,
     selectedChatCanStop,
     chatStopping,
-    codexPlanLaunching,
-    codexRunLaunching,
+    gatewayPlanLaunching,
+    gatewayRunLaunching,
     visibleMessages,
     renderedMessages,
     localStatusMessage,
@@ -405,7 +405,7 @@ export function ChatPopup({
   const showContextHistory = visibleMessages.length > 0 || contextEntries.length > 0
   const conversationStatusMeta = (conversation: ChatConversationSummary) => {
     const active = runningConversationIds.has(conversation.id) || conversation.status === 'running' || conversation.status === 'queued'
-    return codexLifecycleStatusMeta(codexChatLifecycleStatusKey(conversation.phase, conversation.status, active))
+    return gatewayLifecycleStatusMeta(gatewayChatLifecycleStatusKey(conversation.phase, conversation.status, active))
   }
   const conversationStatusLabel = (conversation: ChatConversationSummary) => {
     const meta = conversationStatusMeta(conversation)
@@ -418,7 +418,7 @@ export function ChatPopup({
     return styles[`chatStatus_${meta.tone}`] ?? ''
   }
   const conversationSourceClass = (conversation: ChatConversationSummary) => {
-    return styles[`chatSource_${codexChatPhaseTone(conversation.phase)}`] ?? ''
+    return styles[`chatSource_${gatewayChatPhaseTone(conversation.phase)}`] ?? ''
   }
   const selectedChatStatusMeta = selectedChatSummary ? conversationStatusMeta(selectedChatSummary) : null
 
@@ -503,8 +503,8 @@ export function ChatPopup({
               {showContextHistory ? <button type="button" onClick={() => setIsContextDrawerOpen(true)} className={`${styles.chatLabeledAction} ${isContextDrawerOpen ? styles.chatActionActive : ''}`} aria-label="Context history" title="Context history"><LuHistory size={16} /><span>Context</span></button> : null}
               <button type="button" onClick={onSettingsToggle} className={`${styles.chatLabeledAction} ${chatSettingsOpen ? styles.chatActionActive : ''}`} aria-label="Chat settings" title="Chat settings"><LuSettings2 size={16} /><span>Settings</span></button>
               {selectedChatCanStop ? <button type="button" onClick={() => onStopChat()} disabled={chatStopping} className={`${styles.chatLabeledAction} ${styles.chatStopAction}`} aria-label="Stop Codex chat" title="Stop Codex chat"><LuCircleStop size={16} /><span>Stop</span></button> : null}
-              {showRunActions ? <button type="button" onClick={onPlan} disabled={codexPlanLaunching} className={styles.chatLabeledAction} aria-label={codexPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'} title={codexPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'}><LuSparkles size={16} /><span>{codexPlanLaunching ? 'Planning' : 'Plan'}</span></button> : null}
-              {showRunActions ? <button type="button" onClick={onRun} disabled={codexRunLaunching} className={styles.chatLabeledAction} aria-label={codexRunLaunching ? 'Working with Codex' : 'Run with Codex'} title={codexRunLaunching ? 'Working with Codex' : 'Run with Codex'}><LuPlay size={16} /><span>{codexRunLaunching ? 'Working' : 'Run'}</span></button> : null}
+              {showRunActions ? <button type="button" onClick={onPlan} disabled={gatewayPlanLaunching} className={styles.chatLabeledAction} aria-label={gatewayPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'} title={gatewayPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'}><LuSparkles size={16} /><span>{gatewayPlanLaunching ? 'Planning' : 'Plan'}</span></button> : null}
+              {showRunActions ? <button type="button" onClick={onRun} disabled={gatewayRunLaunching} className={styles.chatLabeledAction} aria-label={gatewayRunLaunching ? 'Working with Codex' : 'Run with Codex'} title={gatewayRunLaunching ? 'Working with Codex' : 'Run with Codex'}><LuPlay size={16} /><span>{gatewayRunLaunching ? 'Working' : 'Run'}</span></button> : null}
               <button type="button" onClick={onClose} aria-label="Close chat" title="Close chat" className={styles.chatIconAction}><LuX size={16} /></button>
             </div>
           </header>
@@ -515,21 +515,21 @@ export function ChatPopup({
                   {transcriptItems.map((item) => (
                     item.kind === 'work-block'
                       ? <CodexWorkBlock key={item.id} block={item.block} />
-                      : <CodexChatMessageItem key={item.id} message={item.message} />
+                      : <GatewayChatMessageItem key={item.id} message={item.message} />
                   ))}
                 </div>
               ) : (
                 <div className={styles.chatEmptyState}>
                   {localStatusMessage ? (
-                    <div className={styles.chatMessageList}><CodexChatMessageItem message={localStatusMessage} /></div>
+                    <div className={styles.chatMessageList}><GatewayChatMessageItem message={localStatusMessage} /></div>
                   ) : (
                     <>
                       <LuMessageSquare size={28} />
                       <h3>Start a Codex chat for this task</h3>
                       <p>Use Plan, Run, or send a follow-up message. Codex messages will appear here as a transcript.</p>
                       <div>
-                        {showRunActions ? <button type="button" onClick={onPlan} disabled={codexPlanLaunching}><LuSparkles size={15} /> {codexPlanLaunching ? 'Planning' : 'Plan'}</button> : null}
-                        {showRunActions ? <button type="button" onClick={onRun} disabled={codexRunLaunching}><LuPlay size={15} /> {codexRunLaunching ? 'Working' : 'Run'}</button> : null}
+                        {showRunActions ? <button type="button" onClick={onPlan} disabled={gatewayPlanLaunching}><LuSparkles size={15} /> {gatewayPlanLaunching ? 'Planning' : 'Plan'}</button> : null}
+                        {showRunActions ? <button type="button" onClick={onRun} disabled={gatewayRunLaunching}><LuPlay size={15} /> {gatewayRunLaunching ? 'Working' : 'Run'}</button> : null}
                         {(!chatGateway || (!chatPlanModel && !chatModel) || (!chatRunModel && !chatModel)) ? <button type="button" onClick={onSettingsToggle}><LuSettings2 size={15} /> Configure</button> : null}
                       </div>
                     </>
@@ -588,7 +588,7 @@ export function ChatPopup({
                     <div className={styles.chatContextTimeline}>
                       {contextEntries.map((entry) => (
                         <button key={entry.id} type="button" className={selectedContextEntry?.id === entry.id ? styles.chatContextEntryActive : styles.chatContextEntry} onClick={() => setSelectedContextEntryId(entry.id)}>
-                          <span className={styles.chatContextEntryIcon}>{entry.source === 'codex-plan' ? <LuFileText size={14} /> : entry.source === 'codex-run' ? <LuPlay size={14} /> : <LuMessageSquare size={14} />}</span>
+                          <span className={styles.chatContextEntryIcon}>{entry.source === 'gateway-plan' ? <LuFileText size={14} /> : entry.source === 'gateway-run' ? <LuPlay size={14} /> : <LuMessageSquare size={14} />}</span>
                           <span className={styles.chatContextEntryText}>
                             <b>{entry.title}</b>
                             <small>{formatChatTime(entry.at)} · {entry.status}</small>

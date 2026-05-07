@@ -1,7 +1,7 @@
 import { AppError } from '../../shared/errors/index.js'
 import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
-import { Project, ProjectCodexSettings, TaskAttachment } from '../../shared/types/entities.js'
+import { Project, ProjectGatewaySettings, TaskAttachment } from '../../shared/types/entities.js'
 import type { ExportProjectWorkspaceRequest, MoveProjectWorkspaceRequest, UpdateProjectRequest } from '../../shared/contracts/ipc.js'
 import { AuthService } from './auth.service.js'
 import { ProjectRepository } from '../../db/repositories/project-repo.js'
@@ -12,22 +12,22 @@ import { createHash, randomUUID } from 'node:crypto'
 import { copyFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { normalizeCodexPromptShape } from '../../shared/utils/codex-prompt-shape.js'
-import { codexModelSupportsReasoning } from '../../shared/utils/codex-language.js'
+import { normalizeGatewayPromptShape } from '../../shared/utils/gateway-prompt-shape.js'
+import { gatewayModelSupportsReasoning } from '../../shared/utils/gateway-language.js'
 
-const CODEX_LANGUAGE_VALUES = new Set(['tr', 'en'])
-const CODEX_REASONING_VALUES = new Set(['minimal', 'low', 'medium', 'high', 'xhigh'])
+const GATEWAY_LANGUAGE_VALUES = new Set(['tr', 'en'])
+const GATEWAY_REASONING_VALUES = new Set(['minimal', 'low', 'medium', 'high', 'xhigh'])
 
-function normalizeCodexLanguageValue(value: unknown): string | null {
+function normalizeGatewayLanguageValue(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const normalized = value.trim().toLowerCase()
-  return CODEX_LANGUAGE_VALUES.has(normalized) ? normalized : null
+  return GATEWAY_LANGUAGE_VALUES.has(normalized) ? normalized : null
 }
 
-function normalizeCodexReasoningValue(value: unknown): string {
+function normalizeGatewayReasoningValue(value: unknown): string {
   if (typeof value !== 'string') return 'medium'
   const normalized = value.trim().toLowerCase()
-  return CODEX_REASONING_VALUES.has(normalized) ? normalized : 'medium'
+  return GATEWAY_REASONING_VALUES.has(normalized) ? normalized : 'medium'
 }
 
 export class ProjectService {
@@ -84,47 +84,47 @@ export class ProjectService {
       if (!workspaceId.ok) return errorResponse(workspaceId.error?.code ?? ErrorCodes.Validation, workspaceId.error?.message ?? 'Workspace is invalid', workspaceId.error?.details)
       payload.workspaceId = workspaceId.data ?? null
     }
-    if ('codex' in payload) {
-      const currentCodex = current.metrics?.codex && typeof current.metrics.codex === 'object' && !Array.isArray(current.metrics.codex)
-        ? current.metrics.codex as ProjectCodexSettings
+    if ('gateway' in payload) {
+      const currentGateway = current.metrics?.gateway && typeof current.metrics.gateway === 'object' && !Array.isArray(current.metrics.gateway)
+        ? current.metrics.gateway as ProjectGatewaySettings
         : {}
-      const codex = await this.normalizeCodexSettings(actor.user.organizationId, { ...currentCodex, ...(payload.codex ?? {}) })
-      if (!codex.ok) return errorResponse(codex.error?.code ?? ErrorCodes.Validation, codex.error?.message ?? 'Codex settings are invalid', codex.error?.details)
+      const gateway = await this.normalizeGatewaySettings(actor.user.organizationId, { ...currentGateway, ...(payload.gateway ?? {}) })
+      if (!gateway.ok) return errorResponse(gateway.error?.code ?? ErrorCodes.Validation, gateway.error?.message ?? 'Gateway settings are invalid', gateway.error?.details)
       payload.metrics = {
         ...(current.metrics ?? {}),
         ...(payload.metrics ?? {}),
-        codex: codex.data ?? {}
+        gateway: gateway.data ?? {}
       }
-      delete payload.codex
+      delete payload.gateway
     }
     const updated = await this.repo.update(payload.id, payload)
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Project not found')
     return okResponse(updated)
   }
 
-  private async normalizeCodexSettings(orgId: string, codex: ProjectCodexSettings | undefined): Promise<ServiceResponse<ProjectCodexSettings>> {
-    if (!codex) return okResponse({})
-    const gatewayId = typeof codex.gatewayId === 'string' && codex.gatewayId.trim() ? codex.gatewayId.trim() : null
+  private async normalizeGatewaySettings(orgId: string, gatewaySettings: ProjectGatewaySettings | undefined): Promise<ServiceResponse<ProjectGatewaySettings>> {
+    if (!gatewaySettings) return okResponse({})
+    const gatewayId = typeof gatewaySettings.gatewayId === 'string' && gatewaySettings.gatewayId.trim() ? gatewaySettings.gatewayId.trim() : null
     const gateway = gatewayId ? await this.gateways.get(gatewayId) : null
     if (gatewayId) {
-      if (!gateway || gateway.organizationId !== orgId) return errorResponse(ErrorCodes.Validation, 'Codex gateway is invalid')
+      if (!gateway || gateway.organizationId !== orgId) return errorResponse(ErrorCodes.Validation, 'Gateway is invalid')
     }
-    const runtimeWorkspaceId = await this.normalizeWorkspaceId(orgId, codex.runtimeWorkspaceId)
-    if (!runtimeWorkspaceId.ok) return runtimeWorkspaceId as ServiceResponse<ProjectCodexSettings>
-    const runModel = typeof codex.runModel === 'string' && codex.runModel.trim() ? codex.runModel.trim() : null
-    const planModel = typeof codex.planModel === 'string' && codex.planModel.trim() ? codex.planModel.trim() : null
-    const defaultModel = typeof codex.defaultModel === 'string' && codex.defaultModel.trim() ? codex.defaultModel.trim() : runModel
-    const language = normalizeCodexLanguageValue(codex.language)
-      ?? normalizeCodexLanguageValue(codex.outputLanguage)
-      ?? normalizeCodexLanguageValue(codex.inputLanguage)
+    const runtimeWorkspaceId = await this.normalizeWorkspaceId(orgId, gatewaySettings.runtimeWorkspaceId)
+    if (!runtimeWorkspaceId.ok) return runtimeWorkspaceId as ServiceResponse<ProjectGatewaySettings>
+    const runModel = typeof gatewaySettings.runModel === 'string' && gatewaySettings.runModel.trim() ? gatewaySettings.runModel.trim() : null
+    const planModel = typeof gatewaySettings.planModel === 'string' && gatewaySettings.planModel.trim() ? gatewaySettings.planModel.trim() : null
+    const defaultModel = typeof gatewaySettings.defaultModel === 'string' && gatewaySettings.defaultModel.trim() ? gatewaySettings.defaultModel.trim() : runModel
+    const language = normalizeGatewayLanguageValue(gatewaySettings.language)
+      ?? normalizeGatewayLanguageValue(gatewaySettings.outputLanguage)
+      ?? normalizeGatewayLanguageValue(gatewaySettings.inputLanguage)
       ?? null
     const gatewayTemplate = gateway?.template && typeof gateway.template === 'object' && !Array.isArray(gateway.template) ? gateway.template as { models?: unknown[] } : {}
     const gatewayModels = Array.isArray(gatewayTemplate.models) ? gatewayTemplate.models : []
     const planModelRecord = gatewayModels.find((model) => model && typeof model === 'object' && !Array.isArray(model) && (model as { id?: unknown }).id === planModel)
     const runModelRecord = gatewayModels.find((model) => model && typeof model === 'object' && !Array.isArray(model) && (model as { id?: unknown }).id === runModel)
-    const planReasoningEffort = (!planModelRecord || codexModelSupportsReasoning(planModelRecord)) ? normalizeCodexReasoningValue(codex.planReasoningEffort) : null
-    const runReasoningEffort = (!runModelRecord || codexModelSupportsReasoning(runModelRecord)) ? normalizeCodexReasoningValue(codex.runReasoningEffort) : null
-    const promptShape = normalizeCodexPromptShape(codex.promptShape)
+    const planReasoningEffort = (!planModelRecord || gatewayModelSupportsReasoning(planModelRecord)) ? normalizeGatewayReasoningValue(gatewaySettings.planReasoningEffort) : null
+    const runReasoningEffort = (!runModelRecord || gatewayModelSupportsReasoning(runModelRecord)) ? normalizeGatewayReasoningValue(gatewaySettings.runReasoningEffort) : null
+    const promptShape = normalizeGatewayPromptShape(gatewaySettings.promptShape)
     return okResponse({
       gatewayId,
       runtimeWorkspaceId: runtimeWorkspaceId.data ?? null,

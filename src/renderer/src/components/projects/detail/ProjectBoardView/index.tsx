@@ -5,7 +5,7 @@ import type { Agent, Tag, TaskEntity } from '@shared/types/entities'
 import { TagPill } from '@renderer/components/tags/TagPill'
 import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
 import { formatTaskDate } from '@renderer/screens/projects/detail/status'
-import { taskCodexActiveTone, taskCodexLatestSurfaceStatus, type TaskCodexSurfaceStatus, type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
+import { taskGatewayActiveTone, taskGatewayLatestSurfaceStatus, type TaskGatewaySurfaceStatus, type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
 interface ProjectBoardViewProps {
@@ -35,12 +35,12 @@ function eventDropPosition(event: DragEvent<HTMLElement>): TaskDropPosition {
   return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 }
 
-function activeTaskClass(tone: TaskCodexSurfaceStatus['tone'] | null) {
+function activeTaskClass(tone: TaskGatewaySurfaceStatus['tone'] | null) {
   return tone ? `${styles.taskCardActive} ${styles[`taskCardActive_${tone}`] ?? ''}` : ''
 }
 
-function codexStatusClass(status: TaskCodexSurfaceStatus) {
-  return `${styles.taskCodexStateBadge} ${styles[`taskCodexTone_${status.tone}`] ?? ''}`
+function codexStatusClass(status: TaskGatewaySurfaceStatus) {
+  return `${styles.taskGatewayStateBadge} ${styles[`taskGatewayTone_${status.tone}`] ?? ''}`
 }
 
 export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus, onReorder, onOpenTask, onOpenSubtask, onOpenCreateTask }: ProjectBoardViewProps) {
@@ -121,8 +121,8 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
               {rows.map((task) => {
                 const subtasks = task.subtasks ?? []
                 const expanded = Boolean(expandedSubtasks[task.id])
-                const activeTone = taskCodexActiveTone(task)
-                const chatStatus = taskCodexLatestSurfaceStatus(task)
+                const activeTone = taskGatewayActiveTone(task)
+                const chatStatus = taskGatewayLatestSurfaceStatus(task)
                 return (
                   <Card
                   key={task.id}

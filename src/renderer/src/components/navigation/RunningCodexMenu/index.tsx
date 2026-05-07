@@ -1,36 +1,36 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LuArrowRight, LuChevronLeft, LuChevronRight, LuMessageSquare, LuRefreshCw } from 'react-icons/lu'
-import { IPC_CHANNELS, type RunningCodexGroupCounts, type RunningCodexGroupKey, type RunningCodexTaskRow, type RunningCodexTasksResponse } from '@shared/contracts/ipc'
+import { IPC_CHANNELS, type RunningGatewayGroupCounts, type RunningGatewayGroupKey, type RunningGatewayTaskRow, type RunningGatewayTasksResponse } from '@shared/contracts/ipc'
 import { useAuth } from '@renderer/providers/auth/auth-state'
-import { useGlobalCodexChat } from '@renderer/providers/codex-global-chat'
+import { useGlobalGatewayChat } from '@renderer/providers/gateway-global-chat'
 import { invokeBridge, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
-import { formatRunningCodexActivitySummary, runningCodexConversationTypeLabel, runningCodexGroupLabel, runningCodexLiveStatusLabel } from '../runningCodexMenuUtils'
-import { codexHeaderRefreshModeFromTaskActivityArgs, codexHeaderRefreshModeFromTaskUpdatedArgs } from '../codexHeaderRefresh'
+import { formatRunningGatewayActivitySummary, runningCodexConversationTypeLabel, runningCodexGroupLabel, runningCodexLiveStatusLabel } from '../runningGatewayMenuUtils'
+import { gatewayHeaderRefreshModeFromTaskActivityArgs, gatewayHeaderRefreshModeFromTaskUpdatedArgs } from '../gatewayHeaderRefresh'
 import { useOutsidePointerDown } from '../useOutsidePointerDown'
 import styles from './index.module.scss'
 
 const PAGE_SIZE = 8
-const RUNNING_GROUP_KEYS: RunningCodexGroupKey[] = ['all', 'planning', 'running', 'postRunning']
-const EMPTY_COUNTS: RunningCodexGroupCounts = {
+const RUNNING_GROUP_KEYS: RunningGatewayGroupKey[] = ['all', 'planning', 'running', 'postRunning']
+const EMPTY_COUNTS: RunningGatewayGroupCounts = {
   all: 0,
   planning: 0,
   running: 0,
   postRunning: 0
 }
-type RunningSectionKey = Exclude<RunningCodexGroupKey, 'all'>
+type RunningSectionKey = Exclude<RunningGatewayGroupKey, 'all'>
 
 type RunningSection = {
   key: RunningSectionKey
   title: string
-  rows: RunningCodexTaskRow[]
+  rows: RunningGatewayTaskRow[]
 }
 
 function formatTimestamp(value: number): string {
   return new Date(value).toLocaleString()
 }
 
-function buildRunningSections(rows: RunningCodexTaskRow[]): RunningSection[] {
-  const sectionMap = new Map<RunningSectionKey, RunningCodexTaskRow[]>([
+function buildRunningSections(rows: RunningGatewayTaskRow[]): RunningSection[] {
+  const sectionMap = new Map<RunningSectionKey, RunningGatewayTaskRow[]>([
     ['planning', []],
     ['postRunning', []],
     ['running', []]
@@ -54,15 +54,15 @@ function buildRunningSections(rows: RunningCodexTaskRow[]): RunningSection[] {
   return sections.filter((section) => section.rows.length > 0)
 }
 
-export function RunningCodexMenu() {
+export function RunningGatewayMenu() {
   const { token } = useAuth()
-  const { openTaskConversation, busy: globalBusy } = useGlobalCodexChat()
+  const { openTaskConversation, busy: globalBusy } = useGlobalGatewayChat()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [open, setOpen] = useState(false)
   const [page, setPage] = useState(1)
-  const [activeGroup, setActiveGroup] = useState<RunningCodexGroupKey>('all')
-  const [counts, setCounts] = useState<RunningCodexGroupCounts>(EMPTY_COUNTS)
-  const [rows, setRows] = useState<RunningCodexTaskRow[]>([])
+  const [activeGroup, setActiveGroup] = useState<RunningGatewayGroupKey>('all')
+  const [counts, setCounts] = useState<RunningGatewayGroupCounts>(EMPTY_COUNTS)
+  const [rows, setRows] = useState<RunningGatewayTaskRow[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -71,7 +71,7 @@ export function RunningCodexMenu() {
   const refreshTimerRef = useRef<number | null>(null)
   const pageRef = useRef(1)
   const openRef = useRef(false)
-  const activeGroupRef = useRef<RunningCodexGroupKey>('all')
+  const activeGroupRef = useRef<RunningGatewayGroupKey>('all')
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total])
   const hasRows = rows.length > 0
@@ -86,7 +86,7 @@ export function RunningCodexMenu() {
     if (includeRows) {
       setLoading(true)
     }
-    const response = await invokeBridge<RunningCodexTasksResponse>(IPC_CHANNELS.tasks.listRunningCodex, {
+    const response = await invokeBridge<RunningGatewayTasksResponse>(IPC_CHANNELS.tasks.listRunningGateway, {
       actorToken: token,
       page: requestedPage,
       pageSize: includeRows ? PAGE_SIZE : 1,
@@ -183,13 +183,13 @@ export function RunningCodexMenu() {
     if (!token) return
 
     const onTaskActivity = (...args: unknown[]) => {
-      const refreshMode = codexHeaderRefreshModeFromTaskActivityArgs(args)
+      const refreshMode = gatewayHeaderRefreshModeFromTaskActivityArgs(args)
       if (refreshMode === 'immediate') refreshFromSource()
       if (refreshMode === 'debounced') scheduleSummaryRefresh()
     }
 
     const onTaskUpdated = (...args: unknown[]) => {
-      const refreshMode = codexHeaderRefreshModeFromTaskUpdatedArgs(args)
+      const refreshMode = gatewayHeaderRefreshModeFromTaskUpdatedArgs(args)
       if (refreshMode === 'immediate') refreshFromSource()
       if (refreshMode === 'debounced') scheduleSummaryRefresh()
     }
@@ -214,14 +214,14 @@ export function RunningCodexMenu() {
 
   useOutsidePointerDown(open, containerRef, () => setOpen(false))
 
-  const selectRow = async (row: RunningCodexTaskRow) => {
-    setOpeningConversationId(row.codexConversationId)
+  const selectRow = async (row: RunningGatewayTaskRow) => {
+    setOpeningConversationId(row.gatewayConversationId)
     setError(null)
     setOpen(false)
     const opened = await openTaskConversation({
       projectId: row.projectId,
       taskId: row.taskId,
-      conversationId: row.codexConversationId,
+      conversationId: row.gatewayConversationId,
       conversationType: row.conversationType
     })
     setOpeningConversationId(null)
@@ -287,11 +287,11 @@ export function RunningCodexMenu() {
                   <h3>{section.title}</h3>
                   {section.rows.map((row) => (
                     <button
-                      key={`${row.taskId}:${row.codexConversationId}:${section.key}`}
+                      key={`${row.taskId}:${row.gatewayConversationId}:${section.key}`}
                       type="button"
                       className={styles.runningCodexRow}
                       onClick={() => void selectRow(row)}
-                      disabled={globalBusy || openingConversationId === row.codexConversationId}
+                      disabled={globalBusy || openingConversationId === row.gatewayConversationId}
                       aria-label={`Open ${row.taskTitle} ${runningCodexConversationTypeLabel(row.conversationType)} conversation`}
                       title={`Open ${row.taskTitle}`}
                     >
@@ -304,7 +304,7 @@ export function RunningCodexMenu() {
                           <em className={row.liveStatus === 'running' ? styles.runningCodexLiveRunning : styles.runningCodexLiveQueued}>
                             {runningCodexLiveStatusLabel(row.liveStatus)}
                           </em>
-                          <span title={row.latestActivitySummary}>{formatRunningCodexActivitySummary(row.latestActivitySummary) || 'Active conversation'}</span>
+                          <span title={row.latestActivitySummary}>{formatRunningGatewayActivitySummary(row.latestActivitySummary) || 'Active conversation'}</span>
                           <b>{formatTimestamp(row.latestAt)}</b>
                         </small>
                       </div>

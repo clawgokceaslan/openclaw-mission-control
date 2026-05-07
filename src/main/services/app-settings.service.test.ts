@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AppSettingsService, CODEX_LANGUAGE_KEY, DEFAULT_ADD_TASK_PROJECT_KEY, DEFAULT_AGENT_KEY } from './app-settings.service.js'
+import { AppSettingsService, GATEWAY_LANGUAGE_KEY, DEFAULT_ADD_TASK_PROJECT_KEY, DEFAULT_AGENT_KEY } from './app-settings.service.js'
 
 function serviceWithAgents(agents: Map<string, any>, store = new Map<string, unknown>(), projects = new Map<string, any>()) {
   const auth = {
@@ -84,7 +84,7 @@ describe('AppSettingsService Codex language', () => {
   it('defaults Codex language to Turkish', async () => {
     const service = serviceWithAgents(new Map())
 
-    const response = await service.getCodexLanguage({})
+    const response = await service.getGatewayLanguage({})
 
     expect(response.ok).toBe(true)
     expect(response.data?.language).toBe('tr')
@@ -94,10 +94,10 @@ describe('AppSettingsService Codex language', () => {
     const store = new Map<string, unknown>()
     const service = serviceWithAgents(new Map(), store)
 
-    const response = await service.setCodexLanguage({ language: 'EN' })
+    const response = await service.setGatewayLanguage({ language: 'EN' })
 
     expect(response.ok).toBe(true)
     expect(response.data?.language).toBe('en')
-    expect(store.get(CODEX_LANGUAGE_KEY)).toBe('en')
+    expect(store.get(GATEWAY_LANGUAGE_KEY)).toBe('en')
   })
 })

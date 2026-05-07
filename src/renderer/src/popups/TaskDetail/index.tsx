@@ -2,13 +2,13 @@ import { Component, CSSProperties, DragEvent, PointerEvent, ReactNode, useEffect
 import { Stack } from 'react-bootstrap'
 import { LuBot, LuChevronDown, LuCopy, LuDownload, LuExternalLink, LuFileText, LuListChecks, LuMessageSquare, LuEllipsis, LuPaperclip, LuPencil, LuPlay, LuPlus, LuSettings2, LuSlidersHorizontal, LuSparkles, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
 import type { TaskComment } from '@shared/types/entities'
-import { CODEX_REASONING_EFFORT_OPTIONS, codexModelReasoningEfforts, codexModelSupportsReasoning, normalizeCodexReasoningEffort } from '@shared/utils/codex-language'
+import { GATEWAY_REASONING_EFFORT_OPTIONS, gatewayModelReasoningEfforts, gatewayModelSupportsReasoning, normalizeGatewayReasoningEffort } from '@shared/utils/gateway-language'
 import { AppSelect } from '@renderer/components/select/AppSelect'
 import { AttachmentTable } from '@renderer/components/attachments/AttachmentTable'
 import { useConfirmation } from '@renderer/components/confirmation'
 import { MarkdownDescriptionEditor } from '@renderer/components/markdown/MarkdownDescriptionEditor'
 import { AgentAssignmentPanel, SkillsAssignmentPanel } from '@renderer/components/projects/detail/AssignmentPanels'
-import { codexConfigOf, customFieldValueLabel, customFieldValueToDraft, readTaskCodexOverride } from '@renderer/screens/projects/detail/projectDetailUtils'
+import { codexConfigOf, customFieldValueLabel, customFieldValueToDraft, readTaskGatewayOverride } from '@renderer/screens/projects/detail/projectDetailUtils'
 import { lockModalInteractionRegion } from '@renderer/utils/modalInteractionLock'
 import styles from './index.module.scss'
 
@@ -93,12 +93,12 @@ interface TaskDetailPopupProps {
   onDownloadTaskMarkdown?: () => void
   onDownloadAgentMarkdown?: () => void
   onDownloadSkillsMarkdown?: () => void
-  onRunCodex?: () => void
-  isRunCodexBusy?: boolean
-  isRunCodexDisabled?: boolean
-  onPlanWithCodex?: () => void
-  isPlanWithCodexBusy?: boolean
-  isPlanWithCodexDisabled?: boolean
+  onRunGateway?: () => void
+  isRunGatewayBusy?: boolean
+  isRunGatewayDisabled?: boolean
+  onPlanWithGateway?: () => void
+  isPlanWithGatewayBusy?: boolean
+  isPlanWithGatewayDisabled?: boolean
   onImportJson?: () => void
 }
 
@@ -188,8 +188,8 @@ function CommentsPane({ scope }: { scope: Record<string, any> }) {
 
 function ModelTab({ scope }: { scope: Record<string, any> }) {
   const task = scope.selectedTask
-  const override = readTaskCodexOverride(task)
-  const saved = scope.savedCodexSettings ?? {}
+  const override = readTaskGatewayOverride(task)
+  const saved = scope.savedGatewaySettings ?? {}
   const selectedGatewayId = override.gatewayId
   const effectiveGatewayId = selectedGatewayId || saved.gatewayId || ''
   const effectiveGateway = (scope.gateways ?? []).find((gateway: any) => gateway.id === effectiveGatewayId) ?? null
@@ -201,15 +201,15 @@ function ModelTab({ scope }: { scope: Record<string, any> }) {
   const effectiveRunReasoning = override.runReasoningEffort || saved.runReasoningEffort || 'medium'
   const effectivePlanModelRecord = taskModels.find((model) => model.id === effectivePlan) ?? null
   const effectiveRunModelRecord = taskModels.find((model) => model.id === effectiveRun) ?? null
-  const planSupportsReasoning = codexModelSupportsReasoning(effectivePlanModelRecord)
-  const runSupportsReasoning = codexModelSupportsReasoning(effectiveRunModelRecord)
-  const planReasoningOptions = CODEX_REASONING_EFFORT_OPTIONS
-    .filter((option) => codexModelReasoningEfforts(effectivePlanModelRecord).includes(option.value))
+  const planSupportsReasoning = gatewayModelSupportsReasoning(effectivePlanModelRecord)
+  const runSupportsReasoning = gatewayModelSupportsReasoning(effectiveRunModelRecord)
+  const planReasoningOptions = GATEWAY_REASONING_EFFORT_OPTIONS
+    .filter((option) => gatewayModelReasoningEfforts(effectivePlanModelRecord).includes(option.value))
     .map((option) => ({ label: option.label, value: option.value }))
-  const runReasoningOptions = CODEX_REASONING_EFFORT_OPTIONS
-    .filter((option) => codexModelReasoningEfforts(effectiveRunModelRecord).includes(option.value))
+  const runReasoningOptions = GATEWAY_REASONING_EFFORT_OPTIONS
+    .filter((option) => gatewayModelReasoningEfforts(effectiveRunModelRecord).includes(option.value))
     .map((option) => ({ label: option.label, value: option.value }))
-  const selectedGatewayOption = selectedGatewayId ? (scope.codexGatewayOptions ?? []).find((option: any) => option.value === selectedGatewayId) ?? null : null
+  const selectedGatewayOption = selectedGatewayId ? (scope.gatewayOptions ?? []).find((option: any) => option.value === selectedGatewayId) ?? null : null
   const selectedPlanOption = taskModelOptions.find((option) => option.value === override.planModel) ?? null
   const selectedRunOption = taskModelOptions.find((option) => option.value === (override.runModel || override.legacyModel)) ?? null
   const selectedPlanReasoningOption = planReasoningOptions.find((option) => option.value === effectivePlanReasoning) ?? planReasoningOptions.find((option) => option.value === 'medium') ?? planReasoningOptions[0] ?? null
@@ -221,12 +221,12 @@ function ModelTab({ scope }: { scope: Record<string, any> }) {
       {!saved.gatewayId || !(saved.planModel || saved.runModel || saved.defaultModel) ? (
         <div className={styles.tabCtaCard}>
           <div><strong>Project Codex settings required</strong><span>Configure a gateway and default model in Project settings first.</span></div>
-          <button type="button" className={styles.tabActionButton} onClick={scope.openCodexSettings}>Open settings</button>
+          <button type="button" className={styles.tabActionButton} onClick={scope.openGatewaySettings}>Open settings</button>
         </div>
       ) : (
         <>
           <div className={styles.codexSummaryCard}>
-            <div><span>Gateway</span><strong>{selectedGatewayId ? effectiveGateway?.name ?? selectedGatewayId : `Project default: ${scope.selectedCodexGateway?.name ?? saved.gatewayId}`}</strong></div>
+            <div><span>Gateway</span><strong>{selectedGatewayId ? effectiveGateway?.name ?? selectedGatewayId : `Project default: ${scope.selectedGateway?.name ?? saved.gatewayId}`}</strong></div>
             <div><span>Plan model</span><strong>{override.planModel || `Project default: ${saved.planModel || saved.defaultModel}`}</strong></div>
             <div><span>Run model</span><strong>{override.runModel || override.legacyModel || `Project default: ${saved.runModel || saved.defaultModel}`}</strong></div>
             {planSupportsReasoning ? <div><span>Plan reasoning</span><strong>{override.planReasoningEffort || `Project default: ${saved.planReasoningEffort || 'medium'}`}</strong></div> : null}
@@ -237,17 +237,17 @@ function ModelTab({ scope }: { scope: Record<string, any> }) {
               <span>Task gateway</span>
               <AppSelect
                 value={selectedGatewayOption}
-                options={scope.codexGatewayOptions ?? []}
-                placeholder={`Use project default gateway: ${scope.selectedCodexGateway?.name ?? saved.gatewayId}`}
+                options={scope.gatewayOptions ?? []}
+                placeholder={`Use project default gateway: ${scope.selectedGateway?.name ?? saved.gatewayId}`}
                 isClearable
                 onChange={(option) => {
                   if (Array.isArray(option)) return
                   const nextGatewayId = option?.value ?? ''
                   const nextGateway = (scope.gateways ?? []).find((gateway: any) => gateway.id === (nextGatewayId || saved.gatewayId))
                   const models = codexConfigOf(nextGateway).models ?? []
-                  const current = readTaskCodexOverride(task)
+                  const current = readTaskGatewayOverride(task)
                   const currentRun = current.runModel || current.legacyModel
-                  void scope.setTaskCodexSelection?.({
+                  void scope.setTaskGatewaySelection?.({
                     gatewayId: nextGatewayId || null,
                     planModel: current.planModel && models.some((model) => model.id === current.planModel) ? current.planModel : null,
                     runModel: currentRun && models.some((model) => model.id === currentRun) ? currentRun : null
@@ -255,10 +255,10 @@ function ModelTab({ scope }: { scope: Record<string, any> }) {
                 }}
               />
             </label>
-            <label><span>Task plan model</span><AppSelect value={selectedPlanOption} options={taskModelOptions} placeholder={`Use project plan model: ${saved.planModel || saved.defaultModel}`} isClearable isDisabled={taskModelOptions.length === 0} onChange={(option) => { if (!Array.isArray(option)) void scope.setTaskCodexSelection?.({ planModel: option?.value ?? null }) }} /></label>
-            {planSupportsReasoning ? <label><span>Task plan reasoning</span><AppSelect value={selectedPlanReasoningOption} options={planReasoningOptions} placeholder={`Use project plan reasoning: ${saved.planReasoningEffort || 'medium'}`} isClearable onChange={(option) => { if (!Array.isArray(option)) void scope.setTaskCodexSelection?.({ planReasoningEffort: option?.value ? normalizeCodexReasoningEffort(option.value) : null }) }} /></label> : null}
-            <label><span>Task run model</span><AppSelect value={selectedRunOption} options={taskModelOptions} placeholder={`Use project run model: ${saved.runModel || saved.defaultModel}`} isClearable isDisabled={taskModelOptions.length === 0} onChange={(option) => { if (!Array.isArray(option)) void scope.setTaskCodexSelection?.({ runModel: option?.value ?? null }) }} /></label>
-            {runSupportsReasoning ? <label><span>Task run reasoning</span><AppSelect value={selectedRunReasoningOption} options={runReasoningOptions} placeholder={`Use project run reasoning: ${saved.runReasoningEffort || 'medium'}`} isClearable onChange={(option) => { if (!Array.isArray(option)) void scope.setTaskCodexSelection?.({ runReasoningEffort: option?.value ? normalizeCodexReasoningEffort(option.value) : null }) }} /></label> : null}
+            <label><span>Task plan model</span><AppSelect value={selectedPlanOption} options={taskModelOptions} placeholder={`Use project plan model: ${saved.planModel || saved.defaultModel}`} isClearable isDisabled={taskModelOptions.length === 0} onChange={(option) => { if (!Array.isArray(option)) void scope.setTaskGatewaySelection?.({ planModel: option?.value ?? null }) }} /></label>
+            {planSupportsReasoning ? <label><span>Task plan reasoning</span><AppSelect value={selectedPlanReasoningOption} options={planReasoningOptions} placeholder={`Use project plan reasoning: ${saved.planReasoningEffort || 'medium'}`} isClearable onChange={(option) => { if (!Array.isArray(option)) void scope.setTaskGatewaySelection?.({ planReasoningEffort: option?.value ? normalizeGatewayReasoningEffort(option.value) : null }) }} /></label> : null}
+            <label><span>Task run model</span><AppSelect value={selectedRunOption} options={taskModelOptions} placeholder={`Use project run model: ${saved.runModel || saved.defaultModel}`} isClearable isDisabled={taskModelOptions.length === 0} onChange={(option) => { if (!Array.isArray(option)) void scope.setTaskGatewaySelection?.({ runModel: option?.value ?? null }) }} /></label>
+            {runSupportsReasoning ? <label><span>Task run reasoning</span><AppSelect value={selectedRunReasoningOption} options={runReasoningOptions} placeholder={`Use project run reasoning: ${saved.runReasoningEffort || 'medium'}`} isClearable onChange={(option) => { if (!Array.isArray(option)) void scope.setTaskGatewaySelection?.({ runReasoningEffort: option?.value ? normalizeGatewayReasoningEffort(option.value) : null }) }} /></label> : null}
           </div>
         </>
       )}
@@ -441,12 +441,12 @@ export function TaskDetailPopup({
   onDownloadTaskMarkdown,
   onDownloadAgentMarkdown,
   onDownloadSkillsMarkdown,
-  onRunCodex,
-  isRunCodexBusy = false,
-  isRunCodexDisabled = false,
-  onPlanWithCodex,
-  isPlanWithCodexBusy = false,
-  isPlanWithCodexDisabled = false,
+  onRunGateway,
+  isRunGatewayBusy = false,
+  isRunGatewayDisabled = false,
+  onPlanWithGateway,
+  isPlanWithGatewayBusy = false,
+  isPlanWithGatewayDisabled = false,
   onImportJson
 }: TaskDetailPopupProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -475,8 +475,8 @@ export function TaskDetailPopup({
   const copyTaskId = () => { void navigator.clipboard?.writeText(taskId); setIsMenuOpen(false) }
   const copyTaskLink = () => { const url = new URL(window.location.href); url.searchParams.set('task', taskId); void navigator.clipboard?.writeText(url.toString()); setIsMenuOpen(false) }
   const runHeaderAction = (event: PointerEvent<HTMLButtonElement>, action: () => void) => { event.preventDefault(); event.stopPropagation(); action() }
-  const confirmRunCodex = async () => {
-    if (!onRunCodex || isRunCodexBusy || isRunCodexDisabled) return
+  const confirmRunGateway = async () => {
+    if (!onRunGateway || isRunGatewayBusy || isRunGatewayDisabled) return
     setIsMenuOpen(false)
     setIsDownloadMenuOpen(false)
     const confirmed = await confirm({
@@ -486,7 +486,7 @@ export function TaskDetailPopup({
       cancelLabel: 'Cancel',
       tone: 'primary'
     })
-    if (confirmed) onRunCodex()
+    if (confirmed) onRunGateway()
   }
 
   const actions = (
@@ -524,14 +524,14 @@ export function TaskDetailPopup({
             </div>
           ) : null}
           <div className={styles.primaryActions}>
-            {onPlanWithCodex ? (
-              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.planButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isPlanWithCodexBusy && !isPlanWithCodexDisabled) onPlanWithCodex() })} disabled={isPlanWithCodexBusy || isPlanWithCodexDisabled} aria-label="Plan task with Codex" title={isPlanWithCodexDisabled ? 'Configure Codex gateway and model before planning this task.' : 'Plan task with Codex'}>
+            {onPlanWithGateway ? (
+              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.planButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isPlanWithGatewayBusy && !isPlanWithGatewayDisabled) onPlanWithGateway() })} disabled={isPlanWithGatewayBusy || isPlanWithGatewayDisabled} aria-label="Plan task with Codex" title={isPlanWithGatewayDisabled ? 'Configure Codex gateway and model before planning this task.' : 'Plan task with Codex'}>
                 <LuSparkles size={16} />
                 <span className={styles.primaryActionLabel}>Plan</span>
               </button>
             ) : null}
-            {onRunCodex ? (
-              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.runButton}`} onPointerDown={(event) => runHeaderAction(event, () => { void confirmRunCodex() })} disabled={isRunCodexBusy || isRunCodexDisabled} aria-label="Run task with Codex" title={isRunCodexDisabled ? 'Configure Codex gateway and model before running this task.' : 'Run task with Codex'}>
+            {onRunGateway ? (
+              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.runButton}`} onPointerDown={(event) => runHeaderAction(event, () => { void confirmRunGateway() })} disabled={isRunGatewayBusy || isRunGatewayDisabled} aria-label="Run task with Codex" title={isRunGatewayDisabled ? 'Configure Codex gateway and model before running this task.' : 'Run task with Codex'}>
                 <LuPlay size={16} />
                 <span className={styles.primaryActionLabel}>Run</span>
               </button>

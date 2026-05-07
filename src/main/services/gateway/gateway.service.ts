@@ -98,7 +98,7 @@ function collectModelRecords(value: unknown, source?: string): CodexCliModel[] {
   return models
 }
 
-function normalizeCodexModels(stdout: string): CodexCliModel[] {
+function normalizeGatewayModels(stdout: string): CodexCliModel[] {
   const parsed = JSON.parse(stdout) as unknown
   const unique = new Map<string, CodexCliModel>()
   for (const model of collectModelRecords(parsed, 'codex')) {
@@ -168,7 +168,7 @@ export class GatewayService {
     const gateway = await this.repo.create({
       organizationId: actor.user.organizationId,
       name: payload.name!.trim(),
-      endpoint: (payload.codexPath?.trim() || 'codex'),
+      endpoint: (payload.gatewayPath?.trim() || 'codex'),
       token: '',
       template: codexCliConfig(payload)
     })
@@ -183,7 +183,7 @@ export class GatewayService {
     if (validation) return validation
     const updated = await this.repo.update(current.id, {
       name: payload.name?.trim(),
-      endpoint: payload.codexPath?.trim() || current.endpoint || 'codex',
+      endpoint: payload.gatewayPath?.trim() || current.endpoint || 'codex',
       template: codexCliConfig(payload, current)
     })
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Gateway not found')
@@ -228,7 +228,7 @@ export class GatewayService {
     return okResponse([{ id: 'codex_cli', name: 'Codex CLI', sample: 'Local Codex CLI' }])
   }
 
-  async codexModels(payload: { actorToken?: string; gatewayId?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }>> {
+  async gatewayModels(payload: { actorToken?: string; gatewayId?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }>> {
     const gateway = await this.requireGateway(payload?.actorToken, payload?.gatewayId)
     if ('ok' in gateway) return gateway as ServiceResponse<{ gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }>
     const template = codexCliConfig({}, gateway)
@@ -237,7 +237,7 @@ export class GatewayService {
     try {
       const resolved = await resolveCodexExecutable(codexPath)
       const { stdout } = await execFileAsync(resolved.command, args, { timeout: 20_000, maxBuffer: 1024 * 1024 * 8, env: codexProcessEnv(resolved) })
-      const models = normalizeCodexModels(stdout)
+      const models = normalizeGatewayModels(stdout)
       if (models.length === 0) throw new Error('Codex CLI returned no models')
       const updated = await this.repo.update(gateway.id, {
         endpoint: resolved.command,
@@ -679,7 +679,7 @@ export class GatewayService {
 
   private validateUpsert(payload: UpsertGatewayRequest, creating: boolean, current?: Gateway): ServiceResponse<never> | null {
     if (creating && !payload.name?.trim()) return errorResponse(ErrorCodes.Validation, 'Gateway name required')
-    const codexPath = payload.codexPath?.trim() || current?.endpoint || 'codex'
+    const codexPath = payload.gatewayPath?.trim() || current?.endpoint || 'codex'
     if (!codexPath.trim()) return errorResponse(ErrorCodes.Validation, 'Codex CLI path required')
     return null
   }

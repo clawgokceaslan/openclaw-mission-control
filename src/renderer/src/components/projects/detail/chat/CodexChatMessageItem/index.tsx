@@ -9,12 +9,12 @@ import json from 'highlight.js/lib/languages/json'
 import markdown from 'highlight.js/lib/languages/markdown'
 import typescript from 'highlight.js/lib/languages/typescript'
 import xml from 'highlight.js/lib/languages/xml'
-import { formatUsageSummary } from '@shared/utils/codex-events'
+import { formatUsageSummary } from '@shared/utils/gateway-events'
 import type { TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 import {
   formatChatTime,
-  formatCodexWorkDuration,
-  formatCodexToolBody,
+  formatGatewayWorkDuration,
+  formatGatewayToolBody,
   codexChangesSummary,
   formatJsonMetadata,
   parseNumberMetadata,
@@ -203,7 +203,7 @@ function renderMarkdownLite(body: string) {
 
 function compactMetadataPreview(metadata: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   if (!metadata) return undefined
-  const allowedKeys = ['codexBlock', 'commandStatus', 'exitCode', 'changesPath', 'truncated', 'unavailable', 'stopped']
+  const allowedKeys = ['gatewayBlock', 'commandStatus', 'exitCode', 'changesPath', 'truncated', 'unavailable', 'stopped']
   const compact = Object.fromEntries(allowedKeys
     .filter((key) => metadata[key] !== undefined)
     .map((key) => [key, metadata[key]])
@@ -353,7 +353,7 @@ function renderChangesCard(message: TaskActivityMessage, pathEntries: Array<{ ke
   )
 }
 
-type CodexChatMessageItemProps = {
+type GatewayChatMessageItemProps = {
   message: TaskActivityMessage
 }
 
@@ -385,9 +385,9 @@ function renderWorkTextMessage(message: TaskActivityMessage) {
 }
 
 function renderWorkToolMessage(message: TaskActivityMessage) {
-  const codexBlock = typeof message.metadata?.codexBlock === 'string' ? message.metadata.codexBlock : ''
+  const gatewayBlock = typeof message.metadata?.gatewayBlock === 'string' ? message.metadata.gatewayBlock : ''
   const pathEntries = metadataPathEntries(message.metadata)
-  if (message.role === 'tool' && codexBlock === 'changes') {
+  if (message.role === 'tool' && gatewayBlock === 'changes') {
     return (
       <div key={message.id} className={styles.codexWorkNestedOutput}>
         {renderChangesCard(message, pathEntries)}
@@ -395,12 +395,12 @@ function renderWorkToolMessage(message: TaskActivityMessage) {
     )
   }
 
-  const toolTitle = codexBlock === 'log'
+  const toolTitle = gatewayBlock === 'log'
     ? 'Log'
-    : codexBlock === 'command'
+    : gatewayBlock === 'command'
       ? 'Command'
       : 'Tool output'
-  const toolBody = message.role === 'tool' ? (codexBlock ? message.body : formatCodexToolBody(message.body)) : message.body
+  const toolBody = message.role === 'tool' ? (gatewayBlock ? message.body : formatGatewayToolBody(message.body)) : message.body
 
   return (
     <div key={message.id} className={styles.codexWorkCommandRaw}>
@@ -444,7 +444,7 @@ export const CodexWorkBlock = memo(function CodexWorkBlock({ block }: CodexWorkB
       <details className={styles.codexWorkDetails} open>
         <summary className={styles.codexWorkHeader}>
           <LuChevronDown className={styles.codexWorkChevron} size={15} />
-          <span>{formatCodexWorkDuration(block.durationMs, block.isRunning)}</span>
+          <span>{formatGatewayWorkDuration(block.durationMs, block.isRunning)}</span>
           {block.isRunning ? <span className={styles.thinkingDots}><i /><i /><i /></span> : null}
         </summary>
         <div className={styles.codexWorkBody}>
@@ -461,7 +461,7 @@ export const CodexWorkBlock = memo(function CodexWorkBlock({ block }: CodexWorkB
 
 function renderCodexTranscriptMessage(params: {
   message: TaskActivityMessage
-  codexBlock: string
+  gatewayBlock: string
   thinkingLabel: string
   thinkingText: string
   thinkingBody: ReturnType<typeof renderMarkdownLite>
@@ -473,7 +473,7 @@ function renderCodexTranscriptMessage(params: {
 }) {
   const {
     message,
-    codexBlock,
+    gatewayBlock,
     thinkingLabel,
     thinkingText,
     thinkingBody,
@@ -499,7 +499,7 @@ function renderCodexTranscriptMessage(params: {
     )
   }
 
-  if (message.role === 'tool' && codexBlock === 'changes') {
+  if (message.role === 'tool' && gatewayBlock === 'changes') {
     if (!changesSummary.canRenderCard) {
       return (
         <article className={`${styles.chatMessage} ${styles.codexTranscriptRow}`}>
@@ -534,7 +534,7 @@ function renderCodexTranscriptMessage(params: {
     )
   }
 
-  if (message.role === 'system' && codexBlock === 'run-complete') {
+  if (message.role === 'system' && gatewayBlock === 'run-complete') {
     return (
       <article className={`${styles.chatMessage} ${styles.codexTranscriptRow}`}>
         <div className={styles.codexProgressLine}><LuCircleCheck size={14} /> {message.body}</div>
@@ -549,20 +549,20 @@ function renderCodexTranscriptMessage(params: {
   )
 }
 
-export const CodexChatMessageItem = memo(function CodexChatMessageItem({ message }: CodexChatMessageItemProps) {
+export const GatewayChatMessageItem = memo(function GatewayChatMessageItem({ message }: GatewayChatMessageItemProps) {
   const usage = usageFromMetadata(message.metadata)
-  const codexBlock = typeof message.metadata?.codexBlock === 'string' ? message.metadata.codexBlock : ''
+  const gatewayBlock = typeof message.metadata?.gatewayBlock === 'string' ? message.metadata.gatewayBlock : ''
   const changesSummary = codexChangesSummary(message)
-  const toolTitle = codexBlock === 'changes'
+  const toolTitle = gatewayBlock === 'changes'
     ? 'Changes'
-    : codexBlock === 'command'
+    : gatewayBlock === 'command'
       ? 'Command'
-      : codexBlock === 'log'
+      : gatewayBlock === 'log'
         ? 'Log'
-        : codexBlock === 'run-complete'
+        : gatewayBlock === 'run-complete'
           ? 'Run complete'
         : 'Tool output'
-  const statusLabel = message.metadata?.runStatus === 'running' && codexBlock !== 'run-complete'
+  const statusLabel = message.metadata?.runStatus === 'running' && gatewayBlock !== 'run-complete'
     ? 'running'
     : message.status
   const thinkingLabel = resolveThinkingDurationLabel(message, Date.now())
@@ -570,8 +570,8 @@ export const CodexChatMessageItem = memo(function CodexChatMessageItem({ message
     ? 'Codex is working...'
     : '')
   const toolBody = useMemo(() => (
-    message.role === 'tool' ? (codexBlock ? message.body : formatCodexToolBody(message.body)) : ''
-  ), [codexBlock, message.body, message.role])
+    message.role === 'tool' ? (gatewayBlock ? message.body : formatGatewayToolBody(message.body)) : ''
+  ), [gatewayBlock, message.body, message.role])
   const thinkingBody = useMemo(() => renderMarkdownLite(thinkingText), [thinkingText])
   const messageBody = useMemo(() => renderMarkdownLite(message.body), [message.body])
   const toolBodyRendered = useMemo(() => renderMarkdownLite(toolBody), [toolBody])
@@ -583,7 +583,7 @@ export const CodexChatMessageItem = memo(function CodexChatMessageItem({ message
   if (message.role !== 'user') {
     return renderCodexTranscriptMessage({
       message,
-      codexBlock,
+      gatewayBlock,
       thinkingLabel,
       thinkingText,
       thinkingBody,
@@ -622,7 +622,7 @@ export const CodexChatMessageItem = memo(function CodexChatMessageItem({ message
             {thinkingText ? <div className={styles.chatThinkingText}>{thinkingBody}</div> : null}
           </div>
         ) : null}
-        {message.role === 'tool' && codexBlock === 'changes' ? (
+        {message.role === 'tool' && gatewayBlock === 'changes' ? (
           renderChangesCard(message, pathEntries)
         ) : message.role === 'tool' ? (
           <details className={styles.codexDetails} open>
@@ -638,8 +638,8 @@ export const CodexChatMessageItem = memo(function CodexChatMessageItem({ message
               </div>
             ) : null}
           </details>
-        ) : message.role === 'system' && codexBlock === 'run-complete' ? (
-          <div className={styles.codexRunComplete}><LuCircleCheck size={15} /> {message.body}</div>
+        ) : message.role === 'system' && gatewayBlock === 'run-complete' ? (
+          <div className={styles.gatewayRunComplete}><LuCircleCheck size={15} /> {message.body}</div>
         ) : message.role !== 'thinking' ? (
           messageBody
         ) : null}

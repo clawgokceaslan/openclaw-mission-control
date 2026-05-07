@@ -76,13 +76,13 @@ export async function createTaskWithTemplate(context: CreateTaskWithTemplateCont
     return defaultStatus
   }
 
-  const templateCodex = templatePayload?.codex && typeof templatePayload.codex === 'object' && !Array.isArray(templatePayload.codex)
-    ? templatePayload.codex as Record<string, unknown>
+  const templateCodex = templatePayload?.gateway && typeof templatePayload.gateway === 'object' && !Array.isArray(templatePayload.gateway)
+    ? templatePayload.gateway as Record<string, unknown>
     : {}
   const templateGatewayId = typeof templateCodex.gatewayId === 'string' ? templateCodex.gatewayId.trim() : ''
   const templateModel = typeof templateCodex.model === 'string' ? templateCodex.model.trim() : ''
   const templateCodexPayload = templateGatewayId || templateModel
-    ? { codex: { ...(templateGatewayId ? { gatewayId: templateGatewayId } : {}), ...(templateModel ? { model: templateModel } : {}) } }
+    ? { gateway: { ...(templateGatewayId ? { gatewayId: templateGatewayId } : {}), ...(templateModel ? { model: templateModel } : {}) } }
     : undefined
   const createPayload: Record<string, unknown> = {
     ...(templateCodexPayload ?? {})
@@ -126,8 +126,8 @@ export async function createTaskWithTemplate(context: CreateTaskWithTemplateCont
   if (comments) payloadPatch.comments = comments
   payloadPatch.inputFormatId = ''
   payloadPatch.outputFormatId = ''
-  if (templateCodexPayload?.codex) {
-    payloadPatch.codex = templateCodexPayload.codex
+  if (templateCodexPayload?.gateway) {
+    payloadPatch.gateway = templateCodexPayload.gateway
   }
   if (typeof input.statusOrder === 'number' && Number.isFinite(input.statusOrder)) {
     payloadPatch.statusOrder = { [task.status]: input.statusOrder }

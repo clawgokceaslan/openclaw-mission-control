@@ -1,9 +1,9 @@
-export const CODEX_CHAT_PHASES = ['PLAN', 'RUN', 'POST-RUNNING', 'FOLLOW UP'] as const
+export const GATEWAY_CHAT_PHASES = ['PLAN', 'RUN', 'POST-RUNNING', 'FOLLOW UP'] as const
 
-export type CodexChatPhase = typeof CODEX_CHAT_PHASES[number]
+export type GatewayChatPhase = typeof GATEWAY_CHAT_PHASES[number]
 
-export type CodexChatPhaseTone = 'plan' | 'run' | 'post-running' | 'follow-up'
-export type CodexLifecycleStatusKey =
+export type GatewayChatPhaseTone = 'plan' | 'run' | 'post-running' | 'follow-up'
+export type GatewayLifecycleStatusKey =
   | 'not-planned'
   | 'planning'
   | 'planned'
@@ -15,7 +15,7 @@ export type CodexLifecycleStatusKey =
   | 'followed-up'
   | 'needs-input'
   | 'failed'
-export type CodexLifecycleTone =
+export type GatewayLifecycleTone =
   | 'neutral'
   | 'planning'
   | 'planned'
@@ -25,18 +25,18 @@ export type CodexLifecycleTone =
   | 'following-up'
   | 'needs-input'
   | 'failed'
-export type CodexChatLifecycleRawStatus = 'queued' | 'running' | 'completed' | 'failed' | 'event' | undefined
-export type CodexLifecycleStatusMeta = {
-  key: CodexLifecycleStatusKey
+export type GatewayChatLifecycleRawStatus = 'queued' | 'running' | 'completed' | 'failed' | 'event' | undefined
+export type GatewayLifecycleStatusMeta = {
+  key: GatewayLifecycleStatusKey
   label: string
-  tone: CodexLifecycleTone
+  tone: GatewayLifecycleTone
   active: boolean
   completed: boolean
 }
 
-type PhaseSource = 'codex-plan' | 'codex-run' | 'codex-chat' | string
+type PhaseSource = 'gateway-plan' | 'gateway-run' | 'gateway-chat' | string
 
-export type CodexChatPhaseInput = {
+export type GatewayChatPhaseInput = {
   phase?: unknown
   source?: PhaseSource
   runId?: string
@@ -44,13 +44,13 @@ export type CodexChatPhaseInput = {
   metadata?: Record<string, unknown>
 }
 
-const phaseLookup = new Map<string, CodexChatPhase>([
+const phaseLookup = new Map<string, GatewayChatPhase>([
   ['plan', 'PLAN'],
   ['planning', 'PLAN'],
-  ['codex-plan', 'PLAN'],
+  ['gateway-plan', 'PLAN'],
   ['run', 'RUN'],
   ['running', 'RUN'],
-  ['codex-run', 'RUN'],
+  ['gateway-run', 'RUN'],
   ['post-run', 'POST-RUNNING'],
   ['post-running', 'POST-RUNNING'],
   ['post running', 'POST-RUNNING'],
@@ -59,43 +59,43 @@ const phaseLookup = new Map<string, CodexChatPhase>([
   ['follow up', 'FOLLOW UP'],
   ['follow_up', 'FOLLOW UP'],
   ['chat', 'FOLLOW UP'],
-  ['codex-chat', 'FOLLOW UP']
+  ['gateway-chat', 'FOLLOW UP']
 ])
 
-export function normalizeCodexChatPhase(value: unknown): CodexChatPhase | null {
+export function normalizeGatewayChatPhase(value: unknown): GatewayChatPhase | null {
   if (typeof value !== 'string') return null
   const normalized = value.trim().toLowerCase()
   if (!normalized) return null
   return phaseLookup.get(normalized) ?? null
 }
 
-function isPostRunMessage(input: CodexChatPhaseInput): boolean {
+function isPostRunMessage(input: GatewayChatPhaseInput): boolean {
   const metadata = input.metadata ?? {}
-  const codexBlock = typeof metadata.codexBlock === 'string' ? metadata.codexBlock : ''
+  const gatewayBlock = typeof metadata.gatewayBlock === 'string' ? metadata.gatewayBlock : ''
   const parentRunId = typeof metadata.parentRunId === 'string' ? metadata.parentRunId.trim() : ''
-  return codexBlock === 'post-run-start'
-    || codexBlock === 'post-run-prompt'
+  return gatewayBlock === 'post-run-start'
+    || gatewayBlock === 'post-run-prompt'
     || Boolean(parentRunId)
 }
 
-export function inferCodexChatPhase(input: CodexChatPhaseInput): CodexChatPhase {
-  const explicitPhase = normalizeCodexChatPhase(input.phase)
+export function inferGatewayChatPhase(input: GatewayChatPhaseInput): GatewayChatPhase {
+  const explicitPhase = normalizeGatewayChatPhase(input.phase)
   if (explicitPhase) return explicitPhase
-  const metadataPhase = normalizeCodexChatPhase(input.metadata?.phase)
+  const metadataPhase = normalizeGatewayChatPhase(input.metadata?.phase)
   if (metadataPhase) return metadataPhase
-  if (input.source === 'codex-plan') return 'PLAN'
-  if (input.source === 'codex-run') return isPostRunMessage(input) ? 'POST-RUNNING' : 'RUN'
+  if (input.source === 'gateway-plan') return 'PLAN'
+  if (input.source === 'gateway-run') return isPostRunMessage(input) ? 'POST-RUNNING' : 'RUN'
   return 'FOLLOW UP'
 }
 
-export function codexChatPhaseTone(phase: CodexChatPhase): CodexChatPhaseTone {
+export function gatewayChatPhaseTone(phase: GatewayChatPhase): GatewayChatPhaseTone {
   if (phase === 'PLAN') return 'plan'
   if (phase === 'RUN') return 'run'
   if (phase === 'POST-RUNNING') return 'post-running'
   return 'follow-up'
 }
 
-const lifecycleStatusMeta: Record<CodexLifecycleStatusKey, CodexLifecycleStatusMeta> = {
+const lifecycleStatusMeta: Record<GatewayLifecycleStatusKey, GatewayLifecycleStatusMeta> = {
   'not-planned': { key: 'not-planned', label: 'Not Planned', tone: 'neutral', active: false, completed: false },
   planning: { key: 'planning', label: 'Planning', tone: 'planning', active: true, completed: false },
   planned: { key: 'planned', label: 'Planned', tone: 'planned', active: false, completed: true },
@@ -109,18 +109,18 @@ const lifecycleStatusMeta: Record<CodexLifecycleStatusKey, CodexLifecycleStatusM
   failed: { key: 'failed', label: 'Failed', tone: 'failed', active: false, completed: false }
 }
 
-export function codexLifecycleStatusMeta(status: CodexLifecycleStatusKey): CodexLifecycleStatusMeta {
+export function gatewayLifecycleStatusMeta(status: GatewayLifecycleStatusKey): GatewayLifecycleStatusMeta {
   return lifecycleStatusMeta[status]
 }
 
-export function codexChatPhaseActionLabel(phase: CodexChatPhase): string {
+export function gatewayChatPhaseActionLabel(phase: GatewayChatPhase): string {
   if (phase === 'PLAN') return 'Plan'
   if (phase === 'RUN') return 'Run'
   if (phase === 'POST-RUNNING') return 'Post Run'
   return 'Follow-up'
 }
 
-export function codexChatLifecycleStatusKey(phase: CodexChatPhase, status: CodexChatLifecycleRawStatus, active: boolean): CodexLifecycleStatusKey {
+export function gatewayChatLifecycleStatusKey(phase: GatewayChatPhase, status: GatewayChatLifecycleRawStatus, active: boolean): GatewayLifecycleStatusKey {
   if (status === 'failed') return 'failed'
   if (active) {
     if (phase === 'PLAN') return 'planning'
@@ -134,6 +134,6 @@ export function codexChatLifecycleStatusKey(phase: CodexChatPhase, status: Codex
   return 'followed-up'
 }
 
-export function codexChatPhaseStatusLabel(phase: CodexChatPhase, running: boolean): string {
-  return codexLifecycleStatusMeta(codexChatLifecycleStatusKey(phase, 'event', running)).label
+export function gatewayChatPhaseStatusLabel(phase: GatewayChatPhase, running: boolean): string {
+  return gatewayLifecycleStatusMeta(gatewayChatLifecycleStatusKey(phase, 'event', running)).label
 }

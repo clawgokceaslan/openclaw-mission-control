@@ -3,15 +3,15 @@ import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { Agent, CustomField, Gateway, Project, ProjectGroup, ProjectStatus, Skill, Tag, TaskEntity } from '@shared/types/entities'
 import { invokeBridge } from '@renderer/utils/api'
 import { buildProjectWorkspaceExportTaskPayload, buildTaskZipArchive } from '../taskExport'
-import { createLocalId, taskCodexGatewayId, taskCodexModel } from '../projectDetailUtils'
-import { CodexRunFeedback, ChatAttachmentDraft, ChatOperationFeedbackData, ChatConversationSummary, SlashCommand, type PlannerClarificationMode } from '../types'
+import { createLocalId, taskGatewayId, taskGatewayModel } from '../projectDetailUtils'
+import { GatewayRunFeedback, ChatAttachmentDraft, ChatOperationFeedbackData, ChatConversationSummary, SlashCommand, type PlannerClarificationMode } from '../types'
 import type { ProjectDetailStateBindings } from '../state/projectDetailState'
 
 const slashPlanToken = /(?:^|\s)\/[a-z]*$/i
 const CHAT_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024
 const CHAT_ATTACHMENT_MAX_COUNT = 10
 
-interface CodexRunResponse {
+interface GatewayRunResponse {
   runFolderPath: string
   workspacePath: string
   runtimeWorkspacePath?: string
@@ -22,7 +22,7 @@ interface CodexRunResponse {
   conversationId?: string
 }
 
-interface CodexPlanResponse {
+interface GatewayPlanResponse {
   runFolderPath: string
   runtimeWorkspacePath: string
   model: string
@@ -33,7 +33,7 @@ interface CodexPlanResponse {
   conversationId?: string
 }
 
-interface CodexChatResponse {
+interface GatewayChatResponse {
   runId: string
   conversationId: string
   executionMode: 'terminal' | 'exec'
@@ -49,7 +49,7 @@ export type CodexStopResult = {
   notFound: boolean
 }
 
-interface CodexModelsResponse {
+interface GatewayModelsResponse {
   gateway: Gateway
   models: Array<{ id: string; label?: string; lastModelRefreshAt?: number; executionMode?: string }>
   cached: boolean
@@ -65,12 +65,12 @@ interface CodexTaskExportContext {
   tags: Tag[]
   customFields: CustomField[]
   projectStatuses?: ProjectStatus[]
-  codexLanguage?: string
-  codexPlanReasoningEffort?: string
-  codexRunReasoningEffort?: string
+  gatewayLanguage?: string
+  gatewayPlanReasoningEffort?: string
+  gatewayRunReasoningEffort?: string
 }
 
-export interface ProjectCodexFlowContext {
+export interface ProjectGatewayFlowContext {
   token?: string
   project: Project | null
   selectedTask: TaskEntity | null
@@ -78,17 +78,17 @@ export interface ProjectCodexFlowContext {
   taskRunGatewayId: string
   taskPlanModel: string
   taskRunModel: string
-  savedCodexDefaultGatewayId: string
-  savedCodexDefaultModel: string
-  savedCodexDefaultPlanModel: string
-  savedCodexDefaultRunModel: string
+  savedGatewayDefaultGatewayId: string
+  savedGatewayDefaultModel: string
+  savedGatewayDefaultPlanModel: string
+  savedGatewayDefaultRunModel: string
   chatDraft: string
   chatAttachments: ChatAttachmentDraft[]
   chatGatewayId: string
   chatModel: string
   chatPlanModel: string
   chatRunModel: string
-  codexLanguage: string
+  gatewayLanguage: string
   planReasoningEffort?: string
   runReasoningEffort?: string
   chatIncludeContext: boolean
@@ -96,26 +96,26 @@ export interface ProjectCodexFlowContext {
   selectedChatConversationId: string
   isStartingNewChat: boolean
   selectedChatSummary: ChatConversationSummary | null
-  codexRunFeedback: CodexRunFeedback | null
-  codexRunLaunching: boolean
-  codexPlanLaunching: boolean
+  gatewayRunFeedback: GatewayRunFeedback | null
+  gatewayRunLaunching: boolean
+  gatewayPlanLaunching: boolean
   chatSending: boolean
   chatStopping: boolean
   chatFollowUpContext?: string
   state: Pick<
     ProjectDetailStateBindings,
-    | 'setCodexRunLaunching'
-    | 'setCodexPlanLaunching'
-    | 'setCodexRunFeedback'
+    | 'setGatewayRunLaunching'
+    | 'setGatewayPlanLaunching'
+    | 'setGatewayRunFeedback'
     | 'setChatSending'
     | 'setChatStopping'
     | 'setChatSettingsOpen'
     | 'setIsChatPopupOpen'
     | 'setIsStartingNewChat'
     | 'setSelectedChatConversationId'
-    | 'setCodexModelLoading'
-    | 'setCodexModelError'
-    | 'setCodexDefaultModel'
+    | 'setGatewayModelLoading'
+    | 'setGatewayModelError'
+    | 'setGatewayDefaultModel'
     | 'setChatDraft'
     | 'setChatAttachments'
     | 'setChatComposerMode'
@@ -127,7 +127,7 @@ export interface ProjectCodexFlowContext {
   openChatAttachmentPicker: () => void
 }
 
-export interface UseProjectCodexFlowResult {
+export interface UseProjectGatewayFlowResult {
   chatMode: 'chat' | 'plan' | 'steer'
   canRunSelectedTaskWithCodex: boolean
   canPlanSelectedTaskWithCodex: boolean
@@ -136,19 +136,19 @@ export interface UseProjectCodexFlowResult {
   chatOperationFeedback: ChatOperationFeedbackData | null
   planChoiceOpen: boolean
   selectedTaskSummary: string
-  refreshCodexGatewayModels: (gatewayId: string) => Promise<void>
+  refreshGatewayModels: (gatewayId: string) => Promise<void>
   runSelectedTaskWithCodex: () => Promise<void>
   planSelectedTaskWithCodex: () => Promise<void>
-  confirmPlanWithCodex: (clarificationMode: PlannerClarificationMode) => Promise<void>
+  confirmPlanWithGateway: (clarificationMode: PlannerClarificationMode) => Promise<void>
   closePlanChoice: () => void
-  sendCodexChatMessage: () => Promise<void>
+  sendGatewayChatMessage: () => Promise<void>
   sendPlannerClarification: (answer: string) => Promise<void>
-  stopCodexChat: (conversationIdOverride?: string) => Promise<CodexStopResult>
+  stopGatewayChat: (conversationIdOverride?: string) => Promise<CodexStopResult>
   addChatAttachments: (files: FileList | File[]) => Promise<void>
   applySlashCommand: (command: SlashCommand) => Promise<void>
 }
 
-export function useProjectCodexFlow({
+export function useProjectGatewayFlow({
   token,
   project,
   selectedTask,
@@ -156,17 +156,17 @@ export function useProjectCodexFlow({
   taskRunGatewayId,
   taskPlanModel,
   taskRunModel,
-  savedCodexDefaultGatewayId,
-  savedCodexDefaultModel,
-  savedCodexDefaultPlanModel,
-  savedCodexDefaultRunModel,
+  savedGatewayDefaultGatewayId,
+  savedGatewayDefaultModel,
+  savedGatewayDefaultPlanModel,
+  savedGatewayDefaultRunModel,
   chatDraft,
   chatAttachments,
   chatGatewayId,
   chatModel,
   chatPlanModel,
   chatRunModel,
-  codexLanguage,
+  gatewayLanguage,
   planReasoningEffort = 'medium',
   runReasoningEffort = 'medium',
   chatIncludeContext,
@@ -175,27 +175,27 @@ export function useProjectCodexFlow({
   selectedChatConversationId,
   isStartingNewChat,
   selectedChatSummary,
-  codexRunFeedback,
-  codexRunLaunching,
-  codexPlanLaunching,
+  gatewayRunFeedback,
+  gatewayRunLaunching,
+  gatewayPlanLaunching,
   chatSending,
   chatStopping,
   state,
   openChatAttachmentPicker,
-}: ProjectCodexFlowContext): UseProjectCodexFlowResult {
+}: ProjectGatewayFlowContext): UseProjectGatewayFlowResult {
   const {
-    setCodexRunLaunching,
-    setCodexPlanLaunching,
-    setCodexRunFeedback,
+    setGatewayRunLaunching,
+    setGatewayPlanLaunching,
+    setGatewayRunFeedback,
     setChatSending,
     setChatStopping,
     setChatSettingsOpen,
     setIsChatPopupOpen,
     setIsStartingNewChat,
     setSelectedChatConversationId,
-    setCodexModelLoading,
-    setCodexModelError,
-    setCodexDefaultModel,
+    setGatewayModelLoading,
+    setGatewayModelError,
+    setGatewayDefaultModel,
     setChatDraft,
     setChatAttachments,
     setChatComposerMode,
@@ -205,11 +205,11 @@ export function useProjectCodexFlow({
     setGateways
   } = state
 
-  const selectedTaskGatewayId = selectedTask ? taskCodexGatewayId(selectedTask) : ''
-  const selectedTaskGatewayModel = selectedTask ? taskCodexModel(selectedTask) : ''
-  const resolvedTaskGatewayId = taskRunGatewayId || selectedTaskGatewayId || savedCodexDefaultGatewayId
-  const resolvedPlanModel = taskPlanModel || selectedTaskGatewayModel || savedCodexDefaultPlanModel || savedCodexDefaultModel
-  const resolvedRunModel = taskRunModel || selectedTaskGatewayModel || savedCodexDefaultRunModel || savedCodexDefaultModel
+  const selectedTaskGatewayId = selectedTask ? taskGatewayId(selectedTask) : ''
+  const selectedTaskGatewayModel = selectedTask ? taskGatewayModel(selectedTask) : ''
+  const resolvedTaskGatewayId = taskRunGatewayId || selectedTaskGatewayId || savedGatewayDefaultGatewayId
+  const resolvedPlanModel = taskPlanModel || selectedTaskGatewayModel || savedGatewayDefaultPlanModel || savedGatewayDefaultModel
+  const resolvedRunModel = taskRunModel || selectedTaskGatewayModel || savedGatewayDefaultRunModel || savedGatewayDefaultModel
 
   const isPlanDraft = chatDraft.trim().toLowerCase().startsWith('/plan')
   const chatMode: 'chat' | 'plan' | 'steer' = isPlanDraft ? 'plan' : chatComposerMode
@@ -220,65 +220,65 @@ export function useProjectCodexFlow({
   const selectedTaskSummary = selectedTask?.title ?? ''
   const [planChoiceOpen, setPlanChoiceOpen] = useState(false)
 
-  const refreshCodexGatewayModels = useCallback(async (gatewayId: string) => {
+  const refreshGatewayModels = useCallback(async (gatewayId: string) => {
     if (!gatewayId) return
-    setCodexModelLoading(true)
-    setCodexModelError(null)
+    setGatewayModelLoading(true)
+    setGatewayModelError(null)
 
-    const response = await invokeBridge<CodexModelsResponse>(IPC_CHANNELS.gateways.codexModels, {
+    const response = await invokeBridge<GatewayModelsResponse>(IPC_CHANNELS.gateways.gatewayModels, {
       actorToken: token,
       gatewayId
     })
-    setCodexModelLoading(false)
+    setGatewayModelLoading(false)
     if (!response.ok || !response.data) {
-      setCodexModelError(response.error?.message ?? 'Unable to load Codex models')
+      setGatewayModelError(response.error?.message ?? 'Unable to load Codex models')
       return
     }
-    if (response.data.error) setCodexModelError(response.data.error)
+    if (response.data.error) setGatewayModelError(response.data.error)
 
     setGateways((current) => current.map((gateway) => gateway.id === response.data!.gateway.id ? response.data!.gateway : gateway))
     const modelIds = new Set(response.data.models.map((model) => model.id))
-    if (gatewayId === savedCodexDefaultGatewayId && savedCodexDefaultModel && !modelIds.has(savedCodexDefaultModel)) {
-      setCodexDefaultModel('')
+    if (gatewayId === savedGatewayDefaultGatewayId && savedGatewayDefaultModel && !modelIds.has(savedGatewayDefaultModel)) {
+      setGatewayDefaultModel('')
     }
-    if (gatewayId === savedCodexDefaultGatewayId && resolvedRunModel && !modelIds.has(resolvedRunModel)) {
+    if (gatewayId === savedGatewayDefaultGatewayId && resolvedRunModel && !modelIds.has(resolvedRunModel)) {
       setSelectedChatConversationId('')
     }
     setError(response.data.error ?? null)
   }, [
     token,
-    setCodexModelLoading,
-    setCodexModelError,
+    setGatewayModelLoading,
+    setGatewayModelError,
     setGateways,
-    setCodexDefaultModel,
+    setGatewayDefaultModel,
     setSelectedChatConversationId,
     setError,
-    savedCodexDefaultGatewayId,
-    savedCodexDefaultModel,
+    savedGatewayDefaultGatewayId,
+    savedGatewayDefaultModel,
     resolvedRunModel
   ])
 
   const runSelectedTaskWithCodex = useCallback(async () => {
     if (!selectedTask || !selectedTaskExportContext || !project) {
-      setCodexRunFeedback({ kind: 'error', message: 'Task is not ready for a Codex run.' })
+      setGatewayRunFeedback({ kind: 'error', message: 'Task is not ready for a Codex run.' })
       return
     }
 
     if (!resolvedTaskGatewayId) {
-      setCodexRunFeedback({ kind: 'error', message: 'Configure a Codex gateway before running this task.' })
+      setGatewayRunFeedback({ kind: 'error', message: 'Configure a Codex gateway before running this task.' })
       setChatSettingsOpen(true)
       setDetailTab('model')
       return
     }
     if (!resolvedRunModel) {
-      setCodexRunFeedback({ kind: 'error', message: 'Choose a Codex model before running this task.' })
+      setGatewayRunFeedback({ kind: 'error', message: 'Choose a Codex model before running this task.' })
       setChatSettingsOpen(true)
       setDetailTab('model')
       return
     }
 
-    setCodexRunFeedback(null)
-    setCodexRunLaunching(true)
+    setGatewayRunFeedback(null)
+    setGatewayRunLaunching(true)
     setIsChatPopupOpen(true)
     setIsStartingNewChat(false)
     try {
@@ -289,13 +289,13 @@ export function useProjectCodexFlow({
         projectId: project.id,
         gatewayId: resolvedTaskGatewayId,
         model: resolvedRunModel,
-        language: codexLanguage,
+        language: gatewayLanguage,
         reasoningEffort: runReasoningEffort,
         generalContext: project.generalContext ?? '',
         generalPrompt: project.generalPrompt ?? '',
         defaultOutput: project.defaultOutput ?? ''
       }
-      let response = await invokeBridge<CodexRunResponse>(IPC_CHANNELS.tasks.runCodex, {
+      let response = await invokeBridge<GatewayRunResponse>(IPC_CHANNELS.tasks.runGateway, {
         ...basePayload,
         taskMarkdown: snapshot.taskMarkdown,
         agentMarkdown: snapshot.agentMarkdown,
@@ -305,18 +305,18 @@ export function useProjectCodexFlow({
       const errorMessage = response.ok ? '' : response.error?.message ?? ''
       if (!response.ok && /zip bytes|required/i.test(errorMessage)) {
         const zip = await buildTaskZipArchive(selectedTaskExportContext)
-        response = await invokeBridge<CodexRunResponse>(IPC_CHANNELS.tasks.runCodex, {
+        response = await invokeBridge<GatewayRunResponse>(IPC_CHANNELS.tasks.runGateway, {
           ...basePayload,
           zipName: zip.fileName,
           zipBytes: zip.archive
         })
       }
       if (!response.ok) {
-        setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex' })
+        setGatewayRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex' })
         return
       }
       if (response.data?.conversationId || response.data?.runId) setSelectedChatConversationId(response.data.conversationId ?? response.data.runId ?? '')
-      setCodexRunFeedback({
+      setGatewayRunFeedback({
         kind: 'success',
         message: response.data.executionMode === 'exec'
           ? 'Codex exec started. Chat will update as it runs.'
@@ -324,9 +324,9 @@ export function useProjectCodexFlow({
       })
       setError(null)
     } catch (error) {
-      setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to launch Codex' })
+      setGatewayRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to launch Codex' })
     } finally {
-      setCodexRunLaunching(false)
+      setGatewayRunLaunching(false)
     }
   }, [
     project,
@@ -334,11 +334,11 @@ export function useProjectCodexFlow({
     selectedTaskExportContext,
     resolvedTaskGatewayId,
     resolvedRunModel,
-    codexLanguage,
+    gatewayLanguage,
     runReasoningEffort,
     token,
-    setCodexRunFeedback,
-    setCodexRunLaunching,
+    setGatewayRunFeedback,
+    setGatewayRunLaunching,
     setIsChatPopupOpen,
     setIsStartingNewChat,
     setSelectedChatConversationId,
@@ -349,10 +349,10 @@ export function useProjectCodexFlow({
 
   const planSelectedTaskWithCodex = useCallback(async () => {
     if (!selectedTask || !project) {
-      setCodexRunFeedback({ kind: 'error', message: 'Task is not ready for Codex planning.' })
+      setGatewayRunFeedback({ kind: 'error', message: 'Task is not ready for Codex planning.' })
       return
     }
-    setCodexRunFeedback(null)
+    setGatewayRunFeedback(null)
     setIsChatPopupOpen(true)
     setIsStartingNewChat(false)
     setChatSettingsOpen(false)
@@ -360,7 +360,7 @@ export function useProjectCodexFlow({
   }, [
     project,
     selectedTask,
-    setCodexRunFeedback,
+    setGatewayRunFeedback,
     setIsChatPopupOpen,
     setIsStartingNewChat,
     setChatSettingsOpen
@@ -370,38 +370,38 @@ export function useProjectCodexFlow({
     setPlanChoiceOpen(false)
   }, [])
 
-  const confirmPlanWithCodex = useCallback(async (clarificationMode: PlannerClarificationMode) => {
+  const confirmPlanWithGateway = useCallback(async (clarificationMode: PlannerClarificationMode) => {
     if (!selectedTask || !project) {
-      setCodexRunFeedback({ kind: 'error', message: 'Task is not ready for Codex planning.' })
+      setGatewayRunFeedback({ kind: 'error', message: 'Task is not ready for Codex planning.' })
       return
     }
     setPlanChoiceOpen(false)
 
     if (!resolvedTaskGatewayId) {
-      setCodexRunFeedback({ kind: 'error', message: 'Configure a Codex gateway before planning this task.' })
+      setGatewayRunFeedback({ kind: 'error', message: 'Configure a Codex gateway before planning this task.' })
       setChatSettingsOpen(true)
       setDetailTab('model')
       return
     }
     if (!resolvedPlanModel) {
-      setCodexRunFeedback({ kind: 'error', message: 'Choose a Codex plan model before planning this task.' })
+      setGatewayRunFeedback({ kind: 'error', message: 'Choose a Codex plan model before planning this task.' })
       setChatSettingsOpen(true)
       setDetailTab('model')
       return
     }
 
-    setCodexRunFeedback(null)
-    setCodexPlanLaunching(true)
+    setGatewayRunFeedback(null)
+    setGatewayPlanLaunching(true)
     setIsChatPopupOpen(true)
     setIsStartingNewChat(false)
     try {
-      const response = await invokeBridge<CodexPlanResponse>(IPC_CHANNELS.tasks.planWithCodex, {
+      const response = await invokeBridge<GatewayPlanResponse>(IPC_CHANNELS.tasks.planWithGateway, {
         actorToken: token,
         taskId: selectedTask.id,
         projectId: project.id,
         gatewayId: resolvedTaskGatewayId,
         model: resolvedPlanModel,
-        language: codexLanguage,
+        language: gatewayLanguage,
         reasoningEffort: planReasoningEffort,
         clarificationMode,
         generalContext: project.generalContext ?? '',
@@ -409,11 +409,11 @@ export function useProjectCodexFlow({
         defaultOutput: project.defaultOutput ?? ''
       })
       if (!response.ok) {
-        setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex planner' })
+        setGatewayRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex planner' })
         return
       }
       if (response.data?.conversationId || response.data?.runId) setSelectedChatConversationId(response.data.conversationId ?? response.data.runId ?? '')
-      setCodexRunFeedback({
+      setGatewayRunFeedback({
         kind: 'success',
         message: response.data.executionMode === 'exec'
           ? 'Codex planner exec started. Chat will update as it runs.'
@@ -421,20 +421,20 @@ export function useProjectCodexFlow({
       })
       setError(null)
     } catch (error) {
-      setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to launch Codex planner' })
+      setGatewayRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to launch Codex planner' })
     } finally {
-      setCodexPlanLaunching(false)
+      setGatewayPlanLaunching(false)
     }
   }, [
     project,
     selectedTask,
     resolvedTaskGatewayId,
     resolvedPlanModel,
-    codexLanguage,
+    gatewayLanguage,
     planReasoningEffort,
     token,
-    setCodexRunFeedback,
-    setCodexPlanLaunching,
+    setGatewayRunFeedback,
+    setGatewayPlanLaunching,
     setIsChatPopupOpen,
     setIsStartingNewChat,
     setSelectedChatConversationId,
@@ -443,49 +443,49 @@ export function useProjectCodexFlow({
     setDetailTab
   ])
 
-  const sendCodexChatMessage = useCallback(async (draftOverride?: string) => {
+  const sendGatewayChatMessage = useCallback(async (draftOverride?: string) => {
     if (!selectedTask || !project) return
     const draftText = draftOverride ?? chatDraft
     if (!draftText.trim() && chatAttachments.length === 0) return
     const effectiveSelectedChatSummary = isStartingNewChat ? null : selectedChatSummary
-    const sendAsPlanRevision = chatMode !== 'steer' && !isStartingNewChat && effectiveSelectedChatSummary?.source === 'codex-plan'
+    const sendAsPlanRevision = chatMode !== 'steer' && !isStartingNewChat && effectiveSelectedChatSummary?.source === 'gateway-plan'
     const effectiveChatMode = chatMode === 'steer' ? 'steer' : sendAsPlanRevision ? 'plan' : chatMode
-    const sendAsPlannerClarification = !isStartingNewChat && effectiveSelectedChatSummary?.source === 'codex-plan'
+    const sendAsPlannerClarification = !isStartingNewChat && effectiveSelectedChatSummary?.source === 'gateway-plan'
     const resolvedChatModel = sendAsPlannerClarification || effectiveChatMode === 'plan'
       ? (chatPlanModel || chatModel)
       : (chatRunModel || chatModel)
     if (!chatGatewayId || !resolvedChatModel) {
       setChatSettingsOpen(true)
-      setCodexRunFeedback({ kind: 'error', message: 'Choose a Codex gateway and model before sending chat.' })
+      setGatewayRunFeedback({ kind: 'error', message: 'Choose a Codex gateway and model before sending chat.' })
       return
     }
-    if ((chatMode === 'steer' || effectiveSelectedChatSummary?.source === 'codex-plan') && !selectedChatConversationId) {
-      setCodexRunFeedback({ kind: 'error', message: 'Select a conversation before sending a steer message.' })
+    if ((chatMode === 'steer' || effectiveSelectedChatSummary?.source === 'gateway-plan') && !selectedChatConversationId) {
+      setGatewayRunFeedback({ kind: 'error', message: 'Select a conversation before sending a steer message.' })
       return
     }
 
     setChatSending(true)
-    setCodexRunFeedback(null)
+    setGatewayRunFeedback(null)
 
     try {
       if (sendAsPlannerClarification) {
         if (chatAttachments.length > 0) {
-          setCodexRunFeedback({ kind: 'error', message: 'Planner clarification does not support attachments. Remove attachments and send the answer as text.' })
+          setGatewayRunFeedback({ kind: 'error', message: 'Planner clarification does not support attachments. Remove attachments and send the answer as text.' })
           return
         }
-        const response = await invokeBridge<CodexPlanResponse>(IPC_CHANNELS.tasks.planWithCodex, {
+        const response = await invokeBridge<GatewayPlanResponse>(IPC_CHANNELS.tasks.planWithGateway, {
           actorToken: token,
           taskId: selectedTask.id,
           projectId: project.id,
           gatewayId: chatGatewayId,
           model: resolvedChatModel,
-          language: codexLanguage,
+          language: gatewayLanguage,
           reasoningEffort: planReasoningEffort,
           conversationId: selectedChatConversationId,
           clarificationMessage: draftText.trim()
         })
         if (!response.ok || !response.data) {
-          setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to send planner clarification.' })
+          setGatewayRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to send planner clarification.' })
           return
         }
         setSelectedChatConversationId(response.data.conversationId ?? selectedChatConversationId)
@@ -493,13 +493,13 @@ export function useProjectCodexFlow({
         setChatDraft('')
         setChatAttachments([])
         setChatComposerMode('chat')
-        setCodexRunFeedback(response.data.executionMode === 'terminal'
+        setGatewayRunFeedback(response.data.executionMode === 'terminal'
           ? { kind: 'success', message: 'Codex planner launched with your clarification.' }
           : null)
         return
       }
 
-      const response = await invokeBridge<CodexChatResponse>(IPC_CHANNELS.tasks.codexChatSend, {
+      const response = await invokeBridge<GatewayChatResponse>(IPC_CHANNELS.tasks.gatewayChatSend, {
         actorToken: token,
         taskId: selectedTask.id,
         projectId: project.id,
@@ -507,7 +507,7 @@ export function useProjectCodexFlow({
         gatewayId: chatGatewayId,
         followUpContext: isStartingNewChat ? chatFollowUpContext?.trim() || undefined : undefined,
         model: resolvedChatModel,
-        language: codexLanguage,
+        language: gatewayLanguage,
         reasoningEffort: effectiveChatMode === 'plan' ? planReasoningEffort : runReasoningEffort,
         conversationId: isStartingNewChat ? undefined : selectedChatConversationId || undefined,
         includeTaskContext: isStartingNewChat ? false : chatIncludeContext,
@@ -515,7 +515,7 @@ export function useProjectCodexFlow({
         attachments: chatAttachments.map((attachment) => ({ name: attachment.name, bytes: attachment.bytes }))
       })
       if (!response.ok || !response.data) {
-        setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to send Codex chat message.' })
+        setGatewayRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to send Codex chat message.' })
         return
       }
       setSelectedChatConversationId(response.data.conversationId)
@@ -524,12 +524,12 @@ export function useProjectCodexFlow({
       setChatAttachments([])
       setChatComposerMode('chat')
       if (response.data.executionMode === 'terminal') {
-        setCodexRunFeedback({ kind: 'success', message: 'Codex terminal chat launched.' })
+        setGatewayRunFeedback({ kind: 'success', message: 'Codex terminal chat launched.' })
       } else {
-        setCodexRunFeedback(null)
+        setGatewayRunFeedback(null)
       }
     } catch (error) {
-      setCodexRunFeedback({
+      setGatewayRunFeedback({
         kind: 'error',
         message: error instanceof Error ? error.message : 'Unable to send Codex chat message.'
       })
@@ -545,7 +545,7 @@ export function useProjectCodexFlow({
     chatModel,
     chatPlanModel,
     chatRunModel,
-    codexLanguage,
+    gatewayLanguage,
     planReasoningEffort,
     runReasoningEffort,
     isStartingNewChat,
@@ -556,7 +556,7 @@ export function useProjectCodexFlow({
     chatFollowUpContext,
     token,
     setChatSending,
-    setCodexRunFeedback,
+    setGatewayRunFeedback,
     setSelectedChatConversationId,
     setIsStartingNewChat,
     setChatDraft,
@@ -566,31 +566,31 @@ export function useProjectCodexFlow({
   ])
 
   const sendPlannerClarification = useCallback(async (answer: string) => {
-    await sendCodexChatMessage(answer)
-  }, [sendCodexChatMessage])
+    await sendGatewayChatMessage(answer)
+  }, [sendGatewayChatMessage])
 
-  const stopCodexChat = useCallback(async (conversationIdOverride?: string): Promise<CodexStopResult> => {
+  const stopGatewayChat = useCallback(async (conversationIdOverride?: string): Promise<CodexStopResult> => {
     const conversationId = conversationIdOverride || selectedChatConversationId
     if (!selectedTask) return { conversationId, stopped: 0, notFound: true }
     setChatStopping(true)
-    setCodexRunFeedback(null)
+    setGatewayRunFeedback(null)
     try {
-      const response = await invokeBridge<CodexStopResponse>(IPC_CHANNELS.tasks.codexChatStop, {
+      const response = await invokeBridge<CodexStopResponse>(IPC_CHANNELS.tasks.gatewayChatStop, {
         actorToken: token,
         taskId: selectedTask.id,
         conversationId: conversationId || undefined
       })
       if (!response.ok) {
-        setCodexRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to stop Codex chat.' })
+        setGatewayRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to stop Codex chat.' })
         return { conversationId, stopped: 0, notFound: false }
       }
       if (!response.data?.stopped) {
-        setCodexRunFeedback({ kind: 'error', message: 'No active Codex chat was found to stop.' })
+        setGatewayRunFeedback({ kind: 'error', message: 'No active Codex chat was found to stop.' })
         return { conversationId, stopped: 0, notFound: true }
       }
       return { conversationId, stopped: response.data.stopped, notFound: false }
     } catch (error) {
-      setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to stop Codex chat.' })
+      setGatewayRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to stop Codex chat.' })
       return { conversationId, stopped: 0, notFound: false }
     } finally {
       setChatStopping(false)
@@ -600,7 +600,7 @@ export function useProjectCodexFlow({
     selectedChatConversationId,
     token,
     setChatStopping,
-    setCodexRunFeedback
+    setGatewayRunFeedback
   ])
 
   const addChatAttachments = useCallback(async (files: FileList | File[]) => {
@@ -612,20 +612,20 @@ export function useProjectCodexFlow({
     }
     for (const file of selectedFiles.slice(0, CHAT_ATTACHMENT_MAX_COUNT)) {
       if (file.size > CHAT_ATTACHMENT_MAX_BYTES) {
-        setCodexRunFeedback({ kind: 'error', message: `${file.name} is larger than 25 MB and was not attached.` })
+        setGatewayRunFeedback({ kind: 'error', message: `${file.name} is larger than 25 MB and was not attached.` })
         continue
       }
       try {
         const bytes = Array.from(new Uint8Array(await file.arrayBuffer()))
         next.push({ id: createLocalId(), name: file.name, size: file.size, bytes })
       } catch (error) {
-        setCodexRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : `Unable to read ${file.name}.` })
+        setGatewayRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : `Unable to read ${file.name}.` })
       }
     }
     if (next.length > 0) {
       setChatAttachments((current) => [...current, ...next].slice(0, CHAT_ATTACHMENT_MAX_COUNT))
     }
-  }, [openChatAttachmentPicker, setChatAttachments, setCodexRunFeedback])
+  }, [openChatAttachmentPicker, setChatAttachments, setGatewayRunFeedback])
 
   const applySlashCommand = useCallback(async (command: SlashCommand) => {
     if (command.id === 'plan') {
@@ -664,19 +664,19 @@ export function useProjectCodexFlow({
     setChatSettingsOpen
   ])
 
-  const chatOperationFeedback: ChatOperationFeedbackData | null = codexPlanLaunching
+  const chatOperationFeedback: ChatOperationFeedbackData | null = gatewayPlanLaunching
     ? { state: 'running', title: 'Planning with Codex', message: `Launching ${chatPlanModel || resolvedPlanModel || 'the selected model'} with the current task context.` }
-    : codexRunLaunching
+    : gatewayRunLaunching
       ? { state: 'running', title: 'Working with Codex', message: `Preparing the task workspace for ${chatRunModel || chatModel || resolvedRunModel || 'the selected model'}.` }
       : chatSending
         ? { state: 'running', title: 'Sending message', message: `Starting ${chatRunModel || chatModel || 'the selected model'} for this chat thread.` }
         : chatStopping
           ? { state: 'running', title: 'Stopping chat', message: 'Asking Codex to stop the active chat.' }
-          : codexRunFeedback
+          : gatewayRunFeedback
             ? {
-                state: codexRunFeedback.kind,
-                title: codexRunFeedback.kind === 'error' ? 'Action needs attention' : 'Operation started',
-                message: codexRunFeedback.message
+                state: gatewayRunFeedback.kind,
+                title: gatewayRunFeedback.kind === 'error' ? 'Action needs attention' : 'Operation started',
+                message: gatewayRunFeedback.message
               }
             : null
 
@@ -690,14 +690,14 @@ export function useProjectCodexFlow({
     chatOperationFeedback,
     planChoiceOpen,
     selectedTaskSummary,
-    refreshCodexGatewayModels,
+    refreshGatewayModels,
     runSelectedTaskWithCodex,
     planSelectedTaskWithCodex,
-    confirmPlanWithCodex,
+    confirmPlanWithGateway,
     closePlanChoice,
-    sendCodexChatMessage,
+    sendGatewayChatMessage,
     sendPlannerClarification,
-    stopCodexChat,
+    stopGatewayChat,
     addChatAttachments,
     applySlashCommand
   }

@@ -82,27 +82,27 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
 })
 
-describe('TaskRepository.listPlannedCodex', () => {
+describe('TaskRepository.listPlannedGateway', () => {
   it('filters planned Codex tasks by organization and paginates newest first', async () => {
     const db = await createDb()
     const repo = new TaskRepository(db)
-    await insertProject(db, 'project-a', 'org-1', 'Alpha', { codex: { gatewayId: 'gw-1', runModel: 'gpt-5.5' } })
+    await insertProject(db, 'project-a', 'org-1', 'Alpha', { gateway: { gatewayId: 'gw-1', runModel: 'gpt-5.5' } })
     await insertProject(db, 'project-b', 'org-1', 'Beta')
     await insertProject(db, 'project-c', 'org-2', 'Other')
-    await insertTask(db, 'task-1', 'project-a', 'First planned', 10, { codexPlanState: { state: 'planned' } })
-    await insertTask(db, 'task-2', 'project-b', 'Newest planned', 30, { codexPlanState: { state: 'planned' } })
-    await insertTask(db, 'task-3', 'project-a', 'Needs info', 40, { codexPlanState: { state: 'needs-clarification' } })
-    await insertTask(db, 'task-4', 'project-c', 'Wrong org', 50, { codexPlanState: { state: 'planned' } })
+    await insertTask(db, 'task-1', 'project-a', 'First planned', 10, { gatewayPlanState: { state: 'planned' } })
+    await insertTask(db, 'task-2', 'project-b', 'Newest planned', 30, { gatewayPlanState: { state: 'planned' } })
+    await insertTask(db, 'task-3', 'project-a', 'Needs info', 40, { gatewayPlanState: { state: 'needs-clarification' } })
+    await insertTask(db, 'task-4', 'project-c', 'Wrong org', 50, { gatewayPlanState: { state: 'planned' } })
 
-    const firstPage = await repo.listPlannedCodex('org-1', 1, 1)
-    const secondPage = await repo.listPlannedCodex('org-1', 2, 1)
+    const firstPage = await repo.listPlannedGateway('org-1', 1, 1)
+    const secondPage = await repo.listPlannedGateway('org-1', 2, 1)
 
     expect(firstPage.total).toBe(2)
     expect(firstPage.rows).toHaveLength(1)
     expect(firstPage.rows[0].task.id).toBe('task-2')
     expect(firstPage.rows[0].project.name).toBe('Beta')
     expect(secondPage.rows[0].task.id).toBe('task-1')
-    expect(secondPage.rows[0].project.metrics?.codex).toEqual({ gatewayId: 'gw-1', runModel: 'gpt-5.5' })
+    expect(secondPage.rows[0].project.metrics?.gateway).toEqual({ gatewayId: 'gw-1', runModel: 'gpt-5.5' })
 
     await db.close()
   })
@@ -114,19 +114,19 @@ describe('TaskRepository.listPlannedCodex', () => {
     await insertStatus(db, 'todo-status', 'project-a', 'org-1', 'not_started', 0)
     await insertStatus(db, 'done-status', 'project-a', 'org-1', 'done', 3)
     await insertStatus(db, 'closed-status', 'project-a', 'org-1', 'closed', 4)
-    await insertTaskWithStatus(db, 'task-ready', 'project-a', 'Ready planned', 'todo-status', 50, { codexPlanState: { state: 'planned' } })
-    await insertTaskWithStatus(db, 'task-done', 'project-a', 'Done planned', 'done-status', 40, { codexPlanState: { state: 'planned' } })
-    await insertTaskWithStatus(db, 'task-closed', 'project-a', 'Closed planned', 'closed-status', 30, { codexPlanState: { state: 'planned' } })
+    await insertTaskWithStatus(db, 'task-ready', 'project-a', 'Ready planned', 'todo-status', 50, { gatewayPlanState: { state: 'planned' } })
+    await insertTaskWithStatus(db, 'task-done', 'project-a', 'Done planned', 'done-status', 40, { gatewayPlanState: { state: 'planned' } })
+    await insertTaskWithStatus(db, 'task-closed', 'project-a', 'Closed planned', 'closed-status', 30, { gatewayPlanState: { state: 'planned' } })
     await insertTaskWithStatus(db, 'task-started', 'project-a', 'Started planned', 'todo-status', 20, {
-      codexPlanState: { state: 'planned' },
-      activityMessages: [{ source: 'codex-run', status: 'running' }]
+      gatewayPlanState: { state: 'planned' },
+      activityMessages: [{ source: 'gateway-run', status: 'running' }]
     })
     await insertTaskWithStatus(db, 'task-finished', 'project-a', 'Finished planned', 'todo-status', 10, {
-      codexPlanState: { state: 'planned' },
-      activityMessages: [{ source: 'codex-run', status: 'completed', metadata: { codexBlock: 'run-complete' } }]
+      gatewayPlanState: { state: 'planned' },
+      activityMessages: [{ source: 'gateway-run', status: 'completed', metadata: { gatewayBlock: 'run-complete' } }]
     })
 
-    const page = await repo.listPlannedCodex('org-1', 1, 10)
+    const page = await repo.listPlannedGateway('org-1', 1, 10)
 
     expect(page.total).toBe(1)
     expect(page.rows.map((row) => row.task.id)).toEqual(['task-ready'])
@@ -135,7 +135,7 @@ describe('TaskRepository.listPlannedCodex', () => {
   })
 })
 
-describe('TaskRepository.listRunningCodex', () => {
+describe('TaskRepository.listRunningGateway', () => {
   it('returns only tasks with Codex activity messages in the organization', async () => {
     const db = await createDb()
     const repo = new TaskRepository(db)
@@ -144,17 +144,17 @@ describe('TaskRepository.listRunningCodex', () => {
     await insertProject(db, 'project-c', 'org-2', 'Other')
     await insertTask(db, 'task-plan', 'project-a', 'Plan task', 20, {
       activityMessages: [
-        { id: 'm-1', runId: 'run-1', source: 'codex-plan', role: 'assistant', status: 'running', body: 'Planning', createdAt: 20 }
+        { id: 'm-1', runId: 'run-1', source: 'gateway-plan', role: 'assistant', status: 'running', body: 'Planning', createdAt: 20 }
       ]
     })
     await insertTask(db, 'task-run', 'project-b', 'Run task', 30, {
       activityMessages: [
-        { id: 'm-2', runId: 'run-2', source: 'codex-run', role: 'thinking', status: 'running', body: 'Running', createdAt: 30 }
+        { id: 'm-2', runId: 'run-2', source: 'gateway-run', role: 'thinking', status: 'running', body: 'Running', createdAt: 30 }
       ]
     })
     await insertTask(db, 'task-chat', 'project-b', 'Chat task', 40, {
       activityMessages: [
-        { id: 'm-3', runId: 'run-3', source: 'codex-chat', role: 'thinking', status: 'running', body: 'Chatting', createdAt: 40 }
+        { id: 'm-3', runId: 'run-3', source: 'gateway-chat', role: 'thinking', status: 'running', body: 'Chatting', createdAt: 40 }
       ]
     })
     await insertTask(db, 'task-other', 'project-a', 'No codex activity', 50, {
@@ -164,11 +164,11 @@ describe('TaskRepository.listRunningCodex', () => {
     })
     await insertTask(db, 'task-other-org', 'project-c', 'Wrong org', 60, {
       activityMessages: [
-        { id: 'm-5', runId: 'run-5', source: 'codex-run', role: 'thinking', status: 'running', body: 'Other org', createdAt: 60 }
+        { id: 'm-5', runId: 'run-5', source: 'gateway-run', role: 'thinking', status: 'running', body: 'Other org', createdAt: 60 }
       ]
     })
 
-    const rows = await repo.listRunningCodex('org-1')
+    const rows = await repo.listRunningGateway('org-1')
 
     expect(rows.map((row) => row.task.id)).toEqual(['task-chat', 'task-run', 'task-plan'])
     expect(rows[0].project.name).toBe('Beta')

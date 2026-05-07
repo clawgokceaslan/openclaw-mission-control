@@ -1,9 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
-import { IPC_CHANNELS, type RunningCodexConversationType } from '@shared/contracts/ipc'
+import { IPC_CHANNELS, type RunningGatewayConversationType } from '@shared/contracts/ipc'
 import type { CustomField, Gateway, Project, ProjectStatus, Skill, Tag, TaskEntity, Workspace, Agent } from '@shared/types/entities'
-import { DEFAULT_CODEX_LANGUAGE } from '@shared/utils/codex-language'
+import { DEFAULT_GATEWAY_LANGUAGE } from '@shared/utils/gateway-language'
 import { ChatPopup } from '@renderer/popups/ChatPopup'
 import { GlobalTaskDetailModal } from '@renderer/components/navigation/GlobalTaskDetailModal'
 import { useConfirmation } from '@renderer/components/confirmation'
@@ -11,7 +11,7 @@ import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { buildChatConversationSummaries, buildGeneratedContextEntries, activityMessagesFromTask, appendActivityMessageToTasks, conversationIdOf, visibleChatMessagesForLimit } from '@renderer/screens/projects/detail/chat/chatUtils'
 import { buildProjectWorkspaceExportTaskPayload, buildTaskZipArchive } from '@renderer/screens/projects/detail/taskExport'
-import { codexConfigOf, projectCodexSettings, projectDefaultAgentId, projectDefaultSkillIds, readTaskCodexOverride } from '@renderer/screens/projects/detail/projectDetailUtils'
+import { codexConfigOf, projectGatewaySettings, projectDefaultAgentId, projectDefaultSkillIds, readTaskGatewayOverride } from '@renderer/screens/projects/detail/projectDetailUtils'
 import type { ChatConversationSummary, TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 
 type LaunchRequest = {
@@ -23,18 +23,18 @@ type OpenTaskConversationRequest = {
   projectId: string
   taskId: string
   conversationId: string
-  conversationType?: RunningCodexConversationType
+  conversationType?: RunningGatewayConversationType
 }
 
-type GlobalCodexChatContextValue = {
+type GlobalGatewayChatContextValue = {
   launchPlannedTaskRun: (request: LaunchRequest) => Promise<boolean>
   openTaskConversation: (request: OpenTaskConversationRequest) => Promise<boolean>
-  openProjectCodexSettings: (projectId: string, taskId?: string) => void
+  openProjectGatewaySettings: (projectId: string, taskId?: string) => void
   busy: boolean
   error: string | null
 }
 
-type CodexRunResponse = {
+type GatewayRunResponse = {
   workspacePath?: string
   runtimeWorkspacePath?: string
   model: string
@@ -44,15 +44,15 @@ type CodexRunResponse = {
   conversationId?: string
 }
 
-const GlobalCodexChatContext = createContext<GlobalCodexChatContextValue | null>(null)
+const GlobalGatewayChatContext = createContext<GlobalGatewayChatContextValue | null>(null)
 
-export function useGlobalCodexChat(): GlobalCodexChatContextValue {
-  const value = useContext(GlobalCodexChatContext)
-  if (!value) throw new Error('useGlobalCodexChat must be used inside GlobalCodexChatProvider')
+export function useGlobalGatewayChat(): GlobalGatewayChatContextValue {
+  const value = useContext(GlobalGatewayChatContext)
+  if (!value) throw new Error('useGlobalGatewayChat must be used inside GlobalGatewayChatProvider')
   return value
 }
 
-export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
+export function GlobalGatewayChatProvider({ children }: { children: ReactNode }) {
   const { token } = useAuth()
   const navigate = useNavigate()
   const confirm = useConfirmation()
@@ -71,7 +71,7 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
   const [localStatus, setLocalStatus] = useState<TaskActivityMessage | null>(null)
   const [chatMode, setChatMode] = useState<'chat' | 'steer'>('chat')
 
-  const openProjectCodexSettings = useCallback((projectId: string, taskId?: string) => {
+  const openProjectGatewaySettings = useCallback((projectId: string, taskId?: string) => {
     navigate(`${APP_ROUTES.PROJECTS}/${projectId}`, {
       state: {
         openTaskId: taskId,
@@ -162,13 +162,13 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
     setError(null)
     try {
       const context = await loadRunContext(projectId, taskId)
-      const codex = projectCodexSettings(context.project)
-      const taskCodex = readTaskCodexOverride(context.task)
-      const gatewayId = taskCodex.gatewayId || codex.gatewayId || ''
-      const model = taskCodex.runModel || taskCodex.legacyModel || codex.runModel || codex.defaultModel || ''
+      const codex = projectGatewaySettings(context.project)
+      const taskGateway = readTaskGatewayOverride(context.task)
+      const gatewayId = taskGateway.gatewayId || codex.gatewayId || ''
+      const model = taskGateway.runModel || taskGateway.legacyModel || codex.runModel || codex.defaultModel || ''
       if (!gatewayId || !model) {
         setBusy(false)
-        openProjectCodexSettings(projectId, taskId)
+        openProjectGatewaySettings(projectId, taskId)
         return false
       }
 
@@ -202,8 +202,8 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
         tags: context.tags,
         customFields: context.customFields,
         projectStatuses: context.projectStatuses,
-        codexLanguage: codex.language || DEFAULT_CODEX_LANGUAGE,
-        codexRunReasoningEffort: codex.runReasoningEffort || 'medium'
+        gatewayLanguage: codex.language || DEFAULT_GATEWAY_LANGUAGE,
+        gatewayRunReasoningEffort: codex.runReasoningEffort || 'medium'
       }
       setTask(effectiveTask)
       setProject(context.project)
@@ -216,7 +216,7 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
         id: `global-run-${Date.now()}`,
         runId: 'global-run-launch',
         conversationId: selectedConversationId || undefined,
-        source: 'codex-run',
+        source: 'gateway-run',
         role: 'thinking',
         status: 'running',
         body: 'Starting Codex run...',
@@ -230,13 +230,13 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
         projectId,
         gatewayId,
         model,
-        language: codex.language || DEFAULT_CODEX_LANGUAGE,
+        language: codex.language || DEFAULT_GATEWAY_LANGUAGE,
         reasoningEffort: codex.runReasoningEffort || 'medium',
         generalContext: context.project.generalContext ?? '',
         generalPrompt: context.project.generalPrompt ?? '',
         defaultOutput: context.project.defaultOutput ?? ''
       }
-      let response = await invokeBridge<CodexRunResponse>(IPC_CHANNELS.tasks.runCodex, {
+      let response = await invokeBridge<GatewayRunResponse>(IPC_CHANNELS.tasks.runGateway, {
         ...basePayload,
         taskMarkdown: snapshot.taskMarkdown,
         agentMarkdown: snapshot.agentMarkdown,
@@ -246,7 +246,7 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
       const errorMessage = response.ok ? '' : response.error?.message ?? ''
       if (!response.ok && /zip bytes|required/i.test(errorMessage)) {
         const zip = await buildTaskZipArchive(exportContext)
-        response = await invokeBridge<CodexRunResponse>(IPC_CHANNELS.tasks.runCodex, {
+        response = await invokeBridge<GatewayRunResponse>(IPC_CHANNELS.tasks.runGateway, {
           ...basePayload,
           zipName: zip.fileName,
           zipBytes: zip.archive
@@ -263,7 +263,7 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
       setLocalStatus({
         id: `global-run-error-${Date.now()}`,
         runId: 'global-run-launch',
-        source: 'codex-run',
+        source: 'gateway-run',
         role: 'error',
         status: 'failed',
         body: message,
@@ -273,7 +273,7 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
     } finally {
       setBusy(false)
     }
-  }, [confirm, loadRunContext, openProjectCodexSettings, selectedConversationId, token])
+  }, [confirm, loadRunContext, openProjectGatewaySettings, selectedConversationId, token])
 
   useEffect(() => {
     const onTaskActivity = (...args: unknown[]) => {
@@ -306,10 +306,10 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
     conversations.filter((conversation) => conversation.status === 'running' || conversation.status === 'queued').forEach((conversation) => ids.add(conversation.id))
     return ids
   }, [conversations])
-  const gateway = useMemo(() => gateways.find((item) => item.id === (readTaskCodexOverride(task).gatewayId || projectCodexSettings(project).gatewayId)) ?? null, [gateways, project, task])
-  const codex = projectCodexSettings(project)
-  const taskCodex = readTaskCodexOverride(task)
-  const model = taskCodex.runModel || taskCodex.legacyModel || codex.runModel || codex.defaultModel || ''
+  const gateway = useMemo(() => gateways.find((item) => item.id === (readTaskGatewayOverride(task).gatewayId || projectGatewaySettings(project).gatewayId)) ?? null, [gateways, project, task])
+  const codex = projectGatewaySettings(project)
+  const taskGateway = readTaskGatewayOverride(task)
+  const model = taskGateway.runModel || taskGateway.legacyModel || codex.runModel || codex.defaultModel || ''
   const modelOptions = useMemo(() => (codexConfigOf(gateway).models ?? []).map((item) => ({ label: item.label || item.id, value: item.id })), [gateway])
   const chatState = {
     task,
@@ -326,8 +326,8 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
     chatMode,
     selectedChatCanStop: Boolean(activeConversationId && runningConversationIds.has(activeConversationId)),
     chatStopping: false,
-    codexPlanLaunching: false,
-    codexRunLaunching: busy,
+    gatewayPlanLaunching: false,
+    gatewayRunLaunching: busy,
     planChoiceOpen: false,
     visibleMessages,
     renderedMessages,
@@ -371,7 +371,7 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
     onDrop: (_event: DragEvent<HTMLElement>) => {},
     onNewConversation: () => {},
     onConversationSelect: (conversationId: string) => setSelectedConversationId(conversationId),
-    onSettingsToggle: () => openProjectCodexSettings(project?.id ?? '', task?.id),
+    onSettingsToggle: () => openProjectGatewaySettings(project?.id ?? '', task?.id),
     onSettingsClose: () => {},
     onStopChat: () => {},
     onPlan: () => {},
@@ -397,10 +397,10 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
     onPlannerQuestionAnswer: () => {}
   }
 
-  const value = useMemo(() => ({ launchPlannedTaskRun, openTaskConversation, openProjectCodexSettings, busy, error }), [busy, error, launchPlannedTaskRun, openProjectCodexSettings, openTaskConversation])
+  const value = useMemo(() => ({ launchPlannedTaskRun, openTaskConversation, openProjectGatewaySettings, busy, error }), [busy, error, launchPlannedTaskRun, openProjectGatewaySettings, openTaskConversation])
 
   return (
-    <GlobalCodexChatContext.Provider value={value}>
+    <GlobalGatewayChatContext.Provider value={value}>
       {children}
       {popupOpen && task ? (
         <ChatPopup
@@ -421,6 +421,6 @@ export function GlobalCodexChatProvider({ children }: { children: ReactNode }) {
           }}
         />
       ) : null}
-    </GlobalCodexChatContext.Provider>
+    </GlobalGatewayChatContext.Provider>
   )
 }

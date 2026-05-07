@@ -1,8 +1,8 @@
 import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LuRefreshCw } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
-import { DEFAULT_CODEX_LANGUAGE } from '@shared/utils/codex-language'
-import { codexChatLifecycleStatusKey, codexLifecycleStatusMeta } from '@shared/utils/codex-chat-phase'
+import { DEFAULT_GATEWAY_LANGUAGE } from '@shared/utils/gateway-language'
+import { gatewayChatLifecycleStatusKey, gatewayLifecycleStatusMeta } from '@shared/utils/gateway-chat-phase'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { createSerializedAsyncRunner } from '@renderer/utils/serializedAsync'
@@ -21,7 +21,7 @@ import {
   shouldLoadEarlierMessages,
   visibleChatMessagesForLimit
 } from '@renderer/screens/projects/detail/chat/chatUtils'
-import { codexConfigOf, createLocalId, projectCodexSettings, readTaskCodexOverride } from '@renderer/screens/projects/detail/projectDetailUtils'
+import { codexConfigOf, createLocalId, projectGatewaySettings, readTaskGatewayOverride } from '@renderer/screens/projects/detail/projectDetailUtils'
 import type { ChatAttachmentDraft, ChatConversationSummary, ChatOperationFeedbackData, SlashCommand, TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 import { type Gateway, type Project, type Skill, type TaskEntity, type Workspace } from '@shared/types/entities'
 import projectStyles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
@@ -48,13 +48,13 @@ type ConversationRow = {
 
 type ConversationGroupKey = 'ongoing' | 'successful' | 'failed' | 'other'
 
-type CodexChatResponse = {
+type GatewayChatResponse = {
   runId: string
   conversationId: string
   executionMode: 'terminal' | 'exec'
 }
 
-type CodexPlanResponse = {
+type GatewayPlanResponse = {
   runId?: string
   conversationId?: string
   executionMode?: 'terminal' | 'exec'
@@ -102,7 +102,7 @@ function resolveStatusRow(status: ConversationStatus): ConversationGroupKey {
 
 function conversationLifecycleMeta(conversation: ConversationRow) {
   const active = conversation.status === 'running' || conversation.status === 'queued'
-  return codexLifecycleStatusMeta(codexChatLifecycleStatusKey(conversation.phase, conversation.status, active))
+  return gatewayLifecycleStatusMeta(gatewayChatLifecycleStatusKey(conversation.phase, conversation.status, active))
 }
 
 function statusBadgeClass(conversation: ConversationRow) {
@@ -114,8 +114,8 @@ function statusLabel(conversation: ConversationRow): string {
 }
 
 function sourceLabel(source: TaskActivityMessage['source']): string {
-  if (source === 'codex-plan') return 'Plan'
-  if (source === 'codex-run') return 'Run'
+  if (source === 'gateway-plan') return 'Plan'
+  if (source === 'gateway-run') return 'Run'
   return 'Follow-up'
 }
 
@@ -200,7 +200,7 @@ export function LastChatsPage() {
   const [chatModel, setChatModel] = useState('')
   const [chatPlanModel, setChatPlanModel] = useState('')
   const [chatRunModel, setChatRunModel] = useState('')
-  const [codexLanguage, setCodexLanguage] = useState(DEFAULT_CODEX_LANGUAGE)
+  const [gatewayLanguage, setGatewayLanguage] = useState(DEFAULT_GATEWAY_LANGUAGE)
   const [chatIncludeContext, setChatIncludeContext] = useState(true)
   const [chatVisibleLimit, setChatVisibleLimit] = useState(CHAT_INITIAL_MESSAGE_LIMIT)
   const [chatFeedback, setChatFeedback] = useState<ChatOperationFeedbackData | null>(null)
@@ -222,7 +222,7 @@ export function LastChatsPage() {
       loadList<Project[]>(IPC_CHANNELS.projects.list, token),
       loadList<Gateway[]>(IPC_CHANNELS.gateways.list, token),
       loadList<Workspace[]>(IPC_CHANNELS.workspaces.list, token),
-      invokeBridge<{ language: string }>(IPC_CHANNELS.appSettings.getCodexLanguage, { actorToken: token })
+      invokeBridge<{ language: string }>(IPC_CHANNELS.appSettings.getGatewayLanguage, { actorToken: token })
     ])
 
     if (!taskResponse.ok) {
@@ -244,7 +244,7 @@ export function LastChatsPage() {
     setProjects(Array.isArray(projectResponse.data) ? projectResponse.data : [])
     setGateways(gatewayResponse.ok && Array.isArray(gatewayResponse.data) ? gatewayResponse.data : [])
     setWorkspaces(workspaceResponse.ok && Array.isArray(workspaceResponse.data) ? workspaceResponse.data : [])
-    setCodexLanguage(languageResponse.ok && languageResponse.data?.language ? languageResponse.data.language : DEFAULT_CODEX_LANGUAGE)
+    setGatewayLanguage(languageResponse.ok && languageResponse.data?.language ? languageResponse.data.language : DEFAULT_GATEWAY_LANGUAGE)
     setError(null)
     setStatus('Ready')
   }, [token])
@@ -314,7 +314,7 @@ export function LastChatsPage() {
           projectName: projectNameById.get(task.projectId) ?? task.projectId,
           status: summary?.status ?? last?.status ?? 'event',
           at: latestAt,
-          source: summary?.source ?? last?.source ?? 'codex-chat',
+          source: summary?.source ?? last?.source ?? 'gateway-chat',
           phase: summary?.phase ?? 'FOLLOW UP',
           count: summary?.count ?? 0,
           model: summary?.model ?? (typeof last?.metadata?.model === 'string' ? last.metadata.model : undefined),
@@ -380,11 +380,11 @@ export function LastChatsPage() {
     [chatVisibleLimit, visibleMessages]
   )
 
-  const projectCodex = useMemo(() => projectCodexSettings(selectedProject), [selectedProject])
-  const projectLanguage = projectCodex.language || projectCodex.outputLanguage || projectCodex.inputLanguage || codexLanguage
-  const planReasoningEffort = projectCodex.planReasoningEffort || 'medium'
-  const runReasoningEffort = projectCodex.runReasoningEffort || 'medium'
-  const taskCodex = useMemo(() => readTaskCodexOverride(selectedTask), [selectedTask])
+  const projectGateway = useMemo(() => projectGatewaySettings(selectedProject), [selectedProject])
+  const projectLanguage = projectGateway.language || projectGateway.outputLanguage || projectGateway.inputLanguage || gatewayLanguage
+  const planReasoningEffort = projectGateway.planReasoningEffort || 'medium'
+  const runReasoningEffort = projectGateway.runReasoningEffort || 'medium'
+  const taskGateway = useMemo(() => readTaskGatewayOverride(selectedTask), [selectedTask])
   const chatGateway = useMemo(
     () => gateways.find((gateway) => gateway.id === chatGatewayId) ?? null,
     [chatGatewayId, gateways]
@@ -414,7 +414,7 @@ export function LastChatsPage() {
     () => chatModelOptions.find((option) => option.value === chatModel) ?? null,
     [chatModelOptions, chatModel]
   )
-  const runtimeWorkspaceId = projectCodex.runtimeWorkspaceId || selectedProject?.workspaceId || null
+  const runtimeWorkspaceId = projectGateway.runtimeWorkspaceId || selectedProject?.workspaceId || null
   const chatRuntimeWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === runtimeWorkspaceId) ?? null,
     [runtimeWorkspaceId, workspaces]
@@ -441,7 +441,7 @@ export function LastChatsPage() {
       id: `last-chats-feedback-${chatFeedback.state}-${chatFeedback.title}`,
       runId: 'last-chats-feedback',
       conversationId: selectedConversationId || undefined,
-      source: 'codex-chat',
+      source: 'gateway-chat',
       role: chatFeedback.state === 'error' ? 'error' : 'thinking',
       status: chatFeedback.state === 'running' ? 'running' : chatFeedback.state === 'error' ? 'failed' : 'completed',
       body: `${chatFeedback.title}: ${chatFeedback.message}`,
@@ -453,9 +453,9 @@ export function LastChatsPage() {
 
   useEffect(() => {
     if (!selectedTask || !selectedProject) return
-    const nextGateway = taskCodex.gatewayId || projectCodex.gatewayId || ''
-    const nextPlanModel = taskCodex.planModel || projectCodex.planModel || projectCodex.defaultModel || ''
-    const nextRunModel = taskCodex.runModel || taskCodex.legacyModel || projectCodex.runModel || projectCodex.defaultModel || ''
+    const nextGateway = taskGateway.gatewayId || projectGateway.gatewayId || ''
+    const nextPlanModel = taskGateway.planModel || projectGateway.planModel || projectGateway.defaultModel || ''
+    const nextRunModel = taskGateway.runModel || taskGateway.legacyModel || projectGateway.runModel || projectGateway.defaultModel || ''
     setChatGatewayId(nextGateway)
     setChatPlanModel(nextPlanModel)
     setChatRunModel(nextRunModel)
@@ -463,7 +463,7 @@ export function LastChatsPage() {
     setChatFeedback(null)
     setChatSettingsOpen(false)
     setChatAttachments([])
-  }, [projectCodex.defaultModel, projectCodex.gatewayId, projectCodex.planModel, projectCodex.runModel, selectedProject, selectedTask, taskCodex.gatewayId, taskCodex.legacyModel, taskCodex.planModel, taskCodex.runModel])
+  }, [projectGateway.defaultModel, projectGateway.gatewayId, projectGateway.planModel, projectGateway.runModel, selectedProject, selectedTask, taskGateway.gatewayId, taskGateway.legacyModel, taskGateway.planModel, taskGateway.runModel])
 
   useEffect(() => {
     if (!selectedTaskId) return
@@ -580,12 +580,12 @@ export function LastChatsPage() {
     void addChatAttachments(event.dataTransfer.files)
   }
 
-  const sendCodexChatMessage = async (draftOverride?: string) => {
+  const sendGatewayChatMessage = async (draftOverride?: string) => {
     if (!selectedTask || !selectedProject) return
     const draftText = draftOverride ?? chatDraft
     if (!draftText.trim() && chatAttachments.length === 0) return
     const effectiveSelectedChatSummary = isStartingNewChat ? null : selectedChatSummary
-    const sendAsPlanRevision = !isStartingNewChat && effectiveSelectedChatSummary?.source === 'codex-plan'
+    const sendAsPlanRevision = !isStartingNewChat && effectiveSelectedChatSummary?.source === 'gateway-plan'
     const isPlanDraft = draftText.trim().toLowerCase().startsWith('/plan')
     const mode = sendAsPlanRevision || isPlanDraft ? 'plan' : 'chat'
     const resolvedModel = mode === 'plan' ? (chatPlanModel || chatModel) : (chatRunModel || chatModel)
@@ -604,7 +604,7 @@ export function LastChatsPage() {
           setChatFeedback({ state: 'error', title: 'Action needs attention', message: 'Planner clarification does not support attachments. Remove attachments and send the answer as text.' })
           return
         }
-        const response = await invokeBridge<CodexPlanResponse>(IPC_CHANNELS.tasks.planWithCodex, {
+        const response = await invokeBridge<GatewayPlanResponse>(IPC_CHANNELS.tasks.planWithGateway, {
           actorToken: token,
           taskId: selectedTask.id,
           projectId: selectedProject.id,
@@ -627,7 +627,7 @@ export function LastChatsPage() {
         return
       }
 
-      const response = await invokeBridge<CodexChatResponse>(IPC_CHANNELS.tasks.codexChatSend, {
+      const response = await invokeBridge<GatewayChatResponse>(IPC_CHANNELS.tasks.gatewayChatSend, {
         actorToken: token,
         taskId: selectedTask.id,
         projectId: selectedProject.id,
@@ -658,14 +658,14 @@ export function LastChatsPage() {
     }
   }
 
-  const stopCodexChat = async (conversationIdOverride?: string) => {
+  const stopGatewayChat = async (conversationIdOverride?: string) => {
     const conversationId = conversationIdOverride || selectedConversationId
     if (!selectedTask || !conversationId) return
     setChatStopping(true)
     setStoppingConversationIds((current) => new Set(current).add(conversationId))
     setChatFeedback({ state: 'running', title: 'Stopping chat', message: 'Asking Codex to stop the active chat.' })
     try {
-      const response = await invokeBridge<CodexStopResponse>(IPC_CHANNELS.tasks.codexChatStop, {
+      const response = await invokeBridge<CodexStopResponse>(IPC_CHANNELS.tasks.gatewayChatStop, {
         actorToken: token,
         taskId: selectedTask.id,
         conversationId
@@ -698,12 +698,12 @@ export function LastChatsPage() {
     resolvingConversationIds.has(`${conversation.taskId}:${conversation.id}:${option.value}`)
   ))
 
-  const resolveCodexChat = async (conversation: ConversationRow, resolution: CodexResolveResolution) => {
+  const resolveGatewayChat = async (conversation: ConversationRow, resolution: CodexResolveResolution) => {
     const resolvingKey = `${conversation.taskId}:${conversation.id}:${resolution}`
     setResolvingConversationIds((current) => new Set(current).add(resolvingKey))
     setStatus(`Marking chat as ${resolution}...`)
     try {
-      const response = await invokeBridge<CodexResolveResponse>(IPC_CHANNELS.tasks.codexChatResolve, {
+      const response = await invokeBridge<CodexResolveResponse>(IPC_CHANNELS.tasks.gatewayChatResolve, {
         actorToken: token,
         taskId: conversation.taskId,
         conversationId: conversation.id,
@@ -751,8 +751,8 @@ export function LastChatsPage() {
     chatSettingsOpen,
     selectedChatCanStop,
     chatStopping,
-    codexPlanLaunching: false,
-    codexRunLaunching: false,
+    gatewayPlanLaunching: false,
+    gatewayRunLaunching: false,
     planChoiceOpen: false,
     visibleMessages,
     renderedMessages,
@@ -807,7 +807,7 @@ export function LastChatsPage() {
     },
     onSettingsToggle: () => setChatSettingsOpen((value) => !value),
     onSettingsClose: () => setChatSettingsOpen(false),
-    onStopChat: (conversationId?: string) => void stopCodexChat(conversationId),
+    onStopChat: (conversationId?: string) => void stopGatewayChat(conversationId),
     onPlan: () => {},
     onPlanChoiceClose: () => {},
     onPlanChoiceSelect: () => {},
@@ -845,8 +845,8 @@ export function LastChatsPage() {
     onSlashCommandApply: () => {},
     onSlashCommandIndexChange: () => {},
     onClearSlashDraft: () => setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, '')),
-    onSend: () => void sendCodexChatMessage(),
-    onPlannerQuestionAnswer: (answer: string) => void sendCodexChatMessage(answer)
+    onSend: () => void sendGatewayChatMessage(),
+    onPlannerQuestionAnswer: (answer: string) => void sendGatewayChatMessage(answer)
   }
 
   return (
@@ -933,7 +933,7 @@ export function LastChatsPage() {
                                 isDisabled={isResolving}
                                 onChange={(option) => {
                                   if (!option || !isCodexResolveResolution(option.value)) return
-                                  void resolveCodexChat(conversation, option.value)
+                                  void resolveGatewayChat(conversation, option.value)
                                 }}
                               />
                             </div>

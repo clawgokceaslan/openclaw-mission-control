@@ -35,8 +35,8 @@ export const IPC_CHANNELS = {
     setDefaultAgent: 'app-settings:set-default-agent',
     getDefaultAddTaskProject: 'app-settings:get-default-add-task-project',
     setDefaultAddTaskProject: 'app-settings:set-default-add-task-project',
-    getCodexLanguage: 'app-settings:get-codex-language',
-    setCodexLanguage: 'app-settings:set-codex-language',
+    getGatewayLanguage: 'app-settings:get-gateway-language',
+    setGatewayLanguage: 'app-settings:set-gateway-language',
     getDatabaseLocation: 'app-settings:get-database-location',
     pickDatabaseFolder: 'app-settings:pick-database-folder',
     pickDatabaseFile: 'app-settings:pick-database-file',
@@ -55,8 +55,8 @@ export const IPC_CHANNELS = {
   },
   tasks: {
     list: 'tasks:list',
-    listPlannedCodex: 'tasks:list-planned-codex',
-    listRunningCodex: 'tasks:list-running-codex',
+    listPlannedGateway: 'tasks:list-planned-gateway',
+    listRunningGateway: 'tasks:list-running-gateway',
     get: 'tasks:get',
     create: 'tasks:create',
     update: 'tasks:update',
@@ -71,11 +71,11 @@ export const IPC_CHANNELS = {
     commentRemove: 'tasks:comment:remove',
     skillsSet: 'tasks:skills:set',
     exportSnapshot: 'tasks:export-snapshot',
-    runCodex: 'tasks:run-codex',
-    planWithCodex: 'tasks:plan-with-codex',
-    codexChatSend: 'tasks:codex-chat:send',
-    codexChatStop: 'tasks:codex-chat:stop',
-    codexChatResolve: 'tasks:codex-chat:resolve',
+    runGateway: 'tasks:run-gateway',
+    planWithGateway: 'tasks:plan-with-gateway',
+    gatewayChatSend: 'tasks:gateway-chat:send',
+    gatewayChatStop: 'tasks:gateway-chat:stop',
+    gatewayChatResolve: 'tasks:gateway-chat:resolve',
     plannerContext: 'tasks:planner-context',
     plannerValidateJson: 'tasks:planner-validate-json',
     plannerCreateFromJson: 'tasks:planner-create-from-json',
@@ -115,7 +115,7 @@ export const IPC_CHANNELS = {
     sessions: 'gateways:sessions',
     commands: 'gateways:commands',
     commandsHistory: 'gateways:commands-history',
-    codexModels: 'gateways:codex-models',
+    gatewayModels: 'gateways:gateway-models',
     templates: 'gateways:templates'
   },
   webhooks: {
@@ -282,7 +282,7 @@ export interface ImportTaskJsonRequest {
   json?: unknown
 }
 
-export interface PlanTaskCodexRequest {
+export interface PlanTaskGatewayRequest {
   actorToken?: string
   projectId?: string
   taskId?: string
@@ -360,7 +360,7 @@ export interface UpdateProjectRequest {
   generalPrompt?: string
   defaultOutput?: string
   metrics?: Record<string, unknown>
-  codex?: {
+  gateway?: {
     gatewayId?: string | null
     runtimeWorkspaceId?: string | null
     defaultModel?: string | null
@@ -409,20 +409,20 @@ export interface PaginatedResponse<T> {
   pageSize: number
 }
 
-export interface ListPlannedCodexTasksRequest {
+export interface ListPlannedGatewayTasksRequest {
   actorToken?: string
   page?: number
   pageSize?: number
 }
 
-export interface PlannedCodexTaskRow {
+export interface PlannedGatewayTaskRow {
   taskId: string
   projectId: string
   taskTitle: string
   taskStatus: string
   projectName: string
   projectDescription?: string
-  codexPlanConversationId?: string
+  gatewayPlanConversationId?: string
   gatewayId?: string
   runModel?: string
   language?: string
@@ -432,41 +432,41 @@ export interface PlannedCodexTaskRow {
   updatedAt: number
 }
 
-export interface ListRunningCodexTasksRequest {
+export interface ListRunningGatewayTasksRequest {
   actorToken?: string
   page?: number
   pageSize?: number
-  group?: RunningCodexGroupKey
+  group?: RunningGatewayGroupKey
 }
 
-export type RunningCodexConversationType = 'plan' | 'run' | 'chat' | 'steer' | 'post-run'
-export type RunningCodexGroupKey = 'all' | 'planning' | 'running' | 'postRunning'
+export type RunningGatewayConversationType = 'plan' | 'run' | 'chat' | 'steer' | 'post-run'
+export type RunningGatewayGroupKey = 'all' | 'planning' | 'running' | 'postRunning'
 
-export interface RunningCodexGroupCounts {
+export interface RunningGatewayGroupCounts {
   all: number
   planning: number
   running: number
   postRunning: number
 }
 
-export interface RunningCodexTaskRow {
+export interface RunningGatewayTaskRow {
   taskId: string
   projectId: string
   taskTitle: string
   taskStatus: string
   projectName: string
   projectDescription?: string
-  codexConversationId: string
-  source: 'codex-plan' | 'codex-run' | 'codex-chat'
-  conversationType: RunningCodexConversationType
+  gatewayConversationId: string
+  source: 'gateway-plan' | 'gateway-run' | 'gateway-chat'
+  conversationType: RunningGatewayConversationType
   liveStatus: 'queued' | 'running'
   latestAt: number
   latestActivitySummary: string
 }
 
-export interface RunningCodexTasksResponse extends PaginatedResponse<RunningCodexTaskRow> {
-  group: RunningCodexGroupKey
-  counts: RunningCodexGroupCounts
+export interface RunningGatewayTasksResponse extends PaginatedResponse<RunningGatewayTaskRow> {
+  group: RunningGatewayGroupKey
+  counts: RunningGatewayGroupCounts
 }
 
 export interface AddTaskCommentRequest {
@@ -508,7 +508,7 @@ export interface ExportTaskSnapshotRequest {
   attachments?: ProjectExportAttachmentInput[]
 }
 
-export interface RunTaskCodexRequest {
+export interface RunTaskGatewayRequest {
   actorToken?: string
   taskId?: string
   projectId?: string
@@ -529,7 +529,7 @@ export interface RunTaskCodexRequest {
   defaultOutput?: string
 }
 
-export interface CodexChatSendRequest {
+export interface GatewayChatSendRequest {
   actorToken?: string
   taskId?: string
   projectId?: string
@@ -547,13 +547,13 @@ export interface CodexChatSendRequest {
   followUpContext?: string
 }
 
-export interface CodexChatStopRequest {
+export interface GatewayChatStopRequest {
   actorToken?: string
   taskId?: string
   conversationId?: string
 }
 
-export interface CodexChatResolveRequest {
+export interface GatewayChatResolveRequest {
   actorToken?: string
   taskId?: string
   conversationId?: string
@@ -643,14 +643,14 @@ export const SERVICE_MAP = {
   auth: ['login', 'logout', 'me', 'inviteValidate', 'updateProfile'],
   projects: ['list', 'get', 'create', 'update', 'moveWorkspace', 'exportWorkspace', 'remove'],
   workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
-  appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent', 'getDefaultAddTaskProject', 'setDefaultAddTaskProject', 'getCodexLanguage', 'setCodexLanguage', 'getDatabaseLocation', 'pickDatabaseFolder', 'pickDatabaseFile', 'moveDatabaseLocation', 'revealDatabaseLocation'],
+  appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent', 'getDefaultAddTaskProject', 'setDefaultAddTaskProject', 'getGatewayLanguage', 'setGatewayLanguage', 'getDatabaseLocation', 'pickDatabaseFolder', 'pickDatabaseFile', 'moveDatabaseLocation', 'revealDatabaseLocation'],
   statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
-  tasks: ['list', 'listPlannedCodex', 'listRunningCodex', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runCodex', 'planWithCodex', 'codexChatSend', 'codexChatStop', 'codexChatResolve', 'plannerContext', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
+  tasks: ['list', 'listPlannedGateway', 'listRunningGateway', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runGateway', 'planWithGateway', 'gatewayChatSend', 'gatewayChatStop', 'gatewayChatResolve', 'plannerContext', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
   taskTemplates: ['list', 'create', 'update', 'remove', 'importJson'],
   projectInstructionTemplates: ['list', 'create', 'update', 'remove'],
   attachments: ['upload'],
   agents: ['list', 'get', 'create', 'update', 'remove'],
-  gateways: ['list', 'get', 'create', 'update', 'remove', 'status', 'sessions', 'commands', 'commandsHistory', 'codexModels', 'templates'],
+  gateways: ['list', 'get', 'create', 'update', 'remove', 'status', 'sessions', 'commands', 'commandsHistory', 'gatewayModels', 'templates'],
   webhooks: ['list', 'create', 'update', 'remove'],
   skills: ['list', 'listPage', 'create', 'update', 'remove', 'listPacks'],
   organization: ['me', 'listMembers', 'createInvite'],
@@ -833,18 +833,18 @@ export const SERVICE_ROUTING: {
       channel: IPC_CHANNELS.appSettings.setDefaultAddTaskProject,
       requiresAuth: true
     },
-    getCodexLanguage: {
+    getGatewayLanguage: {
       domain: 'appSettings',
-      action: 'getCodexLanguage',
-      method: 'getCodexLanguage',
-      channel: IPC_CHANNELS.appSettings.getCodexLanguage,
+      action: 'getGatewayLanguage',
+      method: 'getGatewayLanguage',
+      channel: IPC_CHANNELS.appSettings.getGatewayLanguage,
       requiresAuth: true
     },
-    setCodexLanguage: {
+    setGatewayLanguage: {
       domain: 'appSettings',
-      action: 'setCodexLanguage',
-      method: 'setCodexLanguage',
-      channel: IPC_CHANNELS.appSettings.setCodexLanguage,
+      action: 'setGatewayLanguage',
+      method: 'setGatewayLanguage',
+      channel: IPC_CHANNELS.appSettings.setGatewayLanguage,
       requiresAuth: true
     },
     getDatabaseLocation: {
@@ -949,18 +949,18 @@ export const SERVICE_ROUTING: {
       channel: IPC_CHANNELS.tasks.list,
       requiresAuth: true
     },
-    listPlannedCodex: {
+    listPlannedGateway: {
       domain: 'tasks',
-      action: 'listPlannedCodex',
-      method: 'listPlannedCodex',
-      channel: IPC_CHANNELS.tasks.listPlannedCodex,
+      action: 'listPlannedGateway',
+      method: 'listPlannedGateway',
+      channel: IPC_CHANNELS.tasks.listPlannedGateway,
       requiresAuth: true
     },
-    listRunningCodex: {
+    listRunningGateway: {
       domain: 'tasks',
-      action: 'listRunningCodex',
-      method: 'listRunningCodex',
-      channel: IPC_CHANNELS.tasks.listRunningCodex,
+      action: 'listRunningGateway',
+      method: 'listRunningGateway',
+      channel: IPC_CHANNELS.tasks.listRunningGateway,
       requiresAuth: true
     },
     get: {
@@ -1061,39 +1061,39 @@ export const SERVICE_ROUTING: {
       channel: IPC_CHANNELS.tasks.exportSnapshot,
       requiresAuth: true
     },
-    runCodex: {
+    runGateway: {
       domain: 'tasks',
-      action: 'runCodex',
-      method: 'runCodex',
-      channel: IPC_CHANNELS.tasks.runCodex,
+      action: 'runGateway',
+      method: 'runGateway',
+      channel: IPC_CHANNELS.tasks.runGateway,
       requiresAuth: true
     },
-    planWithCodex: {
+    planWithGateway: {
       domain: 'tasks',
-      action: 'planWithCodex',
-      method: 'planWithCodex',
-      channel: IPC_CHANNELS.tasks.planWithCodex,
+      action: 'planWithGateway',
+      method: 'planWithGateway',
+      channel: IPC_CHANNELS.tasks.planWithGateway,
       requiresAuth: true
     },
-    codexChatSend: {
+    gatewayChatSend: {
       domain: 'tasks',
-      action: 'codexChatSend',
-      method: 'codexChatSend',
-      channel: IPC_CHANNELS.tasks.codexChatSend,
+      action: 'gatewayChatSend',
+      method: 'gatewayChatSend',
+      channel: IPC_CHANNELS.tasks.gatewayChatSend,
       requiresAuth: true
     },
-    codexChatStop: {
+    gatewayChatStop: {
       domain: 'tasks',
-      action: 'codexChatStop',
-      method: 'codexChatStop',
-      channel: IPC_CHANNELS.tasks.codexChatStop,
+      action: 'gatewayChatStop',
+      method: 'gatewayChatStop',
+      channel: IPC_CHANNELS.tasks.gatewayChatStop,
       requiresAuth: true
     },
-    codexChatResolve: {
+    gatewayChatResolve: {
       domain: 'tasks',
-      action: 'codexChatResolve',
-      method: 'codexChatResolve',
-      channel: IPC_CHANNELS.tasks.codexChatResolve,
+      action: 'gatewayChatResolve',
+      method: 'gatewayChatResolve',
+      channel: IPC_CHANNELS.tasks.gatewayChatResolve,
       requiresAuth: true
     },
     plannerContext: {
@@ -1309,11 +1309,11 @@ export const SERVICE_ROUTING: {
       channel: IPC_CHANNELS.gateways.commandsHistory,
       requiresAuth: true
     },
-    codexModels: {
+    gatewayModels: {
       domain: 'gateways',
-      action: 'codexModels',
-      method: 'codexModels',
-      channel: IPC_CHANNELS.gateways.codexModels,
+      action: 'gatewayModels',
+      method: 'gatewayModels',
+      channel: IPC_CHANNELS.gateways.gatewayModels,
       requiresAuth: true
     },
     templates: {

@@ -1,26 +1,26 @@
 import type {
   CodexCliGatewayConfig,
   Project,
-  ProjectCodexSettings,
+  ProjectGatewaySettings,
   TaskEntity,
   Workspace
 } from '@shared/types/entities'
 import type { TaskActivityMessage } from './types'
 import type { ProjectStatusColumn } from './status'
-import { normalizeCodexLanguage, normalizeCodexReasoningEffort } from '@shared/utils/codex-language'
+import { normalizeGatewayLanguage, normalizeGatewayReasoningEffort } from '@shared/utils/gateway-language'
 import {
-  codexChatLifecycleStatusKey,
-  codexChatPhaseActionLabel,
-  codexLifecycleStatusMeta,
-  inferCodexChatPhase,
-  type CodexChatPhase,
-  type CodexLifecycleStatusKey,
-  type CodexLifecycleTone
-} from '@shared/utils/codex-chat-phase'
-import { normalizeCodexPromptShape } from '@shared/utils/codex-prompt-shape'
+  gatewayChatLifecycleStatusKey,
+  gatewayChatPhaseActionLabel,
+  gatewayLifecycleStatusMeta,
+  inferGatewayChatPhase,
+  type GatewayChatPhase,
+  type GatewayLifecycleStatusKey,
+  type GatewayLifecycleTone
+} from '@shared/utils/gateway-chat-phase'
+import { normalizeGatewayPromptShape } from '@shared/utils/gateway-prompt-shape'
 
-export function projectCodexSettings(project: Project | null): ProjectCodexSettings {
-  const value = project?.metrics?.codex
+export function projectGatewaySettings(project: Project | null): ProjectGatewaySettings {
+  const value = project?.metrics?.gateway
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { promptShape: 'markdown' }
   const record = value as Record<string, unknown>
   const legacyLanguage = typeof record.outputLanguage === 'string'
@@ -34,10 +34,10 @@ export function projectCodexSettings(project: Project | null): ProjectCodexSetti
     defaultModel: typeof record.defaultModel === 'string' ? record.defaultModel : null,
     planModel: typeof record.planModel === 'string' ? record.planModel : null,
     runModel: typeof record.runModel === 'string' ? record.runModel : null,
-    language: typeof record.language === 'string' ? normalizeCodexLanguage(record.language) : legacyLanguage ? normalizeCodexLanguage(legacyLanguage) : null,
-    promptShape: normalizeCodexPromptShape(record.promptShape),
-    planReasoningEffort: typeof record.planReasoningEffort === 'string' ? normalizeCodexReasoningEffort(record.planReasoningEffort) : null,
-    runReasoningEffort: typeof record.runReasoningEffort === 'string' ? normalizeCodexReasoningEffort(record.runReasoningEffort) : null,
+    language: typeof record.language === 'string' ? normalizeGatewayLanguage(record.language) : legacyLanguage ? normalizeGatewayLanguage(legacyLanguage) : null,
+    promptShape: normalizeGatewayPromptShape(record.promptShape),
+    planReasoningEffort: typeof record.planReasoningEffort === 'string' ? normalizeGatewayReasoningEffort(record.planReasoningEffort) : null,
+    runReasoningEffort: typeof record.runReasoningEffort === 'string' ? normalizeGatewayReasoningEffort(record.runReasoningEffort) : null,
     inputLanguage: typeof record.inputLanguage === 'string' ? record.inputLanguage : null,
     outputLanguage: typeof record.outputLanguage === 'string' ? record.outputLanguage : null
   }
@@ -67,12 +67,12 @@ export function codexConfigOf(gateway?: { template?: unknown; endpoint?: string 
   }
 }
 
-export function taskCodexModel(task: TaskEntity | null | undefined): string {
-  return readTaskCodexOverride(task).legacyModel
+export function taskGatewayModel(task: TaskEntity | null | undefined): string {
+  return readTaskGatewayOverride(task).legacyModel
 }
 
-export function readTaskCodexOverride(task: TaskEntity | null | undefined): { gatewayId: string; legacyModel: string; planModel: string; runModel: string; planReasoningEffort: string; runReasoningEffort: string } {
-  const codex = task?.payload?.codex
+export function readTaskGatewayOverride(task: TaskEntity | null | undefined): { gatewayId: string; legacyModel: string; planModel: string; runModel: string; planReasoningEffort: string; runReasoningEffort: string } {
+  const codex = task?.payload?.gateway
   if (!codex || typeof codex !== 'object' || Array.isArray(codex)) {
     return { gatewayId: '', legacyModel: '', planModel: '', runModel: '', planReasoningEffort: '', runReasoningEffort: '' }
   }
@@ -82,30 +82,30 @@ export function readTaskCodexOverride(task: TaskEntity | null | undefined): { ga
     legacyModel: typeof record.model === 'string' ? record.model : '',
     planModel: typeof record.planModel === 'string' ? record.planModel : '',
     runModel: typeof record.runModel === 'string' ? record.runModel : '',
-    planReasoningEffort: typeof record.planReasoningEffort === 'string' ? normalizeCodexReasoningEffort(record.planReasoningEffort) : '',
-    runReasoningEffort: typeof record.runReasoningEffort === 'string' ? normalizeCodexReasoningEffort(record.runReasoningEffort) : ''
+    planReasoningEffort: typeof record.planReasoningEffort === 'string' ? normalizeGatewayReasoningEffort(record.planReasoningEffort) : '',
+    runReasoningEffort: typeof record.runReasoningEffort === 'string' ? normalizeGatewayReasoningEffort(record.runReasoningEffort) : ''
   }
 }
 
-export function taskCodexPlanModel(task: TaskEntity | null | undefined): string {
-  return readTaskCodexOverride(task).planModel
+export function taskGatewayPlanModel(task: TaskEntity | null | undefined): string {
+  return readTaskGatewayOverride(task).planModel
 }
 
-export function taskCodexRunModel(task: TaskEntity | null | undefined): string {
-  const { runModel, legacyModel } = readTaskCodexOverride(task)
+export function taskGatewayRunModel(task: TaskEntity | null | undefined): string {
+  const { runModel, legacyModel } = readTaskGatewayOverride(task)
   return runModel || legacyModel
 }
 
-export function taskCodexExplicitPlanModel(task: TaskEntity | null | undefined): string {
-  return readTaskCodexOverride(task).planModel
+export function taskGatewayExplicitPlanModel(task: TaskEntity | null | undefined): string {
+  return readTaskGatewayOverride(task).planModel
 }
 
-export function taskCodexExplicitRunModel(task: TaskEntity | null | undefined): string {
-  return readTaskCodexOverride(task).runModel
+export function taskGatewayExplicitRunModel(task: TaskEntity | null | undefined): string {
+  return readTaskGatewayOverride(task).runModel
 }
 
-export function taskCodexGatewayId(task: TaskEntity | null | undefined): string {
-  return readTaskCodexOverride(task).gatewayId
+export function taskGatewayId(task: TaskEntity | null | undefined): string {
+  return readTaskGatewayOverride(task).gatewayId
 }
 
 export function codexPayloadOverride(gatewayId: string, model: string, planModel = '', runModel = '', planReasoningEffort = '', runReasoningEffort = ''): Record<string, string> | undefined {
@@ -114,8 +114,8 @@ export function codexPayloadOverride(gatewayId: string, model: string, planModel
   if (model) next.model = model
   if (planModel) next.planModel = planModel
   if (runModel) next.runModel = runModel
-  if (planReasoningEffort) next.planReasoningEffort = normalizeCodexReasoningEffort(planReasoningEffort)
-  if (runReasoningEffort) next.runReasoningEffort = normalizeCodexReasoningEffort(runReasoningEffort)
+  if (planReasoningEffort) next.planReasoningEffort = normalizeGatewayReasoningEffort(planReasoningEffort)
+  if (runReasoningEffort) next.runReasoningEffort = normalizeGatewayReasoningEffort(runReasoningEffort)
   return Object.keys(next).length > 0 ? next : undefined
 }
 
@@ -154,34 +154,34 @@ export function withTaskMeta(task: TaskEntity): TaskEntity {
   }
 }
 
-export type TaskCodexPlanBadge = {
+export type TaskGatewayPlanBadge = {
   state: 'planned' | 'needs-clarification'
   label: 'Planned' | 'Needs Input'
   conversationId?: string
 }
 
-export type TaskCodexActionChip = {
-  phase: CodexChatPhase
+export type TaskGatewayActionChip = {
+  phase: GatewayChatPhase
   label: string
   conversationId: string
   status: TaskActivityMessage['status'] | 'event'
   at: number
 }
 
-export type TaskCodexConversationSource = CodexChatPhase | 'codex-plan' | 'codex-run'
+export type TaskGatewayConversationSource = GatewayChatPhase | 'gateway-plan' | 'gateway-run'
 
-export type TaskCodexConversationMatch = {
+export type TaskGatewayConversationMatch = {
   source: TaskActivityMessage['source']
-  phase: CodexChatPhase
+  phase: GatewayChatPhase
   conversationId: string
   at: number
 }
 
-export type TaskCodexSurfaceStatus = {
+export type TaskGatewaySurfaceStatus = {
   key: string
-  statusKey: CodexLifecycleStatusKey
+  statusKey: GatewayLifecycleStatusKey
   label: string
-  tone: CodexLifecycleTone
+  tone: GatewayLifecycleTone
   conversationId?: string
   iconOnly?: boolean
   active?: boolean
@@ -200,12 +200,12 @@ export function taskActivityMessages(task: TaskEntity): TaskActivityMessage[] {
       && typeof record.createdAt === 'number'
   }).map((message) => ({
     ...message,
-    phase: inferCodexChatPhase(message)
+    phase: inferGatewayChatPhase(message)
   }))
 }
 
-export function taskCodexPlanBadge(task: TaskEntity): TaskCodexPlanBadge | null {
-  const value = task.payload?.codexPlanState
+export function taskGatewayPlanBadge(task: TaskEntity): TaskGatewayPlanBadge | null {
+  const value = task.payload?.gatewayPlanState
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const record = value as Record<string, unknown>
   if (record.state === 'planned') {
@@ -229,10 +229,10 @@ function activityMessageTime(message: TaskActivityMessage): number {
   return message.updatedAt ?? message.createdAt
 }
 
-function latestActivityMessageByPhase(task: TaskEntity, phase: CodexChatPhase): TaskActivityMessage | null {
+function latestActivityMessageByPhase(task: TaskEntity, phase: GatewayChatPhase): TaskActivityMessage | null {
   let latest: TaskActivityMessage | null = null
   for (const message of taskActivityMessages(task)) {
-    if (inferCodexChatPhase(message) !== phase) continue
+    if (inferGatewayChatPhase(message) !== phase) continue
     if (!latest || activityMessageTime(latest) <= activityMessageTime(message)) latest = message
   }
   return latest
@@ -247,10 +247,10 @@ function isTerminalActivityMessage(message: TaskActivityMessage): boolean {
   const metadata = message.metadata && typeof message.metadata === 'object' && !Array.isArray(message.metadata)
     ? message.metadata as Record<string, unknown>
     : {}
-  const codexBlock = typeof metadata.codexBlock === 'string' ? metadata.codexBlock : undefined
+  const gatewayBlock = typeof metadata.gatewayBlock === 'string' ? metadata.gatewayBlock : undefined
   const runStatus = typeof metadata.runStatus === 'string' ? metadata.runStatus : undefined
-  if (codexBlock && ['command', 'log', 'changes'].includes(codexBlock)) return false
-  return codexBlock === 'run-complete'
+  if (gatewayBlock && ['command', 'log', 'changes'].includes(gatewayBlock)) return false
+  return gatewayBlock === 'run-complete'
     || metadata.stopped === true
     || message.role === 'error'
     || message.status === 'failed'
@@ -264,12 +264,12 @@ function conversationIdOfActivity(message: TaskActivityMessage): string {
 
 function surfaceStatus(
   key: string,
-  statusKey: CodexLifecycleStatusKey,
+  statusKey: GatewayLifecycleStatusKey,
   conversationId?: string,
   active?: boolean,
   iconOnly?: boolean
-): TaskCodexSurfaceStatus {
-  const meta = codexLifecycleStatusMeta(statusKey)
+): TaskGatewaySurfaceStatus {
+  const meta = gatewayLifecycleStatusMeta(statusKey)
   return {
     key,
     statusKey,
@@ -281,41 +281,41 @@ function surfaceStatus(
   }
 }
 
-function phaseSurfaceStatus(phase: CodexChatPhase, message: TaskActivityMessage, active: boolean): TaskCodexSurfaceStatus {
-  const statusKey = codexChatLifecycleStatusKey(phase, message.status ?? 'event', active)
+function phaseSurfaceStatus(phase: GatewayChatPhase, message: TaskActivityMessage, active: boolean): TaskGatewaySurfaceStatus {
+  const statusKey = gatewayChatLifecycleStatusKey(phase, message.status ?? 'event', active)
   return surfaceStatus(`${phase}:${statusKey}`, statusKey, conversationIdOfActivity(message), active)
 }
 
-function latestFreshActiveMessageByPhase(task: TaskEntity, phase: CodexChatPhase, now: number): TaskActivityMessage | null {
+function latestFreshActiveMessageByPhase(task: TaskEntity, phase: GatewayChatPhase, now: number): TaskActivityMessage | null {
   let latest: TaskActivityMessage | null = null
   for (const message of taskActivityMessages(task)) {
-    if (inferCodexChatPhase(message) !== phase) continue
+    if (inferGatewayChatPhase(message) !== phase) continue
     if (!isFreshActiveMessage(message, now)) continue
     if (!latest || activityMessageTime(latest) <= activityMessageTime(message)) latest = message
   }
   return latest
 }
 
-function latestTerminalMessageByPhase(task: TaskEntity, phase: CodexChatPhase): TaskActivityMessage | null {
+function latestTerminalMessageByPhase(task: TaskEntity, phase: GatewayChatPhase): TaskActivityMessage | null {
   let latest: TaskActivityMessage | null = null
   for (const message of taskActivityMessages(task)) {
-    if (inferCodexChatPhase(message) !== phase) continue
+    if (inferGatewayChatPhase(message) !== phase) continue
     if (!isTerminalActivityMessage(message)) continue
     if (!latest || activityMessageTime(latest) <= activityMessageTime(message)) latest = message
   }
   return latest
 }
 
-function activeMessageAfterTerminal(task: TaskEntity, phase: CodexChatPhase, now: number, terminal: TaskActivityMessage | null): TaskActivityMessage | null {
+function activeMessageAfterTerminal(task: TaskEntity, phase: GatewayChatPhase, now: number, terminal: TaskActivityMessage | null): TaskActivityMessage | null {
   const active = latestFreshActiveMessageByPhase(task, phase, now)
   if (!active) return null
   if (terminal && activityMessageTime(terminal) >= activityMessageTime(active)) return null
   return active
 }
 
-export function taskCodexSurfaceStatuses(task: TaskEntity, now = Date.now()): TaskCodexSurfaceStatus[] {
-  const statuses: TaskCodexSurfaceStatus[] = []
-  const planBadge = taskCodexPlanBadge(task)
+export function taskGatewaySurfaceStatuses(task: TaskEntity, now = Date.now()): TaskGatewaySurfaceStatus[] {
+  const statuses: TaskGatewaySurfaceStatus[] = []
+  const planBadge = taskGatewayPlanBadge(task)
   const terminalPlan = latestTerminalMessageByPhase(task, 'PLAN')
   const activePlan = activeMessageAfterTerminal(task, 'PLAN', now, terminalPlan)
   const latestPlan = latestActivityMessageByPhase(task, 'PLAN')
@@ -360,12 +360,12 @@ export function taskCodexSurfaceStatuses(task: TaskEntity, now = Date.now()): Ta
   return statuses
 }
 
-export function taskCodexActiveTone(task: TaskEntity, now = Date.now()): TaskCodexSurfaceStatus['tone'] | null {
-  const active = taskCodexSurfaceStatuses(task, now).find((status) => status.active)
+export function taskGatewayActiveTone(task: TaskEntity, now = Date.now()): TaskGatewaySurfaceStatus['tone'] | null {
+  const active = taskGatewaySurfaceStatuses(task, now).find((status) => status.active)
   return active?.tone ?? null
 }
 
-export function taskCodexLatestSurfaceStatus(task: TaskEntity, now = Date.now()): TaskCodexSurfaceStatus | null {
+export function taskGatewayLatestSurfaceStatus(task: TaskEntity, now = Date.now()): TaskGatewaySurfaceStatus | null {
   const messages = taskActivityMessages(task)
   if (messages.length === 0) return null
 
@@ -377,8 +377,8 @@ export function taskCodexLatestSurfaceStatus(task: TaskEntity, now = Date.now())
     if (current === undefined || current <= at) latestMessageTimeByConversation.set(conversationId, at)
   }
 
-  let latest: { status: TaskCodexSurfaceStatus; at: number; index: number } | null = null
-  taskCodexSurfaceStatuses(task, now).forEach((status, index) => {
+  let latest: { status: TaskGatewaySurfaceStatus; at: number; index: number } | null = null
+  taskGatewaySurfaceStatuses(task, now).forEach((status, index) => {
     if (status.statusKey === 'not-planned') return
     const at = status.conversationId ? latestMessageTimeByConversation.get(status.conversationId) : undefined
     if (at === undefined) return
@@ -390,17 +390,17 @@ export function taskCodexLatestSurfaceStatus(task: TaskEntity, now = Date.now())
   return latest?.status ?? null
 }
 
-function normalizeConversationSourcePhase(source: TaskCodexConversationSource): CodexChatPhase {
-  if (source === 'codex-plan') return 'PLAN'
-  if (source === 'codex-run') return 'RUN'
+function normalizeConversationSourcePhase(source: TaskGatewayConversationSource): GatewayChatPhase {
+  if (source === 'gateway-plan') return 'PLAN'
+  if (source === 'gateway-run') return 'RUN'
   return source
 }
 
-export function latestTaskCodexConversation(task: TaskEntity, requestedPhase: TaskCodexConversationSource): TaskCodexConversationMatch | null {
-  let latest: TaskCodexConversationMatch | null = null
+export function latestTaskGatewayConversation(task: TaskEntity, requestedPhase: TaskGatewayConversationSource): TaskGatewayConversationMatch | null {
+  let latest: TaskGatewayConversationMatch | null = null
   const normalizedPhase = normalizeConversationSourcePhase(requestedPhase)
   for (const message of taskActivityMessages(task)) {
-    const phase = inferCodexChatPhase(message)
+    const phase = inferGatewayChatPhase(message)
     if (phase !== normalizedPhase) continue
     const conversationId = message.conversationId || message.runId
     if (!conversationId) continue
@@ -411,16 +411,16 @@ export function latestTaskCodexConversation(task: TaskEntity, requestedPhase: Ta
   return latest
 }
 
-export function taskCodexActionChips(task: TaskEntity): TaskCodexActionChip[] {
+export function taskGatewayActionChips(task: TaskEntity): TaskGatewayActionChip[] {
   return (['PLAN', 'RUN', 'POST-RUNNING', 'FOLLOW UP'] as const).flatMap((phase) => {
-    const latest = latestTaskCodexConversation(task, phase)
+    const latest = latestTaskGatewayConversation(task, phase)
     if (!latest) return []
     const message = taskActivityMessages(task)
-      .filter((item) => inferCodexChatPhase(item) === phase && (item.conversationId || item.runId) === latest.conversationId)
+      .filter((item) => inferGatewayChatPhase(item) === phase && (item.conversationId || item.runId) === latest.conversationId)
       .find((item) => (item.updatedAt ?? item.createdAt) === latest.at)
     return [{
       phase,
-      label: codexChatPhaseActionLabel(phase),
+      label: gatewayChatPhaseActionLabel(phase),
       conversationId: latest.conversationId,
       status: message?.status ?? 'event',
       at: latest.at

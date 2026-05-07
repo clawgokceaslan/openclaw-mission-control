@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LuClipboardList, LuRefreshCw, LuSettings2, LuPlay, LuChevronLeft, LuChevronRight } from 'react-icons/lu'
-import { IPC_CHANNELS, type PaginatedResponse, type PlannedCodexTaskRow } from '@shared/contracts/ipc'
+import { IPC_CHANNELS, type PaginatedResponse, type PlannedGatewayTaskRow } from '@shared/contracts/ipc'
 import { useAuth } from '@renderer/providers/auth/auth-state'
-import { useGlobalCodexChat } from '@renderer/providers/codex-global-chat'
+import { useGlobalGatewayChat } from '@renderer/providers/gateway-global-chat'
 import { invokeBridge, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
-import { codexHeaderRefreshModeFromTaskActivityArgs, codexHeaderRefreshModeFromTaskUpdatedArgs } from '../codexHeaderRefresh'
+import { gatewayHeaderRefreshModeFromTaskActivityArgs, gatewayHeaderRefreshModeFromTaskUpdatedArgs } from '../gatewayHeaderRefresh'
 import { useOutsidePointerDown } from '../useOutsidePointerDown'
 import styles from './index.module.scss'
 
 const PAGE_SIZE = 8
 
-function missingLabel(row: PlannedCodexTaskRow): string {
+function missingLabel(row: PlannedGatewayTaskRow): string {
   if (row.missing.includes('gateway') && row.missing.includes('runModel')) return 'Gateway and run model required'
   if (row.missing.includes('gateway')) return 'Gateway required'
   if (row.missing.includes('runModel')) return 'Run model required'
@@ -19,11 +19,11 @@ function missingLabel(row: PlannedCodexTaskRow): string {
 
 export function PlannedTasksMenu() {
   const { token } = useAuth()
-  const { launchPlannedTaskRun, openProjectCodexSettings, busy: globalBusy } = useGlobalCodexChat()
+  const { launchPlannedTaskRun, openProjectGatewaySettings, busy: globalBusy } = useGlobalGatewayChat()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [open, setOpen] = useState(false)
   const [page, setPage] = useState(1)
-  const [rows, setRows] = useState<PlannedCodexTaskRow[]>([])
+  const [rows, setRows] = useState<PlannedGatewayTaskRow[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -47,7 +47,7 @@ export function PlannedTasksMenu() {
       setLoading(true)
     }
 
-    const response = await invokeBridge<PaginatedResponse<PlannedCodexTaskRow>>(IPC_CHANNELS.tasks.listPlannedCodex, {
+    const response = await invokeBridge<PaginatedResponse<PlannedGatewayTaskRow>>(IPC_CHANNELS.tasks.listPlannedGateway, {
       actorToken: token,
       page: requestedPage,
       pageSize: includeRows ? PAGE_SIZE : 1
@@ -135,13 +135,13 @@ export function PlannedTasksMenu() {
     if (!token) return
 
     const onTaskActivity = (...args: unknown[]) => {
-      const refreshMode = codexHeaderRefreshModeFromTaskActivityArgs(args)
+      const refreshMode = gatewayHeaderRefreshModeFromTaskActivityArgs(args)
       if (refreshMode === 'immediate') refreshFromSource()
       if (refreshMode === 'debounced') scheduleRefresh()
     }
 
     const onTaskUpdated = (...args: unknown[]) => {
-      const refreshMode = codexHeaderRefreshModeFromTaskUpdatedArgs(args)
+      const refreshMode = gatewayHeaderRefreshModeFromTaskUpdatedArgs(args)
       if (refreshMode === 'immediate') refreshFromSource()
       if (refreshMode === 'debounced') scheduleRefresh()
     }
@@ -165,10 +165,10 @@ export function PlannedTasksMenu() {
 
   useOutsidePointerDown(open, containerRef, () => setOpen(false))
 
-  const selectRow = async (row: PlannedCodexTaskRow) => {
+  const selectRow = async (row: PlannedGatewayTaskRow) => {
     if (!row.runnable) {
       setOpen(false)
-      openProjectCodexSettings(row.projectId, row.taskId)
+      openProjectGatewaySettings(row.projectId, row.taskId)
       return
     }
     setLaunchingTaskId(row.taskId)

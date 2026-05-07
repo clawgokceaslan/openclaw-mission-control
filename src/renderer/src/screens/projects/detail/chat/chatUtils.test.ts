@@ -8,7 +8,7 @@ import {
   buildLatestGeneratedFollowUpContext,
   codexChangesSummary,
   buildLatestRunFollowUpContext,
-  formatCodexWorkDuration,
+  formatGatewayWorkDuration,
   formatPlannerClarificationAnswer,
   groupCodexTranscriptMessages,
   hasNoChangesMessage,
@@ -25,7 +25,7 @@ function message(overrides: Partial<TaskActivityMessage>): TaskActivityMessage {
     id: overrides.id ?? `message-${overrides.createdAt ?? 1}`,
     runId: overrides.runId ?? 'conversation-1',
     conversationId: overrides.conversationId ?? overrides.runId ?? 'conversation-1',
-    source: overrides.source ?? 'codex-chat',
+    source: overrides.source ?? 'gateway-chat',
     role: overrides.role ?? 'assistant',
     status: overrides.status,
     body: overrides.body ?? 'body',
@@ -53,11 +53,11 @@ describe('chat conversation summaries', () => {
     const now = 30 * 60 * 1000
     const summaries = buildChatConversationSummaries([
       message({ id: 'stopped-running', runId: 'stopped', conversationId: 'stopped', role: 'thinking', status: 'running', createdAt: 1 }),
-      message({ id: 'stopped-terminal', runId: 'stopped', conversationId: 'stopped', role: 'system', status: 'completed', createdAt: 2, metadata: { codexBlock: 'run-complete', stopped: true } }),
+      message({ id: 'stopped-terminal', runId: 'stopped', conversationId: 'stopped', role: 'system', status: 'completed', createdAt: 2, metadata: { gatewayBlock: 'run-complete', stopped: true } }),
       message({ id: 'completed-running', runId: 'completed', conversationId: 'completed', role: 'thinking', status: 'running', createdAt: 3 }),
-      message({ id: 'completed-terminal', runId: 'completed', conversationId: 'completed', role: 'system', status: 'completed', createdAt: 4, metadata: { codexBlock: 'run-complete', manuallyResolved: true, resolution: 'completed' } }),
+      message({ id: 'completed-terminal', runId: 'completed', conversationId: 'completed', role: 'system', status: 'completed', createdAt: 4, metadata: { gatewayBlock: 'run-complete', manuallyResolved: true, resolution: 'completed' } }),
       message({ id: 'failed-running', runId: 'failed', conversationId: 'failed', role: 'thinking', status: 'running', createdAt: 5 }),
-      message({ id: 'failed-terminal', runId: 'failed', conversationId: 'failed', role: 'error', status: 'failed', createdAt: 6, metadata: { codexBlock: 'run-complete', manuallyResolved: true, resolution: 'failed' } })
+      message({ id: 'failed-terminal', runId: 'failed', conversationId: 'failed', role: 'error', status: 'failed', createdAt: 6, metadata: { gatewayBlock: 'run-complete', manuallyResolved: true, resolution: 'failed' } })
     ], now)
 
     const statusById = new Map(summaries.map((summary) => [summary.id, summary.status]))
@@ -68,12 +68,12 @@ describe('chat conversation summaries', () => {
 
   it('keeps the original plan or run source when later follow-up messages land in the same conversation', () => {
     const summaries = buildChatConversationSummaries([
-      message({ id: 'run-start', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'system', createdAt: 1, body: 'Run started.' }),
-      message({ id: 'follow-up', runId: 'chat-1', conversationId: 'run-1', source: 'codex-chat', role: 'user', createdAt: 2, body: 'Continue from the run output.' })
+      message({ id: 'run-start', runId: 'run-1', conversationId: 'run-1', source: 'gateway-run', role: 'system', createdAt: 1, body: 'Run started.' }),
+      message({ id: 'follow-up', runId: 'chat-1', conversationId: 'run-1', source: 'gateway-chat', role: 'user', createdAt: 2, body: 'Continue from the run output.' })
     ], 10)
 
     expect(summaries[0].title).toBe('Run')
-    expect(summaries[0].source).toBe('codex-run')
+    expect(summaries[0].source).toBe('gateway-run')
     expect(summaries[0].phase).toBe('RUN')
     expect(summaries[0].count).toBe(1)
   })
@@ -84,11 +84,11 @@ describe('planner question helpers', () => {
     const prompt = plannerQuestionPromptFromMessages([
       message({
         id: 'question-1',
-        source: 'codex-plan',
+        source: 'gateway-plan',
         role: 'assistant',
         createdAt: 10,
         metadata: {
-          codexBlock: 'planner-question',
+          gatewayBlock: 'planner-question',
           summary: 'Need scope.',
           questions: [
             {
@@ -115,8 +115,8 @@ describe('planner question helpers', () => {
 
   it('does not return a planner question after a clarification answer', () => {
     const prompt = plannerQuestionPromptFromMessages([
-      message({ id: 'question-1', source: 'codex-plan', role: 'assistant', createdAt: 10, metadata: { codexBlock: 'planner-question', questions: [{ id: 'scope', question: 'Scope?' }] } }),
-      message({ id: 'answer-1', source: 'codex-plan', role: 'user', createdAt: 11, body: 'Answer', metadata: { clarification: true } })
+      message({ id: 'question-1', source: 'gateway-plan', role: 'assistant', createdAt: 10, metadata: { gatewayBlock: 'planner-question', questions: [{ id: 'scope', question: 'Scope?' }] } }),
+      message({ id: 'answer-1', source: 'gateway-plan', role: 'user', createdAt: 11, body: 'Answer', metadata: { clarification: true } })
     ])
 
     expect(prompt).toBeNull()
@@ -126,11 +126,11 @@ describe('planner question helpers', () => {
     const prompt = plannerQuestionPromptFromMessages([
       message({
         id: 'question-1',
-        source: 'codex-plan',
+        source: 'gateway-plan',
         role: 'assistant',
         createdAt: 10,
         metadata: {
-          codexBlock: 'planner-question',
+          gatewayBlock: 'planner-question',
           questions: [
             { id: 'scope', question: 'Scope?', options: [{ id: 'chat', label: 'Chat only' }] },
             { id: 'note', question: 'Anything else?' }
@@ -155,11 +155,11 @@ describe('planner question helpers', () => {
     const prompt = plannerQuestionPromptFromMessages([
       message({
         id: 'question-1',
-        source: 'codex-plan',
+        source: 'gateway-plan',
         role: 'assistant',
         createdAt: 10,
         metadata: {
-          codexBlock: 'planner-question',
+          gatewayBlock: 'planner-question',
           questions: [
             { id: 'scope', question: 'Scope?', options: [{ id: 'chat', label: 'Chat only', description: 'Stay in chat surfaces.' }] }
           ]
@@ -182,11 +182,11 @@ describe('planner question helpers', () => {
     const prompt = plannerQuestionPromptFromMessages([
       message({
         id: 'question-1',
-        source: 'codex-plan',
+        source: 'gateway-plan',
         role: 'assistant',
         createdAt: 10,
         metadata: {
-          codexBlock: 'planner-question',
+          gatewayBlock: 'planner-question',
           questions: [
             { id: 'scope', question: 'Scope?', options: [{ id: 'chat', label: 'Chat only' }] },
             { id: 'reset', question: 'Include reset?' }
@@ -253,13 +253,13 @@ describe('chat utils helpers', () => {
   it('groups codex runtime rows into a readable work block and leaves user/completion rows outside', () => {
     const items = groupCodexTranscriptMessages([
       message({ id: 'user', role: 'user', createdAt: 1 }),
-      message({ id: 'thinking', role: 'thinking', status: 'completed', body: 'Reading the current chat UI.', createdAt: 2, metadata: { codexBlock: 'thinking', thinkingDurationMs: 72_000 } }),
-      message({ id: 'search', role: 'tool', status: 'completed', body: 'Command: rg -n "chat" src\nStatus: completed', createdAt: 3, metadata: { codexBlock: 'command', command: 'rg -n "chat" src' } }),
-      message({ id: 'read', role: 'tool', status: 'completed', body: 'Command: sed -n 1,40p src/a.ts\nStatus: completed', createdAt: 4, metadata: { codexBlock: 'command', command: 'sed -n 1,40p src/a.ts' } }),
-      message({ id: 'assistant', role: 'assistant', body: 'I found the command spam source.', createdAt: 5, metadata: { codexBlock: 'assistant', runStatus: 'running' } }),
-      message({ id: 'run', role: 'tool', status: 'completed', body: 'Command: npm test\nStatus: completed\n\n```text\npassed\n```', createdAt: 6, metadata: { codexBlock: 'command', command: 'npm test' } }),
-      message({ id: 'changes', role: 'tool', status: 'completed', body: 'Changes', createdAt: 7, metadata: { codexBlock: 'changes', changeFiles: 1, changeFileStats: [{ path: 'src/new.ts', insertions: 3, deletions: 0, blocks: 0, untracked: true }], changeHasNoChanges: false } }),
-      message({ id: 'complete', role: 'system', status: 'completed', body: 'Codex chat completed.', createdAt: 8, metadata: { codexBlock: 'run-complete' } })
+      message({ id: 'thinking', role: 'thinking', status: 'completed', body: 'Reading the current chat UI.', createdAt: 2, metadata: { gatewayBlock: 'thinking', thinkingDurationMs: 72_000 } }),
+      message({ id: 'search', role: 'tool', status: 'completed', body: 'Command: rg -n "chat" src\nStatus: completed', createdAt: 3, metadata: { gatewayBlock: 'command', command: 'rg -n "chat" src' } }),
+      message({ id: 'read', role: 'tool', status: 'completed', body: 'Command: sed -n 1,40p src/a.ts\nStatus: completed', createdAt: 4, metadata: { gatewayBlock: 'command', command: 'sed -n 1,40p src/a.ts' } }),
+      message({ id: 'assistant', role: 'assistant', body: 'I found the command spam source.', createdAt: 5, metadata: { gatewayBlock: 'assistant', runStatus: 'running' } }),
+      message({ id: 'run', role: 'tool', status: 'completed', body: 'Command: npm test\nStatus: completed\n\n```text\npassed\n```', createdAt: 6, metadata: { gatewayBlock: 'command', command: 'npm test' } }),
+      message({ id: 'changes', role: 'tool', status: 'completed', body: 'Changes', createdAt: 7, metadata: { gatewayBlock: 'changes', changeFiles: 1, changeFileStats: [{ path: 'src/new.ts', insertions: 3, deletions: 0, blocks: 0, untracked: true }], changeHasNoChanges: false } }),
+      message({ id: 'complete', role: 'system', status: 'completed', body: 'Codex chat completed.', createdAt: 8, metadata: { gatewayBlock: 'run-complete' } })
     ], 10)
 
     expect(items.map((item) => item.kind)).toEqual(['message', 'work-block', 'message'])
@@ -275,30 +275,30 @@ describe('chat utils helpers', () => {
 
   it('uses thinking metadata before run timestamps for the work duration label', () => {
     const items = groupCodexTranscriptMessages([
-      message({ id: 'thinking-duration', role: 'thinking', status: 'completed', createdAt: 1_000, updatedAt: 301_000, metadata: { codexBlock: 'thinking', thinkingDurationMs: 72_000 } }),
-      message({ id: 'command-duration', role: 'tool', status: 'completed', createdAt: 302_000, metadata: { codexBlock: 'command', command: 'npm test' } })
+      message({ id: 'thinking-duration', role: 'thinking', status: 'completed', createdAt: 1_000, updatedAt: 301_000, metadata: { gatewayBlock: 'thinking', thinkingDurationMs: 72_000 } }),
+      message({ id: 'command-duration', role: 'tool', status: 'completed', createdAt: 302_000, metadata: { gatewayBlock: 'command', command: 'npm test' } })
     ], 400_000)
 
     const block = items[0].kind === 'work-block' ? items[0].block : null
     expect(block?.durationMs).toBe(72_000)
-    expect(formatCodexWorkDuration(block?.durationMs, false)).toBe('Worked for 1m 12s')
+    expect(formatGatewayWorkDuration(block?.durationMs, false)).toBe('Worked for 1m 12s')
   })
 
   it('falls back to elapsed run timestamps when thinking duration is missing', () => {
     const items = groupCodexTranscriptMessages([
-      message({ id: 'thinking-elapsed', role: 'thinking', status: 'completed', createdAt: 1_000, metadata: { codexBlock: 'thinking' } }),
-      message({ id: 'command-elapsed', role: 'tool', status: 'completed', createdAt: 4_400, metadata: { codexBlock: 'command', command: 'npm test' } })
+      message({ id: 'thinking-elapsed', role: 'thinking', status: 'completed', createdAt: 1_000, metadata: { gatewayBlock: 'thinking' } }),
+      message({ id: 'command-elapsed', role: 'tool', status: 'completed', createdAt: 4_400, metadata: { gatewayBlock: 'command', command: 'npm test' } })
     ], 10_000)
 
     const block = items[0].kind === 'work-block' ? items[0].block : null
-    expect(formatCodexWorkDuration(block?.durationMs, false)).toBe('Worked for 3s')
+    expect(formatGatewayWorkDuration(block?.durationMs, false)).toBe('Worked for 3s')
   })
 
   it('freezes a running work block when the matching run-complete row exists', () => {
     const items = groupCodexTranscriptMessages([
-      message({ id: 'thinking-running', runId: 'run-freeze', conversationId: 'conversation-freeze', role: 'thinking', status: 'running', createdAt: 1_000, updatedAt: 2_000, metadata: { codexBlock: 'thinking', runStatus: 'running' } }),
+      message({ id: 'thinking-running', runId: 'run-freeze', conversationId: 'conversation-freeze', role: 'thinking', status: 'running', createdAt: 1_000, updatedAt: 2_000, metadata: { gatewayBlock: 'thinking', runStatus: 'running' } }),
       message({ id: 'assistant-running', runId: 'run-freeze', conversationId: 'conversation-freeze', role: 'assistant', status: 'running', createdAt: 3_000, metadata: { runStatus: 'running' } }),
-      message({ id: 'complete-freeze', runId: 'run-freeze', conversationId: 'conversation-freeze', role: 'system', status: 'completed', createdAt: 5_000, metadata: { codexBlock: 'run-complete' } })
+      message({ id: 'complete-freeze', runId: 'run-freeze', conversationId: 'conversation-freeze', role: 'system', status: 'completed', createdAt: 5_000, metadata: { gatewayBlock: 'run-complete' } })
     ], 60_000)
 
     const block = items[0].kind === 'work-block' ? items[0].block : null
@@ -308,8 +308,8 @@ describe('chat utils helpers', () => {
 
   it('does not treat command completion or failure as whole-run completion', () => {
     const items = groupCodexTranscriptMessages([
-      message({ id: 'thinking-fresh', runId: 'run-fresh', conversationId: 'conversation-fresh', role: 'thinking', status: 'running', createdAt: 1_000, updatedAt: 2_000, metadata: { codexBlock: 'thinking', runStatus: 'running' } }),
-      message({ id: 'command-failed', runId: 'run-fresh', conversationId: 'conversation-fresh', role: 'tool', status: 'failed', createdAt: 3_000, metadata: { codexBlock: 'command', command: 'npm test', runStatus: 'running' } })
+      message({ id: 'thinking-fresh', runId: 'run-fresh', conversationId: 'conversation-fresh', role: 'thinking', status: 'running', createdAt: 1_000, updatedAt: 2_000, metadata: { gatewayBlock: 'thinking', runStatus: 'running' } }),
+      message({ id: 'command-failed', runId: 'run-fresh', conversationId: 'conversation-fresh', role: 'tool', status: 'failed', createdAt: 3_000, metadata: { gatewayBlock: 'command', command: 'npm test', runStatus: 'running' } })
     ], 10_000)
 
     const block = items[0].kind === 'work-block' ? items[0].block : null
@@ -320,7 +320,7 @@ describe('chat utils helpers', () => {
   it('freezes stale running work blocks at the last activity time without a terminal row', () => {
     const now = 30 * 60 * 1000
     const items = groupCodexTranscriptMessages([
-      message({ id: 'thinking-stale', runId: 'run-stale', conversationId: 'conversation-stale', role: 'thinking', status: 'running', createdAt: 1_000, updatedAt: 2_000, metadata: { codexBlock: 'thinking', runStatus: 'running' } }),
+      message({ id: 'thinking-stale', runId: 'run-stale', conversationId: 'conversation-stale', role: 'thinking', status: 'running', createdAt: 1_000, updatedAt: 2_000, metadata: { gatewayBlock: 'thinking', runStatus: 'running' } }),
       message({ id: 'assistant-stale', runId: 'run-stale', conversationId: 'conversation-stale', role: 'assistant', status: 'running', createdAt: 4_000, updatedAt: 5_000, metadata: { runStatus: 'running' } })
     ], now)
 
@@ -334,7 +334,7 @@ describe('chat utils helpers', () => {
       id: 'changes-none',
       role: 'tool',
       body: 'No workspace changes detected.',
-      metadata: { changeHasNoChanges: true, codexBlock: 'changes' }
+      metadata: { changeHasNoChanges: true, gatewayBlock: 'changes' }
     })
 
     expect(hasNoChangesMessage(noChanges)).toBe(true)
@@ -376,57 +376,57 @@ describe('chat utils helpers', () => {
     const context = buildLatestRunFollowUpContext([
       message({
         id: 'run-1',
-        source: 'codex-run',
+        source: 'gateway-run',
         conversationId: 'run-1',
         createdAt: 1,
         role: 'assistant',
         status: 'completed',
         body: 'First run assistant note.',
-        metadata: { codexBlock: 'assistant', runStatus: 'completed' }
+        metadata: { gatewayBlock: 'assistant', runStatus: 'completed' }
       }),
       message({
         id: 'run-1-complete',
-        source: 'codex-run',
+        source: 'gateway-run',
         conversationId: 'run-1',
         createdAt: 2,
         role: 'system',
         status: 'completed',
         body: 'Run-1 complete.',
-        metadata: { codexBlock: 'run-complete', code: 0 }
+        metadata: { gatewayBlock: 'run-complete', code: 0 }
       }),
       message({
         id: 'run-2',
-        source: 'codex-run',
+        source: 'gateway-run',
         conversationId: 'run-2',
         createdAt: 3,
         role: 'assistant',
         status: 'running',
         body: 'Latest run in progress.',
-        metadata: { codexBlock: 'assistant', runStatus: 'running' }
+        metadata: { gatewayBlock: 'assistant', runStatus: 'running' }
       }),
       message({
         id: 'run-2-changes',
-        source: 'codex-run',
+        source: 'gateway-run',
         conversationId: 'run-2',
         createdAt: 4,
         role: 'tool',
         status: 'completed',
         body: 'changes',
-        metadata: { codexBlock: 'changes', changeFiles: 2, changeInsertions: 3, changeDeletions: 1, changeFileStats: [] }
+        metadata: { gatewayBlock: 'changes', changeFiles: 2, changeInsertions: 3, changeDeletions: 1, changeFileStats: [] }
       }),
       message({
         id: 'run-2-complete',
-        source: 'codex-run',
+        source: 'gateway-run',
         conversationId: 'run-2',
         createdAt: 5,
         role: 'system',
         status: 'completed',
         body: 'Run-2 complete.',
-        metadata: { codexBlock: 'run-complete', code: 0 }
+        metadata: { gatewayBlock: 'run-complete', code: 0 }
       }),
       message({
         id: 'non-run-2',
-        source: 'codex-chat',
+        source: 'gateway-chat',
         conversationId: 'chat-2',
         createdAt: 6,
         role: 'assistant',
@@ -448,7 +448,7 @@ describe('chat utils helpers', () => {
     const context = buildLatestRunFollowUpContext([
       message({
         id: 'run-assistant',
-        source: 'codex-run',
+        source: 'gateway-run',
         conversationId: 'run-handoff',
         createdAt: 1,
         role: 'assistant',
@@ -457,13 +457,13 @@ describe('chat utils helpers', () => {
       }),
       message({
         id: 'run-complete',
-        source: 'codex-run',
+        source: 'gateway-run',
         conversationId: 'run-handoff',
         createdAt: 2,
         role: 'system',
         status: 'completed',
         body: 'Run complete.',
-        metadata: { codexBlock: 'run-complete', code: 0 }
+        metadata: { gatewayBlock: 'run-complete', code: 0 }
       })
     ])
 
@@ -475,14 +475,14 @@ describe('chat utils helpers', () => {
   })
 
   it('returns empty follow-up context for tasks with no run messages', () => {
-    expect(buildLatestRunFollowUpContext([message({ id: 'chat-only', source: 'codex-chat', createdAt: 1, body: 'hello' })])).toBe('')
+    expect(buildLatestRunFollowUpContext([message({ id: 'chat-only', source: 'gateway-chat', createdAt: 1, body: 'hello' })])).toBe('')
   })
 
   it('keeps post-running out of generated follow-up context', () => {
     const messages = [
-      message({ id: 'run-complete', source: 'codex-run', conversationId: 'run-1', runId: 'run-1', role: 'system', status: 'completed', createdAt: 1, body: 'Run complete.', metadata: { codexBlock: 'run-complete', code: 0 } }),
-      message({ id: 'post-start', source: 'codex-run', conversationId: 'post-1', runId: 'post-1', role: 'system', status: 'running', createdAt: 2, body: 'Post started.', metadata: { codexBlock: 'post-run-start', parentRunId: 'run-1' } }),
-      message({ id: 'post-complete', source: 'codex-run', conversationId: 'post-1', runId: 'post-1', role: 'system', status: 'completed', createdAt: 3, body: 'Post complete.', metadata: { codexBlock: 'run-complete', parentRunId: 'run-1', code: 0 } })
+      message({ id: 'run-complete', source: 'gateway-run', conversationId: 'run-1', runId: 'run-1', role: 'system', status: 'completed', createdAt: 1, body: 'Run complete.', metadata: { gatewayBlock: 'run-complete', code: 0 } }),
+      message({ id: 'post-start', source: 'gateway-run', conversationId: 'post-1', runId: 'post-1', role: 'system', status: 'running', createdAt: 2, body: 'Post started.', metadata: { gatewayBlock: 'post-run-start', parentRunId: 'run-1' } }),
+      message({ id: 'post-complete', source: 'gateway-run', conversationId: 'post-1', runId: 'post-1', role: 'system', status: 'completed', createdAt: 3, body: 'Post complete.', metadata: { gatewayBlock: 'run-complete', parentRunId: 'run-1', code: 0 } })
     ]
 
     expect(buildLatestRunFollowUpContext(messages)).toContain('conversation run-1')
@@ -492,13 +492,13 @@ describe('chat utils helpers', () => {
 
   it('builds generated context entries across plan, run, and chat conversations', () => {
     const entries = buildGeneratedContextEntries([
-      message({ id: 'plan-user', source: 'codex-plan', conversationId: 'plan-1', runId: 'plan-1', role: 'user', createdAt: 1, body: '/plan update scope' }),
-      message({ id: 'plan-assistant', source: 'codex-plan', conversationId: 'plan-1', runId: 'plan-1', role: 'assistant', createdAt: 2, body: 'Planned the task structure.' }),
-      message({ id: 'run-user', source: 'codex-run', conversationId: 'run-1', runId: 'run-1', role: 'user', createdAt: 3, body: 'Run task' }),
-      message({ id: 'run-change', source: 'codex-run', conversationId: 'run-1', runId: 'run-1', role: 'tool', status: 'completed', createdAt: 4, body: 'changes', metadata: { codexBlock: 'changes', changeFiles: 1, changeInsertions: 2, changeDeletions: 0, changeFileStats: [] } }),
-      message({ id: 'run-complete', source: 'codex-run', conversationId: 'run-1', runId: 'run-1', role: 'system', status: 'completed', createdAt: 5, body: 'Codex run completed.', metadata: { codexBlock: 'run-complete', code: 0 } }),
-      message({ id: 'chat-user', source: 'codex-chat', conversationId: 'chat-1', runId: 'chat-1', role: 'user', createdAt: 6, body: 'Follow up' }),
-      message({ id: 'chat-assistant', source: 'codex-chat', conversationId: 'chat-1', runId: 'chat-1', role: 'assistant', createdAt: 7, body: 'Follow-up answer.' })
+      message({ id: 'plan-user', source: 'gateway-plan', conversationId: 'plan-1', runId: 'plan-1', role: 'user', createdAt: 1, body: '/plan update scope' }),
+      message({ id: 'plan-assistant', source: 'gateway-plan', conversationId: 'plan-1', runId: 'plan-1', role: 'assistant', createdAt: 2, body: 'Planned the task structure.' }),
+      message({ id: 'run-user', source: 'gateway-run', conversationId: 'run-1', runId: 'run-1', role: 'user', createdAt: 3, body: 'Run task' }),
+      message({ id: 'run-change', source: 'gateway-run', conversationId: 'run-1', runId: 'run-1', role: 'tool', status: 'completed', createdAt: 4, body: 'changes', metadata: { gatewayBlock: 'changes', changeFiles: 1, changeInsertions: 2, changeDeletions: 0, changeFileStats: [] } }),
+      message({ id: 'run-complete', source: 'gateway-run', conversationId: 'run-1', runId: 'run-1', role: 'system', status: 'completed', createdAt: 5, body: 'Codex run completed.', metadata: { gatewayBlock: 'run-complete', code: 0 } }),
+      message({ id: 'chat-user', source: 'gateway-chat', conversationId: 'chat-1', runId: 'chat-1', role: 'user', createdAt: 6, body: 'Follow up' }),
+      message({ id: 'chat-assistant', source: 'gateway-chat', conversationId: 'chat-1', runId: 'chat-1', role: 'assistant', createdAt: 7, body: 'Follow-up answer.' })
     ])
 
     expect(entries.map((entry) => [entry.conversationId, entry.title])).toEqual([
@@ -508,8 +508,8 @@ describe('chat utils helpers', () => {
     ])
     expect(entries.find((entry) => entry.conversationId === 'run-1')?.body).toContain('Reported changes: 1 file changed, +2 insertions')
     expect(buildLatestGeneratedFollowUpContext(entries.length ? [
-      message({ id: 'chat-user', source: 'codex-chat', conversationId: 'chat-1', runId: 'chat-1', role: 'user', createdAt: 6, body: 'Follow up' }),
-      message({ id: 'chat-assistant', source: 'codex-chat', conversationId: 'chat-1', runId: 'chat-1', role: 'assistant', createdAt: 7, body: 'Follow-up answer.' })
+      message({ id: 'chat-user', source: 'gateway-chat', conversationId: 'chat-1', runId: 'chat-1', role: 'user', createdAt: 6, body: 'Follow up' }),
+      message({ id: 'chat-assistant', source: 'gateway-chat', conversationId: 'chat-1', runId: 'chat-1', role: 'assistant', createdAt: 7, body: 'Follow-up answer.' })
     ] : [])).toContain('Chat context for conversation chat-1')
   })
 
@@ -533,7 +533,7 @@ describe('chat utils helpers', () => {
         '-const d = 4',
         '```'
       ].join('\n'),
-      metadata: { codexBlock: 'changes', unavailable: false }
+      metadata: { gatewayBlock: 'changes', unavailable: false }
     })
 
     expect(codexChangesSummary(changes)).toMatchObject({

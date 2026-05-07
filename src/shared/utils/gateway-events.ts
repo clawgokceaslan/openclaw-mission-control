@@ -1,4 +1,4 @@
-export type CodexUsageSummary = {
+export type GatewayUsageSummary = {
   inputTokens?: number
   cachedInputTokens?: number
   outputTokens?: number
@@ -6,7 +6,7 @@ export type CodexUsageSummary = {
   totalTokens?: number
 }
 
-export type CodexCommandEvent = {
+export type GatewayCommandEvent = {
   kind: 'command'
   status: string
   command: string
@@ -14,7 +14,7 @@ export type CodexCommandEvent = {
   exitCode?: number
 }
 
-export type CodexMessageEvent = {
+export type GatewayMessageEvent = {
   kind: 'message'
   role: 'assistant' | 'user' | 'system' | 'tool' | 'thinking'
   text: string
@@ -23,26 +23,26 @@ export type CodexMessageEvent = {
   endedAt?: number
 }
 
-export type CodexStatusEvent = {
+export type GatewayStatusEvent = {
   kind: 'status'
   type: string
   label: string
-  usage?: CodexUsageSummary
+  usage?: GatewayUsageSummary
 }
 
-export type CodexParseIssue = {
+export type GatewayParseIssue = {
   kind: 'raw' | 'malformed'
   text: string
 }
 
-export type CodexNormalizedEvent = CodexCommandEvent | CodexMessageEvent | CodexStatusEvent | CodexParseIssue
+export type GatewayNormalizedEvent = GatewayCommandEvent | GatewayMessageEvent | GatewayStatusEvent | GatewayParseIssue
 
-export type CodexParseResult = {
-  events: CodexNormalizedEvent[]
-  commands: CodexCommandEvent[]
-  messages: CodexMessageEvent[]
-  statuses: CodexStatusEvent[]
-  usage?: CodexUsageSummary
+export type GatewayParseResult = {
+  events: GatewayNormalizedEvent[]
+  commands: GatewayCommandEvent[]
+  messages: GatewayMessageEvent[]
+  statuses: GatewayStatusEvent[]
+  usage?: GatewayUsageSummary
   rawTail: string
   parsedCount: number
 }
@@ -102,12 +102,12 @@ function pickNumber(record: Record<string, unknown>, keys: string[]): number | u
   return undefined
 }
 
-function normalizeUsage(value: unknown): CodexUsageSummary | undefined {
+function normalizeUsage(value: unknown): GatewayUsageSummary | undefined {
   const usage = asRecord(value)
   if (!usage) return undefined
   const outputDetails = asRecord(usage.output_tokens_details)
   const inputDetails = asRecord(usage.input_tokens_details)
-  const summary: CodexUsageSummary = {
+  const summary: GatewayUsageSummary = {
     inputTokens: pickNumber(usage, ['input_tokens', 'prompt_tokens']),
     cachedInputTokens: inputDetails ? pickNumber(inputDetails, ['cached_tokens']) : undefined,
     outputTokens: pickNumber(usage, ['output_tokens', 'completion_tokens']),
@@ -119,7 +119,7 @@ function normalizeUsage(value: unknown): CodexUsageSummary | undefined {
   return Object.values(summary).some((item) => item !== undefined) ? summary : undefined
 }
 
-function mergeUsage(current: CodexUsageSummary | undefined, next: CodexUsageSummary | undefined): CodexUsageSummary | undefined {
+function mergeUsage(current: GatewayUsageSummary | undefined, next: GatewayUsageSummary | undefined): GatewayUsageSummary | undefined {
   if (!next) return current
   if (!current) return next
   return {
@@ -193,7 +193,7 @@ function jsonCandidates(raw: string): string[] {
   return Array.from(new Set([...candidates, ...embedded]))
 }
 
-function normalizeEvent(rawEvent: Record<string, unknown>): CodexNormalizedEvent[] {
+function normalizeEvent(rawEvent: Record<string, unknown>): GatewayNormalizedEvent[] {
   const type = typeof rawEvent.type === 'string' ? rawEvent.type : 'event'
   const payload = asRecord(rawEvent.payload)
   const payloadType = typeof payload?.type === 'string' ? payload.type : ''
@@ -270,15 +270,15 @@ function normalizeEvent(rawEvent: Record<string, unknown>): CodexNormalizedEvent
   return [{ kind: 'raw', text: JSON.stringify(rawEvent).slice(0, 4000) }]
 }
 
-export function normalizeCodexEvent(rawEvent: unknown): CodexNormalizedEvent[] {
+export function normalizeCodexEvent(rawEvent: unknown): GatewayNormalizedEvent[] {
   const record = asRecord(rawEvent)
   return record ? normalizeEvent(record) : []
 }
 
-export function parseCodexEvents(raw: string): CodexParseResult {
-  const events: CodexNormalizedEvent[] = []
+export function parseGatewayEvents(raw: string): GatewayParseResult {
+  const events: GatewayNormalizedEvent[] = []
   let parsedCount = 0
-  let usage: CodexUsageSummary | undefined
+  let usage: GatewayUsageSummary | undefined
   for (const candidate of jsonCandidates(raw)) {
     try {
       const parsed = JSON.parse(candidate)
@@ -297,13 +297,13 @@ export function parseCodexEvents(raw: string): CodexParseResult {
   if (parsedCount === 0 && raw.trim()) {
     events.push({ kind: 'raw', text: raw.trim() })
   }
-  const commands = events.filter((event): event is CodexCommandEvent => event.kind === 'command' && Boolean(event.command))
-  const messages = events.filter((event): event is CodexMessageEvent => event.kind === 'message' && Boolean(event.text.trim()))
-  const statuses = events.filter((event): event is CodexStatusEvent => event.kind === 'status')
+  const commands = events.filter((event): event is GatewayCommandEvent => event.kind === 'command' && Boolean(event.command))
+  const messages = events.filter((event): event is GatewayMessageEvent => event.kind === 'message' && Boolean(event.text.trim()))
+  const statuses = events.filter((event): event is GatewayStatusEvent => event.kind === 'status')
   return { events, commands, messages, statuses, usage, rawTail: raw.trim().slice(-4000), parsedCount }
 }
 
-export function formatUsageSummary(usage: CodexUsageSummary | undefined): string {
+export function formatUsageSummary(usage: GatewayUsageSummary | undefined): string {
   if (!usage) return ''
   const parts = [
     usage.inputTokens !== undefined ? `${usage.inputTokens.toLocaleString()} input` : '',

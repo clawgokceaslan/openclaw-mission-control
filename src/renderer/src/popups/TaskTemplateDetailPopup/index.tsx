@@ -170,16 +170,16 @@ export interface TaskTemplateDetailPopupProps {
   setQuickOutputFormatDescription: Dispatch<SetStateAction<string>>
   onCreateOutputFormatFromModal: () => MaybePromise
   gateways: Gateway[]
-  templateCodexGatewayId: string
-  templateCodexModel: string
+  templateGatewayId: string
+  templateGatewayModel: string
   selectedTemplateGateway: Gateway | null
   templateGatewayOptions: AppSelectOption[]
   selectedTemplateGatewayOption: AppSelectOption | null
   templateModelOptions: AppSelectOption[]
   selectedTemplateModelOption: AppSelectOption | null
-  codexModelOptions: CodexCliModel[]
-  codexModelLoading: boolean
-  codexModelError: string | null
+  gatewayModelOptions: CodexCliModel[]
+  gatewayModelLoading: boolean
+  gatewayModelError: string | null
   createLocalId: () => string
 }
 
@@ -197,8 +197,8 @@ function codexConfigOf(gateway?: Gateway | null): CodexCliGatewayConfig {
   }
 }
 
-function codexOverride(gatewayId?: string | null, model?: string | null): TaskTemplatePayload['codex'] | undefined {
-  const next: NonNullable<TaskTemplatePayload['codex']> = {}
+function codexOverride(gatewayId?: string | null, model?: string | null): TaskTemplatePayload['gateway'] | undefined {
+  const next: NonNullable<TaskTemplatePayload['gateway']> = {}
   if (gatewayId) next.gatewayId = gatewayId
   if (model) next.model = model
   return Object.keys(next).length > 0 ? next : undefined
@@ -792,16 +792,16 @@ export function TaskTemplateDetailPopup(props: TaskTemplateDetailPopupProps) {
     setQuickOutputFormatDescription,
     onCreateOutputFormatFromModal,
     gateways,
-    templateCodexGatewayId,
-    templateCodexModel,
+    templateGatewayId,
+    templateGatewayModel,
     selectedTemplateGateway,
     templateGatewayOptions,
     selectedTemplateGatewayOption,
     templateModelOptions,
     selectedTemplateModelOption,
-    codexModelOptions,
-    codexModelLoading,
-    codexModelError,
+    gatewayModelOptions,
+    gatewayModelLoading,
+    gatewayModelError,
     createLocalId
   } = props
 
@@ -1020,10 +1020,10 @@ export function TaskTemplateDetailPopup(props: TaskTemplateDetailPopupProps) {
           </>
         ) : activeTab === 'model' ? (
           <>
-            <div className={styles.detailSectionHeader}><div><h4>Model</h4><p>{templateDraft.codex?.model || 'Project default'}</p></div></div>
+            <div className={styles.detailSectionHeader}><div><h4>Model</h4><p>{templateDraft.gateway?.model || 'Project default'}</p></div></div>
             <div className={styles.codexSummaryCard}>
-              <div><span>Gateway</span><strong>{templateCodexGatewayId ? selectedTemplateGateway?.name ?? templateCodexGatewayId : 'Project default gateway'}</strong></div>
-              <div><span>Model</span><strong>{templateCodexModel || 'Project default model'}</strong></div>
+              <div><span>Gateway</span><strong>{templateGatewayId ? selectedTemplateGateway?.name ?? templateGatewayId : 'Project default gateway'}</strong></div>
+              <div><span>Model</span><strong>{templateGatewayModel || 'Project default model'}</strong></div>
             </div>
             <div className={styles.settingsFormGrid}>
               <label>
@@ -1036,18 +1036,18 @@ export function TaskTemplateDetailPopup(props: TaskTemplateDetailPopupProps) {
                   onChange={(option) => {
                     const nextGatewayId = option?.value ?? ''
                     const nextGateway = nextGatewayId ? gateways.find((gateway) => gateway.id === nextGatewayId) : null
-                    const models = nextGateway ? codexConfigOf(nextGateway).models ?? [] : codexModelOptions
-                    const nextModel = templateCodexModel && models.some((model) => model.id === templateCodexModel) ? templateCodexModel : ''
-                    onPatchTemplate({ codex: codexOverride(nextGatewayId || null, nextModel || null) })
+                    const models = nextGateway ? codexConfigOf(nextGateway).models ?? [] : gatewayModelOptions
+                    const nextModel = templateGatewayModel && models.some((model) => model.id === templateGatewayModel) ? templateGatewayModel : ''
+                    onPatchTemplate({ gateway: codexOverride(nextGatewayId || null, nextModel || null) })
                   }}
                 />
               </label>
               <label>
                 <span>Template model</span>
-                <AppSelect value={selectedTemplateModelOption} options={templateModelOptions} placeholder={codexModelLoading ? 'Loading models...' : 'Use project default model'} isClearable isDisabled={templateModelOptions.length === 0} onChange={(option) => onPatchTemplate({ codex: codexOverride(templateCodexGatewayId || null, option?.value ?? null) })} />
+                <AppSelect value={selectedTemplateModelOption} options={templateModelOptions} placeholder={gatewayModelLoading ? 'Loading models...' : 'Use project default model'} isClearable isDisabled={templateModelOptions.length === 0} onChange={(option) => onPatchTemplate({ gateway: codexOverride(templateGatewayId || null, option?.value ?? null) })} />
               </label>
             </div>
-            {codexModelLoading ? <p className={styles.customFieldEmpty}>Loading models from Codex CLI...</p> : codexModelError ? <p className={styles.customFieldEmpty}>{codexModelError}</p> : templateModelOptions.length === 0 ? <p className={styles.customFieldEmpty}>No cached Codex models yet. Refresh models from Gateways to populate explicit options.</p> : null}
+            {gatewayModelLoading ? <p className={styles.customFieldEmpty}>Loading models from Codex CLI...</p> : gatewayModelError ? <p className={styles.customFieldEmpty}>{gatewayModelError}</p> : templateModelOptions.length === 0 ? <p className={styles.customFieldEmpty}>No cached Codex models yet. Refresh models from Gateways to populate explicit options.</p> : null}
           </>
         ) : null}
       </section>

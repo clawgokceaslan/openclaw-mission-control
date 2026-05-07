@@ -248,7 +248,7 @@ export function PlannerQuestionHost() {
       selectedOptionIds,
       notes
     })
-    const response = await invokeBridge(IPC_CHANNELS.tasks.planWithCodex, {
+    const response = await invokeBridge(IPC_CHANNELS.tasks.planWithGateway, {
       actorToken: token,
       taskId: resolved.config.taskId,
       projectId: resolved.config.projectId,

@@ -9,7 +9,7 @@ import { promisify } from 'node:util'
 import type { ProjectStatus, TaskChecklistItem, TaskEntity } from '../../shared/types/entities.js'
 import type { NormalizedTaskJsonImport, NormalizedImportedSubtask } from './task-json-import.js'
 import { TaskJsonImportNormalizer } from './task-json-import.js'
-import { appendCodexNextChatHandoff, codexChatPrompt, codexOutputChanges, codexWorkspaceChanges, initialCodexPrompt, initialPlannerPrompt, normalizePlannerQuestionPayload, omcCliInstructions, plannerJsonGuidance, postRunContinuationPrompt, shouldStartPostRunPrompt, summarizeRunningConversation, TaskService, validatePlannerTaskJsonQuality, writeTaskSnapshotToExportWorkspace } from './task.service.js'
+import { appendGatewayNextChatHandoff, gatewayChatPrompt, gatewayOutputChanges, gatewayWorkspaceChanges, initialGatewayPrompt, initialPlannerPrompt, normalizePlannerQuestionPayload, omcCliInstructions, plannerJsonGuidance, postRunContinuationPrompt, shouldStartPostRunPrompt, summarizeRunningConversation, TaskService, validatePlannerTaskJsonQuality, writeTaskSnapshotToExportWorkspace } from './task.service.js'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 
 const execFileAsync = promisify(execFile)
@@ -55,9 +55,9 @@ function taskWithComments(): TaskEntity {
   }
 }
 
-describe('codexChatPrompt', () => {
+describe('gatewayChatPrompt', () => {
   it('puts follow-up input before comments and task context', () => {
-    const prompt = codexChatPrompt({
+    const prompt = gatewayChatPrompt({
       task: taskWithComments(),
       message: 'Do this exact follow-up first.',
       transcript: [],
@@ -72,14 +72,14 @@ describe('codexChatPrompt', () => {
 
   it('uses compact task metadata and capped transcript for follow-up context', () => {
     const longBody = 'large transcript body '.repeat(80)
-    const prompt = codexChatPrompt({
+    const prompt = gatewayChatPrompt({
       task: taskWithComments(),
       message: 'Continue from latest run.',
       followUpContext: 'NEXT_CHAT_HANDOFF\ncompleted_work: compact handoff',
       transcript: Array.from({ length: 12 }, (_, index) => ({
         id: `m-${index}`,
         runId: 'chat-1',
-        source: 'codex-chat' as const,
+        source: 'gateway-chat' as const,
         role: 'assistant' as const,
         status: 'completed' as const,
         body: `${index} ${longBody}`,
@@ -105,7 +105,7 @@ describe('codexChatPrompt', () => {
   })
 
   it('renders task and subtask comments in separate equal-weight sections', () => {
-    const prompt = codexChatPrompt({
+    const prompt = gatewayChatPrompt({
       task: taskWithComments(),
       message: 'Continue.',
       transcript: [],
@@ -121,7 +121,7 @@ describe('codexChatPrompt', () => {
 
   it('reads comments from current task context when available', () => {
     const task = { ...taskWithComments(), comments: [], subtasks: [] }
-    const prompt = codexChatPrompt({
+    const prompt = gatewayChatPrompt({
       task,
       message: 'Continue.',
       transcript: [],
@@ -144,10 +144,10 @@ describe('codexChatPrompt', () => {
   })
 
   it('keeps steer mode and includes comments as high-signal guidance', () => {
-    const prompt = codexChatPrompt({
+    const prompt = gatewayChatPrompt({
       task: taskWithComments(),
       message: 'Change direction.',
-      transcript: [{ role: 'assistant', body: 'Earlier work', id: 'm1', runId: 'r1', source: 'codex-chat', createdAt: 1 }],
+      transcript: [{ role: 'assistant', body: 'Earlier work', id: 'm1', runId: 'r1', source: 'gateway-chat', createdAt: 1 }],
       mode: 'steer'
     })
 
@@ -160,7 +160,7 @@ describe('codexChatPrompt', () => {
 
   it('omits the comments section when the task has no comments', () => {
     const task = { ...taskWithComments(), comments: [], subtasks: [] }
-    const prompt = codexChatPrompt({
+    const prompt = gatewayChatPrompt({
       task,
       message: 'Continue.',
       transcript: [],
@@ -171,7 +171,7 @@ describe('codexChatPrompt', () => {
   })
 
   it('prioritizes selected language, project instructions, and effective agent before task context', () => {
-    const prompt = codexChatPrompt({
+    const prompt = gatewayChatPrompt({
       task: taskWithComments(),
       message: 'Continue.',
       transcript: [],
@@ -197,7 +197,7 @@ describe('codexChatPrompt', () => {
   })
 
   it('places selected language before task context', () => {
-    const prompt = codexChatPrompt({
+    const prompt = gatewayChatPrompt({
       task: taskWithComments(),
       message: 'Continue.',
       transcript: [],
@@ -221,14 +221,14 @@ describe('codexChatPrompt', () => {
         postRunPrompt: 'Post-run should never be chat prompt context.'
       }
     }
-    const chatPrompt = codexChatPrompt({
+    const chatPrompt = gatewayChatPrompt({
       task: taskWithComments(),
       message: 'Continue.',
       transcript: [],
       context,
       mode: 'chat'
     })
-    const planPrompt = codexChatPrompt({
+    const planPrompt = gatewayChatPrompt({
       task: taskWithComments(),
       message: 'Plan it.',
       transcript: [],
@@ -247,10 +247,10 @@ describe('codexChatPrompt', () => {
   })
 
   it('serializes chat prompts as structured JSON and Toon when requested', () => {
-    const jsonPrompt = codexChatPrompt({
+    const jsonPrompt = gatewayChatPrompt({
       task: taskWithComments(),
       message: 'Continue.',
-      transcript: [{ role: 'assistant', body: 'Earlier work', id: 'm1', runId: 'r1', source: 'codex-chat', createdAt: 1 }],
+      transcript: [{ role: 'assistant', body: 'Earlier work', id: 'm1', runId: 'r1', source: 'gateway-chat', createdAt: 1 }],
       mode: 'chat',
       promptShape: 'json'
     })
@@ -259,9 +259,9 @@ describe('codexChatPrompt', () => {
     expect(parsed.shape).toBe('json')
     expect(parsed.family).toBe('chat')
     expect(parsed.sections.find((section: { name: string }) => section.name === 'recent_chat_transcript').value).toEqual([
-      { role: 'assistant', body: 'Earlier work', source: 'codex-chat', createdAt: 1 }
+      { role: 'assistant', body: 'Earlier work', source: 'gateway-chat', createdAt: 1 }
     ])
-    expect(codexChatPrompt({
+    expect(gatewayChatPrompt({
       task: taskWithComments(),
       message: 'Continue.',
       transcript: [],
@@ -492,7 +492,7 @@ describe('planner quality gate', () => {
       postRunPrompt: 'Post-run prompt text.'
     }
     const plannerPrompt = initialPlannerPrompt('project-1', 'task-1', 'helper.mjs', 'context.json', 'planned-task.json', { projectPrompt })
-    const runPrompt = initialCodexPrompt('/export', '/runtime', 'project-1', 'task-1', '.omc/runs/run/OMC_CLI.md', { projectPrompt })
+    const runPrompt = initialGatewayPrompt('/export', '/runtime', 'project-1', 'task-1', '.omc/runs/run/OMC_CLI.md', { projectPrompt })
 
     expect(plannerPrompt).toContain('Planner-only guide.')
     expect(plannerPrompt).not.toContain('General context for run.')
@@ -509,8 +509,8 @@ describe('planner quality gate', () => {
   it('keeps Markdown as the default and serializes plan and run prompts as valid JSON or Toon', () => {
     const markdown = initialPlannerPrompt('project-1', 'task-1', 'helper.mjs', 'context.json', 'planned-task.json')
     const jsonPlanner = initialPlannerPrompt('project-1', 'task-1', 'helper.mjs', 'context.json', 'planned-task.json', { promptShape: 'json' })
-    const jsonRun = initialCodexPrompt('/export', '/runtime', 'project-1', 'task-1', '.omc/runs/run/OMC_CLI.md', { promptShape: 'json' })
-    const toonRun = initialCodexPrompt('/export', '/runtime', 'project-1', 'task-1', '.omc/runs/run/OMC_CLI.md', { promptShape: 'toon' })
+    const jsonRun = initialGatewayPrompt('/export', '/runtime', 'project-1', 'task-1', '.omc/runs/run/OMC_CLI.md', { promptShape: 'json' })
+    const toonRun = initialGatewayPrompt('/export', '/runtime', 'project-1', 'task-1', '.omc/runs/run/OMC_CLI.md', { promptShape: 'toon' })
 
     expect(markdown).toContain('You are planning an Open Mission Control task inside Codex TUI.')
     expect(markdown.trim().startsWith('{')).toBe(false)
@@ -714,7 +714,7 @@ describe('codex activity persistence', () => {
         actorOrgId: 'org-1'
       }
     })
-    service.setTaskCodexPlanState = async () => undefined
+    service.setTaskGatewayPlanState = async () => undefined
     service.appendTaskActivityMessages = async (_taskId: string, messages: any[]) => {
       capturedMessages = messages
       return messages
@@ -737,7 +737,7 @@ describe('codex activity persistence', () => {
 
     expect(response.ok).toBe(true)
     expect(capturedMessages[0].metadata).toMatchObject({
-      codexBlock: 'planner-question',
+      gatewayBlock: 'planner-question',
       projectId: 'project-1',
       taskId: 'task-1',
       taskTitle: 'Question Task',
@@ -806,7 +806,7 @@ describe('codex activity persistence', () => {
         activityMessages: Array.from({ length: 299 }, (_, index) => ({
           id: `old-${index}`,
           runId: 'run-1',
-          source: 'codex-run',
+          source: 'gateway-run',
           role: 'assistant',
           body: `old ${index}`,
           createdAt: index + 1
@@ -833,8 +833,8 @@ describe('codex activity persistence', () => {
     service.eventBus = eventBus
 
     await service.appendTaskActivityMessages('task-1', [
-      { runId: 'run-1', source: 'codex-run', role: 'assistant', status: 'completed', body: 'new 1' },
-      { runId: 'run-1', source: 'codex-run', role: 'system', status: 'completed', body: 'done', metadata: { codexBlock: 'run-complete' } }
+      { runId: 'run-1', source: 'gateway-run', role: 'assistant', status: 'completed', body: 'new 1' },
+      { runId: 'run-1', source: 'gateway-run', role: 'system', status: 'completed', body: 'done', metadata: { gatewayBlock: 'run-complete' } }
     ])
 
     const messages = task.payload?.activityMessages as Array<{ id: string; body: string; phase?: string }>
@@ -847,7 +847,7 @@ describe('codex activity persistence', () => {
     expect(taskUpdatedEvents).toHaveLength(0)
 
     await service.appendTaskActivityMessages('task-1', [
-      { runId: 'run-1', source: 'codex-run', role: 'system', status: 'completed', body: 'terminal' }
+      { runId: 'run-1', source: 'gateway-run', role: 'system', status: 'completed', body: 'terminal' }
     ], { emitTaskUpdatedAction: 'activity_complete' })
 
     expect(updates).toHaveLength(2)
@@ -898,12 +898,12 @@ describe('running Codex conversations', () => {
       status: 'active',
       payload: {
         activityMessages: [
-          { id: 'plan-live', runId: 'plan-run', source: 'codex-plan', role: 'thinking', status: 'running', body: 'Planning', createdAt: now - 60_000 },
-          { id: 'plan-done', runId: 'plan-run', source: 'codex-plan', role: 'system', status: 'completed', body: 'Done', createdAt: now - 30_000, metadata: { codexBlock: 'run-complete' } },
-          { id: 'run-live', runId: 'run-run', source: 'codex-run', role: 'thinking', status: 'running', body: 'Running task', createdAt: now - 20_000 },
-          { id: 'steer-live', runId: 'steer-run', conversationId: 'steer-run', source: 'codex-chat', role: 'thinking', status: 'running', body: 'Steering', createdAt: now - 15_000, metadata: { mode: 'steer' } },
-          { id: 'chat-live', runId: 'chat-run', conversationId: 'chat-run', source: 'codex-chat', role: 'thinking', status: 'running', body: 'Chatting', createdAt: now - 10_000 },
-          { id: 'chat-done', runId: 'chat-run', conversationId: 'chat-run', source: 'codex-chat', role: 'system', status: 'completed', body: 'Finished', createdAt: now - 5_000, metadata: { codexBlock: 'run-complete' } }
+          { id: 'plan-live', runId: 'plan-run', source: 'gateway-plan', role: 'thinking', status: 'running', body: 'Planning', createdAt: now - 60_000 },
+          { id: 'plan-done', runId: 'plan-run', source: 'gateway-plan', role: 'system', status: 'completed', body: 'Done', createdAt: now - 30_000, metadata: { gatewayBlock: 'run-complete' } },
+          { id: 'run-live', runId: 'run-run', source: 'gateway-run', role: 'thinking', status: 'running', body: 'Running task', createdAt: now - 20_000 },
+          { id: 'steer-live', runId: 'steer-run', conversationId: 'steer-run', source: 'gateway-chat', role: 'thinking', status: 'running', body: 'Steering', createdAt: now - 15_000, metadata: { mode: 'steer' } },
+          { id: 'chat-live', runId: 'chat-run', conversationId: 'chat-run', source: 'gateway-chat', role: 'thinking', status: 'running', body: 'Chatting', createdAt: now - 10_000 },
+          { id: 'chat-done', runId: 'chat-run', conversationId: 'chat-run', source: 'gateway-chat', role: 'system', status: 'completed', body: 'Finished', createdAt: now - 5_000, metadata: { gatewayBlock: 'run-complete' } }
         ]
       },
       createdAt: 1,
@@ -913,7 +913,7 @@ describe('running Codex conversations', () => {
     const rows = summarizeRunningConversation(task, { id: 'project-1', name: 'Project One', description: 'Desc' }, task.payload.activityMessages as any[], now)
 
     expect(rows).toHaveLength(2)
-    expect(rows.map((row) => row.codexConversationId)).toEqual(['steer-run', 'run-run'])
+    expect(rows.map((row) => row.gatewayConversationId)).toEqual(['steer-run', 'run-run'])
     expect(rows[0].conversationType).toBe('steer')
     expect(rows[1].conversationType).toBe('run')
     expect(rows[0].liveStatus).toBe('running')
@@ -931,34 +931,34 @@ describe('running Codex conversations', () => {
           {
             id: 'run-done',
             runId: 'run-main',
-            source: 'codex-run',
+            source: 'gateway-run',
             role: 'system',
             status: 'completed',
             body: 'Run completed',
             createdAt: now - 60_000,
-            metadata: { codexBlock: 'run-complete' }
+            metadata: { gatewayBlock: 'run-complete' }
           },
           {
             id: 'post-run-start',
             runId: 'run-post',
             conversationId: 'run-main',
-            source: 'codex-run',
+            source: 'gateway-run',
             role: 'system',
             status: 'running',
             body: 'Starting post-run prompt',
             createdAt: now - 45_000,
-            metadata: { codexBlock: 'post-run-start', parentRunId: 'run-main' }
+            metadata: { gatewayBlock: 'post-run-start', parentRunId: 'run-main' }
           },
           {
             id: 'post-run-prompt',
             runId: 'run-post',
             conversationId: 'run-main',
-            source: 'codex-run',
+            source: 'gateway-run',
             role: 'assistant',
             status: 'running',
             body: 'Review and validate all changes',
             createdAt: now - 40_000,
-            metadata: { codexBlock: 'post-run-prompt', parentRunId: 'run-main' }
+            metadata: { gatewayBlock: 'post-run-prompt', parentRunId: 'run-main' }
           }
         ]
       },
@@ -969,17 +969,17 @@ describe('running Codex conversations', () => {
     const rows = summarizeRunningConversation(task, { id: 'project-1', name: 'Project One', description: 'Desc' }, task.payload.activityMessages as any[], now)
 
     expect(rows).toHaveLength(1)
-    expect(rows[0].codexConversationId).toBe('run-main')
+    expect(rows[0].gatewayConversationId).toBe('run-main')
     expect(rows[0].conversationType).toBe('post-run')
     expect(rows[0].liveStatus).toBe('running')
     expect(rows[0].latestActivitySummary).toBe('Review and validate all changes')
   })
 
-  it('paginates live conversation rows from listRunningCodex', async () => {
+  it('paginates live conversation rows from listRunningGateway', async () => {
     const eventBus = new EventEmitter()
     const service = Object.create(TaskService.prototype) as TaskService & {
       auth: { requireActor: (token?: string) => Promise<{ user: { organizationId: string } }> }
-      repo: { listRunningCodex: (orgId: string) => Promise<Array<{ task: TaskEntity; project: { id: string; name: string; description?: string } }>> }
+      repo: { listRunningGateway: (orgId: string) => Promise<Array<{ task: TaskEntity; project: { id: string; name: string; description?: string } }>> }
     }
     const now = 1_700_000_000_000
     const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(now)
@@ -991,7 +991,7 @@ describe('running Codex conversations', () => {
       status: 'active',
       payload: {
         activityMessages: [
-          { id: 'run-live', runId: 'run-run', source: 'codex-run', role: 'thinking', status: 'running', body: 'Working', createdAt: now - 25_000 }
+          { id: 'run-live', runId: 'run-run', source: 'gateway-run', role: 'thinking', status: 'running', body: 'Working', createdAt: now - 25_000 }
         ]
       },
       createdAt: 1,
@@ -1004,7 +1004,7 @@ describe('running Codex conversations', () => {
       status: 'active',
       payload: {
         activityMessages: [
-          { id: 'plan-live', runId: 'plan-run', source: 'codex-plan', role: 'thinking', status: 'running', body: 'Planning', createdAt: now - 20_000 }
+          { id: 'plan-live', runId: 'plan-run', source: 'gateway-plan', role: 'thinking', status: 'running', body: 'Planning', createdAt: now - 20_000 }
         ]
       },
       createdAt: 1,
@@ -1015,7 +1015,7 @@ describe('running Codex conversations', () => {
       requireActor: async () => ({ user: { organizationId: 'org-1' } })
     } as any
     service.repo = {
-      listRunningCodex: async () => ([
+      listRunningGateway: async () => ([
         { task, project: { id: 'project-1', name: 'Project One' } },
         { task: planTask, project: { id: 'project-1', name: 'Project One' } }
       ])
@@ -1023,21 +1023,21 @@ describe('running Codex conversations', () => {
     service.eventBus = eventBus
 
     try {
-      const response = await service.listRunningCodex({ actorToken: 'token', page: 1, pageSize: 12 })
+      const response = await service.listRunningGateway({ actorToken: 'token', page: 1, pageSize: 12 })
 
       expect(response.ok).toBe(true)
       expect(response.data?.total).toBe(2)
       expect(response.data?.counts).toEqual({ all: 2, planning: 1, running: 1, postRunning: 0 })
       expect(response.data?.rows).toHaveLength(2)
-      const runningRow = response.data?.rows.find((row) => row.codexConversationId === 'run-run')
+      const runningRow = response.data?.rows.find((row) => row.gatewayConversationId === 'run-run')
       expect(runningRow?.latestActivitySummary).toBe('Working')
 
-      const planningResponse = await service.listRunningCodex({ actorToken: 'token', page: 1, pageSize: 12, group: 'planning' })
+      const planningResponse = await service.listRunningGateway({ actorToken: 'token', page: 1, pageSize: 12, group: 'planning' })
 
       expect(planningResponse.ok).toBe(true)
       expect(planningResponse.data?.group).toBe('planning')
       expect(planningResponse.data?.total).toBe(1)
-      expect(planningResponse.data?.rows[0].codexConversationId).toBe('plan-run')
+      expect(planningResponse.data?.rows[0].gatewayConversationId).toBe('plan-run')
       expect(planningResponse.data?.counts).toEqual({ all: 2, planning: 1, running: 1, postRunning: 0 })
     } finally {
       dateNowSpy.mockRestore()
@@ -1052,7 +1052,7 @@ describe('codex workspace changes', () => {
       await execFileAsync('git', ['init'], { cwd: workspace })
       await writeFile(join(workspace, 'created.txt'), 'one\ntwo\nthree\n', 'utf8')
 
-      const changes = await codexWorkspaceChanges(workspace)
+      const changes = await gatewayWorkspaceChanges(workspace)
 
       expect(changes.metadata?.changeFiles).toBe(1)
       expect(changes.metadata?.changeInsertions).toBe(3)
@@ -1066,7 +1066,7 @@ describe('codex workspace changes', () => {
 
 describe('codex output changes', () => {
   it('extracts file changes from apply_patch markers without git inspection', () => {
-    const changes = codexOutputChanges([
+    const changes = gatewayOutputChanges([
       '*** Begin Patch',
       '*** Add File: src/new.ts',
       '+export const value = 1',
@@ -1087,7 +1087,7 @@ describe('codex output changes', () => {
   })
 
   it('extracts file changes from unified diffs and assistant summaries', () => {
-    const changes = codexOutputChanges([
+    const changes = gatewayOutputChanges([
       'diff --git a/src/a.ts b/src/a.ts',
       'index 111..222 100644',
       '--- a/src/a.ts',
@@ -1105,7 +1105,7 @@ describe('codex output changes', () => {
   })
 
   it('omits the change card when Codex output has no file markers', () => {
-    const changes = codexOutputChanges('{"type":"turn.completed"}', 'No files changed.')
+    const changes = gatewayOutputChanges('{"type":"turn.completed"}', 'No files changed.')
 
     expect(changes.hasChanges).toBe(false)
     expect(changes.metadata.changeSource).toBe('codex-output')
@@ -1133,7 +1133,7 @@ describe('Codex next-chat handoff summary', () => {
     updatedAt: 1
   } as TaskEntity
 
-  const changes = codexOutputChanges([
+  const changes = gatewayOutputChanges([
     '*** Begin Patch',
     '*** Update File: src/main/services/task.service.ts',
     '@@',
@@ -1143,12 +1143,12 @@ describe('Codex next-chat handoff summary', () => {
   ].join('\n'), '')
 
   it('defaults to compact Markdown with stable fields and one handoff block', () => {
-    const first = appendCodexNextChatHandoff({
+    const first = appendGatewayNextChatHandoff({
       task,
       finalMessage: 'Implemented the formatter and ran npm test for task.service.',
       changes
     })
-    const second = appendCodexNextChatHandoff({
+    const second = appendGatewayNextChatHandoff({
       task,
       finalMessage: first,
       changes
@@ -1163,7 +1163,7 @@ describe('Codex next-chat handoff summary', () => {
   })
 
   it('renders a parseable JSON handoff payload', () => {
-    const message = appendCodexNextChatHandoff({
+    const message = appendGatewayNextChatHandoff({
       task,
       finalMessage: 'Added JSON output. Verification not run.',
       changes,
@@ -1189,13 +1189,13 @@ describe('Codex next-chat handoff summary', () => {
   })
 
   it('renders TOON with stable parseable field labels and falls back from unknown shapes', () => {
-    const toon = appendCodexNextChatHandoff({
+    const toon = appendGatewayNextChatHandoff({
       task,
       finalMessage: 'Updated TOON support and verified compactness.',
       changes,
       promptShape: 'toon'
     })
-    const fallback = appendCodexNextChatHandoff({
+    const fallback = appendGatewayNextChatHandoff({
       task,
       finalMessage: 'Done.',
       changes,

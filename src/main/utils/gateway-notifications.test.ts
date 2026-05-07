@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 import {
-  buildCodexNotificationOptions,
-  maybeShowCodexChatCompletionNotification,
-  showCodexNotification
-} from './codex-notifications.js'
+  buildGatewayNotificationOptions,
+  maybeShowGatewayChatCompletionNotification,
+  showGatewayNotification
+} from './gateway-notifications.js'
 
 function createWindow() {
   const sent: unknown[] = []
@@ -83,7 +83,7 @@ describe('codex notifications', () => {
   it('shows a completed notification and opens the task chat on click', () => {
     const { instances, runtime, sent } = createRuntime()
 
-    showCodexNotification({
+    showGatewayNotification({
       ...baseNotification,
       kind: 'completed',
       model: 'gpt-5.3-codex'
@@ -116,7 +116,7 @@ describe('codex notifications', () => {
   it('includes the exit code for failed notifications', () => {
     const { instances, runtime } = createRuntime()
 
-    showCodexNotification({
+    showGatewayNotification({
       ...baseNotification,
       kind: 'failed',
       mode: 'chat',
@@ -134,7 +134,7 @@ describe('codex notifications', () => {
   it('shows stopped notifications for observable exec runs', () => {
     const { instances, runtime } = createRuntime()
 
-    maybeShowCodexChatCompletionNotification({
+    maybeShowGatewayChatCompletionNotification({
       ...baseNotification,
       mode: 'steer',
       executionMode: 'exec',
@@ -152,7 +152,7 @@ describe('codex notifications', () => {
   it('shows question notifications for planner clarification', () => {
     const { instances, runtime } = createRuntime()
 
-    showCodexNotification({
+    showGatewayNotification({
       ...baseNotification,
       kind: 'question',
       mode: 'plan',
@@ -171,7 +171,7 @@ describe('codex notifications', () => {
   it('shows the native notification even when the main window is visible and focused', () => {
     const { instances, runtime } = createRuntime()
 
-    showCodexNotification({
+    showGatewayNotification({
       ...baseNotification,
       kind: 'completed'
     }, runtime)
@@ -181,17 +181,17 @@ describe('codex notifications', () => {
   })
 
   it('sets stronger native notification options by platform', () => {
-    expect(buildCodexNotificationOptions({ ...baseNotification, kind: 'completed' }, 'darwin')).toMatchObject({
+    expect(buildGatewayNotificationOptions({ ...baseNotification, kind: 'completed' }, 'darwin')).toMatchObject({
       silent: false,
       sound: 'Glass',
       closeButtonText: 'Open'
     })
-    expect(buildCodexNotificationOptions({ ...baseNotification, kind: 'failed' }, 'linux')).toMatchObject({
+    expect(buildGatewayNotificationOptions({ ...baseNotification, kind: 'failed' }, 'linux')).toMatchObject({
       silent: false,
       urgency: 'critical',
       timeoutType: 'never'
     })
-    expect(buildCodexNotificationOptions({ ...baseNotification, kind: 'question' }, 'win32')).toMatchObject({
+    expect(buildGatewayNotificationOptions({ ...baseNotification, kind: 'question' }, 'win32')).toMatchObject({
       silent: false,
       timeoutType: 'never'
     })
@@ -200,7 +200,7 @@ describe('codex notifications', () => {
   it('does not fake notifications for unobservable terminal-mode completion', () => {
     const { instances, runtime } = createRuntime()
 
-    maybeShowCodexChatCompletionNotification({
+    maybeShowGatewayChatCompletionNotification({
       ...baseNotification,
       mode: 'chat',
       executionMode: 'terminal',
@@ -213,7 +213,7 @@ describe('codex notifications', () => {
   it('exits silently when notifications are unsupported', () => {
     const { instances, runtime } = createRuntime({ supported: false })
 
-    expect(() => showCodexNotification({
+    expect(() => showGatewayNotification({
       ...baseNotification,
       kind: 'completed'
     }, runtime)).not.toThrow()

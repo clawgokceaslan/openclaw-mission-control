@@ -19,7 +19,7 @@ interface SettingsState {
   executionMode: 'terminal' | 'exec'
 }
 
-type CodexModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }
+type GatewayModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }
 
 function configOf(gateway: Gateway): CodexCliGatewayConfig {
   const template = gateway.template && typeof gateway.template === 'object' && !Array.isArray(gateway.template)
@@ -119,7 +119,7 @@ export function GatewayDetailPage({ gatewayId: gatewayIdProp, embedded = false, 
 
   const refreshModels = async () => {
     if (!gatewayId) return
-    const response = await invokeBridge<CodexModelsResponse>(IPC_CHANNELS.gateways.codexModels, { actorToken: token, gatewayId })
+    const response = await invokeBridge<GatewayModelsResponse>(IPC_CHANNELS.gateways.gatewayModels, { actorToken: token, gatewayId })
     if (!response.ok) {
       setError(response.error?.message ?? 'Model refresh failed.')
       return

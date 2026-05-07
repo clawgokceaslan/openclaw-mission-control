@@ -1,7 +1,7 @@
 import type { Project, TaskEntity } from '@shared/types/entities'
 import type { TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 import { asRecord, conversationIdOf, plannerQuestionPromptFromMessages, type PlannerQuestionPrompt } from '@renderer/screens/projects/detail/chat/chatUtils'
-import { projectCodexSettings } from '@renderer/screens/projects/detail/projectDetailUtils'
+import { projectGatewaySettings } from '@renderer/screens/projects/detail/projectDetailUtils'
 
 export type PlannerQuestionQueueItem = {
   id: string
@@ -50,7 +50,7 @@ function activityMessagesFromTaskPayload(task: TaskEntity): TaskActivityMessage[
 
 function isPlannerQuestionMessage(message: TaskActivityMessage): boolean {
   const metadata = asRecord(message.metadata)
-  return message.source === 'codex-plan' && message.role === 'assistant' && metadata?.codexBlock === 'planner-question'
+  return message.source === 'gateway-plan' && message.role === 'assistant' && metadata?.gatewayBlock === 'planner-question'
 }
 
 function isClarificationAnswerFor(message: TaskActivityMessage, conversationId: string, after: number): boolean {
@@ -64,7 +64,7 @@ export function plannerQuestionItemFromActivity(event: PlannerQuestionActivityEv
   const message = event.message
   if (!message) return null
   const metadata = asRecord(message.metadata)
-  if (message.source !== 'codex-plan' || message.role !== 'assistant' || metadata?.codexBlock !== 'planner-question') return null
+  if (message.source !== 'gateway-plan' || message.role !== 'assistant' || metadata?.gatewayBlock !== 'planner-question') return null
   const prompt = plannerQuestionPromptFromMessages([message])
   if (!prompt) return null
   const conversationId = prompt.conversationId
@@ -129,7 +129,7 @@ export function resolvePlannerQuestionConfig(input: {
 }): { projectId: string; taskId: string; taskTitle: string; gatewayId: string; model: string; language: string; reasoningEffort: string } {
   const project = input.project ?? null
   const task = input.task ?? null
-  const codex = projectCodexSettings(project)
+  const codex = projectGatewaySettings(project)
   return {
     projectId: input.item.projectId || task?.projectId || project?.id || '',
     taskId: input.item.taskId || task?.id || '',

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { formatUsageSummary, parseCodexEvents } from './codex-events.js'
+import { formatUsageSummary, parseGatewayEvents } from './gateway-events.js'
 
-describe('parseCodexEvents', () => {
+describe('parseGatewayEvents', () => {
   it('normalizes command executions, agent messages, and usage', () => {
-    const result = parseCodexEvents([
+    const result = parseGatewayEvents([
       JSON.stringify({
         type: 'item.completed',
         item: {
@@ -34,7 +34,7 @@ describe('parseCodexEvents', () => {
   })
 
   it('handles concatenated and malformed fragments gracefully', () => {
-    const result = parseCodexEvents('prefix {"type":"item.started","item":{"type":"command_execution","command":"pwd"}} {"type":')
+    const result = parseGatewayEvents('prefix {"type":"item.started","item":{"type":"command_execution","command":"pwd"}} {"type":')
 
     expect(result.commands).toHaveLength(1)
     expect(result.commands[0]?.command).toBe('pwd')
@@ -42,7 +42,7 @@ describe('parseCodexEvents', () => {
   })
 
   it('preserves reasoning timing and unknown events', () => {
-    const result = parseCodexEvents([
+    const result = parseGatewayEvents([
       JSON.stringify({
         type: 'item.completed',
         item: {
@@ -63,7 +63,7 @@ describe('parseCodexEvents', () => {
   })
 
   it('normalizes reasoning_summary with startedAt/endedAt variants and duration_sec', () => {
-    const result = parseCodexEvents([
+    const result = parseGatewayEvents([
       JSON.stringify({
         type: 'item.completed',
         item: {
@@ -88,7 +88,7 @@ describe('parseCodexEvents', () => {
   })
 
   it('normalizes richer codex session event shapes without losing readable text', () => {
-    const result = parseCodexEvents([
+    const result = parseGatewayEvents([
       JSON.stringify({
         type: 'response_item',
         payload: {

@@ -4,7 +4,7 @@ import { SqliteAdapter } from '../adapter/sqlite.js'
 import type { Skill, Tag, TaskComment, TaskEntity, TaskSubtask } from '../../shared/types/entities.js'
 import { resolveTagColor } from './tag-color.js'
 
-export type PlannedCodexTaskRepositoryRow = {
+export type PlannedGatewayTaskRepositoryRow = {
   task: TaskEntity
   project: {
     id: string
@@ -14,7 +14,7 @@ export type PlannedCodexTaskRepositoryRow = {
   }
 }
 
-export type RunningCodexTaskRepositoryRow = PlannedCodexTaskRepositoryRow
+export type RunningGatewayTaskRepositoryRow = PlannedGatewayTaskRepositoryRow
 
 type TaskPayload = Record<string, unknown> & {
   description?: string
@@ -63,18 +63,18 @@ export class TaskRepository extends BaseRepository<TaskEntity> {
     return rows.map((row: any) => this.map(row))
   }
 
-  async listPlannedCodex(orgId: string, page: number, pageSize: number): Promise<{ rows: PlannedCodexTaskRepositoryRow[]; total: number }> {
+  async listPlannedGateway(orgId: string, page: number, pageSize: number): Promise<{ rows: PlannedGatewayTaskRepositoryRow[]; total: number }> {
     const limit = Math.max(1, Math.min(100, Math.floor(pageSize)))
     const offset = Math.max(0, Math.floor((page - 1) * limit))
     const params = { orgId, limit, offset }
     const where = `
       p.organization_id = @orgId
-      AND json_extract(t.payload_json, '$.codexPlanState.state') = 'planned'
+      AND json_extract(t.payload_json, '$.gatewayPlanState.state') = 'planned'
       AND COALESCE(ps.category, lower(t.status)) NOT IN ('done', 'closed')
       AND NOT EXISTS (
         SELECT 1
         FROM json_each(t.payload_json, '$.activityMessages') AS activity
-        WHERE json_extract(activity.value, '$.source') = 'codex-run'
+        WHERE json_extract(activity.value, '$.source') = 'gateway-run'
       )
     `
     const totalRow = await this.db
@@ -117,7 +117,7 @@ export class TaskRepository extends BaseRepository<TaskEntity> {
     }
   }
 
-  async listRunningCodex(orgId: string): Promise<RunningCodexTaskRepositoryRow[]> {
+  async listRunningGateway(orgId: string): Promise<RunningGatewayTaskRepositoryRow[]> {
     const rows = await this.db
       .prepare(
         `SELECT
@@ -134,7 +134,7 @@ export class TaskRepository extends BaseRepository<TaskEntity> {
            AND EXISTS (
              SELECT 1
              FROM json_each(t.payload_json, '$.activityMessages') AS activity
-             WHERE json_extract(activity.value, '$.source') IN ('codex-plan', 'codex-run', 'codex-chat')
+             WHERE json_extract(activity.value, '$.source') IN ('gateway-plan', 'gateway-run', 'gateway-chat')
            )
          ORDER BY t.updated_at DESC`
       )

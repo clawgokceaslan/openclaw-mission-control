@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskEntity } from '@shared/types/entities'
-import { latestTaskCodexConversation, projectCodexSettings, reorderTasksForDrop, taskCodexActionChips, taskCodexActiveTone, taskCodexLatestSurfaceStatus, taskCodexPlanBadge, taskCodexSurfaceStatuses } from './projectDetailUtils'
+import { latestTaskGatewayConversation, projectGatewaySettings, reorderTasksForDrop, taskGatewayActionChips, taskGatewayActiveTone, taskGatewayLatestSurfaceStatus, taskGatewayPlanBadge, taskGatewaySurfaceStatuses } from './projectDetailUtils'
 
 function task(id: string, status: string, order: number): TaskEntity {
   return {
@@ -48,25 +48,25 @@ describe('project task ordering', () => {
 
 describe('project Codex settings', () => {
   it('defaults missing and invalid prompt shape values to Markdown', () => {
-    expect(projectCodexSettings(null).promptShape).toBe('markdown')
-    expect(projectCodexSettings({
+    expect(projectGatewaySettings(null).promptShape).toBe('markdown')
+    expect(projectGatewaySettings({
       id: 'project-1',
       organizationId: 'org-1',
       name: 'Project',
       archived: false,
-      metrics: { codex: { promptShape: 'xml' } },
+      metrics: { gateway: { promptShape: 'xml' } },
       createdAt: 1,
       updatedAt: 1
     }).promptShape).toBe('markdown')
   })
 
   it('reads saved prompt shape values', () => {
-    expect(projectCodexSettings({
+    expect(projectGatewaySettings({
       id: 'project-1',
       organizationId: 'org-1',
       name: 'Project',
       archived: false,
-      metrics: { codex: { promptShape: 'toon' } },
+      metrics: { gateway: { promptShape: 'toon' } },
       createdAt: 1,
       updatedAt: 1
     }).promptShape).toBe('toon')
@@ -75,34 +75,34 @@ describe('project Codex settings', () => {
 
 describe('task Codex card metadata', () => {
   it('derives planned and needs-info labels from task payload metadata', () => {
-    expect(taskCodexPlanBadge({
+    expect(taskGatewayPlanBadge({
       ...task('planned', 'todo', 0),
-      payload: { codexPlanState: { state: 'planned', conversationId: 'plan-1' } }
+      payload: { gatewayPlanState: { state: 'planned', conversationId: 'plan-1' } }
     })).toEqual({ state: 'planned', label: 'Planned', conversationId: 'plan-1' })
 
-    expect(taskCodexPlanBadge({
+    expect(taskGatewayPlanBadge({
       ...task('needs-info', 'todo', 0),
-      payload: { codexPlanState: { state: 'needs-clarification', conversationId: 'plan-2' } }
+      payload: { gatewayPlanState: { state: 'needs-clarification', conversationId: 'plan-2' } }
     })).toEqual({ state: 'needs-clarification', label: 'Needs Input', conversationId: 'plan-2' })
   })
 
   it('shows not planned when no plan metadata or plan conversation exists', () => {
-    expect(taskCodexSurfaceStatuses(task('no-plan', 'todo', 0)).map((status) => [status.label, status.tone, status.active])).toEqual([
+    expect(taskGatewaySurfaceStatuses(task('no-plan', 'todo', 0)).map((status) => [status.label, status.tone, status.active])).toEqual([
       ['Not Planned', 'neutral', undefined]
     ])
-    expect(taskCodexActiveTone(task('no-plan', 'todo', 0))).toBeNull()
-    expect(taskCodexLatestSurfaceStatus(task('no-plan', 'todo', 0))).toBeNull()
+    expect(taskGatewayActiveTone(task('no-plan', 'todo', 0))).toBeNull()
+    expect(taskGatewayLatestSurfaceStatus(task('no-plan', 'todo', 0))).toBeNull()
   })
 
   it('builds card surface statuses for planned, running, post-running and follow-up states', () => {
     const now = 10_000
-    const result = taskCodexSurfaceStatuses({
+    const result = taskGatewaySurfaceStatuses({
       ...task('with-surface-statuses', 'todo', 0),
       payload: {
-        codexPlanState: { state: 'planned', conversationId: 'plan-1' },
+        gatewayPlanState: { state: 'planned', conversationId: 'plan-1' },
         activityMessages: [
-          { id: 'run', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'system', status: 'running', body: 'run', createdAt: 9_000, updatedAt: 9_500 },
-          { id: 'chat', runId: 'chat-1', conversationId: 'chat-1', source: 'codex-chat', role: 'assistant', status: 'completed', body: 'chat', createdAt: 7_000, updatedAt: 7_500 }
+          { id: 'run', runId: 'run-1', conversationId: 'run-1', source: 'gateway-run', role: 'system', status: 'running', body: 'run', createdAt: 9_000, updatedAt: 9_500 },
+          { id: 'chat', runId: 'chat-1', conversationId: 'chat-1', source: 'gateway-chat', role: 'assistant', status: 'completed', body: 'chat', createdAt: 7_000, updatedAt: 7_500 }
         ]
       }
     }, now)
@@ -112,21 +112,21 @@ describe('task Codex card metadata', () => {
       ['Working', 'working', true, undefined],
       ['Followed Up', 'completed', undefined, undefined]
     ])
-    expect(taskCodexActiveTone({
+    expect(taskGatewayActiveTone({
       ...task('active-run', 'todo', 0),
-      payload: { activityMessages: [{ id: 'run', runId: 'run-1', source: 'codex-run', role: 'system', status: 'running', body: 'run', createdAt: 9_500 }] }
+      payload: { activityMessages: [{ id: 'run', runId: 'run-1', source: 'gateway-run', role: 'system', status: 'running', body: 'run', createdAt: 9_500 }] }
     }, now)).toBe('working')
   })
 
   it('returns the latest chat lifecycle status for kanban cards without task status fallback', () => {
     const now = 10_000
-    const result = taskCodexLatestSurfaceStatus({
+    const result = taskGatewayLatestSurfaceStatus({
       ...task('kanban-chat-status', 'done', 0),
       payload: {
-        codexPlanState: { state: 'planned', conversationId: 'plan-1' },
+        gatewayPlanState: { state: 'planned', conversationId: 'plan-1' },
         activityMessages: [
-          { id: 'plan', runId: 'plan-1', conversationId: 'plan-1', source: 'codex-plan', role: 'system', status: 'completed', body: 'planned', createdAt: 8_000, updatedAt: 8_100, metadata: { codexBlock: 'run-complete' } },
-          { id: 'run', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'thinking', status: 'running', body: 'working', createdAt: 9_000, updatedAt: 9_500 }
+          { id: 'plan', runId: 'plan-1', conversationId: 'plan-1', source: 'gateway-plan', role: 'system', status: 'completed', body: 'planned', createdAt: 8_000, updatedAt: 8_100, metadata: { gatewayBlock: 'run-complete' } },
+          { id: 'run', runId: 'run-1', conversationId: 'run-1', source: 'gateway-run', role: 'thinking', status: 'running', body: 'working', createdAt: 9_000, updatedAt: 9_500 }
         ]
       }
     }, now)
@@ -135,14 +135,14 @@ describe('task Codex card metadata', () => {
   })
 
   it('uses completed status labels for finished run, post-run and follow-up phases', () => {
-    const result = taskCodexSurfaceStatuses({
+    const result = taskGatewaySurfaceStatuses({
       ...task('completed-phases', 'todo', 0),
       payload: {
-        codexPlanState: { state: 'planned', conversationId: 'plan-1' },
+        gatewayPlanState: { state: 'planned', conversationId: 'plan-1' },
         activityMessages: [
-          { id: 'run', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'system', phase: 'RUN', status: 'completed', body: 'run', createdAt: 1, updatedAt: 1 },
-          { id: 'post', runId: 'post-1', conversationId: 'post-1', source: 'codex-run', role: 'system', phase: 'POST-RUNNING', status: 'completed', body: 'post', createdAt: 2, updatedAt: 2 },
-          { id: 'follow', runId: 'follow-1', conversationId: 'follow-1', source: 'codex-chat', role: 'assistant', phase: 'FOLLOW UP', status: 'completed', body: 'follow', createdAt: 3, updatedAt: 3 }
+          { id: 'run', runId: 'run-1', conversationId: 'run-1', source: 'gateway-run', role: 'system', phase: 'RUN', status: 'completed', body: 'run', createdAt: 1, updatedAt: 1 },
+          { id: 'post', runId: 'post-1', conversationId: 'post-1', source: 'gateway-run', role: 'system', phase: 'POST-RUNNING', status: 'completed', body: 'post', createdAt: 2, updatedAt: 2 },
+          { id: 'follow', runId: 'follow-1', conversationId: 'follow-1', source: 'gateway-chat', role: 'assistant', phase: 'FOLLOW UP', status: 'completed', body: 'follow', createdAt: 3, updatedAt: 3 }
         ]
       }
     }, 10_000)
@@ -160,38 +160,38 @@ describe('task Codex card metadata', () => {
     const completedTask = {
       ...task('completed-chats', 'todo', 0),
       payload: {
-        codexPlanState: { state: 'needs-clarification', conversationId: 'plan-1' },
+        gatewayPlanState: { state: 'needs-clarification', conversationId: 'plan-1' },
         activityMessages: [
-          { id: 'plan', runId: 'plan-1', conversationId: 'plan-1', source: 'codex-plan', role: 'system', status: 'completed', body: 'plan', createdAt: 7_000, updatedAt: 7_500 },
-          { id: 'run', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'system', status: 'completed', body: 'run', createdAt: 8_000, updatedAt: 8_500 },
-          { id: 'chat', runId: 'chat-1', conversationId: 'chat-1', source: 'codex-chat', role: 'assistant', status: 'completed', body: 'chat', createdAt: 9_000, updatedAt: 9_500 }
+          { id: 'plan', runId: 'plan-1', conversationId: 'plan-1', source: 'gateway-plan', role: 'system', status: 'completed', body: 'plan', createdAt: 7_000, updatedAt: 7_500 },
+          { id: 'run', runId: 'run-1', conversationId: 'run-1', source: 'gateway-run', role: 'system', status: 'completed', body: 'run', createdAt: 8_000, updatedAt: 8_500 },
+          { id: 'chat', runId: 'chat-1', conversationId: 'chat-1', source: 'gateway-chat', role: 'assistant', status: 'completed', body: 'chat', createdAt: 9_000, updatedAt: 9_500 }
         ]
       }
     } satisfies TaskEntity
 
-    expect(taskCodexSurfaceStatuses(completedTask, now).some((status) => status.active)).toBe(false)
-    expect(taskCodexActiveTone(completedTask, now)).toBeNull()
+    expect(taskGatewaySurfaceStatuses(completedTask, now).some((status) => status.active)).toBe(false)
+    expect(taskGatewayActiveTone(completedTask, now)).toBeNull()
   })
 
   it('keeps task card animation active while replanning an already planned task', () => {
     const now = 10_000
-    const result = taskCodexSurfaceStatuses({
+    const result = taskGatewaySurfaceStatuses({
       ...task('replanning', 'todo', 0),
       payload: {
-        codexPlanState: { state: 'planned', conversationId: 'old-plan' },
+        gatewayPlanState: { state: 'planned', conversationId: 'old-plan' },
         activityMessages: [
-          { id: 'plan-active', runId: 'plan-active', conversationId: 'plan-active', source: 'codex-plan', role: 'thinking', status: 'running', body: 'planning', createdAt: 9_000, updatedAt: 9_500 }
+          { id: 'plan-active', runId: 'plan-active', conversationId: 'plan-active', source: 'gateway-plan', role: 'thinking', status: 'running', body: 'planning', createdAt: 9_000, updatedAt: 9_500 }
         ]
       }
     }, now)
 
     expect(result[0]).toMatchObject({ label: 'Planning', tone: 'planning', active: true, conversationId: 'plan-active' })
-    expect(taskCodexActiveTone({
+    expect(taskGatewayActiveTone({
       ...task('replanning', 'todo', 0),
       payload: {
-        codexPlanState: { state: 'planned', conversationId: 'old-plan' },
+        gatewayPlanState: { state: 'planned', conversationId: 'old-plan' },
         activityMessages: [
-          { id: 'plan-active', runId: 'plan-active', conversationId: 'plan-active', source: 'codex-plan', role: 'thinking', status: 'running', body: 'planning', createdAt: 9_000, updatedAt: 9_500 }
+          { id: 'plan-active', runId: 'plan-active', conversationId: 'plan-active', source: 'gateway-plan', role: 'thinking', status: 'running', body: 'planning', createdAt: 9_000, updatedAt: 9_500 }
         ]
       }
     }, now)).toBe('planning')
@@ -202,41 +202,41 @@ describe('task Codex card metadata', () => {
     const planTransitionTask = {
       ...task('plan-transition', 'todo', 0),
       payload: {
-        codexPlanState: { state: 'planned', conversationId: 'plan-1' },
+        gatewayPlanState: { state: 'planned', conversationId: 'plan-1' },
         activityMessages: [
-          { id: 'plan-running', runId: 'plan-1', conversationId: 'plan-1', source: 'codex-plan', role: 'thinking', status: 'running', body: 'planning', createdAt: 9_000, updatedAt: 9_500 },
-          { id: 'plan-complete', runId: 'plan-1', conversationId: 'plan-1', source: 'codex-plan', role: 'system', status: 'completed', body: 'planned', createdAt: 9_600, updatedAt: 9_600, metadata: { codexBlock: 'run-complete' } }
+          { id: 'plan-running', runId: 'plan-1', conversationId: 'plan-1', source: 'gateway-plan', role: 'thinking', status: 'running', body: 'planning', createdAt: 9_000, updatedAt: 9_500 },
+          { id: 'plan-complete', runId: 'plan-1', conversationId: 'plan-1', source: 'gateway-plan', role: 'system', status: 'completed', body: 'planned', createdAt: 9_600, updatedAt: 9_600, metadata: { gatewayBlock: 'run-complete' } }
         ]
       }
     } satisfies TaskEntity
 
-    expect(taskCodexSurfaceStatuses(planTransitionTask, now).map((status) => [status.statusKey, status.label, status.active])).toEqual([
+    expect(taskGatewaySurfaceStatuses(planTransitionTask, now).map((status) => [status.statusKey, status.label, status.active])).toEqual([
       ['planned', 'Planned', undefined]
     ])
-    expect(taskCodexActiveTone(planTransitionTask, now)).toBeNull()
+    expect(taskGatewayActiveTone(planTransitionTask, now)).toBeNull()
   })
 
   it('keeps Planning active when a new replanning message is newer than the previous terminal message', () => {
     const now = 10_000
-    const result = taskCodexSurfaceStatuses({
+    const result = taskGatewaySurfaceStatuses({
       ...task('plan-restarted', 'todo', 0),
       payload: {
-        codexPlanState: { state: 'planned', conversationId: 'old-plan' },
+        gatewayPlanState: { state: 'planned', conversationId: 'old-plan' },
         activityMessages: [
-          { id: 'old-complete', runId: 'old-plan', conversationId: 'old-plan', source: 'codex-plan', role: 'system', status: 'completed', body: 'planned', createdAt: 8_500, updatedAt: 8_500, metadata: { codexBlock: 'run-complete' } },
-          { id: 'new-running', runId: 'new-plan', conversationId: 'new-plan', source: 'codex-plan', role: 'thinking', status: 'running', body: 'planning again', createdAt: 9_000, updatedAt: 9_500 }
+          { id: 'old-complete', runId: 'old-plan', conversationId: 'old-plan', source: 'gateway-plan', role: 'system', status: 'completed', body: 'planned', createdAt: 8_500, updatedAt: 8_500, metadata: { gatewayBlock: 'run-complete' } },
+          { id: 'new-running', runId: 'new-plan', conversationId: 'new-plan', source: 'gateway-plan', role: 'thinking', status: 'running', body: 'planning again', createdAt: 9_000, updatedAt: 9_500 }
         ]
       }
     }, now)
 
     expect(result[0]).toMatchObject({ statusKey: 'planning', label: 'Planning', active: true, conversationId: 'new-plan' })
-    expect(taskCodexActiveTone({
+    expect(taskGatewayActiveTone({
       ...task('plan-restarted', 'todo', 0),
       payload: {
-        codexPlanState: { state: 'planned', conversationId: 'old-plan' },
+        gatewayPlanState: { state: 'planned', conversationId: 'old-plan' },
         activityMessages: [
-          { id: 'old-complete', runId: 'old-plan', conversationId: 'old-plan', source: 'codex-plan', role: 'system', status: 'completed', body: 'planned', createdAt: 8_500, updatedAt: 8_500, metadata: { codexBlock: 'run-complete' } },
-          { id: 'new-running', runId: 'new-plan', conversationId: 'new-plan', source: 'codex-plan', role: 'thinking', status: 'running', body: 'planning again', createdAt: 9_000, updatedAt: 9_500 }
+          { id: 'old-complete', runId: 'old-plan', conversationId: 'old-plan', source: 'gateway-plan', role: 'system', status: 'completed', body: 'planned', createdAt: 8_500, updatedAt: 8_500, metadata: { gatewayBlock: 'run-complete' } },
+          { id: 'new-running', runId: 'new-plan', conversationId: 'new-plan', source: 'gateway-plan', role: 'thinking', status: 'running', body: 'planning again', createdAt: 9_000, updatedAt: 9_500 }
         ]
       }
     }, now)).toBe('planning')
@@ -244,16 +244,16 @@ describe('task Codex card metadata', () => {
 
   it('moves active run, post-run and follow-up statuses to completed when terminal messages are newer', () => {
     const now = 10_000
-    const result = taskCodexSurfaceStatuses({
+    const result = taskGatewaySurfaceStatuses({
       ...task('phase-transitions', 'todo', 0),
       payload: {
         activityMessages: [
-          { id: 'run-active', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'thinking', phase: 'RUN', status: 'running', body: 'working', createdAt: 9_000, updatedAt: 9_100 },
-          { id: 'run-done', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'system', phase: 'RUN', status: 'completed', body: 'done', createdAt: 9_200, updatedAt: 9_200, metadata: { codexBlock: 'run-complete' } },
-          { id: 'post-active', runId: 'post-1', conversationId: 'post-1', source: 'codex-run', role: 'thinking', phase: 'POST-RUNNING', status: 'running', body: 'post', createdAt: 9_300, updatedAt: 9_400 },
-          { id: 'post-done', runId: 'post-1', conversationId: 'post-1', source: 'codex-run', role: 'system', phase: 'POST-RUNNING', status: 'completed', body: 'post done', createdAt: 9_500, updatedAt: 9_500, metadata: { codexBlock: 'run-complete' } },
-          { id: 'follow-active', runId: 'follow-1', conversationId: 'follow-1', source: 'codex-chat', role: 'thinking', phase: 'FOLLOW UP', status: 'running', body: 'follow', createdAt: 9_600, updatedAt: 9_700 },
-          { id: 'follow-done', runId: 'follow-1', conversationId: 'follow-1', source: 'codex-chat', role: 'system', phase: 'FOLLOW UP', status: 'completed', body: 'follow done', createdAt: 9_800, updatedAt: 9_800, metadata: { codexBlock: 'run-complete' } }
+          { id: 'run-active', runId: 'run-1', conversationId: 'run-1', source: 'gateway-run', role: 'thinking', phase: 'RUN', status: 'running', body: 'working', createdAt: 9_000, updatedAt: 9_100 },
+          { id: 'run-done', runId: 'run-1', conversationId: 'run-1', source: 'gateway-run', role: 'system', phase: 'RUN', status: 'completed', body: 'done', createdAt: 9_200, updatedAt: 9_200, metadata: { gatewayBlock: 'run-complete' } },
+          { id: 'post-active', runId: 'post-1', conversationId: 'post-1', source: 'gateway-run', role: 'thinking', phase: 'POST-RUNNING', status: 'running', body: 'post', createdAt: 9_300, updatedAt: 9_400 },
+          { id: 'post-done', runId: 'post-1', conversationId: 'post-1', source: 'gateway-run', role: 'system', phase: 'POST-RUNNING', status: 'completed', body: 'post done', createdAt: 9_500, updatedAt: 9_500, metadata: { gatewayBlock: 'run-complete' } },
+          { id: 'follow-active', runId: 'follow-1', conversationId: 'follow-1', source: 'gateway-chat', role: 'thinking', phase: 'FOLLOW UP', status: 'running', body: 'follow', createdAt: 9_600, updatedAt: 9_700 },
+          { id: 'follow-done', runId: 'follow-1', conversationId: 'follow-1', source: 'gateway-chat', role: 'system', phase: 'FOLLOW UP', status: 'completed', body: 'follow done', createdAt: 9_800, updatedAt: 9_800, metadata: { gatewayBlock: 'run-complete' } }
         ]
       }
     }, now)
@@ -264,16 +264,16 @@ describe('task Codex card metadata', () => {
       ['post-run-completed', 'Post Run Completed', undefined],
       ['followed-up', 'Followed Up', undefined]
     ])
-    expect(taskCodexActiveTone({
+    expect(taskGatewayActiveTone({
       ...task('phase-transitions', 'todo', 0),
       payload: {
         activityMessages: [
-          { id: 'run-active', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'thinking', phase: 'RUN', status: 'running', body: 'working', createdAt: 9_000, updatedAt: 9_100 },
-          { id: 'run-done', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'system', phase: 'RUN', status: 'completed', body: 'done', createdAt: 9_200, updatedAt: 9_200, metadata: { codexBlock: 'run-complete' } },
-          { id: 'post-active', runId: 'post-1', conversationId: 'post-1', source: 'codex-run', role: 'thinking', phase: 'POST-RUNNING', status: 'running', body: 'post', createdAt: 9_300, updatedAt: 9_400 },
-          { id: 'post-done', runId: 'post-1', conversationId: 'post-1', source: 'codex-run', role: 'system', phase: 'POST-RUNNING', status: 'completed', body: 'post done', createdAt: 9_500, updatedAt: 9_500, metadata: { codexBlock: 'run-complete' } },
-          { id: 'follow-active', runId: 'follow-1', conversationId: 'follow-1', source: 'codex-chat', role: 'thinking', phase: 'FOLLOW UP', status: 'running', body: 'follow', createdAt: 9_600, updatedAt: 9_700 },
-          { id: 'follow-done', runId: 'follow-1', conversationId: 'follow-1', source: 'codex-chat', role: 'system', phase: 'FOLLOW UP', status: 'completed', body: 'follow done', createdAt: 9_800, updatedAt: 9_800, metadata: { codexBlock: 'run-complete' } }
+          { id: 'run-active', runId: 'run-1', conversationId: 'run-1', source: 'gateway-run', role: 'thinking', phase: 'RUN', status: 'running', body: 'working', createdAt: 9_000, updatedAt: 9_100 },
+          { id: 'run-done', runId: 'run-1', conversationId: 'run-1', source: 'gateway-run', role: 'system', phase: 'RUN', status: 'completed', body: 'done', createdAt: 9_200, updatedAt: 9_200, metadata: { gatewayBlock: 'run-complete' } },
+          { id: 'post-active', runId: 'post-1', conversationId: 'post-1', source: 'gateway-run', role: 'thinking', phase: 'POST-RUNNING', status: 'running', body: 'post', createdAt: 9_300, updatedAt: 9_400 },
+          { id: 'post-done', runId: 'post-1', conversationId: 'post-1', source: 'gateway-run', role: 'system', phase: 'POST-RUNNING', status: 'completed', body: 'post done', createdAt: 9_500, updatedAt: 9_500, metadata: { gatewayBlock: 'run-complete' } },
+          { id: 'follow-active', runId: 'follow-1', conversationId: 'follow-1', source: 'gateway-chat', role: 'thinking', phase: 'FOLLOW UP', status: 'running', body: 'follow', createdAt: 9_600, updatedAt: 9_700 },
+          { id: 'follow-done', runId: 'follow-1', conversationId: 'follow-1', source: 'gateway-chat', role: 'system', phase: 'FOLLOW UP', status: 'completed', body: 'follow done', createdAt: 9_800, updatedAt: 9_800, metadata: { gatewayBlock: 'run-complete' } }
         ]
       }
     }, now)).toBeNull()
@@ -285,18 +285,18 @@ describe('task Codex card metadata', () => {
       ...task('follow-up-running', 'todo', 0),
       payload: {
         activityMessages: [
-          { id: 'chat-user', runId: 'chat-1', conversationId: 'chat-1', source: 'codex-chat', role: 'user', status: 'completed', body: 'follow up', createdAt: 9_000, updatedAt: 9_500 },
-          { id: 'chat-thinking', runId: 'chat-1', conversationId: 'chat-1', source: 'codex-chat', role: 'thinking', status: 'running', body: 'thinking', createdAt: 9_000, updatedAt: 9_500 }
+          { id: 'chat-user', runId: 'chat-1', conversationId: 'chat-1', source: 'gateway-chat', role: 'user', status: 'completed', body: 'follow up', createdAt: 9_000, updatedAt: 9_500 },
+          { id: 'chat-thinking', runId: 'chat-1', conversationId: 'chat-1', source: 'gateway-chat', role: 'thinking', status: 'running', body: 'thinking', createdAt: 9_000, updatedAt: 9_500 }
         ]
       }
     } satisfies TaskEntity
 
-    expect(taskCodexSurfaceStatuses(activeTask, now).find((status) => status.statusKey === 'following-up')).toMatchObject({
+    expect(taskGatewaySurfaceStatuses(activeTask, now).find((status) => status.statusKey === 'following-up')).toMatchObject({
       label: 'Following Up',
       tone: 'following-up',
       active: true
     })
-    expect(taskCodexActiveTone(activeTask, now)).toBe('following-up')
+    expect(taskGatewayActiveTone(activeTask, now)).toBe('following-up')
   })
 
   it('shows failed status without enabling active card borders', () => {
@@ -304,27 +304,27 @@ describe('task Codex card metadata', () => {
       ...task('failed-run', 'todo', 0),
       payload: {
         activityMessages: [
-          { id: 'run-active', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'thinking', phase: 'RUN', status: 'running', body: 'working', createdAt: 9_000, updatedAt: 9_100 },
-          { id: 'run-failed', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'error', phase: 'RUN', status: 'failed', body: 'failed', createdAt: 9_000, updatedAt: 9_500 }
+          { id: 'run-active', runId: 'run-1', conversationId: 'run-1', source: 'gateway-run', role: 'thinking', phase: 'RUN', status: 'running', body: 'working', createdAt: 9_000, updatedAt: 9_100 },
+          { id: 'run-failed', runId: 'run-1', conversationId: 'run-1', source: 'gateway-run', role: 'error', phase: 'RUN', status: 'failed', body: 'failed', createdAt: 9_000, updatedAt: 9_500 }
         ]
       }
     } satisfies TaskEntity
 
-    expect(taskCodexSurfaceStatuses(failedTask, 10_000).map((status) => [status.statusKey, status.label, status.active])).toEqual([
+    expect(taskGatewaySurfaceStatuses(failedTask, 10_000).map((status) => [status.statusKey, status.label, status.active])).toEqual([
       ['not-planned', 'Not Planned', undefined],
       ['failed', 'Failed', undefined]
     ])
-    expect(taskCodexActiveTone(failedTask, 10_000)).toBeNull()
+    expect(taskGatewayActiveTone(failedTask, 10_000)).toBeNull()
   })
 
   it('returns latest phase action chips', () => {
-    const result = taskCodexActionChips({
+    const result = taskGatewayActionChips({
       ...task('with-actions', 'todo', 0),
       payload: {
         activityMessages: [
-          { id: 'p-old', runId: 'run-old', conversationId: 'plan-old', source: 'codex-plan', role: 'system', status: 'completed', body: 'old', createdAt: 1, updatedAt: 1 },
-          { id: 'r-new', runId: 'run-new', conversationId: 'run-new', source: 'codex-run', role: 'system', status: 'running', body: 'run', createdAt: 2, updatedAt: 2 },
-          { id: 'p-new', runId: 'plan-run', conversationId: 'plan-new', source: 'codex-plan', role: 'system', status: 'completed', body: 'plan', createdAt: 3, updatedAt: 3 }
+          { id: 'p-old', runId: 'run-old', conversationId: 'plan-old', source: 'gateway-plan', role: 'system', status: 'completed', body: 'old', createdAt: 1, updatedAt: 1 },
+          { id: 'r-new', runId: 'run-new', conversationId: 'run-new', source: 'gateway-run', role: 'system', status: 'running', body: 'run', createdAt: 2, updatedAt: 2 },
+          { id: 'p-new', runId: 'plan-run', conversationId: 'plan-new', source: 'gateway-plan', role: 'system', status: 'completed', body: 'plan', createdAt: 3, updatedAt: 3 }
         ]
       }
     })
@@ -336,44 +336,44 @@ describe('task Codex card metadata', () => {
   })
 
   it('finds the latest Plan conversation by updatedAt before createdAt', () => {
-    const result = latestTaskCodexConversation({
+    const result = latestTaskGatewayConversation({
       ...task('with-plan-chat', 'todo', 0),
       payload: {
         activityMessages: [
-          { id: 'p-created-newer', runId: 'run-created-newer', conversationId: 'plan-created-newer', source: 'codex-plan', role: 'system', status: 'completed', body: 'created newer', createdAt: 20 },
-          { id: 'r-latest', runId: 'run-latest', conversationId: 'run-latest', source: 'codex-run', role: 'system', status: 'completed', body: 'run', createdAt: 25, updatedAt: 25 },
-          { id: 'p-updated-newer', runId: 'plan-run-latest', conversationId: 'plan-updated-newer', source: 'codex-plan', role: 'assistant', status: 'completed', body: 'updated newer', createdAt: 10, updatedAt: 30 }
+          { id: 'p-created-newer', runId: 'run-created-newer', conversationId: 'plan-created-newer', source: 'gateway-plan', role: 'system', status: 'completed', body: 'created newer', createdAt: 20 },
+          { id: 'r-latest', runId: 'run-latest', conversationId: 'run-latest', source: 'gateway-run', role: 'system', status: 'completed', body: 'run', createdAt: 25, updatedAt: 25 },
+          { id: 'p-updated-newer', runId: 'plan-run-latest', conversationId: 'plan-updated-newer', source: 'gateway-plan', role: 'assistant', status: 'completed', body: 'updated newer', createdAt: 10, updatedAt: 30 }
         ]
       }
-    }, 'codex-plan')
+    }, 'gateway-plan')
 
-    expect(result).toEqual({ source: 'codex-plan', phase: 'PLAN', conversationId: 'plan-updated-newer', at: 30 })
+    expect(result).toEqual({ source: 'gateway-plan', phase: 'PLAN', conversationId: 'plan-updated-newer', at: 30 })
   })
 
   it('finds the latest Run conversation and falls back to runId', () => {
-    const result = latestTaskCodexConversation({
+    const result = latestTaskGatewayConversation({
       ...task('with-run-chat', 'todo', 0),
       payload: {
         activityMessages: [
-          { id: 'r-old', runId: 'run-old', conversationId: 'run-old-conversation', source: 'codex-run', role: 'system', status: 'completed', body: 'old', createdAt: 1, updatedAt: 1 },
-          { id: 'p-newer', runId: 'plan-newer', conversationId: 'plan-newer', source: 'codex-plan', role: 'system', status: 'completed', body: 'plan', createdAt: 20, updatedAt: 20 },
-          { id: 'r-fallback', runId: 'run-fallback', source: 'codex-run', role: 'system', status: 'running', body: 'fallback', createdAt: 2, updatedAt: 30 }
+          { id: 'r-old', runId: 'run-old', conversationId: 'run-old-conversation', source: 'gateway-run', role: 'system', status: 'completed', body: 'old', createdAt: 1, updatedAt: 1 },
+          { id: 'p-newer', runId: 'plan-newer', conversationId: 'plan-newer', source: 'gateway-plan', role: 'system', status: 'completed', body: 'plan', createdAt: 20, updatedAt: 20 },
+          { id: 'r-fallback', runId: 'run-fallback', source: 'gateway-run', role: 'system', status: 'running', body: 'fallback', createdAt: 2, updatedAt: 30 }
         ]
       }
-    }, 'codex-run')
+    }, 'gateway-run')
 
-    expect(result).toEqual({ source: 'codex-run', phase: 'RUN', conversationId: 'run-fallback', at: 30 })
+    expect(result).toEqual({ source: 'gateway-run', phase: 'RUN', conversationId: 'run-fallback', at: 30 })
   })
 
   it('returns null when no same-type conversation exists', () => {
-    const result = latestTaskCodexConversation({
+    const result = latestTaskGatewayConversation({
       ...task('without-plan-chat', 'todo', 0),
       payload: {
         activityMessages: [
-          { id: 'r-only', runId: 'run-only', conversationId: 'run-only', source: 'codex-run', role: 'system', status: 'completed', body: 'run', createdAt: 1, updatedAt: 1 }
+          { id: 'r-only', runId: 'run-only', conversationId: 'run-only', source: 'gateway-run', role: 'system', status: 'completed', body: 'run', createdAt: 1, updatedAt: 1 }
         ]
       }
-    }, 'codex-plan')
+    }, 'gateway-plan')
 
     expect(result).toBeNull()
   })

@@ -12,25 +12,25 @@ import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
 import type {
   AddTaskCommentRequest,
-  CodexChatResolveRequest,
-  CodexChatStopRequest,
-  CodexChatSendRequest,
+  GatewayChatResolveRequest,
+  GatewayChatStopRequest,
+  GatewayChatSendRequest,
   ExportTaskSnapshotRequest,
   ImportTaskJsonRequest,
-  ListPlannedCodexTasksRequest,
-  ListRunningCodexTasksRequest,
+  ListPlannedGatewayTasksRequest,
+  ListRunningGatewayTasksRequest,
   PaginatedResponse,
-  PlanTaskCodexRequest,
-  PlannedCodexTaskRow,
+  PlanTaskGatewayRequest,
+  PlannedGatewayTaskRow,
   ProjectExportAttachmentInput,
   RemoveTaskCommentRequest,
-  RunTaskCodexRequest,
-  RunningCodexGroupCounts,
-  RunningCodexGroupKey,
+  RunTaskGatewayRequest,
+  RunningGatewayGroupCounts,
+  RunningGatewayGroupKey,
   SetTaskSkillsRequest,
   SetTaskTagsRequest,
-  RunningCodexTaskRow,
-  RunningCodexTasksResponse,
+  RunningGatewayTaskRow,
+  RunningGatewayTasksResponse,
   TaskPlannerContextRequest,
   TaskPlannerJsonRequest,
   UpdateTaskSubtaskRequest,
@@ -47,16 +47,16 @@ import { AgentRepository } from '../../db/repositories/agent-repo.js'
 import { StatusRepository } from '../../db/repositories/status-repo.js'
 import { AppSettingsRepository, WorkspaceRepository } from '../../db/repositories/workspace-repo.js'
 import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
-import { CODEX_LANGUAGE_KEY, DEFAULT_AGENT_KEY } from './app-settings.service.js'
+import { GATEWAY_LANGUAGE_KEY, DEFAULT_AGENT_KEY } from './app-settings.service.js'
 import { TaskJsonImportNormalizer } from './task-json-import.js'
 import type { NormalizedTaskJsonImport } from './task-json-import.js'
 import { safeConsole } from '../utils/safe-output.js'
-import { showCodexNotification } from '../utils/codex-notifications.js'
+import { showGatewayNotification } from '../utils/gateway-notifications.js'
 import { codexProcessEnv, isCodexCliNotFoundError, resolveCodexExecutable } from '../utils/codex-cli-resolver.js'
-import { formatUsageSummary, parseCodexEvents, type CodexNormalizedEvent, type CodexUsageSummary } from '../../shared/utils/codex-events.js'
-import { codexLanguageDisplayName, normalizeCodexLanguage, normalizeCodexReasoningEffort, type CodexLanguagePair } from '../../shared/utils/codex-language.js'
-import { inferCodexChatPhase, type CodexChatPhase } from '../../shared/utils/codex-chat-phase.js'
-import { normalizeCodexPromptShape, type CodexPromptShape } from '../../shared/utils/codex-prompt-shape.js'
+import { formatUsageSummary, parseGatewayEvents, type GatewayNormalizedEvent, type GatewayUsageSummary } from '../../shared/utils/gateway-events.js'
+import { gatewayLanguageDisplayName, normalizeGatewayLanguage, normalizeGatewayReasoningEffort, type GatewayLanguagePair } from '../../shared/utils/gateway-language.js'
+import { inferGatewayChatPhase, type GatewayChatPhase } from '../../shared/utils/gateway-chat-phase.js'
+import { normalizeGatewayPromptShape, type GatewayPromptShape } from '../../shared/utils/gateway-prompt-shape.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -82,7 +82,7 @@ type PlannerBridgeContext = {
   inputLanguage?: string
   outputLanguage?: string
   mode?: 'plan' | 'execute'
-  executionMode?: CodexExecutionMode
+  executionMode?: GatewayExecutionMode
   reasoningEffort?: string
   exportWorkspacePath?: string
   runtimeWorkspacePath?: string
@@ -103,12 +103,12 @@ type PlannerLaunchResult = {
   finalMessagePath?: string
 }
 
-type CodexTerminalRun = {
+type GatewayTerminalRun = {
   finishFilePath: string
   terminalTitle: string
 }
 
-type ActiveCodexChatRun = {
+type ActiveGatewayChatRun = {
   child: ChildProcess
   taskId: string
   conversationId: string
@@ -148,17 +148,17 @@ export type PlannerQuestionPayload = {
   questions: PlannerQuestionItem[]
 }
 
-type CodexExecutionMode = 'terminal' | 'exec'
+type GatewayExecutionMode = 'terminal' | 'exec'
 
 type TaskActivityMessage = {
   id: string
   runId: string
   conversationId?: string
-  source: 'codex-plan' | 'codex-run'
-    | 'codex-chat'
+  source: 'gateway-plan' | 'gateway-run'
+    | 'gateway-chat'
     | 'comment'
     | 'history'
-  phase?: CodexChatPhase
+  phase?: GatewayChatPhase
   role: 'user' | 'assistant' | 'tool' | 'system' | 'error' | 'thinking'
   status?: 'queued' | 'running' | 'completed' | 'failed'
   body: string
@@ -167,9 +167,9 @@ type TaskActivityMessage = {
   updatedAt?: number
 }
 
-type RunningCodexConversationType = 'plan' | 'run' | 'chat' | 'steer' | 'post-run'
+type RunningGatewayConversationType = 'plan' | 'run' | 'chat' | 'steer' | 'post-run'
 
-type RunningCodexConversationSummary = RunningCodexTaskRow & {
+type RunningGatewayConversationSummary = RunningGatewayTaskRow & {
   latestActivityBody: string
 }
 
@@ -193,7 +193,7 @@ function activityConversationIdOf(message: TaskActivityMessage): string | null {
   return message.conversationId?.trim() || message.runId?.trim() || null
 }
 
-function isRunningCodexActivityMessage(message: TaskActivityMessage): boolean {
+function isRunningGatewayActivityMessage(message: TaskActivityMessage): boolean {
   if (!message.source.startsWith('codex-')) return false
   const metadata = asRecord(message.metadata)
   const status = typeof message.status === 'string' ? message.status : typeof metadata.runStatus === 'string' ? metadata.runStatus : ''
@@ -202,10 +202,10 @@ function isRunningCodexActivityMessage(message: TaskActivityMessage): boolean {
 
 function isTerminalCodexActivityMessage(message: TaskActivityMessage): boolean {
   const metadata = asRecord(message.metadata)
-  const codexBlock = typeof metadata.codexBlock === 'string' ? metadata.codexBlock : ''
+  const gatewayBlock = typeof metadata.gatewayBlock === 'string' ? metadata.gatewayBlock : ''
   const runStatus = typeof metadata.runStatus === 'string' ? metadata.runStatus : ''
   return (
-    codexBlock === 'run-complete'
+    gatewayBlock === 'run-complete'
     || message.role === 'error'
     || message.status === 'failed'
     || runStatus === 'completed'
@@ -214,8 +214,8 @@ function isTerminalCodexActivityMessage(message: TaskActivityMessage): boolean {
   )
 }
 
-function runningConversationTypeOf(message: TaskActivityMessage): RunningCodexConversationType {
-  const phase = inferCodexChatPhase(message)
+function runningConversationTypeOf(message: TaskActivityMessage): RunningGatewayConversationType {
+  const phase = inferGatewayChatPhase(message)
   if (phase === 'PLAN') return 'plan'
   if (phase === 'POST-RUNNING') return 'post-run'
   if (phase === 'RUN') return 'run'
@@ -223,25 +223,25 @@ function runningConversationTypeOf(message: TaskActivityMessage): RunningCodexCo
   return typeof metadata.mode === 'string' && metadata.mode === 'steer' ? 'steer' : 'chat'
 }
 
-function runningConversationLabel(type: RunningCodexConversationType): string {
+function runningConversationLabel(type: RunningGatewayConversationType): string {
   if (type === 'plan') return 'Planning'
   if (type === 'run') return 'Run'
   if (type === 'post-run') return 'Post Running'
   return 'Running'
 }
 
-function runningConversationGroupOf(type: RunningCodexConversationType): Exclude<RunningCodexGroupKey, 'all'> {
+function runningConversationGroupOf(type: RunningGatewayConversationType): Exclude<RunningGatewayGroupKey, 'all'> {
   if (type === 'plan') return 'planning'
   if (type === 'post-run') return 'postRunning'
   return 'running'
 }
 
-function normalizeRunningCodexGroup(value: unknown): RunningCodexGroupKey {
+function normalizeRunningGatewayGroup(value: unknown): RunningGatewayGroupKey {
   return value === 'planning' || value === 'running' || value === 'postRunning' ? value : 'all'
 }
 
-function countRunningCodexGroups(rows: RunningCodexTaskRow[]): RunningCodexGroupCounts {
-  const counts: RunningCodexGroupCounts = {
+function countRunningGatewayGroups(rows: RunningGatewayTaskRow[]): RunningGatewayGroupCounts {
+  const counts: RunningGatewayGroupCounts = {
     all: rows.length,
     planning: 0,
     running: 0,
@@ -272,7 +272,7 @@ export function summarizeRunningConversation(
   project: { id: string; name: string; description?: string },
   messages: TaskActivityMessage[],
   now = Date.now()
-): RunningCodexConversationSummary[] {
+): RunningGatewayConversationSummary[] {
   const grouped = new Map<string, TaskActivityMessage[]>()
   for (const message of messages) {
     const conversationId = activityConversationIdOf(message)
@@ -285,10 +285,10 @@ export function summarizeRunningConversation(
     }
   }
 
-  const rows: RunningCodexConversationSummary[] = []
+  const rows: RunningGatewayConversationSummary[] = []
   grouped.forEach((conversationMessages, conversationId) => {
     const ordered = [...conversationMessages].sort((a, b) => activityTimeOf(a) - activityTimeOf(b))
-    const latestLiveMessage = [...ordered].reverse().find((message) => isRunningCodexActivityMessage(message))
+    const latestLiveMessage = [...ordered].reverse().find((message) => isRunningGatewayActivityMessage(message))
     if (!latestLiveMessage) return
 
     const latestLiveAt = activityTimeOf(latestLiveMessage)
@@ -310,7 +310,7 @@ export function summarizeRunningConversation(
       taskStatus: task.status,
       projectName: project.name,
       projectDescription: project.description,
-      codexConversationId: conversationId,
+      gatewayConversationId: conversationId,
       source: latestLiveMessage.source,
       conversationType,
       liveStatus,
@@ -369,16 +369,16 @@ function stringOrEmpty(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
-function projectCodexMetrics(projectMetrics: Record<string, unknown> | undefined): Record<string, unknown> {
-  return asRecord(projectMetrics?.codex)
+function projectGatewayMetrics(projectMetrics: Record<string, unknown> | undefined): Record<string, unknown> {
+  return asRecord(projectMetrics?.gateway)
 }
 
-function taskCodexMetrics(task: TaskEntity): Record<string, unknown> {
-  return asRecord(asPayload(task.payload).codex)
+function taskGatewayMetrics(task: TaskEntity): Record<string, unknown> {
+  return asRecord(asPayload(task.payload).gateway)
 }
 
-function taskCodexPlanConversationId(task: TaskEntity): string | undefined {
-  const planState = asRecord(asPayload(task.payload).codexPlanState)
+function taskGatewayPlanConversationId(task: TaskEntity): string | undefined {
+  const planState = asRecord(asPayload(task.payload).gatewayPlanState)
   const conversationId = planState.conversationId
   return typeof conversationId === 'string' && conversationId.trim() ? conversationId : undefined
 }
@@ -556,55 +556,55 @@ function projectPromptSnapshot(project: { generalContext?: string | null; genera
   }
 }
 
-function projectCodexLanguageValue(project: { metrics?: Record<string, unknown> | null }, key: 'language' | 'inputLanguage' | 'outputLanguage'): string | undefined {
-  const codex = project.metrics?.codex
+function projectGatewayLanguageValue(project: { metrics?: Record<string, unknown> | null }, key: 'language' | 'inputLanguage' | 'outputLanguage'): string | undefined {
+  const codex = project.metrics?.gateway
   if (!codex || typeof codex !== 'object' || Array.isArray(codex)) return undefined
   const value = (codex as Record<string, unknown>)[key]
   return typeof value === 'string' && value.trim() ? value : undefined
 }
 
-async function resolveCodexLanguageSetting(
+async function resolveGatewayLanguageSetting(
   repo: AppSettingsRepository,
   organizationId: string,
   project: { metrics?: Record<string, unknown> | null },
   requested?: { language?: string; inputLanguage?: string; outputLanguage?: string }
 ): Promise<string> {
-  const stored = await repo.get<string | null>(organizationId, CODEX_LANGUAGE_KEY).catch(() => null)
-  return normalizeCodexLanguage(
+  const stored = await repo.get<string | null>(organizationId, GATEWAY_LANGUAGE_KEY).catch(() => null)
+  return normalizeGatewayLanguage(
     requested?.language?.trim()
-      || projectCodexLanguageValue(project, 'language')
+      || projectGatewayLanguageValue(project, 'language')
       || requested?.outputLanguage
       || requested?.inputLanguage
-      || projectCodexLanguageValue(project, 'outputLanguage')
-      || projectCodexLanguageValue(project, 'inputLanguage')
+      || projectGatewayLanguageValue(project, 'outputLanguage')
+      || projectGatewayLanguageValue(project, 'inputLanguage')
       || stored
       || undefined
   )
 }
 
-function codexLanguageInstruction(language?: string | CodexLanguagePair): string {
+function gatewayLanguageInstruction(language?: string | GatewayLanguagePair): string {
   const selectedLanguage = typeof language === 'object' && language
-    ? normalizeCodexLanguage(language.outputLanguage)
-    : normalizeCodexLanguage(language)
+    ? normalizeGatewayLanguage(language.outputLanguage)
+    : normalizeGatewayLanguage(language)
   return [
-    `Selected Codex language: ${codexLanguageDisplayName(selectedLanguage)}.`,
+    `Selected Codex language: ${gatewayLanguageDisplayName(selectedLanguage)}.`,
     'Interpret user, task, and project text in this selected language when ambiguous.',
     'Write all user-facing replies, plans, planner questions, task updates, subtask titles/descriptions, checklist items, final summaries, and verification notes in this selected language.'
   ].join(' ')
 }
 
-function projectCodexReasoningEffort(project: { metrics?: Record<string, unknown> | null }, mode: 'plan' | 'run', requested?: string): string {
-  if (requested) return normalizeCodexReasoningEffort(requested)
-  const codex = project.metrics?.codex
+function projectGatewayReasoningEffort(project: { metrics?: Record<string, unknown> | null }, mode: 'plan' | 'run', requested?: string): string {
+  if (requested) return normalizeGatewayReasoningEffort(requested)
+  const codex = project.metrics?.gateway
   if (!codex || typeof codex !== 'object' || Array.isArray(codex)) return 'medium'
   const record = codex as Record<string, unknown>
-  return normalizeCodexReasoningEffort(mode === 'plan' ? record.planReasoningEffort : record.runReasoningEffort)
+  return normalizeGatewayReasoningEffort(mode === 'plan' ? record.planReasoningEffort : record.runReasoningEffort)
 }
 
-function projectCodexPromptShape(project: { metrics?: Record<string, unknown> | null }): CodexPromptShape {
-  const codex = project.metrics?.codex
+function projectGatewayPromptShape(project: { metrics?: Record<string, unknown> | null }): GatewayPromptShape {
+  const codex = project.metrics?.gateway
   if (!codex || typeof codex !== 'object' || Array.isArray(codex)) return 'markdown'
-  return normalizeCodexPromptShape((codex as Record<string, unknown>).promptShape)
+  return normalizeGatewayPromptShape((codex as Record<string, unknown>).promptShape)
 }
 
 function nonEmptyPromptSections(sections: PromptSection[]): PromptSection[] {
@@ -651,14 +651,14 @@ function renderToonPrompt(family: string, sections: PromptSection[]): string {
 }
 
 function renderPrompt(family: string, shape: unknown, markdown: () => string, structured: () => PromptSection[]): string {
-  const normalizedShape = normalizeCodexPromptShape(shape)
+  const normalizedShape = normalizeGatewayPromptShape(shape)
   if (normalizedShape === 'markdown') return markdown()
   const sections = structured()
   return normalizedShape === 'json' ? renderJsonPrompt(family, sections) : renderToonPrompt(family, sections)
 }
 
 function codexReasoningConfigArg(reasoningEffort: string): string {
-  return `model_reasoning_effort="${normalizeCodexReasoningEffort(reasoningEffort)}"`
+  return `model_reasoning_effort="${normalizeGatewayReasoningEffort(reasoningEffort)}"`
 }
 
 function projectDefaultAgentId(project: { metrics?: Record<string, unknown> | null }): string {
@@ -716,8 +716,8 @@ function projectSettingsSectionFromPlannerContext(context?: unknown): string {
   const settings = contextRecord.projectSettings && typeof contextRecord.projectSettings === 'object' && !Array.isArray(contextRecord.projectSettings)
     ? contextRecord.projectSettings as Record<string, unknown>
     : {}
-  const codex = settings.codex && typeof settings.codex === 'object' && !Array.isArray(settings.codex)
-    ? settings.codex as Record<string, unknown>
+  const codex = settings.gateway && typeof settings.gateway === 'object' && !Array.isArray(settings.gateway)
+    ? settings.gateway as Record<string, unknown>
     : {}
   const defaultSkills = Array.isArray(settings.defaultSkills)
     ? settings.defaultSkills.map((item) => {
@@ -727,13 +727,13 @@ function projectSettingsSectionFromPlannerContext(context?: unknown): string {
       }).filter(Boolean)
     : []
   const rows = [
-    settings.language ? `- Language: ${codexLanguageDisplayName(settings.language)}` : '',
+    settings.language ? `- Language: ${gatewayLanguageDisplayName(settings.language)}` : '',
     settings.defaultAgentId ? `- Default agent id: ${String(settings.defaultAgentId)}` : '',
     defaultSkills.length > 0 ? `- Default skills: ${defaultSkills.join(', ')}` : '',
     codex.gatewayId ? `- Gateway: ${String(codex.gatewayId)}` : '',
     codex.runtimeWorkspaceId ? `- Runtime workspace id: ${String(codex.runtimeWorkspaceId)}` : '',
-    codex.planModel ? `- Plan model: ${String(codex.planModel)} (${normalizeCodexReasoningEffort(codex.planReasoningEffort)} reasoning)` : '',
-    (codex.runModel || codex.defaultModel) ? `- Run model: ${String(codex.runModel ?? codex.defaultModel)} (${normalizeCodexReasoningEffort(codex.runReasoningEffort)} reasoning)` : ''
+    codex.planModel ? `- Plan model: ${String(codex.planModel)} (${normalizeGatewayReasoningEffort(codex.planReasoningEffort)} reasoning)` : '',
+    (codex.runModel || codex.defaultModel) ? `- Run model: ${String(codex.runModel ?? codex.defaultModel)} (${normalizeGatewayReasoningEffort(codex.runReasoningEffort)} reasoning)` : ''
   ].filter(Boolean)
   return rows.length > 0 ? `High-priority Project settings:\n${rows.join('\n')}` : ''
 }
@@ -761,7 +761,7 @@ function routedProjectContextForPrompt(context: unknown, audience: ProjectInstru
       ? { ...(task.payload as Record<string, unknown>) }
       : null
     if (task && payload && Array.isArray(payload.activityMessages)) {
-      payload.activityMessages = payload.activityMessages.filter((message) => inferCodexChatPhase(asRecord(message)) !== 'POST-RUNNING')
+      payload.activityMessages = payload.activityMessages.filter((message) => inferGatewayChatPhase(asRecord(message)) !== 'POST-RUNNING')
       task.payload = payload
       record.task = task
     }
@@ -788,7 +788,7 @@ function codexTrustedProjectConfig(path: string): string {
   return `projects.${JSON.stringify(path)}.trust_level="trusted"`
 }
 
-function codexCliConfig(value: unknown): { codexPath: string; executionMode: CodexExecutionMode } {
+function codexCliConfig(value: unknown): { codexPath: string; executionMode: GatewayExecutionMode } {
   const template = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
   return {
     codexPath: typeof template.codexPath === 'string' && template.codexPath.trim() ? template.codexPath.trim() : 'codex',
@@ -796,7 +796,7 @@ function codexCliConfig(value: unknown): { codexPath: string; executionMode: Cod
   }
 }
 
-async function codexLaunchConfig(value: unknown): Promise<{ codexPath: string; configuredCodexPath: string; executionMode: CodexExecutionMode; attemptedCodexPaths: string[]; codexEnvPath: string; codexEnv: NodeJS.ProcessEnv }> {
+async function codexLaunchConfig(value: unknown): Promise<{ codexPath: string; configuredCodexPath: string; executionMode: GatewayExecutionMode; attemptedCodexPaths: string[]; codexEnvPath: string; codexEnv: NodeJS.ProcessEnv }> {
   const config = codexCliConfig(value)
   const resolved = await resolveCodexExecutable(config.codexPath)
   return {
@@ -821,31 +821,31 @@ function taskActivityMessagesFromPayload(payload: unknown): TaskActivityMessage[
       && typeof candidate.createdAt === 'number'
   }).map((message) => ({
     ...message,
-    phase: inferCodexChatPhase(message)
+    phase: inferGatewayChatPhase(message)
   }))
 }
 
-function projectCodexRuntimeWorkspaceId(project: { metrics?: Record<string, unknown> }): string | null {
-  const codex = project.metrics?.codex
+function projectGatewayRuntimeWorkspaceId(project: { metrics?: Record<string, unknown> }): string | null {
+  const codex = project.metrics?.gateway
   if (!codex || typeof codex !== 'object' || Array.isArray(codex)) return null
   const runtimeWorkspaceId = (codex as Record<string, unknown>).runtimeWorkspaceId
   return typeof runtimeWorkspaceId === 'string' && runtimeWorkspaceId.trim() ? runtimeWorkspaceId.trim() : null
 }
 
-export function initialCodexPrompt(
+export function initialGatewayPrompt(
   exportWorkspacePath: string,
   runtimeWorkspacePath: string,
   projectId: string,
   taskId: string,
   omcInstructionsPath: string,
-  options: { language?: string; languages?: CodexLanguagePair; promptShape?: CodexPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null } = {}
+  options: { language?: string; languages?: GatewayLanguagePair; promptShape?: GatewayPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null } = {}
 ): string {
   const language = typeof options.languages === 'object' ? options.languages.outputLanguage : options.language
   const rows = [
     `Open Mission Control runtime workspace is ${runtimeWorkspacePath}.`,
     `The exported task files are in ${exportWorkspacePath}.`,
     `The Open Mission Control project id is ${projectId} and task id is ${taskId}.`,
-    codexLanguageInstruction(language),
+    gatewayLanguageInstruction(language),
     projectInstructionsSection(options.projectPrompt, { audience: 'run' }),
     effectiveAgentSection(options.effectiveAgent),
     `Before making changes, read the run-specific .omc CLI instructions at ${omcInstructionsPath} in the runtime workspace.`,
@@ -863,7 +863,7 @@ export function initialCodexPrompt(
     { name: 'runtime_workspace', value: runtimeWorkspacePath },
     { name: 'export_workspace', value: exportWorkspacePath },
     { name: 'ids', value: { projectId, taskId } },
-    { name: 'language_instruction', value: codexLanguageInstruction(language) },
+    { name: 'language_instruction', value: gatewayLanguageInstruction(language) },
     { name: 'project_instructions', value: projectInstructionsSection(options.projectPrompt, { audience: 'run' }) },
     { name: 'effective_agent', value: effectiveAgentSection(options.effectiveAgent) },
     { name: 'omc_cli_instructions_path', value: omcInstructionsPath },
@@ -921,7 +921,7 @@ export function initialPlannerPrompt(
   helperPath: string,
   contextPath: string,
   plannedTaskPath: string,
-  options: { language?: string; languages?: CodexLanguagePair; promptShape?: CodexPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null; clarificationMode?: PlannerClarificationMode } = {}
+  options: { language?: string; languages?: GatewayLanguagePair; promptShape?: GatewayPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null; clarificationMode?: PlannerClarificationMode } = {}
 ): string {
   const questionsPath = plannedTaskPath.replace(/planned-task\.json$/i, 'questions.json')
   const language = typeof options.languages === 'object' ? options.languages.outputLanguage : options.language
@@ -964,7 +964,7 @@ export function initialPlannerPrompt(
     'Do not use MCP for this flow. Use the local helper CLI in this workspace.',
     `First run: node ${helperPath} context > ${contextPath}`,
     `The project id is ${projectId} and the source task id is ${taskId}.`,
-    codexLanguageInstruction(language),
+    gatewayLanguageInstruction(language),
     projectInstructionsSection(options.projectPrompt, { audience: 'plan' }),
     effectiveAgentSection(options.effectiveAgent),
     'Plan the current task from its task-detail data: title, description, custom fields, checklist, comments, tags, and subtasks.',
@@ -977,7 +977,7 @@ export function initialPlannerPrompt(
     { name: 'mcp_policy', value: rows[1] },
     { name: 'first_command', value: `node ${helperPath} context > ${contextPath}` },
     { name: 'ids', value: { projectId, taskId } },
-    { name: 'language_instruction', value: codexLanguageInstruction(language) },
+    { name: 'language_instruction', value: gatewayLanguageInstruction(language) },
     { name: 'project_instructions', value: projectInstructionsSection(options.projectPrompt, { audience: 'plan' }) },
     { name: 'effective_agent', value: effectiveAgentSection(options.effectiveAgent) },
     { name: 'task_context_policy', value: rows.slice(7, 9) },
@@ -992,8 +992,8 @@ function plannerClarificationPrompt(input: {
   clarificationMessage?: string
   transcript: TaskActivityMessage[]
   language?: string
-  languages?: CodexLanguagePair
-  promptShape?: CodexPromptShape
+  languages?: GatewayLanguagePair
+  promptShape?: GatewayPromptShape
 }): string {
   if (!input.clarificationMessage?.trim() && input.transcript.length === 0) return ''
   const transcriptRows = input.transcript
@@ -1004,7 +1004,7 @@ function plannerClarificationPrompt(input: {
     .join('\n\n')
   const rows = [
     `This planning run continues plan conversation ${input.conversationId}.`,
-    codexLanguageInstruction(input.language ?? input.languages),
+    gatewayLanguageInstruction(input.language ?? input.languages),
     input.clarificationMessage?.trim()
       ? `User clarification answer:\n${input.clarificationMessage.trim()}`
       : '',
@@ -1013,7 +1013,7 @@ function plannerClarificationPrompt(input: {
   ]
   return renderPrompt('plan_continuation', input.promptShape, () => rows.filter(Boolean).join('\n\n'), () => [
     { name: 'conversation_id', value: input.conversationId },
-    { name: 'language_instruction', value: codexLanguageInstruction(input.language ?? input.languages) },
+    { name: 'language_instruction', value: gatewayLanguageInstruction(input.language ?? input.languages) },
     { name: 'user_clarification_answer', value: input.clarificationMessage?.trim() ?? '' },
     { name: 'recent_plan_conversation_transcript', value: transcriptRows },
     { name: 'continuation_policy', value: 'Use the user clarification as the highest-priority answer to the planner questions, then re-run context and continue planning.' }
@@ -1160,7 +1160,7 @@ function compactFollowUpTaskMetadata(task: TaskEntity, context: unknown): Record
   }
 }
 
-export function codexChatPrompt(input: {
+export function gatewayChatPrompt(input: {
   task: TaskEntity
   message: string
   transcript: TaskActivityMessage[]
@@ -1169,8 +1169,8 @@ export function codexChatPrompt(input: {
   followUpContext?: string
   attachments?: Array<{ name: string; path: string }>
   language?: string
-  languages?: CodexLanguagePair
-  promptShape?: CodexPromptShape
+  languages?: GatewayLanguagePair
+  promptShape?: GatewayPromptShape
 }): string {
   const hasFollowUpContext = Boolean(input.followUpContext?.trim())
   const transcriptRows = input.transcript
@@ -1213,7 +1213,7 @@ export function codexChatPrompt(input: {
   const rows = [
     'You are continuing an Open Mission Control task chat.',
     modeInstruction,
-    codexLanguageInstruction(language),
+    gatewayLanguageInstruction(language),
     projectSettingsSectionFromPlannerContext(input.context),
     `${userPromptLabel}:\n${input.message}`,
     followUpContext,
@@ -1232,7 +1232,7 @@ export function codexChatPrompt(input: {
   return renderPrompt('chat', input.promptShape, () => rows.filter(Boolean).join('\n\n'), () => [
     { name: 'role', value: rows[0] },
     { name: 'mode_instruction', value: modeInstruction },
-    { name: 'language_instruction', value: codexLanguageInstruction(language) },
+    { name: 'language_instruction', value: gatewayLanguageInstruction(language) },
     { name: 'project_settings', value: projectSettingsSectionFromPlannerContext(input.context) },
     { name: userPromptLabel.replace(/\s+/g, '_').toLowerCase(), value: input.message },
     { name: 'latest_run_output_context', value: input.followUpContext?.trim() || '' },
@@ -1262,15 +1262,15 @@ type CodexActivityStreamContext = {
   eventsPath: string
 }
 
-type CodexActivityDraft = Omit<TaskActivityMessage, 'id' | 'createdAt'> & { id?: string; createdAt?: number }
-type CodexActivityAppender = (messages: CodexActivityDraft[]) => Promise<TaskActivityMessage[]>
+type GatewayActivityDraft = Omit<TaskActivityMessage, 'id' | 'createdAt'> & { id?: string; createdAt?: number }
+type CodexActivityAppender = (messages: GatewayActivityDraft[]) => Promise<TaskActivityMessage[]>
 
 type CodexActivityStreamer = {
   writeStdout: (chunk: string) => void
   writeStderr: (chunk: string) => void
   flush: () => Promise<void>
   hasAssistantMessage: () => boolean
-  latestUsage: () => CodexUsageSummary | undefined
+  latestUsage: () => GatewayUsageSummary | undefined
 }
 
 const ACTIVITY_MESSAGE_LIMIT = 300
@@ -1310,7 +1310,7 @@ function compactActivityMessage(
   }
 }
 
-function codexCommandBody(event: Extract<CodexNormalizedEvent, { kind: 'command' }>): { body: string; truncated: boolean } {
+function codexCommandBody(event: Extract<GatewayNormalizedEvent, { kind: 'command' }>): { body: string; truncated: boolean } {
   const parts = [
     `Command: ${event.command}`,
     `Status: ${event.status}${event.exitCode === undefined ? '' : ` (exit ${event.exitCode})`}`
@@ -1323,7 +1323,7 @@ function codexCommandBody(event: Extract<CodexNormalizedEvent, { kind: 'command'
   return { body: parts.join('\n'), truncated: false }
 }
 
-function codexEventStatus(event: CodexNormalizedEvent): TaskActivityMessage['status'] {
+function codexEventStatus(event: GatewayNormalizedEvent): TaskActivityMessage['status'] {
   if (event.kind === 'command') {
     if (event.exitCode !== undefined && event.exitCode !== 0) return 'failed'
     return event.status === 'failed' ? 'failed' : event.status === 'running' ? 'running' : 'completed'
@@ -1336,8 +1336,8 @@ function createCodexActivityStreamer(context: CodexActivityStreamContext, append
   let stderrBuffer = ''
   let queue = Promise.resolve()
   let assistantSeen = false
-  let usage: CodexUsageSummary | undefined
-  let pendingMessages: CodexActivityDraft[] = []
+  let usage: GatewayUsageSummary | undefined
+  let pendingMessages: GatewayActivityDraft[] = []
   let pendingRawLogs: string[] = []
   let flushTimer: NodeJS.Timeout | undefined
 
@@ -1358,7 +1358,7 @@ function createCodexActivityStreamer(context: CodexActivityStreamContext, append
         role: 'tool',
         status: 'completed',
         body: truncated.text,
-        metadata: { codexBlock: 'log', runStatus: 'running', eventsPath: context.eventsPath, truncated: truncated.truncated || joined.length > truncated.text.length, logLines: rawLogs.length }
+        metadata: { gatewayBlock: 'log', runStatus: 'running', eventsPath: context.eventsPath, truncated: truncated.truncated || joined.length > truncated.text.length, logLines: rawLogs.length }
       })
     }
     const messages = pendingMessages.splice(0, drainAll ? pendingMessages.length : CODEX_STREAM_BATCH_LIMIT)
@@ -1381,7 +1381,7 @@ function createCodexActivityStreamer(context: CodexActivityStreamContext, append
     flushTimer.unref?.()
   }
 
-  const pushMessage = (message: CodexActivityDraft) => {
+  const pushMessage = (message: GatewayActivityDraft) => {
     pendingMessages.push(message)
     if (pendingMessages.length >= CODEX_STREAM_BATCH_LIMIT) {
       enqueueFlush()
@@ -1390,7 +1390,7 @@ function createCodexActivityStreamer(context: CodexActivityStreamContext, append
     scheduleFlush()
   }
 
-  const appendEvent = (event: CodexNormalizedEvent) => {
+  const appendEvent = (event: GatewayNormalizedEvent) => {
     if (event.kind === 'status') {
       usage = event.usage ?? usage
       return
@@ -1408,7 +1408,7 @@ function createCodexActivityStreamer(context: CodexActivityStreamContext, append
         status: codexEventStatus(event),
         body: formatted.body,
         metadata: {
-          codexBlock: 'command',
+          gatewayBlock: 'command',
           runStatus: 'running',
           command: event.command,
           commandStatus: event.status,
@@ -1432,7 +1432,7 @@ function createCodexActivityStreamer(context: CodexActivityStreamContext, append
         status: 'completed',
         body,
         metadata: {
-          codexBlock: event.role === 'thinking' ? 'thinking' : event.role === 'assistant' ? 'assistant' : 'message',
+          gatewayBlock: event.role === 'thinking' ? 'thinking' : event.role === 'assistant' ? 'assistant' : 'message',
           runStatus: 'running',
           eventsPath: context.eventsPath,
           thinkingDurationMs: event.durationMs,
@@ -1453,7 +1453,7 @@ function createCodexActivityStreamer(context: CodexActivityStreamContext, append
       status: event.kind === 'malformed' ? 'failed' : 'completed',
       body: body.text,
       metadata: {
-        codexBlock: event.kind === 'raw' ? 'log' : event.kind,
+        gatewayBlock: event.kind === 'raw' ? 'log' : event.kind,
         runStatus: 'running',
         eventsPath: context.eventsPath,
         truncated: body.truncated
@@ -1464,7 +1464,7 @@ function createCodexActivityStreamer(context: CodexActivityStreamContext, append
   const processLine = (line: string) => {
     const trimmed = line.trim()
     if (!trimmed) return
-    const parsed = parseCodexEvents(trimmed)
+    const parsed = parseGatewayEvents(trimmed)
     for (const event of parsed.events) appendEvent(event)
   }
 
@@ -1676,7 +1676,7 @@ async function untrackedWorkspaceFileStats(runtimeWorkspacePath: string, value: 
   }
 }
 
-export async function codexWorkspaceChanges(runtimeWorkspacePath: string, changesPath?: string): Promise<{
+export async function gatewayWorkspaceChanges(runtimeWorkspacePath: string, changesPath?: string): Promise<{
   body: string
   truncated: boolean
   unavailable?: boolean
@@ -1915,7 +1915,7 @@ function parseCodexOutputChangedFiles(rawEvents: string, finalMessage: string): 
   return [...changes.values()].sort((a, b) => a.path.localeCompare(b.path))
 }
 
-export function codexOutputChanges(rawEvents: string, finalMessage: string): {
+export function gatewayOutputChanges(rawEvents: string, finalMessage: string): {
   hasChanges: boolean
   body: string
   truncated: boolean
@@ -1974,7 +1974,7 @@ export function codexOutputChanges(rawEvents: string, finalMessage: string): {
   }
 }
 
-export function shouldStartPostRunPrompt(code: number | null, executionMode: CodexExecutionMode, postRunPrompt?: string): boolean {
+export function shouldStartPostRunPrompt(code: number | null, executionMode: GatewayExecutionMode, postRunPrompt?: string): boolean {
   return executionMode === 'exec' && code === 0 && Boolean(postRunPrompt?.trim())
 }
 
@@ -2057,7 +2057,7 @@ function linesMatching(lines: string[], patterns: RegExp[], limit: number, fallb
   return uniqueCompactItems(lines.filter((line) => patterns.some((pattern) => pattern.test(line))), limit, fallback)
 }
 
-function changedAreasFromCodexChanges(changes: ReturnType<typeof codexOutputChanges>): string[] {
+function changedAreasFromCodexChanges(changes: ReturnType<typeof gatewayOutputChanges>): string[] {
   const metadata = changes.metadata ?? {}
   const fileStats = Array.isArray(metadata.changeFileStats) ? metadata.changeFileStats : []
   const paths = fileStats.flatMap((item) => {
@@ -2072,7 +2072,7 @@ function changedAreasFromCodexChanges(changes: ReturnType<typeof codexOutputChan
 function nextChatHandoffSummary(input: {
   task: Pick<TaskEntity, 'id' | 'title' | 'status' | 'description'>
   finalMessage: string
-  changes: ReturnType<typeof codexOutputChanges>
+  changes: ReturnType<typeof gatewayOutputChanges>
   code?: number | null
 }): NextChatHandoffSummary {
   const lines = handoffLinesFromFinalMessage(input.finalMessage)
@@ -2147,17 +2147,17 @@ function renderToonHandoff(summary: NextChatHandoffSummary): string {
 }
 
 function renderNextChatHandoff(summary: NextChatHandoffSummary, shape: unknown): string {
-  const normalizedShape = normalizeCodexPromptShape(shape)
+  const normalizedShape = normalizeGatewayPromptShape(shape)
   if (normalizedShape === 'json') return `${NEXT_CHAT_HANDOFF_MARKER}_JSON\n${JSON.stringify(summary)}`
   if (normalizedShape === 'toon') return renderToonHandoff(summary)
   return renderMarkdownHandoff(summary)
 }
 
-export function appendCodexNextChatHandoff(input: {
+export function appendGatewayNextChatHandoff(input: {
   task: Pick<TaskEntity, 'id' | 'title' | 'status' | 'description'>
   finalMessage: string
-  changes: ReturnType<typeof codexOutputChanges>
-  promptShape?: CodexPromptShape
+  changes: ReturnType<typeof gatewayOutputChanges>
+  promptShape?: GatewayPromptShape
   code?: number | null
 }): string {
   const base = stripExistingNextChatHandoff(input.finalMessage)
@@ -2204,15 +2204,15 @@ function extractCodexSessionId(rawEvents: string): string | undefined {
 
 export function postRunContinuationPrompt(input: {
   language?: string
-  promptShape?: CodexPromptShape
+  promptShape?: GatewayPromptShape
   projectPrompt: ProjectPromptSnapshot
   effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null
   primaryFinalMessage: string
-  primaryChanges: ReturnType<typeof codexOutputChanges>
+  primaryChanges: ReturnType<typeof gatewayOutputChanges>
 }): string {
   const rows = [
     'You are continuing an Open Mission Control Codex Run after the primary exec process completed successfully.',
-    codexLanguageInstruction(input.language),
+    gatewayLanguageInstruction(input.language),
     projectInstructionsSection(input.projectPrompt, { audience: 'run' }),
     effectiveAgentSection(input.effectiveAgent),
     'Do not restart the original task. Continue from the current workspace state and apply only the Post-run prompt.',
@@ -2223,7 +2223,7 @@ export function postRunContinuationPrompt(input: {
   ]
   return renderPrompt('post_run', input.promptShape, () => rows.filter(Boolean).join('\n\n'), () => [
     { name: 'role', value: rows[0] },
-    { name: 'language_instruction', value: codexLanguageInstruction(input.language) },
+    { name: 'language_instruction', value: gatewayLanguageInstruction(input.language) },
     { name: 'project_instructions', value: projectInstructionsSection(input.projectPrompt, { audience: 'run' }) },
     { name: 'effective_agent', value: effectiveAgentSection(input.effectiveAgent) },
     { name: 'continuation_policy', value: 'Do not restart the original task. Continue from the current workspace state and apply only the Post-run prompt.' },
@@ -2242,9 +2242,9 @@ function summarizeCodexExecEvents(
   thinkingSegments: CodexThinkingSegment[]
   tools: string
   rawTail: string
-  usage?: CodexUsageSummary
+  usage?: GatewayUsageSummary
 } {
-  const parsed = parseCodexEvents(raw)
+  const parsed = parseGatewayEvents(raw)
   const commandRows = parsed.commands.slice(-12).map((event) => {
     const output = event.output?.trim()
       ? `\n${event.output.trim().split(/\r?\n/).slice(-8).join('\n')}`
@@ -2539,7 +2539,7 @@ export function omcCliInstructions(context: {
   taskId: string
   runId: string
   language?: string
-  languages?: CodexLanguagePair
+  languages?: GatewayLanguagePair
   clarificationMode?: PlannerClarificationMode
   helperRelativePath: string
   contextRelativePath: string
@@ -2574,7 +2574,7 @@ export function omcCliInstructions(context: {
     `- Mode: ${context.mode}`,
     `- Project id: ${context.projectId}`,
     `- Task id: ${context.taskId}`,
-    `- Codex language: ${codexLanguageDisplayName(language)}`,
+    `- Codex language: ${gatewayLanguageDisplayName(language)}`,
     `- Runtime workspace: ${context.runtimeWorkspacePath}`,
     `- Run folder: .omc/runs/${context.runId}`,
     ...(context.exportWorkspacePath ? [`- Export workspace: ${context.exportWorkspacePath}`] : []),
@@ -2591,7 +2591,7 @@ export function omcCliInstructions(context: {
     '',
     '## Rules',
     '',
-    `- ${codexLanguageInstruction(language)}`,
+    `- ${gatewayLanguageInstruction(language)}`,
     '- Run context before planning or when you need project/task metadata.',
     '- Run validate before create or update.',
     ...plannerModeRules,
@@ -2691,8 +2691,8 @@ export async function writeTaskSnapshotToExportWorkspace(
 }
 
 export class TaskService {
-  private readonly codexTerminalRuns = new Map<string, CodexTerminalRun>()
-  private readonly activeCodexChatRuns = new Map<string, ActiveCodexChatRun>()
+  private readonly codexTerminalRuns = new Map<string, GatewayTerminalRun>()
+  private readonly activeGatewayChatRuns = new Map<string, ActiveGatewayChatRun>()
   private readonly pausedPlannerRunIds = new Set<string>()
 
   constructor(
@@ -2722,11 +2722,11 @@ export class TaskService {
     this.eventBus?.emit(IPC_CHANNELS.events.taskUpdated, { projectId, taskId, action, updatedAt: Date.now() })
   }
 
-  private async setTaskCodexPlanState(taskId: string, codexPlanState: Record<string, unknown>): Promise<void> {
+  private async setTaskGatewayPlanState(taskId: string, gatewayPlanState: Record<string, unknown>): Promise<void> {
     const task = await this.repo.get(taskId)
     if (!task) return
     const payload = asPayload(task.payload)
-    await this.repo.update(task.id, { payload: { ...payload, codexPlanState } })
+    await this.repo.update(task.id, { payload: { ...payload, gatewayPlanState } })
     this.emitTaskUpdated(task.projectId, task.id, 'codex_plan_state')
   }
 
@@ -2787,7 +2787,7 @@ export class TaskService {
     const access = await this.ensureTaskAccess(context.actorToken, context.taskId)
     if (!access.ok || !access.data) return
     const kind = exitCode === null ? 'completed' : exitCode === 0 ? 'completed' : exitCode === 130 || exitCode === 143 ? 'stopped' : 'failed'
-    showCodexNotification({
+    showGatewayNotification({
       kind,
       mode: context.mode === 'execute' ? 'run' : 'plan',
       taskTitle: access.data.task.title,
@@ -2809,7 +2809,7 @@ export class TaskService {
     const runId = context.runId ?? plannerRunId(context.taskId)
     const conversationId = context.conversationId?.trim() || runId
     if (context.runId) this.pausedPlannerRunIds.add(context.runId)
-    await this.setTaskCodexPlanState(context.taskId, {
+    await this.setTaskGatewayPlanState(context.taskId, {
       state: 'needs-clarification',
       askedAt: Date.now(),
       conversationId,
@@ -2820,12 +2820,12 @@ export class TaskService {
       {
         runId,
         conversationId,
-        source: 'codex-plan',
+        source: 'gateway-plan',
         role: 'assistant',
         status: 'completed',
         body: plannerQuestionBody(payload),
         metadata: {
-          codexBlock: 'planner-question',
+          gatewayBlock: 'planner-question',
           summary: payload.summary,
           questions: payload.questions,
           projectId: access.data.task.projectId,
@@ -2841,14 +2841,14 @@ export class TaskService {
       {
         runId,
         conversationId,
-        source: 'codex-plan',
+        source: 'gateway-plan',
         role: 'system',
         status: 'completed',
         body: 'Planner paused for clarification.',
-        metadata: { codexBlock: 'run-complete', plannerPaused: true, questionCount: payload.questions.length }
+        metadata: { gatewayBlock: 'run-complete', plannerPaused: true, questionCount: payload.questions.length }
       }
     ], { emitTaskUpdatedAction: 'activity_complete' })
-    showCodexNotification({
+    showGatewayNotification({
       kind: 'question',
       mode: 'plan',
       taskTitle: access.data.task.title,
@@ -2864,7 +2864,7 @@ export class TaskService {
 
   private async appendTaskActivityMessages(
     taskId: string,
-    messages: CodexActivityDraft[],
+    messages: GatewayActivityDraft[],
     options: { emitTaskUpdatedAction?: string } = {}
   ): Promise<TaskActivityMessage[]> {
     if (messages.length === 0) return []
@@ -2878,7 +2878,7 @@ export class TaskService {
         runId: compactMessage.runId,
         conversationId: compactMessage.conversationId,
         source: compactMessage.source,
-        phase: inferCodexChatPhase(compactMessage),
+        phase: inferGatewayChatPhase(compactMessage),
         role: compactMessage.role,
         status: compactMessage.status,
         body: compactMessage.body,
@@ -2904,7 +2904,7 @@ export class TaskService {
 
   private async appendTaskActivityMessage(
     taskId: string,
-    message: CodexActivityDraft,
+    message: GatewayActivityDraft,
     options: { emitTaskUpdatedAction?: string } = {}
   ): Promise<TaskActivityMessage | null> {
     const [nextMessage] = await this.appendTaskActivityMessages(taskId, [message], options)
@@ -2964,7 +2964,7 @@ export class TaskService {
     return statuses.find((item) => item.category === 'active') ?? done ?? statuses[0]
   }
 
-  private async signalCodexTerminalRun(taskId: string): Promise<void> {
+  private async signalGatewayTerminalRun(taskId: string): Promise<void> {
     const run = this.codexTerminalRuns.get(taskId)
     if (!run) return
     this.codexTerminalRuns.delete(taskId)
@@ -3014,24 +3014,24 @@ export class TaskService {
     return okResponse(await this.enrichTasks(rows))
   }
 
-  async listPlannedCodex(payload: ListPlannedCodexTasksRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<PaginatedResponse<PlannedCodexTaskRow>>> {
+  async listPlannedGateway(payload: ListPlannedGatewayTasksRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<PaginatedResponse<PlannedGatewayTaskRow>>> {
     const actor = await this.auth.requireActor(payload?.actorToken)
     const page = Math.max(1, Math.floor(Number(payload?.page ?? 1)))
     const pageSize = Math.max(1, Math.min(50, Math.floor(Number(payload?.pageSize ?? 12))))
-    const { rows, total } = await this.repo.listPlannedCodex(actor.user.organizationId, page, pageSize)
-    const plannedRows: PlannedCodexTaskRow[] = rows.map(({ task, project }) => {
-      const taskCodex = taskCodexMetrics(task)
-      const projectCodex = projectCodexMetrics(project.metrics)
-      const gatewayId = stringOrEmpty(taskCodex.gatewayId) || stringOrEmpty(projectCodex.gatewayId)
-      const runModel = stringOrEmpty(taskCodex.runModel)
-        || stringOrEmpty(taskCodex.model)
-        || stringOrEmpty(projectCodex.runModel)
-        || stringOrEmpty(projectCodex.defaultModel)
-      const language = stringOrEmpty(projectCodex.language)
-        || stringOrEmpty(projectCodex.outputLanguage)
-        || stringOrEmpty(projectCodex.inputLanguage)
-      const runReasoningEffort = stringOrEmpty(projectCodex.runReasoningEffort)
-      const missing: PlannedCodexTaskRow['missing'] = []
+    const { rows, total } = await this.repo.listPlannedGateway(actor.user.organizationId, page, pageSize)
+    const plannedRows: PlannedGatewayTaskRow[] = rows.map(({ task, project }) => {
+      const taskGateway = taskGatewayMetrics(task)
+      const projectGateway = projectGatewayMetrics(project.metrics)
+      const gatewayId = stringOrEmpty(taskGateway.gatewayId) || stringOrEmpty(projectGateway.gatewayId)
+      const runModel = stringOrEmpty(taskGateway.runModel)
+        || stringOrEmpty(taskGateway.model)
+        || stringOrEmpty(projectGateway.runModel)
+        || stringOrEmpty(projectGateway.defaultModel)
+      const language = stringOrEmpty(projectGateway.language)
+        || stringOrEmpty(projectGateway.outputLanguage)
+        || stringOrEmpty(projectGateway.inputLanguage)
+      const runReasoningEffort = stringOrEmpty(projectGateway.runReasoningEffort)
+      const missing: PlannedGatewayTaskRow['missing'] = []
       if (!gatewayId) missing.push('gateway')
       if (!runModel) missing.push('runModel')
       return {
@@ -3041,7 +3041,7 @@ export class TaskService {
         taskStatus: task.status,
         projectName: project.name,
         projectDescription: project.description,
-        codexPlanConversationId: taskCodexPlanConversationId(task),
+        gatewayPlanConversationId: taskGatewayPlanConversationId(task),
         gatewayId: gatewayId || undefined,
         runModel: runModel || undefined,
         language: language || undefined,
@@ -3059,18 +3059,18 @@ export class TaskService {
     })
   }
 
-  async listRunningCodex(payload: ListRunningCodexTasksRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<RunningCodexTasksResponse>> {
+  async listRunningGateway(payload: ListRunningGatewayTasksRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<RunningGatewayTasksResponse>> {
     const actor = await this.auth.requireActor(payload?.actorToken)
     const page = Math.max(1, Math.floor(Number(payload?.page ?? 1)))
     const pageSize = Math.max(1, Math.min(50, Math.floor(Number(payload?.pageSize ?? 12))))
-    const group = normalizeRunningCodexGroup(payload?.group)
-    const candidates = await this.repo.listRunningCodex(actor.user.organizationId)
+    const group = normalizeRunningGatewayGroup(payload?.group)
+    const candidates = await this.repo.listRunningGateway(actor.user.organizationId)
     const runningRows = candidates.flatMap(({ task, project }) => summarizeRunningConversation(
       task,
       project,
       taskActivityMessagesFromPayload(task.payload)
     )).map(({ latestActivityBody, ...row }) => row)
-    const counts = countRunningCodexGroups(runningRows)
+    const counts = countRunningGatewayGroups(runningRows)
     const filteredRows = group === 'all'
       ? runningRows
       : runningRows.filter((row) => runningConversationGroupOf(row.conversationType) === group)
@@ -3232,7 +3232,7 @@ export class TaskService {
     const taskAgent = task.agentId ? await this.agents.get(task.agentId) : undefined
     const effectiveTaskAgent = taskAgent?.organizationId === access.data.actorOrgId ? taskAgent : undefined
     const taskForContext = !task.agentId && effectiveDefaultAgent ? { ...task, agentId: effectiveDefaultAgent.id } : task
-    const language = await resolveCodexLanguageSetting(this.appSettings, access.data.actorOrgId, project)
+    const language = await resolveGatewayLanguageSetting(this.appSettings, access.data.actorOrgId, project)
     const projectPrompt = projectPromptSnapshot(project)
     const [tags, skills, customFields, statuses] = await Promise.all([
       this.tags.list(access.data.actorOrgId),
@@ -3270,12 +3270,12 @@ export class TaskService {
         name: effectiveDefaultAgent.name,
         inherited: true
       } : null,
-      codexLanguage: language,
+      gatewayLanguage: language,
       projectSettings: {
         language,
         defaultAgentId: projectDefaultAgentId(project) || null,
         defaultSkills: skills.filter((skill) => inheritedSkillIds.has(skill.id)).map((skill) => ({ id: skill.id, name: skill.name })),
-        codex: project.metrics?.codex ?? {}
+        gateway: project.metrics?.gateway ?? {}
       },
       effectiveSkills: effectiveSkills.map((skill) => ({ id: skill.id, name: skill.name, slug: skill.slug })),
       currentTaskJson: taskPlannerJson(taskForContextWithSkills, customFields),
@@ -3348,7 +3348,7 @@ export class TaskService {
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Task not found')
     await this.subtaskRepo.updateStatusesByTask(access.data.task.id, target.id)
     this.emitTaskUpdated(access.data.task.projectId, access.data.task.id, 'ready_for_review')
-    await this.signalCodexTerminalRun(access.data.task.id)
+    await this.signalGatewayTerminalRun(access.data.task.id)
     return okResponse({ taskId: access.data.task.id, statusId: target.id, statusName: target.name })
   }
 
@@ -3403,7 +3403,7 @@ export class TaskService {
     return okResponse({ exportFolderPath, writtenFiles, skippedFiles })
   }
 
-  async runCodex(payload: RunTaskCodexRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ runFolderPath: string; workspacePath: string; exportWorkspacePath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; command: string; executionMode?: CodexExecutionMode; runId?: string; pid?: number; eventsPath?: string; finalMessagePath?: string }>> {
+  async runGateway(payload: RunTaskGatewayRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ runFolderPath: string; workspacePath: string; exportWorkspacePath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; command: string; executionMode?: GatewayExecutionMode; runId?: string; pid?: number; eventsPath?: string; finalMessagePath?: string }>> {
     if (!payload?.taskId || !payload.projectId) return errorResponse(ErrorCodes.Validation, 'Task and project id are required')
     if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex gateway is required')
     if (!payload.model?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex model is required')
@@ -3417,23 +3417,23 @@ export class TaskService {
     if (!zipBuffer?.length && !hasSnapshotPayload) return errorResponse(ErrorCodes.Validation, 'Task snapshot or ZIP bytes are required')
 
     const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
-    if (!access.ok || !access.data) return access as ServiceResponse<{ runFolderPath: string; workspacePath: string; exportWorkspacePath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; command: string; executionMode?: CodexExecutionMode; runId?: string; pid?: number; eventsPath?: string; finalMessagePath?: string }>
+    if (!access.ok || !access.data) return access as ServiceResponse<{ runFolderPath: string; workspacePath: string; exportWorkspacePath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; command: string; executionMode?: GatewayExecutionMode; runId?: string; pid?: number; eventsPath?: string; finalMessagePath?: string }>
     const project = await this.projects.get(payload.projectId)
     if (!project || project.id !== access.data.task.projectId) return errorResponse(ErrorCodes.NotFound, 'Project not found')
     if (project.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
     const gateway = await this.gateways.get(payload.gatewayId)
     if (!gateway || gateway.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Codex gateway is invalid')
-    const runtimeWorkspaceId = projectCodexRuntimeWorkspaceId(project)
+    const runtimeWorkspaceId = projectGatewayRuntimeWorkspaceId(project)
     if (!runtimeWorkspaceId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is required')
     const runtimeWorkspace = await this.workspaces.get(runtimeWorkspaceId)
     if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
     const projectPrompt = projectPromptSnapshot(project)
-    const language = await resolveCodexLanguageSetting(this.appSettings, access.data.actorOrgId, project, payload)
-    const promptShape = projectCodexPromptShape(project)
-    const reasoningEffort = projectCodexReasoningEffort(project, 'run', payload.reasoningEffort)
+    const language = await resolveGatewayLanguageSetting(this.appSettings, access.data.actorOrgId, project, payload)
+    const promptShape = projectGatewayPromptShape(project)
+    const reasoningEffort = projectGatewayReasoningEffort(project, 'run', payload.reasoningEffort)
     const effectiveAgent = await this.effectiveAgentForTask(access.data.task, access.data.actorOrgId, project)
 
-    const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-codex-run-'))
+    const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-gateway-run-'))
     let bridge: { url: string; close: () => Promise<void> } | null = null
     let workspaceRunPathForCleanup: string | null = null
     let preserveRunFolderOnError = false
@@ -3478,7 +3478,7 @@ export class TaskService {
       const contextRelativePath = plannerRunRelativePath(runId, 'context.json')
       const plannedTaskRelativePath = plannerRunRelativePath(runId, 'planned-task.json')
       const instructionsRelativePath = plannerRunRelativePath(runId, 'OMC_CLI.md')
-      const prompt = initialCodexPrompt(exportWorkspacePath, runtimeWorkspacePath, project.id, access.data.task.id, instructionsRelativePath, {
+      const prompt = initialGatewayPrompt(exportWorkspacePath, runtimeWorkspacePath, project.id, access.data.task.id, instructionsRelativePath, {
         language,
         promptShape,
         projectPrompt,
@@ -3548,7 +3548,7 @@ export class TaskService {
         '-c', shellQuote(codexTrustedProjectConfig(exportWorkspacePath)),
         shellQuote(prompt)
       ].join(' ')
-      const execEventsPath = join(runFolderPath, 'codex-events.jsonl')
+      const execEventsPath = join(runFolderPath, 'gateway-events.jsonl')
       const execFinalMessagePath = join(runFolderPath, 'final-message.md')
       const execArgs = [
         'exec',
@@ -3642,7 +3642,7 @@ export class TaskService {
         await this.appendTaskActivityMessages(taskId, [
           {
             runId,
-            source: 'codex-run',
+            source: 'gateway-run',
             role: 'system',
             status: 'running',
             body: `Started Codex exec run with ${model}.`,
@@ -3650,7 +3650,7 @@ export class TaskService {
           },
           {
             runId,
-            source: 'codex-run',
+            source: 'gateway-run',
             role: 'user',
             status: 'running',
             body: prompt,
@@ -3658,7 +3658,7 @@ export class TaskService {
           },
           {
             runId,
-            source: 'codex-run',
+            source: 'gateway-run',
             role: 'thinking',
             status: 'running',
             body: 'Codex is working through the task...',
@@ -3675,7 +3675,7 @@ export class TaskService {
         const streamer = createCodexActivityStreamer({
           taskId,
           runId,
-          source: 'codex-run',
+          source: 'gateway-run',
           eventsPath: execEventsPath
         }, (messages) => this.appendTaskActivityMessages(taskId, messages))
         child.stdout.setEncoding('utf8')
@@ -3686,7 +3686,7 @@ export class TaskService {
         const notifyRunCompletion = (kind: 'completed' | 'failed' | 'stopped', exitCode?: number | null) => {
           if (runNotificationSent) return
           runNotificationSent = true
-          showCodexNotification({
+          showGatewayNotification({
             kind,
             mode: 'run',
             taskTitle: access.data.task.title,
@@ -3700,7 +3700,7 @@ export class TaskService {
         const runPostRunPrompt = async (
           primaryEventRaw: string,
           primaryFinalMessage: string,
-          primaryChanges: ReturnType<typeof codexOutputChanges>
+          primaryChanges: ReturnType<typeof gatewayOutputChanges>
         ): Promise<number | null> => {
           const postRunId = plannerRunId(`${taskId}-post-run`)
           const postConversationId = postRunId
@@ -3745,29 +3745,29 @@ export class TaskService {
             {
               runId: postRunId,
               conversationId: postConversationId,
-              source: 'codex-run',
+              source: 'gateway-run',
               phase: 'POST-RUNNING',
               role: 'system',
               status: 'running',
               body: 'Starting Codex post-run prompt.',
-              metadata: { codexBlock: 'post-run-start', parentRunId: runId, sessionId, command: postCommand, model, language, reasoningEffort }
+              metadata: { gatewayBlock: 'post-run-start', parentRunId: runId, sessionId, command: postCommand, model, language, reasoningEffort }
             },
             {
               runId: postRunId,
               conversationId: postConversationId,
-              source: 'codex-run',
+              source: 'gateway-run',
               phase: 'POST-RUNNING',
               role: 'user',
               status: 'completed',
               body: projectPrompt.postRunPrompt.trim(),
-              metadata: { codexBlock: 'post-run-prompt', parentRunId: runId, command: postCommand }
+              metadata: { gatewayBlock: 'post-run-prompt', parentRunId: runId, command: postCommand }
             }
           ])
           const postStreamer = createCodexActivityStreamer({
             taskId,
             runId: postRunId,
             conversationId: postConversationId,
-            source: 'codex-run',
+            source: 'gateway-run',
             eventsPath: postEventsPath
           }, (messages) => this.appendTaskActivityMessages(taskId, messages))
           return await new Promise<number | null>((resolvePostRun) => {
@@ -3790,12 +3790,12 @@ export class TaskService {
               void this.appendTaskActivityMessage(taskId, {
                 runId: postRunId,
                 conversationId: postConversationId,
-                source: 'codex-run',
+                source: 'gateway-run',
                 phase: 'POST-RUNNING',
                 role: 'error',
                 status: 'failed',
                 body: error.message,
-                metadata: { codexBlock: 'run-complete', parentRunId: runId, command: postCommand }
+                metadata: { gatewayBlock: 'run-complete', parentRunId: runId, command: postCommand }
               })
               settle(1)
             })
@@ -3807,8 +3807,8 @@ export class TaskService {
                 const postEventRaw = await readFile(postEventsPath, 'utf8').catch(() => '')
                 const postEventSummary = summarizeCodexExecEvents(postEventRaw)
                 const postUsage = postEventSummary.usage ?? postStreamer.latestUsage()
-                const postChanges = codexOutputChanges(postEventRaw, postFinalMessageRaw)
-                const postFinalMessage = appendCodexNextChatHandoff({
+                const postChanges = gatewayOutputChanges(postEventRaw, postFinalMessageRaw)
+                const postFinalMessage = appendGatewayNextChatHandoff({
                   task: access.data.task,
                   finalMessage: postFinalMessageRaw,
                   changes: postChanges,
@@ -3816,46 +3816,46 @@ export class TaskService {
                   code: postCode
                 })
                 await writeFile(postFinalMessagePath, postFinalMessage, 'utf8').catch(() => undefined)
-                const postTerminalMessages: CodexActivityDraft[] = []
+                const postTerminalMessages: GatewayActivityDraft[] = []
                 if (postChanges.hasChanges) {
                   postTerminalMessages.push({
                     runId: postRunId,
                     conversationId: postConversationId,
-                    source: 'codex-run',
+                    source: 'gateway-run',
                     phase: 'POST-RUNNING',
                     role: 'tool',
                     status: 'completed',
                     body: postChanges.body,
-                    metadata: { codexBlock: 'changes', code: postCode, signal: postSignal, eventsPath: postEventsPath, usage: postUsage, truncated: postChanges.truncated, ...postChanges.metadata }
+                    metadata: { gatewayBlock: 'changes', code: postCode, signal: postSignal, eventsPath: postEventsPath, usage: postUsage, truncated: postChanges.truncated, ...postChanges.metadata }
                   })
                 }
                 postTerminalMessages.push({
                   runId: postRunId,
                   conversationId: postConversationId,
-                  source: 'codex-run',
+                  source: 'gateway-run',
                   phase: 'POST-RUNNING',
                   role: 'system',
                   status: postCode === 0 ? 'completed' : 'failed',
                   body: postCode === 0 ? 'Codex post-run prompt completed.' : `Codex post-run prompt failed with code ${postCode ?? 'unknown'}.`,
-                  metadata: { codexBlock: 'run-complete', parentRunId: runId, code: postCode, signal: postSignal, eventsPath: postEventsPath, finalMessagePath: postFinalMessagePath, usage: postUsage }
+                  metadata: { gatewayBlock: 'run-complete', parentRunId: runId, code: postCode, signal: postSignal, eventsPath: postEventsPath, finalMessagePath: postFinalMessagePath, usage: postUsage }
                 })
                 if (postCode === 0) {
                   const hasStreamedAssistantMessage = postStreamer.hasAssistantMessage()
                   postTerminalMessages.push({
                     runId: postRunId,
                     conversationId: postConversationId,
-                    source: 'codex-run',
+                    source: 'gateway-run',
                     phase: 'POST-RUNNING',
                     role: 'assistant',
                     status: 'completed',
                     body: codexFinalAssistantBody(postFinalMessage, 'Codex post-run prompt completed.', hasStreamedAssistantMessage),
-                    metadata: { code: postCode, signal: postSignal, eventsPath: postEventsPath, finalMessagePath: postFinalMessagePath, usage: postUsage, codexBlock: hasStreamedAssistantMessage ? 'final-handoff' : 'final-fallback' }
+                    metadata: { code: postCode, signal: postSignal, eventsPath: postEventsPath, finalMessagePath: postFinalMessagePath, usage: postUsage, gatewayBlock: hasStreamedAssistantMessage ? 'final-handoff' : 'final-fallback' }
                   })
                 } else {
                   postTerminalMessages.push({
                     runId: postRunId,
                     conversationId: postConversationId,
-                    source: 'codex-run',
+                    source: 'gateway-run',
                     phase: 'POST-RUNNING',
                     role: 'error',
                     status: 'failed',
@@ -3873,11 +3873,11 @@ export class TaskService {
           spawnFailed = true
           void this.appendTaskActivityMessage(taskId, {
             runId,
-            source: 'codex-run',
+            source: 'gateway-run',
             role: 'error',
             status: 'failed',
             body: error.message,
-            metadata: { codexBlock: 'run-complete', command: execCommand, codexPath, configuredCodexPath, attemptedCodexPaths }
+            metadata: { gatewayBlock: 'run-complete', command: execCommand, codexPath, configuredCodexPath, attemptedCodexPaths }
           }, { emitTaskUpdatedAction: 'activity_complete' })
           notifyRunCompletion('failed', 1)
           void bridge?.close()
@@ -3895,8 +3895,8 @@ export class TaskService {
             const eventRaw = await readFile(execEventsPath, 'utf8').catch(() => '')
             const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
             const usage = eventSummary.usage ?? streamer.latestUsage()
-            const changes = codexOutputChanges(eventRaw, finalMessageRaw)
-            const finalMessage = appendCodexNextChatHandoff({
+            const changes = gatewayOutputChanges(eventRaw, finalMessageRaw)
+            const finalMessage = appendGatewayNextChatHandoff({
               task: access.data.task,
               finalMessage: finalMessageRaw,
               changes,
@@ -3904,34 +3904,34 @@ export class TaskService {
               code
             })
             await writeFile(execFinalMessagePath, finalMessage, 'utf8').catch(() => undefined)
-            const terminalMessages: CodexActivityDraft[] = []
+            const terminalMessages: GatewayActivityDraft[] = []
             if (changes.hasChanges) {
               terminalMessages.push({
                 runId,
-                source: 'codex-run',
+                source: 'gateway-run',
                 role: 'tool',
                 status: 'completed',
                 body: changes.body,
-                metadata: { codexBlock: 'changes', code, signal, eventsPath: execEventsPath, usage, truncated: changes.truncated, ...changes.metadata }
+                metadata: { gatewayBlock: 'changes', code, signal, eventsPath: execEventsPath, usage, truncated: changes.truncated, ...changes.metadata }
               })
             }
             terminalMessages.push({
               runId,
-              source: 'codex-run',
+              source: 'gateway-run',
               role: 'system',
               status: code === 0 ? 'completed' : 'failed',
               body: code === 0 ? 'Codex run completed.' : `Codex run failed with code ${code ?? 'unknown'}.`,
-              metadata: { codexBlock: 'run-complete', code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage }
+              metadata: { gatewayBlock: 'run-complete', code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage }
             })
             if (code === 0) {
               const hasStreamedAssistantMessage = streamer.hasAssistantMessage()
               terminalMessages.push({
                 runId,
-                source: 'codex-run',
+                source: 'gateway-run',
                 role: 'assistant',
                 status: 'completed',
                 body: codexFinalAssistantBody(finalMessage, 'Codex exec completed.', hasStreamedAssistantMessage),
-                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, codexBlock: hasStreamedAssistantMessage ? 'final-handoff' : 'final-fallback' }
+                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, gatewayBlock: hasStreamedAssistantMessage ? 'final-handoff' : 'final-fallback' }
               })
               await this.appendTaskActivityMessages(taskId, terminalMessages, { emitTaskUpdatedAction: 'activity_complete' })
               const postRunCode = shouldStartPostRunPrompt(code, executionMode, projectPrompt.postRunPrompt)
@@ -3944,7 +3944,7 @@ export class TaskService {
             } else {
               terminalMessages.push({
                 runId,
-                source: 'codex-run',
+                source: 'gateway-run',
                 role: 'error',
                 status: 'failed',
                 body: finalMessage.trim() || `Codex exec exited with code ${code ?? 'unknown'}.`,
@@ -3983,7 +3983,7 @@ export class TaskService {
       await this.appendTaskActivityMessages(access.data.task.id, [
         {
           runId,
-          source: 'codex-run',
+          source: 'gateway-run',
           role: 'system',
           status: 'running',
           body: `Started Codex terminal run with ${model}.`,
@@ -3991,7 +3991,7 @@ export class TaskService {
         },
         {
           runId,
-          source: 'codex-run',
+          source: 'gateway-run',
           role: 'user',
           status: 'running',
           body: prompt,
@@ -3999,7 +3999,7 @@ export class TaskService {
         },
         {
           runId,
-          source: 'codex-run',
+          source: 'gateway-run',
           role: 'thinking',
           status: 'running',
           body: 'Codex terminal is running this task...',
@@ -4045,11 +4045,11 @@ export class TaskService {
       if (isCodexCliNotFoundError(error)) {
         await this.appendTaskActivityMessage(access.data.task.id, {
           runId: plannerRunId(access.data.task.id),
-          source: 'codex-run',
+          source: 'gateway-run',
           role: 'error',
           status: 'failed',
           body: message,
-          metadata: { codexBlock: 'run-complete', configuredCodexPath: error.original, attemptedCodexPaths: error.attempted }
+          metadata: { gatewayBlock: 'run-complete', configuredCodexPath: error.original, attemptedCodexPaths: error.attempted }
         }, { emitTaskUpdatedAction: 'activity_complete' })
         return errorResponse(ErrorCodes.Validation, message)
       }
@@ -4099,7 +4099,7 @@ export class TaskService {
           result = contextResponse.ok
             ? okResponse({
               ...(routedData ?? {}),
-              codexLanguage: context.language ?? (routedData?.codexLanguage as string | undefined) ?? normalizeCodexLanguage(undefined),
+              gatewayLanguage: context.language ?? (routedData?.gatewayLanguage as string | undefined) ?? normalizeGatewayLanguage(undefined),
               omc: {
                 mode: context.mode ?? 'plan',
                 runId: context.runId ?? null,
@@ -4120,7 +4120,7 @@ export class TaskService {
           const body = await readRequestBody(request) as Record<string, unknown>
           result = await this.plannerUpdateFromJson({ actorToken: context.actorToken, projectId: context.projectId, taskId: context.taskId, json: body.json })
           if (result.ok && (context.mode ?? 'plan') === 'plan') {
-            await this.setTaskCodexPlanState(context.taskId, {
+            await this.setTaskGatewayPlanState(context.taskId, {
               state: 'planned',
               plannedAt: Date.now(),
               conversationId: context.conversationId ?? context.runId ?? null,
@@ -4210,7 +4210,7 @@ export class TaskService {
     }
   }
 
-  async planWithCodex(payload: PlanTaskCodexRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<PlannerLaunchResult>> {
+  async planWithGateway(payload: PlanTaskGatewayRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<PlannerLaunchResult>> {
     if (!payload?.taskId || !payload.projectId) return errorResponse(ErrorCodes.Validation, 'Task and project id are required')
     if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex gateway is required')
     if (!payload.model?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex model is required')
@@ -4224,17 +4224,17 @@ export class TaskService {
     if (project.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
     const gateway = await this.gateways.get(payload.gatewayId)
     if (!gateway || gateway.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Codex gateway is invalid')
-    const runtimeWorkspaceId = projectCodexRuntimeWorkspaceId(project)
+    const runtimeWorkspaceId = projectGatewayRuntimeWorkspaceId(project)
     if (!runtimeWorkspaceId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is required')
     const runtimeWorkspace = await this.workspaces.get(runtimeWorkspaceId)
     if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
     const projectPrompt = projectPromptSnapshot(project)
-    const language = await resolveCodexLanguageSetting(this.appSettings, access.data.actorOrgId, project, payload)
-    const promptShape = projectCodexPromptShape(project)
-    const reasoningEffort = projectCodexReasoningEffort(project, 'plan', payload.reasoningEffort)
+    const language = await resolveGatewayLanguageSetting(this.appSettings, access.data.actorOrgId, project, payload)
+    const promptShape = projectGatewayPromptShape(project)
+    const reasoningEffort = projectGatewayReasoningEffort(project, 'plan', payload.reasoningEffort)
     const effectiveAgent = await this.effectiveAgentForTask(access.data.task, access.data.actorOrgId, project)
 
-    const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-codex-planner-'))
+    const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-gateway-planner-'))
     let bridge: { url: string; close: () => Promise<void> } | null = null
     let preserveRunFolderOnError = false
     let workspaceRunPathForCleanup: string | null = null
@@ -4337,7 +4337,7 @@ export class TaskService {
         '-c', shellQuote(codexTrustedProjectConfig(runtimeWorkspacePath)),
         shellQuote(prompt)
       ].join(' ')
-      const execEventsPath = join(runFolderPath, 'codex-events.jsonl')
+      const execEventsPath = join(runFolderPath, 'gateway-events.jsonl')
       const execFinalMessagePath = join(runFolderPath, 'final-message.md')
       const execArgs = [
         'exec',
@@ -4352,7 +4352,7 @@ export class TaskService {
         prompt
       ]
       const execCommand = [shellQuote(codexPath), ...execArgs.map(shellQuote)].join(' ')
-      const wrapperPath = join(runFolderPath, 'run-codex-planner.sh')
+      const wrapperPath = join(runFolderPath, 'run-gateway-planner.sh')
       const wrapper = [
         '#!/bin/zsh',
         'set -e',
@@ -4428,7 +4428,7 @@ export class TaskService {
           {
             runId,
             conversationId,
-            source: 'codex-plan',
+            source: 'gateway-plan',
             role: 'system',
             status: 'running',
             body: `Started Codex exec planner with ${model}.`,
@@ -4437,7 +4437,7 @@ export class TaskService {
           {
             runId,
             conversationId,
-            source: 'codex-plan',
+            source: 'gateway-plan',
             role: 'user',
             status: 'running',
             body: clarificationMessage || prompt,
@@ -4446,7 +4446,7 @@ export class TaskService {
           {
             runId,
             conversationId,
-            source: 'codex-plan',
+            source: 'gateway-plan',
             role: 'thinking',
             status: 'running',
             body: 'Codex is planning the task...',
@@ -4464,7 +4464,7 @@ export class TaskService {
           taskId,
           runId,
           conversationId,
-          source: 'codex-plan',
+          source: 'gateway-plan',
           eventsPath: execEventsPath
         }, (messages) => this.appendTaskActivityMessages(taskId, messages))
         child.stdout.setEncoding('utf8')
@@ -4475,7 +4475,7 @@ export class TaskService {
         const notifyPlanCompletion = (kind: 'completed' | 'failed', exitCode?: number | null) => {
           if (planNotificationSent) return
           planNotificationSent = true
-          showCodexNotification({
+          showGatewayNotification({
             kind,
             mode: 'plan',
             taskTitle: access.data.task.title,
@@ -4491,11 +4491,11 @@ export class TaskService {
           void this.appendTaskActivityMessage(taskId, {
             runId,
             conversationId,
-            source: 'codex-plan',
+            source: 'gateway-plan',
             role: 'error',
             status: 'failed',
             body: error.message,
-            metadata: { codexBlock: 'run-complete', command: execCommand, codexPath, configuredCodexPath, attemptedCodexPaths }
+            metadata: { gatewayBlock: 'run-complete', command: execCommand, codexPath, configuredCodexPath, attemptedCodexPaths }
           }, { emitTaskUpdatedAction: 'activity_complete' })
           notifyPlanCompletion('failed', 1)
           void bridge?.close()
@@ -4522,8 +4522,8 @@ export class TaskService {
             const eventRaw = await readFile(execEventsPath, 'utf8').catch(() => '')
             const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
             const usage = eventSummary.usage ?? streamer.latestUsage()
-            const changes = codexOutputChanges(eventRaw, finalMessageRaw)
-            const finalMessage = appendCodexNextChatHandoff({
+            const changes = gatewayOutputChanges(eventRaw, finalMessageRaw)
+            const finalMessage = appendGatewayNextChatHandoff({
               task: access.data.task,
               finalMessage: finalMessageRaw,
               changes,
@@ -4531,43 +4531,43 @@ export class TaskService {
               code
             })
             await writeFile(execFinalMessagePath, finalMessage, 'utf8').catch(() => undefined)
-            const terminalMessages: CodexActivityDraft[] = []
+            const terminalMessages: GatewayActivityDraft[] = []
             if (changes.hasChanges) {
               terminalMessages.push({
                 runId,
                 conversationId,
-                source: 'codex-plan',
+                source: 'gateway-plan',
                 role: 'tool',
                 status: 'completed',
                 body: changes.body,
-                metadata: { codexBlock: 'changes', code, signal, eventsPath: execEventsPath, usage, truncated: changes.truncated, ...changes.metadata }
+                metadata: { gatewayBlock: 'changes', code, signal, eventsPath: execEventsPath, usage, truncated: changes.truncated, ...changes.metadata }
               })
             }
             terminalMessages.push({
               runId,
               conversationId,
-              source: 'codex-plan',
+              source: 'gateway-plan',
               role: 'system',
               status: code === 0 ? 'completed' : 'failed',
               body: code === 0 ? 'Codex planner completed.' : `Codex planner failed with code ${code ?? 'unknown'}.`,
-              metadata: { codexBlock: 'run-complete', code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage }
+              metadata: { gatewayBlock: 'run-complete', code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage }
             })
             if (code === 0) {
               const hasStreamedAssistantMessage = streamer.hasAssistantMessage()
               terminalMessages.push({
                 runId,
                 conversationId,
-                source: 'codex-plan',
+                source: 'gateway-plan',
                 role: 'assistant',
                 status: 'completed',
                 body: codexFinalAssistantBody(finalMessage, 'Codex planner completed.', hasStreamedAssistantMessage),
-                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, codexBlock: hasStreamedAssistantMessage ? 'final-handoff' : 'final-fallback' }
+                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, gatewayBlock: hasStreamedAssistantMessage ? 'final-handoff' : 'final-fallback' }
               })
             } else {
               terminalMessages.push({
                 runId,
                 conversationId,
-                source: 'codex-plan',
+                source: 'gateway-plan',
                 role: 'error',
                 status: 'failed',
                 body: finalMessage.trim() || `Codex planner exited with code ${code ?? 'unknown'}.`,
@@ -4606,7 +4606,7 @@ export class TaskService {
         {
           runId,
           conversationId,
-          source: 'codex-plan',
+          source: 'gateway-plan',
           role: 'system',
           status: 'running',
           body: `Started Codex terminal planner with ${model}.`,
@@ -4615,7 +4615,7 @@ export class TaskService {
         {
           runId,
           conversationId,
-          source: 'codex-plan',
+          source: 'gateway-plan',
           role: 'user',
           status: 'running',
           body: clarificationMessage || prompt,
@@ -4624,7 +4624,7 @@ export class TaskService {
         {
           runId,
           conversationId,
-          source: 'codex-plan',
+          source: 'gateway-plan',
           role: 'thinking',
           status: 'running',
           body: 'Codex terminal is planning this task...',
@@ -4670,11 +4670,11 @@ export class TaskService {
         await this.appendTaskActivityMessage(access.data.task.id, {
           runId: plannerRunId(access.data.task.id),
           conversationId: payload.conversationId?.trim() || plannerRunId(access.data.task.id),
-          source: 'codex-plan',
+          source: 'gateway-plan',
           role: 'error',
           status: 'failed',
           body: message,
-          metadata: { codexBlock: 'run-complete', configuredCodexPath: error.original, attemptedCodexPaths: error.attempted }
+          metadata: { gatewayBlock: 'run-complete', configuredCodexPath: error.original, attemptedCodexPaths: error.attempted }
         }, { emitTaskUpdatedAction: 'activity_complete' })
         return errorResponse(ErrorCodes.Validation, message)
       }
@@ -4682,7 +4682,7 @@ export class TaskService {
     }
   }
 
-  async codexChatSend(payload: CodexChatSendRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ runId: string; conversationId: string; executionMode: CodexExecutionMode; command: string; pid?: number; runFolderPath: string; runtimeWorkspacePath: string }>> {
+  async gatewayChatSend(payload: GatewayChatSendRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ runId: string; conversationId: string; executionMode: GatewayExecutionMode; command: string; pid?: number; runFolderPath: string; runtimeWorkspacePath: string }>> {
     if (!payload?.taskId || !payload.projectId) return errorResponse(ErrorCodes.Validation, 'Task and project id are required')
     const message = payload.message?.trim()
     if (!message) return errorResponse(ErrorCodes.Validation, 'Message is required')
@@ -4696,12 +4696,12 @@ export class TaskService {
     if (project.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
     const gateway = await this.gateways.get(payload.gatewayId)
     if (!gateway || gateway.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Codex gateway is invalid')
-    const runtimeWorkspaceId = projectCodexRuntimeWorkspaceId(project)
+    const runtimeWorkspaceId = projectGatewayRuntimeWorkspaceId(project)
     if (!runtimeWorkspaceId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is required')
     const runtimeWorkspace = await this.workspaces.get(runtimeWorkspaceId)
     if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
-    const language = await resolveCodexLanguageSetting(this.appSettings, access.data.actorOrgId, project, payload)
-    const promptShape = projectCodexPromptShape(project)
+    const language = await resolveGatewayLanguageSetting(this.appSettings, access.data.actorOrgId, project, payload)
+    const promptShape = projectGatewayPromptShape(project)
 
     const taskId = access.data.task.id
     const taskTitle = access.data.task.title
@@ -4722,7 +4722,7 @@ export class TaskService {
     const context = payload.includeTaskContext === false
       ? undefined
       : (await this.plannerContext({ actorToken: payload.actorToken, projectId: project.id, taskId })).data
-    const activitySource: TaskActivityMessage['source'] = mode === 'plan' ? 'codex-plan' : 'codex-chat'
+    const activitySource: TaskActivityMessage['source'] = mode === 'plan' ? 'gateway-plan' : 'gateway-chat'
     let launchConfig: Awaited<ReturnType<typeof codexLaunchConfig>>
     try {
       launchConfig = await codexLaunchConfig(gateway.template)
@@ -4736,7 +4736,7 @@ export class TaskService {
           role: 'error',
           status: 'failed',
           body: messageText,
-          metadata: { codexBlock: 'run-complete', configuredCodexPath: error.original, attemptedCodexPaths: error.attempted }
+          metadata: { gatewayBlock: 'run-complete', configuredCodexPath: error.original, attemptedCodexPaths: error.attempted }
         }, { emitTaskUpdatedAction: 'activity_complete' })
         return errorResponse(ErrorCodes.Validation, messageText)
       }
@@ -4745,7 +4745,7 @@ export class TaskService {
     const { codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, codexEnv, executionMode } = launchConfig
     const model = payload.model.trim()
     const runtimeWorkspacePath = runtimeWorkspace.rootPath
-    const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-codex-chat-'))
+    const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-gateway-chat-'))
     const attachmentRoot = join(runFolderPath, 'attachments')
     const attachments: Array<{ name: string; path: string }> = []
     if (Array.isArray(payload.attachments) && payload.attachments.length > 0) {
@@ -4758,10 +4758,10 @@ export class TaskService {
         attachments.push({ name: attachment.name, path: filePath })
       }
     }
-    const eventsPath = join(runFolderPath, 'codex-events.jsonl')
+    const eventsPath = join(runFolderPath, 'gateway-events.jsonl')
     const finalMessagePath = join(runFolderPath, 'final-message.md')
-    const reasoningEffort = projectCodexReasoningEffort(project, mode === 'plan' ? 'plan' : 'run', payload.reasoningEffort)
-    const prompt = codexChatPrompt({
+    const reasoningEffort = projectGatewayReasoningEffort(project, mode === 'plan' ? 'plan' : 'run', payload.reasoningEffort)
+    const prompt = gatewayChatPrompt({
       task: access.data.task,
       message: normalizedMessage,
       transcript,
@@ -4812,7 +4812,7 @@ export class TaskService {
 
     if (executionMode === 'terminal') {
       if (process.platform !== 'darwin') return errorResponse(ErrorCodes.Validation, 'Codex terminal chat currently requires macOS Terminal.app.')
-      const wrapperPath = join(runFolderPath, 'run-codex-chat.sh')
+      const wrapperPath = join(runFolderPath, 'run-gateway-chat.sh')
       const codexCommand = [
         shellQuote(codexPath),
         '--cd', shellQuote(runtimeWorkspacePath),
@@ -4847,8 +4847,8 @@ export class TaskService {
     const executionStartedAt = Date.now()
     const child = spawn(codexPath, execArgs, { cwd: runtimeWorkspacePath, env: codexEnv, stdio: ['ignore', 'pipe', 'pipe'] })
     let spawnFailed = false
-    const activeRun: ActiveCodexChatRun = { child, taskId, conversationId, runId }
-    this.activeCodexChatRuns.set(runId, activeRun)
+    const activeRun: ActiveGatewayChatRun = { child, taskId, conversationId, runId }
+    this.activeGatewayChatRuns.set(runId, activeRun)
     const streamer = createCodexActivityStreamer({
       taskId,
       runId,
@@ -4864,7 +4864,7 @@ export class TaskService {
     const notifyChatCompletion = (kind: 'completed' | 'failed' | 'stopped', exitCode?: number | null) => {
       if (chatNotificationSent) return
       chatNotificationSent = true
-      showCodexNotification({
+      showGatewayNotification({
         kind,
         mode,
         taskTitle,
@@ -4877,7 +4877,7 @@ export class TaskService {
     }
     child.on('error', (error) => {
       spawnFailed = true
-      this.activeCodexChatRuns.delete(runId)
+      this.activeGatewayChatRuns.delete(runId)
       void this.appendTaskActivityMessage(taskId, {
         runId,
         conversationId,
@@ -4885,13 +4885,13 @@ export class TaskService {
         role: 'error',
         status: 'failed',
         body: error.message,
-        metadata: { codexBlock: 'run-complete', command: execCommand, codexPath, configuredCodexPath, attemptedCodexPaths }
+        metadata: { gatewayBlock: 'run-complete', command: execCommand, codexPath, configuredCodexPath, attemptedCodexPaths }
       }, { emitTaskUpdatedAction: 'activity_complete' })
       notifyChatCompletion('failed', 1)
     })
     child.on('close', (code, signal) => {
       void (async () => {
-        this.activeCodexChatRuns.delete(runId)
+        this.activeGatewayChatRuns.delete(runId)
         if (spawnFailed) return
         await streamer.flush()
         if (activeRun.stopRequested) {
@@ -4903,7 +4903,7 @@ export class TaskService {
               role: 'system',
               status: 'completed',
               body: 'Codex chat stopped.',
-              metadata: { code, signal, eventsPath, stopped: true, codexBlock: 'run-complete' }
+              metadata: { code, signal, eventsPath, stopped: true, gatewayBlock: 'run-complete' }
             },
             {
               runId,
@@ -4922,8 +4922,8 @@ export class TaskService {
         const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
         const finalMessageRaw = await readFile(finalMessagePath, 'utf8').catch(() => '')
         const usage = eventSummary.usage ?? streamer.latestUsage()
-        const changes = codexOutputChanges(eventRaw, finalMessageRaw)
-        const finalMessage = appendCodexNextChatHandoff({
+        const changes = gatewayOutputChanges(eventRaw, finalMessageRaw)
+        const finalMessage = appendGatewayNextChatHandoff({
           task: access.data.task,
           finalMessage: finalMessageRaw,
           changes,
@@ -4931,7 +4931,7 @@ export class TaskService {
           code
         })
         await writeFile(finalMessagePath, finalMessage, 'utf8').catch(() => undefined)
-        const terminalMessages: CodexActivityDraft[] = []
+        const terminalMessages: GatewayActivityDraft[] = []
         if (changes.hasChanges) {
           terminalMessages.push({
             runId,
@@ -4940,7 +4940,7 @@ export class TaskService {
             role: 'tool',
             status: 'completed',
             body: changes.body,
-            metadata: { codexBlock: 'changes', code, signal, eventsPath, usage, truncated: changes.truncated, ...changes.metadata }
+            metadata: { gatewayBlock: 'changes', code, signal, eventsPath, usage, truncated: changes.truncated, ...changes.metadata }
           })
         }
         terminalMessages.push({
@@ -4950,7 +4950,7 @@ export class TaskService {
           role: 'system',
           status: code === 0 ? 'completed' : 'failed',
           body: code === 0 ? 'Codex chat completed.' : `Codex chat failed with code ${code ?? 'unknown'}.`,
-          metadata: { codexBlock: 'run-complete', code, signal, eventsPath, finalMessagePath, usage }
+          metadata: { gatewayBlock: 'run-complete', code, signal, eventsPath, finalMessagePath, usage }
         })
         if (code === 0) {
           const hasStreamedAssistantMessage = streamer.hasAssistantMessage()
@@ -4961,7 +4961,7 @@ export class TaskService {
             role: 'assistant',
             status: 'completed',
             body: codexFinalAssistantBody(finalMessage, mode === 'plan' ? 'Codex plan revision completed.' : 'Codex chat completed.', hasStreamedAssistantMessage),
-            metadata: { code, signal, eventsPath, finalMessagePath, usage, codexBlock: hasStreamedAssistantMessage ? 'final-handoff' : 'final-fallback' }
+            metadata: { code, signal, eventsPath, finalMessagePath, usage, gatewayBlock: hasStreamedAssistantMessage ? 'final-handoff' : 'final-fallback' }
           })
         } else {
           terminalMessages.push({
@@ -4982,12 +4982,12 @@ export class TaskService {
     return okResponse({ runId, conversationId, executionMode, command: execCommand, pid: child.pid, runFolderPath, runtimeWorkspacePath })
   }
 
-  async codexChatStop(payload: CodexChatStopRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ stopped: number }>> {
+  async gatewayChatStop(payload: GatewayChatStopRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ stopped: number }>> {
     if (!payload?.taskId) return errorResponse(ErrorCodes.Validation, 'Task id is required')
     const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
     if (!access.ok || !access.data) return errorResponse(access.error?.code ?? ErrorCodes.Forbidden, access.error?.message ?? 'Access denied', access.error?.details)
     const conversationId = payload.conversationId?.trim()
-    const matches = Array.from(this.activeCodexChatRuns.values()).filter((run) => {
+    const matches = Array.from(this.activeGatewayChatRuns.values()).filter((run) => {
       if (run.taskId !== access.data?.task.id) return false
       return conversationId ? run.conversationId === conversationId : true
     })
@@ -4999,17 +4999,17 @@ export class TaskService {
       await this.appendTaskActivityMessage(access.data.task.id, {
         runId: conversationId,
         conversationId,
-        source: 'codex-chat',
+        source: 'gateway-chat',
         role: 'system',
         status: 'completed',
         body: 'No running Codex chat was found. Marked as stopped.',
-        metadata: { stopped: true, notFound: true, codexBlock: 'run-complete' }
+        metadata: { stopped: true, notFound: true, gatewayBlock: 'run-complete' }
       })
     }
     return okResponse({ stopped: matches.length })
   }
 
-  async codexChatResolve(payload: CodexChatResolveRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ resolved: true; resolution: 'stopped' | 'completed' | 'failed' }>> {
+  async gatewayChatResolve(payload: GatewayChatResolveRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ resolved: true; resolution: 'stopped' | 'completed' | 'failed' }>> {
     if (!payload?.taskId) return errorResponse(ErrorCodes.Validation, 'Task id is required')
     const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
     if (!access.ok || !access.data) return errorResponse(access.error?.code ?? ErrorCodes.Forbidden, access.error?.message ?? 'Access denied', access.error?.details)
@@ -5020,7 +5020,7 @@ export class TaskService {
       return errorResponse(ErrorCodes.Validation, 'Resolution must be stopped, completed, or failed')
     }
 
-    const activeMatches = Array.from(this.activeCodexChatRuns.values()).filter((run) => (
+    const activeMatches = Array.from(this.activeGatewayChatRuns.values()).filter((run) => (
       run.taskId === access.data?.task.id && run.conversationId === conversationId
     ))
     for (const run of activeMatches) {
@@ -5031,7 +5031,7 @@ export class TaskService {
     const conversationMessages = taskActivityMessagesFromPayload(asPayload(access.data.task.payload))
       .filter((message) => message.conversationId === conversationId || message.runId === conversationId)
       .sort((a, b) => a.createdAt - b.createdAt)
-    const lastSource = [...conversationMessages].reverse().find((message) => message.source.startsWith('codex-'))?.source ?? 'codex-chat'
+    const lastSource = [...conversationMessages].reverse().find((message) => message.source.startsWith('codex-'))?.source ?? 'gateway-chat'
     const status = resolution === 'failed' ? 'failed' : 'completed'
     const body = resolution === 'stopped'
       ? 'Codex chat manually marked as stopped.'
@@ -5047,7 +5047,7 @@ export class TaskService {
       status,
       body,
       metadata: {
-        codexBlock: 'run-complete',
+        gatewayBlock: 'run-complete',
         manuallyResolved: true,
         resolution,
         stopped: resolution === 'stopped'

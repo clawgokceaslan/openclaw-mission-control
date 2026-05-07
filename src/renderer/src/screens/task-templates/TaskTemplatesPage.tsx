@@ -27,7 +27,7 @@ import { PROJECT_STATUS_COLUMNS, columnsFromProjectStatuses } from '../projects/
 import styles from './TaskTemplatesPage.module.scss'
 import { createTaskWithTemplate, type CreateTaskInput } from '../projects/detail/createTaskWithTemplate'
 
-type CodexModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }
+type GatewayModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }
 
 const SAVE_DELAY_MS = 700
 const DESCRIPTION_AUTOSAVE_DELAY_MS = 5000
@@ -79,12 +79,12 @@ function normalizeTemplate(value?: TaskTemplatePayload): TaskTemplatePayload {
     checklistItems: Array.isArray(value?.checklistItems) ? value.checklistItems : [],
     comments: Array.isArray(value?.comments) ? value.comments : [],
     attachments: normalizeAttachments(value?.attachments),
-    codex: value?.codex && typeof value.codex === 'object' && !Array.isArray(value.codex) ? value.codex : undefined,
+    gateway: value?.gateway && typeof value.gateway === 'object' && !Array.isArray(value.gateway) ? value.gateway : undefined,
     subtasks: Array.isArray(value?.subtasks) ? value.subtasks : []
   }
 }
 
-function codexModelsFromGateways(gateways: Gateway[]): CodexCliModel[] {
+function gatewayModelsFromGateways(gateways: Gateway[]): CodexCliModel[] {
   const byId = new Map<string, CodexCliModel>()
   for (const gateway of gateways) {
     const template = gateway.template && typeof gateway.template === 'object' && !Array.isArray(gateway.template)
@@ -111,8 +111,8 @@ function codexConfigOf(gateway?: Gateway | null): CodexCliGatewayConfig {
   }
 }
 
-function codexOverride(gatewayId?: string | null, model?: string | null): TaskTemplatePayload['codex'] | undefined {
-  const next: NonNullable<TaskTemplatePayload['codex']> = {}
+function codexOverride(gatewayId?: string | null, model?: string | null): TaskTemplatePayload['gateway'] | undefined {
+  const next: NonNullable<TaskTemplatePayload['gateway']> = {}
   if (gatewayId) next.gatewayId = gatewayId
   if (model) next.model = model
   return Object.keys(next).length > 0 ? next : undefined
@@ -318,8 +318,8 @@ export function TaskTemplatesPage() {
   const [isJsonImportOpen, setIsJsonImportOpen] = useState(false)
   const [jsonImportTarget, setJsonImportTarget] = useState<'create' | 'edit'>('create')
   const [isJsonImporting, setIsJsonImporting] = useState(false)
-  const [codexModelLoading, setCodexModelLoading] = useState(false)
-  const [codexModelError, setCodexModelError] = useState<string | null>(null)
+  const [gatewayModelLoading, setGatewayModelLoading] = useState(false)
+  const [gatewayModelError, setGatewayModelError] = useState<string | null>(null)
   const [isApplyTemplateOpen, setIsApplyTemplateOpen] = useState(false)
   const [applyTemplate, setApplyTemplate] = useState<TaskTemplate | null>(null)
   const [applyProjectId, setApplyProjectId] = useState('')
@@ -340,7 +340,7 @@ export function TaskTemplatesPage() {
   const selectedSubtaskDescriptionSavedRef = useRef('')
   const templateRef = useRef<TaskTemplatePayload>(defaultTemplate())
   const subtasksRef = useRef<DraftSubtask[]>([])
-  const lastCodexModelRefreshRef = useRef<string | null>(null)
+  const lastGatewayModelRefreshRef = useRef<string | null>(null)
 
   const refresh = async () => {
     setLoading(true)
@@ -387,22 +387,22 @@ export function TaskTemplatesPage() {
     void refresh()
   }, [token])
 
-  const refreshCodexGatewayModels = async (gatewayId: string) => {
+  const refreshGatewayModels = async (gatewayId: string) => {
     if (!gatewayId) return
-    setCodexModelLoading(true)
-    setCodexModelError(null)
-    const response = await invokeBridge<CodexModelsResponse>(IPC_CHANNELS.gateways.codexModels, {
+    setGatewayModelLoading(true)
+    setGatewayModelError(null)
+    const response = await invokeBridge<GatewayModelsResponse>(IPC_CHANNELS.gateways.gatewayModels, {
       actorToken: token,
       gatewayId
     })
-    setCodexModelLoading(false)
+    setGatewayModelLoading(false)
     if (!response.ok || !response.data) {
-      setCodexModelError(response.error?.message ?? 'Unable to load Codex models')
+      setGatewayModelError(response.error?.message ?? 'Unable to load Codex models')
       return
     }
     setGateways((current) => current.map((gateway) => gateway.id === response.data!.gateway.id ? response.data!.gateway : gateway))
-    if (response.data.error) setCodexModelError(response.data.error)
-    lastCodexModelRefreshRef.current = gatewayId
+    if (response.data.error) setGatewayModelError(response.data.error)
+    lastGatewayModelRefreshRef.current = gatewayId
   }
 
   useEffect(() => {
@@ -468,25 +468,25 @@ export function TaskTemplatesPage() {
   const inputFormatOptions = useMemo(() => outputFormats.filter((format) => format.formatRole === 'input').map((format) => ({ label: format.name, value: format.id })), [outputFormats])
   const outputFormatOptions = useMemo(() => outputFormats.filter((format) => format.formatRole !== 'input').map((format) => ({ label: format.name, value: format.id })), [outputFormats])
   const outputFormatById = useMemo(() => new Map(outputFormats.map((format) => [format.id, format])), [outputFormats])
-  const codexModelOptions = useMemo(() => codexModelsFromGateways(gateways), [gateways])
-  const codexGatewayOptions = useMemo<AppSelectOption[]>(() => gateways.map((gateway) => ({ label: gateway.name, value: gateway.id })), [gateways])
-  const templateCodexGatewayId = templateDraft.codex?.gatewayId ?? ''
-  const templateCodexModel = templateDraft.codex?.model ?? ''
-  const selectedTemplateGateway = templateCodexGatewayId ? gateways.find((gateway) => gateway.id === templateCodexGatewayId) ?? null : null
+  const gatewayModelOptions = useMemo(() => gatewayModelsFromGateways(gateways), [gateways])
+  const gatewayOptions = useMemo<AppSelectOption[]>(() => gateways.map((gateway) => ({ label: gateway.name, value: gateway.id })), [gateways])
+  const templateGatewayId = templateDraft.gateway?.gatewayId ?? ''
+  const templateGatewayModel = templateDraft.gateway?.model ?? ''
+  const selectedTemplateGateway = templateGatewayId ? gateways.find((gateway) => gateway.id === templateGatewayId) ?? null : null
   const templateGatewayModelOptions = useMemo<CodexCliModel[]>(() => {
-    if (!selectedTemplateGateway) return codexModelOptions
+    if (!selectedTemplateGateway) return gatewayModelOptions
     return codexConfigOf(selectedTemplateGateway).models ?? []
-  }, [codexModelOptions, selectedTemplateGateway])
-  const templateGatewayOptions = codexGatewayOptions
-  const selectedTemplateGatewayOption = templateCodexGatewayId ? templateGatewayOptions.find((option) => option.value === templateCodexGatewayId) ?? null : null
+  }, [gatewayModelOptions, selectedTemplateGateway])
+  const templateGatewayOptions = gatewayOptions
+  const selectedTemplateGatewayOption = templateGatewayId ? templateGatewayOptions.find((option) => option.value === templateGatewayId) ?? null : null
   const templateModelOptions = useMemo<AppSelectOption[]>(() => templateGatewayModelOptions.map((model) => ({ label: model.label || model.id, value: model.id })), [templateGatewayModelOptions])
-  const selectedTemplateModelOption = templateModelOptions.find((option) => option.value === templateCodexModel) ?? null
+  const selectedTemplateModelOption = templateModelOptions.find((option) => option.value === templateGatewayModel) ?? null
   const selectedSubtask = useMemo(() => draftSubtasks.find((subtask) => subtask.uiId === selectedSubtaskId) ?? null, [draftSubtasks, selectedSubtaskId])
   useEffect(() => {
-    if (!editing || activeTab !== 'model' || !templateCodexGatewayId) return
-    const shouldRefresh = lastCodexModelRefreshRef.current !== templateCodexGatewayId || templateGatewayModelOptions.length === 0
-    if (shouldRefresh && !codexModelLoading) void refreshCodexGatewayModels(templateCodexGatewayId)
-  }, [editing, activeTab, templateCodexGatewayId, templateGatewayModelOptions.length, codexModelLoading])
+    if (!editing || activeTab !== 'model' || !templateGatewayId) return
+    const shouldRefresh = lastGatewayModelRefreshRef.current !== templateGatewayId || templateGatewayModelOptions.length === 0
+    if (shouldRefresh && !gatewayModelLoading) void refreshGatewayModels(templateGatewayId)
+  }, [editing, activeTab, templateGatewayId, templateGatewayModelOptions.length, gatewayModelLoading])
   useEffect(() => {
     setSubtaskCommentDraft('')
     setEditingSubtaskCommentId(null)
@@ -1702,16 +1702,16 @@ export function TaskTemplatesPage() {
           setQuickOutputFormatDescription={setQuickOutputFormatDescription}
           onCreateOutputFormatFromModal={createOutputFormatFromModal}
           gateways={gateways}
-          templateCodexGatewayId={templateCodexGatewayId}
-          templateCodexModel={templateCodexModel}
+          templateGatewayId={templateGatewayId}
+          templateGatewayModel={templateGatewayModel}
           selectedTemplateGateway={selectedTemplateGateway}
           templateGatewayOptions={templateGatewayOptions}
           selectedTemplateGatewayOption={selectedTemplateGatewayOption}
           templateModelOptions={templateModelOptions}
           selectedTemplateModelOption={selectedTemplateModelOption}
-          codexModelOptions={codexModelOptions}
-          codexModelLoading={codexModelLoading}
-          codexModelError={codexModelError}
+          gatewayModelOptions={gatewayModelOptions}
+          gatewayModelLoading={gatewayModelLoading}
+          gatewayModelError={gatewayModelError}
           createLocalId={createLocalId}
         />
       ) : null}

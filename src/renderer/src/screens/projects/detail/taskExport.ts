@@ -10,9 +10,9 @@ type ExportContext = {
   tags: Tag[]
   customFields: CustomField[]
   projectStatuses?: ProjectStatus[]
-  codexLanguage?: string
-  codexPlanReasoningEffort?: string
-  codexRunReasoningEffort?: string
+  gatewayLanguage?: string
+  gatewayPlanReasoningEffort?: string
+  gatewayRunReasoningEffort?: string
 }
 
 type ZipInput = Record<string, Uint8Array>
@@ -415,21 +415,21 @@ export function buildTaskMarkdown(context: ExportContext, exportStatuses: Attach
   const taskAttachments = getTaskAttachments(task)
   const subtaskAttachments = subtasks.flatMap(getSubtaskAttachments)
   const sections = [`# ${task.title}`]
-  const codexSettings = context.project?.metrics?.codex && typeof context.project.metrics.codex === 'object' && !Array.isArray(context.project.metrics.codex)
-    ? context.project.metrics.codex as Record<string, unknown>
+  const gatewaySettings = context.project?.metrics?.gateway && typeof context.project.metrics.gateway === 'object' && !Array.isArray(context.project.metrics.gateway)
+    ? context.project.metrics.gateway as Record<string, unknown>
     : {}
   const defaultSkillIds = Array.isArray(context.project?.metrics?.defaultSkillIds) ? context.project.metrics.defaultSkillIds.filter((item): item is string => typeof item === 'string') : []
   const defaultAgentId = typeof context.project?.metrics?.defaultAgentId === 'string' ? context.project.metrics.defaultAgentId : ''
   const defaultAgentName = defaultAgentId ? context.agents.find((agent) => agent.id === defaultAgentId)?.name ?? defaultAgentId : ''
   const defaultSkillNames = defaultSkillIds.map((skillId) => context.skills.find((skill) => skill.id === skillId)?.name ?? skillId)
   const projectInputs = [
-    context.codexLanguage ? `- Selected Codex language: ${context.codexLanguage}` : '',
+    context.gatewayLanguage ? `- Selected Codex language: ${context.gatewayLanguage}` : '',
     defaultAgentName ? `- Project default agent: ${defaultAgentName}` : '',
     defaultSkillNames.length > 0 ? `- Project default skills: ${defaultSkillNames.join(', ')}` : '',
-    codexSettings.gatewayId ? `- Project Codex gateway: ${String(codexSettings.gatewayId)}` : '',
-    codexSettings.runtimeWorkspaceId ? `- Runtime workspace: ${String(codexSettings.runtimeWorkspaceId)}` : '',
-    codexSettings.planModel ? `- Plan model: ${String(codexSettings.planModel)} (${context.codexPlanReasoningEffort ?? codexSettings.planReasoningEffort ?? 'medium'} reasoning)` : '',
-    codexSettings.runModel || codexSettings.defaultModel ? `- Run model: ${String(codexSettings.runModel ?? codexSettings.defaultModel)} (${context.codexRunReasoningEffort ?? codexSettings.runReasoningEffort ?? 'medium'} reasoning)` : '',
+    gatewaySettings.gatewayId ? `- Project Codex gateway: ${String(gatewaySettings.gatewayId)}` : '',
+    gatewaySettings.runtimeWorkspaceId ? `- Runtime workspace: ${String(gatewaySettings.runtimeWorkspaceId)}` : '',
+    gatewaySettings.planModel ? `- Plan model: ${String(gatewaySettings.planModel)} (${context.gatewayPlanReasoningEffort ?? gatewaySettings.planReasoningEffort ?? 'medium'} reasoning)` : '',
+    gatewaySettings.runModel || gatewaySettings.defaultModel ? `- Run model: ${String(gatewaySettings.runModel ?? gatewaySettings.defaultModel)} (${context.gatewayRunReasoningEffort ?? gatewaySettings.runReasoningEffort ?? 'medium'} reasoning)` : '',
     `- Project: ${context.project?.name ?? task.projectId}`,
     `- Project ID: ${task.projectId}`,
     context.projectGroup?.name ? `- Project group: ${context.projectGroup.name}` : '',

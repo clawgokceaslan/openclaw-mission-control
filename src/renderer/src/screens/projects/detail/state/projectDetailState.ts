@@ -1,7 +1,7 @@
 import { Dispatch, useCallback, useMemo, useReducer } from 'react'
 import { AppSelectOption } from '@renderer/components/select/AppSelect'
 import { Agent, CustomField, Gateway, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, TaskEntity, TaskTemplate, Workspace, Tag } from '@shared/types/entities'
-import { ChatAttachmentDraft, ChatComposerMode, CodexRunFeedback, CustomFieldDraftRow, DataFormatRole, DetailTab, DetailViewMode, ProjectPromptTab, ProjectSettingsTab, TaskHistoryItem, TextDraftRow, ThreadEntry } from '../types'
+import { ChatAttachmentDraft, ChatComposerMode, GatewayRunFeedback, CustomFieldDraftRow, DataFormatRole, DetailTab, DetailViewMode, ProjectPromptTab, ProjectSettingsTab, TaskHistoryItem, TextDraftRow, ThreadEntry } from '../types'
 import { createLocalId } from '../projectDetailUtils'
 
 export interface ProjectDetailDataState {
@@ -115,17 +115,17 @@ export interface ProjectDetailFormsState {
 }
 
 export interface ProjectDetailCodexState {
-  codexGatewayId: string
-  codexRuntimeWorkspaceId: string
-  codexDefaultModel: string
-  codexDefaultPlanModel: string
-  codexDefaultRunModel: string
-  codexModelLoading: boolean
-  codexModelError: string | null
-  codexSaving: boolean
-  codexRunLaunching: boolean
-  codexPlanLaunching: boolean
-  codexRunFeedback: CodexRunFeedback | null
+  gatewayId: string
+  gatewayRuntimeWorkspaceId: string
+  gatewayDefaultModel: string
+  gatewayDefaultPlanModel: string
+  gatewayDefaultRunModel: string
+  gatewayModelLoading: boolean
+  gatewayModelError: string | null
+  gatewaySaving: boolean
+  gatewayRunLaunching: boolean
+  gatewayPlanLaunching: boolean
+  gatewayRunFeedback: GatewayRunFeedback | null
 }
 
 export interface ProjectDetailChatState {
@@ -155,7 +155,7 @@ export interface ProjectDetailState {
   selection: ProjectDetailSelectionState
   ui: ProjectDetailUiState
   forms: ProjectDetailFormsState
-  codex: ProjectDetailCodexState
+  gateway: ProjectDetailCodexState
   chat: ProjectDetailChatState
 }
 
@@ -224,7 +224,7 @@ export type ProjectDetailStateBindings = ProjectDetailFlatState & {
     forms: {
       setDraft: (next: Partial<ProjectDetailFormsState>) => void
     }
-    codex: {
+    gateway: {
       setCodexStatus: (next: Partial<ProjectDetailCodexState>) => void
     }
     chat: {
@@ -340,18 +340,18 @@ export const PROJECT_DETAIL_INITIAL_STATE: ProjectDetailState = {
     history: [],
     localChatEntries: []
   },
-  codex: {
-    codexGatewayId: '',
-    codexRuntimeWorkspaceId: '',
-    codexDefaultModel: '',
-    codexDefaultPlanModel: '',
-    codexDefaultRunModel: '',
-    codexModelLoading: false,
-    codexModelError: null,
-    codexSaving: false,
-    codexRunLaunching: false,
-    codexPlanLaunching: false,
-    codexRunFeedback: null
+  gateway: {
+    gatewayId: '',
+    gatewayRuntimeWorkspaceId: '',
+    gatewayDefaultModel: '',
+    gatewayDefaultPlanModel: '',
+    gatewayDefaultRunModel: '',
+    gatewayModelLoading: false,
+    gatewayModelError: null,
+    gatewaySaving: false,
+    gatewayRunLaunching: false,
+    gatewayPlanLaunching: false,
+    gatewayRunFeedback: null
   },
   chat: {
     chatDraft: '',
@@ -475,17 +475,17 @@ const PROJECT_DETAIL_FIELD_TO_PATH = {
   subtaskStatusMenu: ['forms', 'subtaskStatusMenu'],
   history: ['forms', 'history'],
   localChatEntries: ['forms', 'localChatEntries'],
-  codexGatewayId: ['codex', 'codexGatewayId'],
-  codexRuntimeWorkspaceId: ['codex', 'codexRuntimeWorkspaceId'],
-  codexDefaultModel: ['codex', 'codexDefaultModel'],
-  codexDefaultPlanModel: ['codex', 'codexDefaultPlanModel'],
-  codexDefaultRunModel: ['codex', 'codexDefaultRunModel'],
-  codexModelLoading: ['codex', 'codexModelLoading'],
-  codexModelError: ['codex', 'codexModelError'],
-  codexSaving: ['codex', 'codexSaving'],
-  codexRunLaunching: ['codex', 'codexRunLaunching'],
-  codexPlanLaunching: ['codex', 'codexPlanLaunching'],
-  codexRunFeedback: ['codex', 'codexRunFeedback'],
+  gatewayId: ['gateway', 'gatewayId'],
+  gatewayRuntimeWorkspaceId: ['gateway', 'gatewayRuntimeWorkspaceId'],
+  gatewayDefaultModel: ['gateway', 'gatewayDefaultModel'],
+  gatewayDefaultPlanModel: ['gateway', 'gatewayDefaultPlanModel'],
+  gatewayDefaultRunModel: ['gateway', 'gatewayDefaultRunModel'],
+  gatewayModelLoading: ['gateway', 'gatewayModelLoading'],
+  gatewayModelError: ['gateway', 'gatewayModelError'],
+  gatewaySaving: ['gateway', 'gatewaySaving'],
+  gatewayRunLaunching: ['gateway', 'gatewayRunLaunching'],
+  gatewayPlanLaunching: ['gateway', 'gatewayPlanLaunching'],
+  gatewayRunFeedback: ['gateway', 'gatewayRunFeedback'],
   chatDraft: ['chat', 'chatDraft'],
   chatSending: ['chat', 'chatSending'],
   chatStopping: ['chat', 'chatStopping'],
@@ -515,7 +515,7 @@ function toFlatState(state: ProjectDetailState): ProjectDetailFlatState {
     ...state.selection,
     ...state.ui,
     ...state.forms,
-    ...state.codex,
+    ...state.gateway,
     ...state.chat
   } as ProjectDetailFlatState
 }
@@ -555,7 +555,7 @@ function applyStatePatch(state: ProjectDetailState, patch: Partial<ProjectDetail
     selection: mergeNestedState(state.selection, patch.selection),
     ui: mergeNestedState(state.ui, patch.ui),
     forms: mergeNestedState(state.forms, patch.forms),
-    codex: mergeNestedState(state.codex, patch.codex),
+    gateway: mergeNestedState(state.gateway, patch.gateway),
     chat: mergeNestedState(state.chat, patch.chat)
   }
   if (
@@ -563,7 +563,7 @@ function applyStatePatch(state: ProjectDetailState, patch: Partial<ProjectDetail
     next.selection === state.selection &&
     next.ui === state.ui &&
     next.forms === state.forms &&
-    next.codex === state.codex &&
+    next.gateway === state.gateway &&
     next.chat === state.chat
   ) return state
   return { ...state, ...next }
@@ -585,7 +585,7 @@ function isNestedOverrides(overrides: Record<string, unknown>): overrides is Par
     'selection' in overrides ||
     'ui' in overrides ||
     'forms' in overrides ||
-    'codex' in overrides ||
+    'gateway' in overrides ||
     'chat' in overrides
   )
 }
@@ -610,7 +610,7 @@ function projectDetailReducer(state: ProjectDetailState, action: ProjectDetailAc
     case 'setForms':
       return applyStatePatch(state, { forms: { ...state.forms, ...action.payload } })
     case 'setCodex':
-      return applyStatePatch(state, { codex: { ...state.codex, ...action.payload } })
+      return applyStatePatch(state, { gateway: { ...state.gateway, ...action.payload } })
     case 'setChatState':
       return applyStatePatch(state, { chat: { ...state.chat, ...action.payload } })
     case 'setBusy':
@@ -711,7 +711,7 @@ export function useProjectDetailDispatcher(
     forms: {
       setDraft: (next: Partial<ProjectDetailFormsState>) => dispatch({ type: 'setForms', payload: next })
     },
-    codex: {
+    gateway: {
       setCodexStatus: (next: Partial<ProjectDetailCodexState>) => dispatch({ type: 'setCodex', payload: next })
     },
     chat: {

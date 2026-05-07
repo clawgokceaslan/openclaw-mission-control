@@ -17,7 +17,7 @@ import type {
 } from '@shared/types/entities'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { createSerializedAsyncRunner } from '@renderer/utils/serializedAsync'
-import { projectCodexSettings, withTaskMeta } from '../projectDetailUtils'
+import { projectGatewaySettings, withTaskMeta } from '../projectDetailUtils'
 import { appendActivityMessageToTasks } from '../chat/chatUtils'
 import type { ProjectDetailStateBindings } from './state/projectDetailState'
 import type { TaskActivityMessage } from '../types'
@@ -41,11 +41,11 @@ export interface ProjectDetailDataContext {
       | 'setWorkspaces'
       | 'setStatusTemplates'
       | 'setProjectGroups'
-      | 'setCodexGatewayId'
-      | 'setCodexRuntimeWorkspaceId'
-      | 'setCodexDefaultModel'
-      | 'setCodexDefaultPlanModel'
-      | 'setCodexDefaultRunModel'
+      | 'setGatewayId'
+      | 'setGatewayRuntimeWorkspaceId'
+      | 'setGatewayDefaultModel'
+      | 'setGatewayDefaultPlanModel'
+      | 'setGatewayDefaultRunModel'
       | 'setSelectedTaskId'
       | 'project'
   >
@@ -72,11 +72,11 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
     setWorkspaces,
     setStatusTemplates,
     setProjectGroups,
-    setCodexGatewayId,
-    setCodexRuntimeWorkspaceId,
-    setCodexDefaultModel,
-    setCodexDefaultPlanModel,
-    setCodexDefaultRunModel,
+    setGatewayId,
+    setGatewayRuntimeWorkspaceId,
+    setGatewayDefaultModel,
+    setGatewayDefaultPlanModel,
+    setGatewayDefaultRunModel,
     setSelectedTaskId,
     project
   } = state
@@ -208,13 +208,13 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
   }, [projectId, setTasks])
 
   useEffect(() => {
-    const codex = projectCodexSettings(project)
-    setCodexGatewayId(codex.gatewayId ?? '')
-    setCodexRuntimeWorkspaceId(codex.runtimeWorkspaceId ?? '')
-    setCodexDefaultModel(codex.defaultModel ?? '')
-    setCodexDefaultPlanModel(codex.planModel ?? codex.defaultModel ?? '')
-    setCodexDefaultRunModel(codex.runModel ?? codex.defaultModel ?? '')
-  }, [project?.id, project?.metrics, project, setCodexGatewayId, setCodexRuntimeWorkspaceId, setCodexDefaultModel, setCodexDefaultPlanModel, setCodexDefaultRunModel])
+    const codex = projectGatewaySettings(project)
+    setGatewayId(codex.gatewayId ?? '')
+    setGatewayRuntimeWorkspaceId(codex.runtimeWorkspaceId ?? '')
+    setGatewayDefaultModel(codex.defaultModel ?? '')
+    setGatewayDefaultPlanModel(codex.planModel ?? codex.defaultModel ?? '')
+    setGatewayDefaultRunModel(codex.runModel ?? codex.defaultModel ?? '')
+  }, [project?.id, project?.metrics, project, setGatewayId, setGatewayRuntimeWorkspaceId, setGatewayDefaultModel, setGatewayDefaultPlanModel, setGatewayDefaultRunModel])
 
   return {
     refresh,

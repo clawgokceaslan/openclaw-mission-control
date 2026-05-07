@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { LuArrowRight, LuBot, LuCheck, LuClipboard, LuCog, LuDatabase, LuFileSearch, LuFolderOpen, LuHardDrive, LuLanguages, LuRefreshCw, LuSlidersHorizontal, LuTriangleAlert, LuWaypoints } from 'react-icons/lu'
 import { IPC_CHANNELS, type DatabaseLocationState, type PickDatabaseFileResponse, type PickDatabaseFolderResponse } from '@shared/contracts/ipc'
-import { CODEX_LANGUAGE_OPTIONS, DEFAULT_CODEX_LANGUAGE } from '@shared/utils/codex-language'
+import { GATEWAY_LANGUAGE_OPTIONS, DEFAULT_GATEWAY_LANGUAGE } from '@shared/utils/gateway-language'
 import type { Agent } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { useAuth } from '@renderer/providers/auth/auth-state'
@@ -33,9 +33,9 @@ export function SettingsPage() {
   const selectedGatewayId = searchParams.get('gatewayId')
   const [agents, setAgents] = useState<Agent[]>([])
   const [defaultAgentId, setDefaultAgentId] = useState('')
-  const [codexLanguage, setCodexLanguage] = useState(DEFAULT_CODEX_LANGUAGE)
-  const [codexLanguageSaving, setCodexLanguageSaving] = useState(false)
-  const [codexLanguageMessage, setCodexLanguageMessage] = useState<string | null>(null)
+  const [gatewayLanguage, setGatewayLanguage] = useState(DEFAULT_GATEWAY_LANGUAGE)
+  const [gatewayLanguageSaving, setGatewayLanguageSaving] = useState(false)
+  const [gatewayLanguageMessage, setGatewayLanguageMessage] = useState<string | null>(null)
   const [defaultAgentSaving, setDefaultAgentSaving] = useState(false)
   const [defaultAgentMessage, setDefaultAgentMessage] = useState<string | null>(null)
   const [databaseState, setDatabaseState] = useState<DatabaseLocationState>(databaseFallbackState)
@@ -58,7 +58,7 @@ export function SettingsPage() {
     if (!token) {
       setAgents([])
       setDefaultAgentId('')
-      setCodexLanguage(DEFAULT_CODEX_LANGUAGE)
+      setGatewayLanguage(DEFAULT_GATEWAY_LANGUAGE)
       setDatabaseState(databaseFallbackState)
       setDatabaseFolder('')
       setSourceDatabasePath('')
@@ -71,13 +71,13 @@ export function SettingsPage() {
     void Promise.all([
       loadList<Agent[]>(IPC_CHANNELS.agents.list, token),
       invokeBridge<{ agentId: string | null }>(IPC_CHANNELS.appSettings.getDefaultAgent, { actorToken: token }),
-      invokeBridge<{ language: string }>(IPC_CHANNELS.appSettings.getCodexLanguage, { actorToken: token }),
+      invokeBridge<{ language: string }>(IPC_CHANNELS.appSettings.getGatewayLanguage, { actorToken: token }),
       invokeBridge<DatabaseLocationState>(IPC_CHANNELS.appSettings.getDatabaseLocation, { actorToken: token })
     ]).then(([agentResponse, defaultResponse, languageResponse, databaseResponse]) => {
       if (cancelled) return
       setAgents(Array.isArray(agentResponse.data) ? agentResponse.data : [])
       setDefaultAgentId(defaultResponse.ok && defaultResponse.data?.agentId ? defaultResponse.data.agentId : '')
-      setCodexLanguage(languageResponse.ok && languageResponse.data?.language ? languageResponse.data.language : DEFAULT_CODEX_LANGUAGE)
+      setGatewayLanguage(languageResponse.ok && languageResponse.data?.language ? languageResponse.data.language : DEFAULT_GATEWAY_LANGUAGE)
       if (databaseResponse.ok && databaseResponse.data) {
         setDatabaseState(databaseResponse.data)
       } else {
@@ -104,16 +104,16 @@ export function SettingsPage() {
     return agentOptions.find((option) => option.value === defaultAgentId) ?? null
   }, [agentOptions, defaultAgentId])
 
-  const codexLanguageOptions = useMemo<AppSelectOption[]>(() => (
-    CODEX_LANGUAGE_OPTIONS.map((option) => ({
+  const gatewayLanguageOptions = useMemo<AppSelectOption[]>(() => (
+    GATEWAY_LANGUAGE_OPTIONS.map((option) => ({
       value: option.value,
       label: option.label
     }))
   ), [])
 
-  const selectedCodexLanguageOption = useMemo<AppSelectOption | null>(() => {
-    return codexLanguageOptions.find((option) => option.value === codexLanguage) ?? codexLanguageOptions[0] ?? null
-  }, [codexLanguage, codexLanguageOptions])
+  const selectedGatewayLanguageOption = useMemo<AppSelectOption | null>(() => {
+    return gatewayLanguageOptions.find((option) => option.value === gatewayLanguage) ?? gatewayLanguageOptions[0] ?? null
+  }, [gatewayLanguage, gatewayLanguageOptions])
 
   const saveDefaultAgent = async (option: AppSelectOption | null) => {
     setDefaultAgentSaving(true)
@@ -136,24 +136,24 @@ export function SettingsPage() {
     }
   }
 
-  const saveCodexLanguage = async (option: AppSelectOption | null) => {
-    setCodexLanguageSaving(true)
-    setCodexLanguageMessage(null)
+  const saveGatewayLanguage = async (option: AppSelectOption | null) => {
+    setGatewayLanguageSaving(true)
+    setGatewayLanguageMessage(null)
     try {
-      const response = await invokeBridge<{ language: string }>(IPC_CHANNELS.appSettings.setCodexLanguage, {
+      const response = await invokeBridge<{ language: string }>(IPC_CHANNELS.appSettings.setGatewayLanguage, {
         actorToken: token,
-        language: option?.value ?? DEFAULT_CODEX_LANGUAGE
+        language: option?.value ?? DEFAULT_GATEWAY_LANGUAGE
       })
       if (!response.ok) {
-        setCodexLanguageMessage(response.error?.message ?? 'Unable to update Codex language.')
+        setGatewayLanguageMessage(response.error?.message ?? 'Unable to update Codex language.')
         return
       }
-      setCodexLanguage(response.data?.language ?? DEFAULT_CODEX_LANGUAGE)
-      setCodexLanguageMessage('Codex language updated.')
+      setGatewayLanguage(response.data?.language ?? DEFAULT_GATEWAY_LANGUAGE)
+      setGatewayLanguageMessage('Codex language updated.')
     } catch (error) {
-      setCodexLanguageMessage(error instanceof Error ? error.message : 'Unable to update Codex language.')
+      setGatewayLanguageMessage(error instanceof Error ? error.message : 'Unable to update Codex language.')
     } finally {
-      setCodexLanguageSaving(false)
+      setGatewayLanguageSaving(false)
     }
   }
 
@@ -431,17 +431,17 @@ export function SettingsPage() {
                 <div className={styles.defaultAgentRow}>
                   <AppSelect
                     mode="single"
-                    value={selectedCodexLanguageOption}
-                    options={codexLanguageOptions}
+                    value={selectedGatewayLanguageOption}
+                    options={gatewayLanguageOptions}
                     placeholder="Select Codex language"
-                    isDisabled={codexLanguageSaving}
+                    isDisabled={gatewayLanguageSaving}
                     onChange={(option) => {
-                      if (!Array.isArray(option)) void saveCodexLanguage(option)
+                      if (!Array.isArray(option)) void saveGatewayLanguage(option)
                     }}
                   />
-                  <span>{codexLanguageSaving ? 'Saving...' : `${selectedCodexLanguageOption?.label ?? 'Turkish'} will be used for Codex output.`}</span>
+                  <span>{gatewayLanguageSaving ? 'Saving...' : `${selectedGatewayLanguageOption?.label ?? 'Turkish'} will be used for Codex output.`}</span>
                 </div>
-                {codexLanguageMessage ? <p className={styles.settingMessage}>{codexLanguageMessage}</p> : null}
+                {gatewayLanguageMessage ? <p className={styles.settingMessage}>{gatewayLanguageMessage}</p> : null}
               </div>
             </div>
           ) : null}

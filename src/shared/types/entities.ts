@@ -29,7 +29,7 @@ export interface Project {
   updatedAt: number
 }
 
-export interface ProjectCodexSettings {
+export interface ProjectGatewaySettings {
   gatewayId?: string | null
   runtimeWorkspaceId?: string | null
   defaultModel?: string | null
@@ -151,7 +151,7 @@ export interface TaskTemplatePayload {
   outputFormatId?: string | null
   comments?: TaskComment[]
   attachments?: TaskAttachment[]
-  codex?: {
+  gateway?: {
     gatewayId?: string | null
     model?: string | null
   }

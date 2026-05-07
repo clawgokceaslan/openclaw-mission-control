@@ -26,7 +26,7 @@ type ActionsMenuState = {
   top: number
 }
 
-type CodexModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }
+type GatewayModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }
 
 const emptyForm: GatewayFormState = {
   name: '',
@@ -153,7 +153,7 @@ export function GatewaysPage({ embedded = false, onOpenGateway }: GatewaysPagePr
   const refreshModels = async (gateway: Gateway) => {
     setActionsMenu(null)
     setBusyId(gateway.id)
-    const response = await invokeBridge<CodexModelsResponse>(IPC_CHANNELS.gateways.codexModels, {
+    const response = await invokeBridge<GatewayModelsResponse>(IPC_CHANNELS.gateways.gatewayModels, {
       actorToken: token,
       gatewayId: gateway.id
     })

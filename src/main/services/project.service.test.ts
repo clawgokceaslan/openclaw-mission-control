@@ -19,7 +19,7 @@ describe('ProjectService Codex settings', () => {
   it('normalizes prompt shape and preserves existing Codex settings on partial saves', async () => {
     const current = project({
       metrics: {
-        codex: {
+        gateway: {
           gatewayId: 'gateway-1',
           runtimeWorkspaceId: 'workspace-1',
           planModel: 'gpt-plan',
@@ -43,12 +43,12 @@ describe('ProjectService Codex settings', () => {
       {} as any
     )
 
-    const response = await service.update({ actorToken: 'token', id: 'project-1', codex: { promptShape: 'TOON' as any } })
+    const response = await service.update({ actorToken: 'token', id: 'project-1', gateway: { promptShape: 'TOON' as any } })
 
     expect(response.ok).toBe(true)
     expect(repo.update).toHaveBeenCalledWith('project-1', expect.objectContaining({
       metrics: expect.objectContaining({
-        codex: expect.objectContaining({
+        gateway: expect.objectContaining({
           gatewayId: 'gateway-1',
           runtimeWorkspaceId: 'workspace-1',
           planModel: 'gpt-plan',
@@ -76,11 +76,11 @@ describe('ProjectService Codex settings', () => {
       {} as any
     )
 
-    await service.update({ actorToken: 'token', id: 'project-1', codex: { promptShape: 'yaml' as any } })
+    await service.update({ actorToken: 'token', id: 'project-1', gateway: { promptShape: 'yaml' as any } })
 
     expect(repo.update).toHaveBeenCalledWith('project-1', expect.objectContaining({
       metrics: expect.objectContaining({
-        codex: expect.objectContaining({ promptShape: 'markdown' })
+        gateway: expect.objectContaining({ promptShape: 'markdown' })
       })
     }))
   })

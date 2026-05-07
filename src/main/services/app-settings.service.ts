@@ -7,14 +7,14 @@ import { AgentRepository } from '../../db/repositories/agent-repo.js'
 import { ProjectRepository } from '../../db/repositories/project-repo.js'
 import { getDatabaseLocationState, moveDatabaseToFolder } from '../../db/config.js'
 import { AuthService } from './auth.service.js'
-import { DEFAULT_CODEX_LANGUAGE, normalizeCodexLanguage, type CodexLanguage } from '../../shared/utils/codex-language.js'
+import { DEFAULT_GATEWAY_LANGUAGE, normalizeGatewayLanguage, type GatewayLanguage } from '../../shared/utils/gateway-language.js'
 import { electronRuntime } from '../utils/electron-runtime.js'
 import type { DatabaseLocationState } from '../../shared/contracts/ipc.js'
 
 const ACTIVE_GATEWAY_KEY = 'activeGatewayId'
 const DEFAULT_AGENT_KEY = 'defaultAgentId'
 const DEFAULT_ADD_TASK_PROJECT_KEY = 'defaultAddTaskProjectId'
-const CODEX_LANGUAGE_KEY = 'codexLanguage'
+const GATEWAY_LANGUAGE_KEY = 'gatewayLanguage'
 
 export class AppSettingsService {
   constructor(
@@ -108,18 +108,18 @@ export class AppSettingsService {
     return okResponse({ projectId: project.id, project })
   }
 
-  async getCodexLanguage(payload: { actorToken?: string }): Promise<ServiceResponse<{ language: CodexLanguage }>> {
+  async getGatewayLanguage(payload: { actorToken?: string }): Promise<ServiceResponse<{ language: GatewayLanguage }>> {
     const actor = await this.auth.requireActor(payload?.actorToken)
-    const stored = await this.repo.get<string | null>(actor.user.organizationId, CODEX_LANGUAGE_KEY)
-    const language = normalizeCodexLanguage(stored)
-    if (stored && stored !== language) await this.repo.set(actor.user.organizationId, CODEX_LANGUAGE_KEY, language)
-    return okResponse({ language: stored ? language : DEFAULT_CODEX_LANGUAGE })
+    const stored = await this.repo.get<string | null>(actor.user.organizationId, GATEWAY_LANGUAGE_KEY)
+    const language = normalizeGatewayLanguage(stored)
+    if (stored && stored !== language) await this.repo.set(actor.user.organizationId, GATEWAY_LANGUAGE_KEY, language)
+    return okResponse({ language: stored ? language : DEFAULT_GATEWAY_LANGUAGE })
   }
 
-  async setCodexLanguage(payload: { actorToken?: string; language?: string | null }): Promise<ServiceResponse<{ language: CodexLanguage }>> {
+  async setGatewayLanguage(payload: { actorToken?: string; language?: string | null }): Promise<ServiceResponse<{ language: GatewayLanguage }>> {
     const actor = await this.auth.requireActor(payload?.actorToken)
-    const language = normalizeCodexLanguage(payload?.language)
-    await this.repo.set(actor.user.organizationId, CODEX_LANGUAGE_KEY, language)
+    const language = normalizeGatewayLanguage(payload?.language)
+    await this.repo.set(actor.user.organizationId, GATEWAY_LANGUAGE_KEY, language)
     return okResponse({ language })
   }
 
@@ -209,4 +209,4 @@ export class AppSettingsService {
   }
 }
 
-export { ACTIVE_GATEWAY_KEY, DEFAULT_AGENT_KEY, DEFAULT_ADD_TASK_PROJECT_KEY, CODEX_LANGUAGE_KEY }
+export { ACTIVE_GATEWAY_KEY, DEFAULT_AGENT_KEY, DEFAULT_ADD_TASK_PROJECT_KEY, GATEWAY_LANGUAGE_KEY }

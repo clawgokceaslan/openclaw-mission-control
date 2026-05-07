@@ -6,8 +6,8 @@ import {
 } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS, type AppNavigateState } from '@shared/contracts/ipc'
-import { CODEX_REASONING_EFFORT_OPTIONS, DEFAULT_CODEX_LANGUAGE, codexModelReasoningEfforts, codexModelSupportsReasoning } from '@shared/utils/codex-language'
-import { codexChatLifecycleStatusKey, codexChatPhaseActionLabel, codexLifecycleStatusMeta, inferCodexChatPhase, type CodexChatPhase } from '@shared/utils/codex-chat-phase'
+import { GATEWAY_REASONING_EFFORT_OPTIONS, DEFAULT_GATEWAY_LANGUAGE, gatewayModelReasoningEfforts, gatewayModelSupportsReasoning } from '@shared/utils/gateway-language'
+import { gatewayChatLifecycleStatusKey, gatewayChatPhaseActionLabel, gatewayLifecycleStatusMeta, inferGatewayChatPhase, type GatewayChatPhase } from '@shared/utils/gateway-chat-phase'
 import { invokeBridge } from '@renderer/utils/api'
 import { clearRendererDiagnosticContext, setRendererDiagnosticContext } from '@renderer/utils/rendererResilience'
 import { Agent, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, CustomField } from '@shared/types/entities'
@@ -23,7 +23,7 @@ import { TaskModals } from '@renderer/components/projects/detail/TaskModals'
 import { createTaskWithTemplate, type CreateTaskInput } from './detail/createTaskWithTemplate'
 import { useProjectDetailData } from './detail/hooks/useProjectDetailData'
 import { useProjectChatPopup } from './detail/hooks/useProjectChatPopup'
-import { useProjectCodexFlow } from './detail/hooks/useProjectCodexFlow'
+import { useProjectGatewayFlow } from './detail/hooks/useProjectGatewayFlow'
 import { useProjectSelection } from './detail/hooks/useProjectSelection'
 import { useProjectDerivedState } from './detail/hooks/useProjectDerivedState'
 import { useProjectWorkspaceSettings } from './detail/hooks/useProjectWorkspaceSettings'
@@ -45,14 +45,14 @@ import {
   codexPayloadOverride,
   createLocalId,
   customFieldValueToDraft,
-  latestTaskCodexConversation,
+  latestTaskGatewayConversation,
   orderedTasksForStatus,
   projectDefaultAgentId,
   projectDefaultSkillIds,
-  readTaskCodexOverride,
+  readTaskGatewayOverride,
   reorderTasksForDrop,
-  taskCodexGatewayId,
-  taskCodexRunModel,
+  taskGatewayId,
+  taskGatewayRunModel,
   type TaskDropPosition
 } from './detail/projectDetailUtils'
 import {
@@ -100,7 +100,7 @@ type ProjectRecentChatRow = {
   taskId: string
   taskTitle: string
   conversationId: string
-  phase: CodexChatPhase
+  phase: GatewayChatPhase
   status: TaskActivityMessage['status'] | 'event'
   at: number
   count: number
@@ -110,7 +110,7 @@ type ProjectRecentChatRow = {
 
 function projectRecentChatStatusMeta(row: ProjectRecentChatRow) {
   const active = row.status === 'running' || row.status === 'queued'
-  return codexLifecycleStatusMeta(codexChatLifecycleStatusKey(row.phase, row.status, active))
+  return gatewayLifecycleStatusMeta(gatewayChatLifecycleStatusKey(row.phase, row.status, active))
 }
 
 function projectRecentChatPreview(value: string, max = 118): string {
@@ -235,28 +235,28 @@ export function ProjectDetailPage() {
     setProjectPromptError,
     isProjectPromptSaving,
     setIsProjectPromptSaving,
-    codexGatewayId,
-    setCodexGatewayId,
-    codexRuntimeWorkspaceId,
-    setCodexRuntimeWorkspaceId,
-    codexDefaultModel,
-    setCodexDefaultModel,
-    codexDefaultPlanModel,
-    setCodexDefaultPlanModel,
-    codexDefaultRunModel,
-    setCodexDefaultRunModel,
-    codexModelLoading,
-    setCodexModelLoading,
-    codexModelError,
-    setCodexModelError,
-    codexSaving,
+    gatewayId,
+    setGatewayId,
+    gatewayRuntimeWorkspaceId,
+    setGatewayRuntimeWorkspaceId,
+    gatewayDefaultModel,
+    setGatewayDefaultModel,
+    gatewayDefaultPlanModel,
+    setGatewayDefaultPlanModel,
+    gatewayDefaultRunModel,
+    setGatewayDefaultRunModel,
+    gatewayModelLoading,
+    setGatewayModelLoading,
+    gatewayModelError,
+    setGatewayModelError,
+    gatewaySaving,
     setCodexSaving,
-    codexRunLaunching,
-    setCodexRunLaunching,
-    codexPlanLaunching,
-    setCodexPlanLaunching,
-    codexRunFeedback,
-    setCodexRunFeedback,
+    gatewayRunLaunching,
+    setGatewayRunLaunching,
+    gatewayPlanLaunching,
+    setGatewayPlanLaunching,
+    gatewayRunFeedback,
+    setGatewayRunFeedback,
     chatDraft,
     setChatDraft,
     chatSending,
@@ -433,12 +433,12 @@ export function ProjectDetailPage() {
   const subtaskDescriptionAutosaveSnapshotRef = useRef('')
   const subtaskDescriptionSavedSnapshotRef = useRef('')
   const subtaskDescriptionAutosaveRequestIdRef = useRef(0)
-  const lastCodexModelRefreshRef = useRef<string | null>(null)
+  const lastGatewayModelRefreshRef = useRef<string | null>(null)
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false)
   const [isRecentChatsView, setIsRecentChatsView] = useState(false)
   const [pendingChatOpen, setPendingChatOpen] = useState<{ taskId: string; conversationId: string } | null>(null)
   const [defaultAgentId, setDefaultAgentId] = useState<string>('')
-  const [codexLanguage, setCodexLanguage] = useState<string>(DEFAULT_CODEX_LANGUAGE)
+  const [gatewayLanguage, setGatewayLanguage] = useState<string>(DEFAULT_GATEWAY_LANGUAGE)
   const {
     refresh,
     projectLoadError
@@ -544,22 +544,22 @@ export function ProjectDetailPage() {
     let cancelled = false
     if (!token) {
       setDefaultAgentId('')
-      setCodexLanguage(DEFAULT_CODEX_LANGUAGE)
+      setGatewayLanguage(DEFAULT_GATEWAY_LANGUAGE)
       return
     }
     void Promise.all([
       invokeBridge<{ agentId: string | null }>(IPC_CHANNELS.appSettings.getDefaultAgent, { actorToken: token }),
-      invokeBridge<{ language: string }>(IPC_CHANNELS.appSettings.getCodexLanguage, { actorToken: token })
+      invokeBridge<{ language: string }>(IPC_CHANNELS.appSettings.getGatewayLanguage, { actorToken: token })
     ])
       .then(([agentResponse, languageResponse]) => {
         if (cancelled) return
         setDefaultAgentId(agentResponse.ok && agentResponse.data?.agentId ? agentResponse.data.agentId : '')
-        setCodexLanguage(languageResponse.ok && languageResponse.data?.language ? languageResponse.data.language : DEFAULT_CODEX_LANGUAGE)
+        setGatewayLanguage(languageResponse.ok && languageResponse.data?.language ? languageResponse.data.language : DEFAULT_GATEWAY_LANGUAGE)
       })
       .catch(() => {
         if (!cancelled) {
           setDefaultAgentId('')
-          setCodexLanguage(DEFAULT_CODEX_LANGUAGE)
+          setGatewayLanguage(DEFAULT_GATEWAY_LANGUAGE)
         }
       })
     return () => {
@@ -625,12 +625,12 @@ export function ProjectDetailPage() {
   const {
     state: {
       selectedWorkspace,
-      savedCodexSettings,
-      codexModelOptions,
-      codexGatewayOptions,
+      savedGatewaySettings,
+      gatewayModelOptions,
+      gatewayOptions,
       workspaceOptions,
-      projectCodexModelOptions,
-      selectedCodexGatewayOption,
+      projectGatewayModelOptions,
+      selectedGatewayOption,
       selectedRuntimeWorkspaceOption,
       selectedDefaultModelOption,
       selectedDefaultPlanModelOption,
@@ -643,7 +643,7 @@ export function ProjectDetailPage() {
       createWorkspaceFromDraft,
       updateProjectWorkspace,
       saveProjectDefaultsSettings,
-      saveProjectCodexSettings,
+      saveProjectGatewaySettings,
       updateProjectGroupMembership,
       saveSelectedProjectGroup,
       syncProjectWorkspace: workspaceSyncProjectWorkspace,
@@ -655,7 +655,7 @@ export function ProjectDetailPage() {
       removeStatusDraft: workspaceRemoveStatusDraft,
       applyStatusTemplate: workspaceApplyStatusTemplate,
       saveProjectStatuses: workspaceSaveProjectStatuses,
-      setCodexGateway
+      setGateway
     }
   } = useProjectWorkspaceSettings({
     token,
@@ -675,29 +675,29 @@ export function ProjectDetailPage() {
     state: projectDetailState
   })
 
-  const projectCodexLanguage = savedCodexSettings.language || savedCodexSettings.outputLanguage || savedCodexSettings.inputLanguage || codexLanguage
-  const projectCodexPromptShape = savedCodexSettings.promptShape || 'markdown'
-  const projectCodexPlanReasoningEffort = savedCodexSettings.planReasoningEffort || 'medium'
-  const projectCodexRunReasoningEffort = savedCodexSettings.runReasoningEffort || 'medium'
+  const projectGatewayLanguage = savedGatewaySettings.language || savedGatewaySettings.outputLanguage || savedGatewaySettings.inputLanguage || gatewayLanguage
+  const projectGatewayPromptShape = savedGatewaySettings.promptShape || 'markdown'
+  const projectGatewayPlanReasoningEffort = savedGatewaySettings.planReasoningEffort || 'medium'
+  const projectGatewayRunReasoningEffort = savedGatewaySettings.runReasoningEffort || 'medium'
 
   const chatGateway = useMemo(() => gateways.find((gateway) => gateway.id === chatGatewayId) ?? null, [chatGatewayId, gateways])
   const chatGatewayConfig = useMemo(() => codexConfigOf(chatGateway), [chatGateway])
   const chatModelOptions = useMemo<AppSelectOption[]>(() => (chatGatewayConfig.models ?? []).map((model) => ({ label: model.label || model.id, value: model.id })), [chatGatewayConfig.models])
-  const chatGatewayOption = codexGatewayOptions.find((option) => option.value === chatGatewayId) ?? null
+  const chatGatewayOption = gatewayOptions.find((option) => option.value === chatGatewayId) ?? null
   const chatModelOption = chatModelOptions.find((option) => option.value === chatModel) ?? null
   const chatPlanModelOption = chatModelOptions.find((option) => option.value === (chatPlanModel || chatModel)) ?? null
   const chatRunModelOption = chatModelOptions.find((option) => option.value === (chatRunModel || chatModel)) ?? null
   const chatPlanModelRecord = useMemo(() => (chatGatewayConfig.models ?? []).find((model) => model.id === (chatPlanModel || chatModel)) ?? null, [chatGatewayConfig.models, chatModel, chatPlanModel])
   const chatRunModelRecord = useMemo(() => (chatGatewayConfig.models ?? []).find((model) => model.id === (chatRunModel || chatModel)) ?? null, [chatGatewayConfig.models, chatModel, chatRunModel])
   const chatPlanReasoningOptions = useMemo<AppSelectOption[]>(() => {
-    const efforts = codexModelReasoningEfforts(chatPlanModelRecord)
-    return CODEX_REASONING_EFFORT_OPTIONS.filter((option) => efforts.includes(option.value)).map((option) => ({ label: option.label, value: option.value }))
+    const efforts = gatewayModelReasoningEfforts(chatPlanModelRecord)
+    return GATEWAY_REASONING_EFFORT_OPTIONS.filter((option) => efforts.includes(option.value)).map((option) => ({ label: option.label, value: option.value }))
   }, [chatPlanModelRecord])
   const chatRunReasoningOptions = useMemo<AppSelectOption[]>(() => {
-    const efforts = codexModelReasoningEfforts(chatRunModelRecord)
-    return CODEX_REASONING_EFFORT_OPTIONS.filter((option) => efforts.includes(option.value)).map((option) => ({ label: option.label, value: option.value }))
+    const efforts = gatewayModelReasoningEfforts(chatRunModelRecord)
+    return GATEWAY_REASONING_EFFORT_OPTIONS.filter((option) => efforts.includes(option.value)).map((option) => ({ label: option.label, value: option.value }))
   }, [chatRunModelRecord])
-  const selectedTaskCodexSignature = useMemo(() => JSON.stringify(selectedTask?.payload?.codex ?? null), [selectedTask?.payload])
+  const selectedTaskGatewaySignature = useMemo(() => JSON.stringify(selectedTask?.payload?.gateway ?? null), [selectedTask?.payload])
 
   useEffect(() => {
     if (chatPlanReasoningOptions.length === 0) return
@@ -780,12 +780,12 @@ export function ProjectDetailPage() {
 
   useEffect(() => {
     if (!selectedTask) return
-    const override = readTaskCodexOverride(selectedTask)
-    const nextRunModel = override.runModel || override.legacyModel || savedCodexSettings.runModel || savedCodexSettings.defaultModel || ''
-    const nextPlanReasoningEffort = override.planReasoningEffort || projectCodexPlanReasoningEffort
-    const nextRunReasoningEffort = override.runReasoningEffort || projectCodexRunReasoningEffort
-    const nextGatewayId = override.gatewayId || savedCodexSettings.gatewayId || ''
-    const nextPlanModel = override.planModel || savedCodexSettings.planModel || savedCodexSettings.defaultModel || ''
+    const override = readTaskGatewayOverride(selectedTask)
+    const nextRunModel = override.runModel || override.legacyModel || savedGatewaySettings.runModel || savedGatewaySettings.defaultModel || ''
+    const nextPlanReasoningEffort = override.planReasoningEffort || projectGatewayPlanReasoningEffort
+    const nextRunReasoningEffort = override.runReasoningEffort || projectGatewayRunReasoningEffort
+    const nextGatewayId = override.gatewayId || savedGatewaySettings.gatewayId || ''
+    const nextPlanModel = override.planModel || savedGatewaySettings.planModel || savedGatewaySettings.defaultModel || ''
     setChatGatewayId(nextGatewayId)
     setChatModel(nextRunModel)
     setChatPlanModel(nextPlanModel)
@@ -794,13 +794,13 @@ export function ProjectDetailPage() {
     setChatRunReasoningEffort(nextRunReasoningEffort)
   }, [
     selectedTask?.id,
-    selectedTaskCodexSignature,
-    savedCodexSettings.gatewayId,
-    savedCodexSettings.defaultModel,
-    savedCodexSettings.planModel,
-    savedCodexSettings.runModel,
-    projectCodexPlanReasoningEffort,
-    projectCodexRunReasoningEffort,
+    selectedTaskGatewaySignature,
+    savedGatewaySettings.gatewayId,
+    savedGatewaySettings.defaultModel,
+    savedGatewaySettings.planModel,
+    savedGatewaySettings.runModel,
+    projectGatewayPlanReasoningEffort,
+    projectGatewayRunReasoningEffort,
     setChatGatewayId,
     setChatModel,
     setChatPlanModel,
@@ -809,10 +809,10 @@ export function ProjectDetailPage() {
     setChatRunReasoningEffort
   ])
   useEffect(() => {
-    setCodexRunFeedback(null)
+    setGatewayRunFeedback(null)
   }, [selectedTaskId])
-  const selectedTaskGatewayId = taskCodexGatewayId(selectedTask)
-  const effectiveTaskGatewayId = selectedTaskGatewayId || savedCodexSettings.gatewayId || ''
+  const selectedTaskGatewayId = taskGatewayId(selectedTask)
+  const effectiveTaskGatewayId = selectedTaskGatewayId || savedGatewaySettings.gatewayId || ''
   const effectiveTaskGateway = gateways.find((gateway) => gateway.id === effectiveTaskGatewayId) ?? null
   const taskModelOptions = useMemo<AppSelectOption[]>(() => (codexConfigOf(effectiveTaskGateway).models ?? []).map((model) => ({ label: model.label || model.id, value: model.id })), [effectiveTaskGateway])
 
@@ -1250,13 +1250,13 @@ export function ProjectDetailPage() {
         const ordered = [...conversationMessages].sort((a, b) => a.createdAt - b.createdAt)
         const last = ordered[ordered.length - 1]
         if (!last) return
-        const phaseMessage = ordered.find((message) => inferCodexChatPhase(message) !== 'FOLLOW UP') ?? last
+        const phaseMessage = ordered.find((message) => inferGatewayChatPhase(message) !== 'FOLLOW UP') ?? last
         rows.push({
           id: `${task.id}:${conversationId}`,
           taskId: task.id,
           taskTitle: task.title,
           conversationId,
-          phase: inferCodexChatPhase(phaseMessage),
+          phase: inferGatewayChatPhase(phaseMessage),
           status: last.status ?? 'event',
           at: last.updatedAt ?? last.createdAt,
           count: userMessageCount(ordered),
@@ -1276,8 +1276,8 @@ export function ProjectDetailPage() {
       agentId: selectedTask.agentId || selectedTaskAgent?.id || null,
       skills: selectedTaskSkills
     }
-    return { task: effectiveTask, project, projectGroup: projectGroupForExport, agents, skills, tags, customFields, projectStatuses, codexLanguage: projectCodexLanguage, codexPlanReasoningEffort: projectCodexPlanReasoningEffort, codexRunReasoningEffort: projectCodexRunReasoningEffort }
-  }, [agents, customFields, project, projectCodexLanguage, projectCodexPlanReasoningEffort, projectCodexRunReasoningEffort, projectGroupForExport, projectStatuses, selectedTask, selectedTaskAgent, selectedTaskSkills, skills, tags])
+    return { task: effectiveTask, project, projectGroup: projectGroupForExport, agents, skills, tags, customFields, projectStatuses, gatewayLanguage: projectGatewayLanguage, gatewayPlanReasoningEffort: projectGatewayPlanReasoningEffort, gatewayRunReasoningEffort: projectGatewayRunReasoningEffort }
+  }, [agents, customFields, project, projectGatewayLanguage, projectGatewayPlanReasoningEffort, projectGatewayRunReasoningEffort, projectGroupForExport, projectStatuses, selectedTask, selectedTaskAgent, selectedTaskSkills, skills, tags])
   const selectedTaskAgentMarkdown = selectedTaskExportContext ? buildAgentMarkdown(selectedTaskExportContext) : ''
   const selectedTaskSkillsMarkdown = selectedTaskExportContext ? buildSkillsMarkdown(selectedTaskExportContext) : ''
 
@@ -1304,25 +1304,25 @@ export function ProjectDetailPage() {
     setPendingChatOpen(null)
   }, [pendingChatOpen, selectedTask?.id])
 
-  const { canRunSelectedTaskWithCodex, canPlanSelectedTaskWithCodex, canSendChat, chatOperationFeedback, planChoiceOpen, refreshCodexGatewayModels, runSelectedTaskWithCodex, planSelectedTaskWithCodex, confirmPlanWithCodex, closePlanChoice, sendCodexChatMessage, sendPlannerClarification, stopCodexChat, addChatAttachments, applySlashCommand } = useProjectCodexFlow({
+  const { canRunSelectedTaskWithCodex, canPlanSelectedTaskWithCodex, canSendChat, chatOperationFeedback, planChoiceOpen, refreshGatewayModels, runSelectedTaskWithCodex, planSelectedTaskWithCodex, confirmPlanWithGateway, closePlanChoice, sendGatewayChatMessage, sendPlannerClarification, stopGatewayChat, addChatAttachments, applySlashCommand } = useProjectGatewayFlow({
     token,
     project,
     selectedTask,
     selectedTaskExportContext,
-    taskRunGatewayId: selectedTask ? taskCodexGatewayId(selectedTask) : '',
-    taskPlanModel: selectedTask ? readTaskCodexOverride(selectedTask).planModel : '',
-    taskRunModel: selectedTask ? taskCodexRunModel(selectedTask) : '',
-    savedCodexDefaultGatewayId: savedCodexSettings.gatewayId || '',
-    savedCodexDefaultModel: savedCodexSettings.defaultModel || '',
-    savedCodexDefaultPlanModel: savedCodexSettings.planModel || savedCodexSettings.defaultModel || '',
-    savedCodexDefaultRunModel: savedCodexSettings.runModel || savedCodexSettings.defaultModel || '',
+    taskRunGatewayId: selectedTask ? taskGatewayId(selectedTask) : '',
+    taskPlanModel: selectedTask ? readTaskGatewayOverride(selectedTask).planModel : '',
+    taskRunModel: selectedTask ? taskGatewayRunModel(selectedTask) : '',
+    savedGatewayDefaultGatewayId: savedGatewaySettings.gatewayId || '',
+    savedGatewayDefaultModel: savedGatewaySettings.defaultModel || '',
+    savedGatewayDefaultPlanModel: savedGatewaySettings.planModel || savedGatewaySettings.defaultModel || '',
+    savedGatewayDefaultRunModel: savedGatewaySettings.runModel || savedGatewaySettings.defaultModel || '',
     chatDraft,
     chatAttachments,
     chatGatewayId: chatGatewayId || '',
     chatModel,
     chatPlanModel,
     chatRunModel,
-    codexLanguage: projectCodexLanguage,
+    gatewayLanguage: projectGatewayLanguage,
     planReasoningEffort: chatPlanReasoningOptions.length > 0 ? chatPlanReasoningEffort : undefined,
     runReasoningEffort: chatRunReasoningOptions.length > 0 ? chatRunReasoningEffort : undefined,
     chatIncludeContext,
@@ -1331,24 +1331,24 @@ export function ProjectDetailPage() {
     isStartingNewChat,
     chatFollowUpContext,
     selectedChatSummary: derivedSelectedChatSummary,
-    codexRunFeedback,
-    codexRunLaunching,
-    codexPlanLaunching,
+    gatewayRunFeedback,
+    gatewayRunLaunching,
+    gatewayPlanLaunching,
     chatSending,
     chatStopping,
     state: {
-      setCodexRunLaunching,
-      setCodexPlanLaunching,
-      setCodexRunFeedback,
+      setGatewayRunLaunching,
+      setGatewayPlanLaunching,
+      setGatewayRunFeedback,
       setChatSending,
       setChatStopping,
       setChatSettingsOpen,
       setIsChatPopupOpen,
       setIsStartingNewChat,
       setSelectedChatConversationId,
-      setCodexModelLoading,
-      setCodexModelError,
-      setCodexDefaultModel,
+      setGatewayModelLoading,
+      setGatewayModelError,
+      setGatewayDefaultModel,
       setChatDraft,
       setChatAttachments,
       setChatComposerMode,
@@ -1362,29 +1362,29 @@ export function ProjectDetailPage() {
     }
   })
 
-  const openExistingSelectedTaskCodexConversation = (phase: 'PLAN' | 'RUN') => {
+  const openExistingSelectedTaskGatewayConversation = (phase: 'PLAN' | 'RUN') => {
     if (!selectedTask) return false
-    const latestConversation = latestTaskCodexConversation(selectedTask, phase)
+    const latestConversation = latestTaskGatewayConversation(selectedTask, phase)
     if (!latestConversation) return false
     openTaskChatConversation(selectedTask.id, latestConversation.conversationId)
     return true
   }
 
   const hasExistingSelectedTaskPlanConversation = useMemo(() => {
-    return selectedTask ? Boolean(latestTaskCodexConversation(selectedTask, 'PLAN')) : false
+    return selectedTask ? Boolean(latestTaskGatewayConversation(selectedTask, 'PLAN')) : false
   }, [selectedTask])
 
   const hasExistingSelectedTaskRunConversation = useMemo(() => {
-    return selectedTask ? Boolean(latestTaskCodexConversation(selectedTask, 'RUN')) : false
+    return selectedTask ? Boolean(latestTaskGatewayConversation(selectedTask, 'RUN')) : false
   }, [selectedTask])
 
   const handleRunSelectedTaskWithCodex = () => {
-    if (openExistingSelectedTaskCodexConversation('RUN')) return
+    if (openExistingSelectedTaskGatewayConversation('RUN')) return
     void runSelectedTaskWithCodex()
   }
 
   const handlePlanSelectedTaskWithCodex = () => {
-    if (openExistingSelectedTaskCodexConversation('PLAN')) return
+    if (openExistingSelectedTaskGatewayConversation('PLAN')) return
     void planSelectedTaskWithCodex()
   }
 
@@ -1403,7 +1403,7 @@ export function ProjectDetailPage() {
     chatVisibleLimit,
     chatGateway,
     chatGatewayOption,
-    chatGatewayOptions: codexGatewayOptions,
+    chatGatewayOptions: gatewayOptions,
     chatModel,
     chatModelOption,
     chatPlanModel,
@@ -1417,18 +1417,18 @@ export function ProjectDetailPage() {
     chatModelOptions,
     chatGatewayConfig,
     chatRuntimeWorkspace,
-    runtimeWorkspaceId: savedCodexSettings.runtimeWorkspaceId,
+    runtimeWorkspaceId: savedGatewaySettings.runtimeWorkspaceId,
     chatIncludeContext,
     chatOperationFeedback,
-    codexPlanLaunching,
-    codexRunLaunching,
+    gatewayPlanLaunching,
+    gatewayRunLaunching,
     planChoiceOpen,
     selectedChatConversationId,
     setSelectedChatConversationId,
     isStartingNewChat,
     setIsStartingNewChat,
     setChatComposerMode,
-    setCodexRunFeedback,
+    setGatewayRunFeedback,
     setChatDraft,
     setChatAttachments,
     setChatVisibleLimit,
@@ -1453,11 +1453,11 @@ export function ProjectDetailPage() {
     chatComposerFocused,
     runSelectedTaskWithCodex,
     planSelectedTaskWithCodex,
-    confirmPlanWithCodex,
+    confirmPlanWithGateway,
     closePlanChoice,
-    sendCodexChatMessage,
+    sendGatewayChatMessage,
     sendPlannerClarification,
-    stopCodexChat,
+    stopGatewayChat,
     applySlashCommand,
     addChatAttachments,
     onClose: () => setIsChatPopupOpen(false),
@@ -1997,23 +1997,23 @@ export function ProjectDetailPage() {
     await refresh()
   }
 
-  const setTaskCodexSelection = async (patch: { gatewayId?: string | null; model?: string | null; planModel?: string | null; runModel?: string | null; planReasoningEffort?: string | null; runReasoningEffort?: string | null }) => {
+  const setTaskGatewaySelection = async (patch: { gatewayId?: string | null; model?: string | null; planModel?: string | null; runModel?: string | null; planReasoningEffort?: string | null; runReasoningEffort?: string | null }) => {
     if (!selectedTask) return
     const nextPayload: Record<string, unknown> = { ...(selectedTask.payload ?? {}) }
-    const currentCodex = readTaskCodexOverride(selectedTask)
-    const currentGatewayId = currentCodex.gatewayId
-    const currentPlanModel = currentCodex.planModel
-    const currentRunModel = currentCodex.runModel || currentCodex.legacyModel
-    const currentPlanReasoningEffort = currentCodex.planReasoningEffort
-    const currentRunReasoningEffort = currentCodex.runReasoningEffort
+    const currentGateway = readTaskGatewayOverride(selectedTask)
+    const currentGatewayId = currentGateway.gatewayId
+    const currentPlanModel = currentGateway.planModel
+    const currentRunModel = currentGateway.runModel || currentGateway.legacyModel
+    const currentPlanReasoningEffort = currentGateway.planReasoningEffort
+    const currentRunReasoningEffort = currentGateway.runReasoningEffort
     const nextGatewayId = patch.gatewayId === undefined ? currentGatewayId : patch.gatewayId ?? ''
     const nextPlanModel = patch.planModel === undefined ? currentPlanModel : patch.planModel ?? ''
     const nextRunModel = patch.runModel === undefined ? currentRunModel : patch.runModel ?? ''
     const nextModel = patch.model === undefined ? nextRunModel : patch.model ?? ''
-    const effectiveGateway = gateways.find((gateway) => gateway.id === (nextGatewayId || savedCodexSettings.gatewayId)) ?? null
+    const effectiveGateway = gateways.find((gateway) => gateway.id === (nextGatewayId || savedGatewaySettings.gatewayId)) ?? null
     const gatewayModels = codexConfigOf(effectiveGateway).models ?? []
-    const effectivePlanModel = nextPlanModel || savedCodexSettings.planModel || savedCodexSettings.defaultModel || ''
-    const effectiveRunModel = nextRunModel || savedCodexSettings.runModel || savedCodexSettings.defaultModel || ''
+    const effectivePlanModel = nextPlanModel || savedGatewaySettings.planModel || savedGatewaySettings.defaultModel || ''
+    const effectiveRunModel = nextRunModel || savedGatewaySettings.runModel || savedGatewaySettings.defaultModel || ''
     const planModelRecord = gatewayModels.find((model) => model.id === effectivePlanModel) ?? null
     const runModelRecord = gatewayModels.find((model) => model.id === effectiveRunModel) ?? null
     const nextPlanReasoningEffort = patch.planReasoningEffort === undefined ? currentPlanReasoningEffort : patch.planReasoningEffort ?? ''
@@ -2023,13 +2023,13 @@ export function ProjectDetailPage() {
       nextModel,
       nextPlanModel,
       nextRunModel,
-      codexModelSupportsReasoning(planModelRecord) ? nextPlanReasoningEffort : '',
-      codexModelSupportsReasoning(runModelRecord) ? nextRunReasoningEffort : ''
+      gatewayModelSupportsReasoning(planModelRecord) ? nextPlanReasoningEffort : '',
+      gatewayModelSupportsReasoning(runModelRecord) ? nextRunReasoningEffort : ''
     )
     if (override) {
-      nextPayload.codex = override
+      nextPayload.gateway = override
     } else {
-      delete nextPayload.codex
+      delete nextPayload.gateway
     }
     const response = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
       actorToken: token,
@@ -3067,40 +3067,40 @@ export function ProjectDetailPage() {
     onCreateWorkspace: createWorkspaceFromDraft,
     onCloseWorkspacePicker: () => setIsWorkspacePickerOpen(false),
 
-    selectedCodexGatewayOption,
+    selectedGatewayOption,
     gateways,
-    codexGatewayOptions,
+    gatewayOptions,
     selectedRuntimeWorkspaceOption,
     selectedDefaultModelOption,
     selectedDefaultPlanModelOption,
     selectedDefaultRunModelOption,
-              codexModelOptions: projectCodexModelOptions,
-    codexModelLoading,
-    codexModelError,
-    codexDefaultModel,
-    codexDefaultPlanModel,
-    codexDefaultRunModel,
-    codexLanguage: projectCodexLanguage,
-    codexPromptShape: projectCodexPromptShape,
-    codexPlanReasoningEffort: projectCodexPlanReasoningEffort,
-    codexRunReasoningEffort: projectCodexRunReasoningEffort,
-    codexGatewayId,
-    codexRuntimeWorkspaceId,
-    onSetCodexGatewayId: setCodexGateway,
-    onSetCodexDefaultModel: setCodexDefaultModel,
-    onSetCodexDefaultPlanModel: setCodexDefaultPlanModel,
-    onSetCodexDefaultRunModel: setCodexDefaultRunModel,
-    onSetCodexRuntimeWorkspaceId: setCodexRuntimeWorkspaceId,
-    onSetCodexModelError: setCodexModelError,
-    codexSaving,
+              gatewayModelOptions: projectGatewayModelOptions,
+    gatewayModelLoading,
+    gatewayModelError,
+    gatewayDefaultModel,
+    gatewayDefaultPlanModel,
+    gatewayDefaultRunModel,
+    gatewayLanguage: projectGatewayLanguage,
+    codexPromptShape: projectGatewayPromptShape,
+    gatewayPlanReasoningEffort: projectGatewayPlanReasoningEffort,
+    gatewayRunReasoningEffort: projectGatewayRunReasoningEffort,
+    gatewayId,
+    gatewayRuntimeWorkspaceId,
+    onSetGatewayId: setGateway,
+    onSetGatewayDefaultModel: setGatewayDefaultModel,
+    onSetGatewayDefaultPlanModel: setGatewayDefaultPlanModel,
+    onSetGatewayDefaultRunModel: setGatewayDefaultRunModel,
+    onSetGatewayRuntimeWorkspaceId: setGatewayRuntimeWorkspaceId,
+    onSetGatewayModelError: setGatewayModelError,
+    gatewaySaving,
     agents,
     skills,
     defaultAgentId: projectDefaultAgentId(project),
     defaultSkillIds: projectDefaultSkillIds(project),
     onSaveProjectDefaultsSettings: saveProjectDefaultsSettings,
-    onSaveProjectCodexSettings: saveProjectCodexSettings,
-    onRefreshCodexGatewayModels: refreshCodexGatewayModels,
-    projectCodexModelOptions,
+    onSaveProjectGatewaySettings: saveProjectGatewaySettings,
+    onRefreshGatewayModels: refreshGatewayModels,
+    projectGatewayModelOptions,
 
     isStatusTemplatePickerOpen,
     statusTemplates,
@@ -3229,7 +3229,7 @@ export function ProjectDetailPage() {
               {projectRecentChats.map((row) => (
                 <button type="button" key={row.id} className={styles.projectRecentChatRow} onClick={() => openRecentChat(row)}>
                   <span className={styles.projectRecentChatBadges}>
-                    <b className={styles.projectRecentChatSourceBadge}>{codexChatPhaseActionLabel(row.phase)}</b>
+                    <b className={styles.projectRecentChatSourceBadge}>{gatewayChatPhaseActionLabel(row.phase)}</b>
                     <b className={`${styles.chatStatusBadge} ${styles[`chatStatus_${projectRecentChatStatusMeta(row).tone}`] ?? ''}`}>{projectRecentChatStatusMeta(row).label}</b>
                   </span>
                   <span className={styles.projectRecentChatTask}>{row.taskTitle}</span>
@@ -3378,12 +3378,12 @@ export function ProjectDetailPage() {
             }}
             onDownloadAgentMarkdown={selectedTaskAgentMarkdown.trim() ? () => downloadMarkdownFile('Agents.md', selectedTaskAgentMarkdown) : undefined}
             onDownloadSkillsMarkdown={selectedTaskSkillsMarkdown.trim() ? () => downloadMarkdownFile('Skills.md', selectedTaskSkillsMarkdown) : undefined}
-            onRunCodex={handleRunSelectedTaskWithCodex}
-            isRunCodexBusy={codexRunLaunching}
-            isRunCodexDisabled={!hasExistingSelectedTaskRunConversation && !canRunSelectedTaskWithCodex}
-            onPlanWithCodex={handlePlanSelectedTaskWithCodex}
-            isPlanWithCodexBusy={codexPlanLaunching}
-            isPlanWithCodexDisabled={!hasExistingSelectedTaskPlanConversation && !canPlanSelectedTaskWithCodex}
+            onRunGateway={handleRunSelectedTaskWithCodex}
+            isRunGatewayBusy={gatewayRunLaunching}
+            isRunGatewayDisabled={!hasExistingSelectedTaskRunConversation && !canRunSelectedTaskWithCodex}
+            onPlanWithGateway={handlePlanSelectedTaskWithCodex}
+            isPlanWithGatewayBusy={gatewayPlanLaunching}
+            isPlanWithGatewayDisabled={!hasExistingSelectedTaskPlanConversation && !canPlanSelectedTaskWithCodex}
             onImportJson={() => setIsTaskImportOpen(true)}
             scope={{
               project,
@@ -3462,12 +3462,12 @@ export function ProjectDetailPage() {
               selectedTaskSkillOptions,
               skills,
               setTaskSkills,
-              savedCodexSettings,
+              savedGatewaySettings,
               gateways,
-              codexGatewayOptions,
-              selectedCodexGateway: selectedCodexGatewayOption ? { name: selectedCodexGatewayOption.label, id: selectedCodexGatewayOption.value ?? '' } : null,
-              setTaskCodexSelection,
-              openCodexSettings: () => { setIsStatusEditorOpen(true); setProjectSettingsTab('codex') },
+              gatewayOptions,
+              selectedGateway: selectedGatewayOption ? { name: selectedGatewayOption.label, id: selectedGatewayOption.value ?? '' } : null,
+              setTaskGatewaySelection,
+              openGatewaySettings: () => { setIsStatusEditorOpen(true); setProjectSettingsTab('codex') },
               commentDraft,
               setCommentDraft,
               editingCommentId,
@@ -3582,9 +3582,9 @@ export function ProjectDetailPage() {
         {isChatPopupOpen ? <ChatPopup chatState={chatState} chatHandlers={chatHandlers} /> : null}
         <PlanChoiceModal
           open={planChoiceOpen}
-          loading={codexPlanLaunching}
+          loading={gatewayPlanLaunching}
           onClose={closePlanChoice}
-          onSelect={(mode) => void confirmPlanWithCodex(mode)}
+          onSelect={(mode) => void confirmPlanWithGateway(mode)}
         />
     </section>
   )

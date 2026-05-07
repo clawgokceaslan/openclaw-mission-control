@@ -14,7 +14,7 @@ import {
   usageFromMetadata,
   visibleChatMessagesForLimit
 } from '../chat/chatUtils'
-import type { CodexStopResult } from './useProjectCodexFlow'
+import type { CodexStopResult } from './useProjectGatewayFlow'
 import type { ChatAttachmentDraft, ChatConversationSummary, ChatOperationFeedbackData, GeneratedContextEntry, PlannerClarificationMode, SlashCommand, TaskActivityMessage } from '../types'
 
 interface Setter<T> {
@@ -36,8 +36,8 @@ export interface ChatPopupState {
   chatMode?: 'chat' | 'steer'
   selectedChatCanStop: boolean
   chatStopping: boolean
-  codexPlanLaunching: boolean
-  codexRunLaunching: boolean
+  gatewayPlanLaunching: boolean
+  gatewayRunLaunching: boolean
   planChoiceOpen: boolean
   visibleMessages: TaskActivityMessage[]
   renderedMessages: TaskActivityMessage[]
@@ -173,15 +173,15 @@ interface ChatPopupParams {
   runtimeWorkspaceId?: string | null
   chatIncludeContext: boolean
   chatOperationFeedback: ChatOperationFeedbackData | null
-  codexPlanLaunching: boolean
-  codexRunLaunching: boolean
+  gatewayPlanLaunching: boolean
+  gatewayRunLaunching: boolean
   planChoiceOpen: boolean
   selectedChatConversationId: string
   setSelectedChatConversationId: Setter<string>
   isStartingNewChat: boolean
   setIsStartingNewChat: Setter<boolean>
   setChatComposerMode: Setter<'chat' | 'steer'>
-  setCodexRunFeedback: Setter<ChatOperationFeedbackData | null>
+  setGatewayRunFeedback: Setter<ChatOperationFeedbackData | null>
   setChatDraft: Setter<string>
   setChatAttachments: Setter<ChatAttachmentDraft[]>
   setChatVisibleLimit: Setter<number>
@@ -208,11 +208,11 @@ interface ChatPopupParams {
   chatComposerFocused: boolean
   runSelectedTaskWithCodex: () => Promise<void>
   planSelectedTaskWithCodex: () => Promise<void>
-  confirmPlanWithCodex: (clarificationMode: PlannerClarificationMode) => Promise<void>
+  confirmPlanWithGateway: (clarificationMode: PlannerClarificationMode) => Promise<void>
   closePlanChoice: () => void
-  sendCodexChatMessage: () => Promise<void>
+  sendGatewayChatMessage: () => Promise<void>
   sendPlannerClarification: (answer: string) => Promise<void>
-  stopCodexChat: (conversationIdOverride?: string) => Promise<CodexStopResult>
+  stopGatewayChat: (conversationIdOverride?: string) => Promise<CodexStopResult>
   applySlashCommand: (command: SlashCommand) => Promise<void>
   addChatAttachments: (files: FileList | File[]) => Promise<void>
   onClose: () => void
@@ -258,15 +258,15 @@ export function useProjectChatPopup({
   runtimeWorkspaceId,
   chatIncludeContext,
   chatOperationFeedback,
-  codexPlanLaunching,
-  codexRunLaunching,
+  gatewayPlanLaunching,
+  gatewayRunLaunching,
   planChoiceOpen,
   selectedChatConversationId,
   setSelectedChatConversationId,
   isStartingNewChat,
   setIsStartingNewChat,
   setChatComposerMode,
-  setCodexRunFeedback,
+  setGatewayRunFeedback,
   setChatDraft,
   setChatAttachments,
   setChatVisibleLimit,
@@ -292,11 +292,11 @@ export function useProjectChatPopup({
   chatComposerFocused,
   runSelectedTaskWithCodex,
   planSelectedTaskWithCodex,
-  confirmPlanWithCodex,
+  confirmPlanWithGateway,
   closePlanChoice,
-  sendCodexChatMessage,
+  sendGatewayChatMessage,
   sendPlannerClarification,
-  stopCodexChat,
+  stopGatewayChat,
   applySlashCommand,
   addChatAttachments,
   onClose,
@@ -397,7 +397,7 @@ export function useProjectChatPopup({
     if (!chatOperationFeedback || !isChatModalMounted) return null
     if (chatOperationFeedback.state === 'success') return null
 
-    const source = codexPlanLaunching ? 'codex-plan' : codexRunLaunching ? 'codex-run' : 'codex-chat'
+    const source = gatewayPlanLaunching ? 'gateway-plan' : gatewayRunLaunching ? 'gateway-run' : 'gateway-chat'
     const role = chatOperationFeedback.state === 'error' ? 'error' : 'thinking'
     const status = chatOperationFeedback.state === 'running'
       ? 'running'
@@ -413,7 +413,7 @@ export function useProjectChatPopup({
       body: `${chatOperationFeedback.title}: ${chatOperationFeedback.message}`,
       createdAt: Date.now()
     }
-  }, [chatOperationFeedback, codexPlanLaunching, codexRunLaunching, isChatModalMounted, selectedChatConversationId])
+  }, [chatOperationFeedback, gatewayPlanLaunching, gatewayRunLaunching, isChatModalMounted, selectedChatConversationId])
 
   const scrollSignal = useMemo(() => {
     const lastMessage = renderedChatMessages[renderedChatMessages.length - 1]
@@ -557,8 +557,8 @@ export function useProjectChatPopup({
     chatSettingsOpen,
     selectedChatCanStop: selectedChatCanStopComputed,
     chatStopping,
-    codexPlanLaunching,
-    codexRunLaunching,
+    gatewayPlanLaunching,
+    gatewayRunLaunching,
     planChoiceOpen,
     visibleMessages: visibleChatMessages,
     renderedMessages: renderedChatMessages,
@@ -611,7 +611,7 @@ export function useProjectChatPopup({
     onNewConversation: () => {
       setIsStartingNewChat(true)
       setChatComposerMode('chat')
-      setCodexRunFeedback(null)
+      setGatewayRunFeedback(null)
     },
     onConversationSelect: (conversationId) => {
       setIsStartingNewChat(false)
@@ -623,7 +623,7 @@ export function useProjectChatPopup({
       const targetConversationId = conversationId || selectedChatSummary?.id || selectedChatConversationId
       if (!targetConversationId) return
       setStoppingConversationIds((current) => new Set(current).add(targetConversationId))
-      void stopCodexChat(targetConversationId)
+      void stopGatewayChat(targetConversationId)
         .then((result) => {
           if (result.notFound) {
             setLocalSettledConversationIds((current) => new Set(current).add(targetConversationId))
@@ -639,7 +639,7 @@ export function useProjectChatPopup({
     },
     onPlan: () => void planSelectedTaskWithCodex(),
     onPlanChoiceClose: () => closePlanChoice(),
-    onPlanChoiceSelect: (clarificationMode) => void confirmPlanWithCodex(clarificationMode),
+    onPlanChoiceSelect: (clarificationMode) => void confirmPlanWithGateway(clarificationMode),
     onRun: () => void runSelectedTaskWithCodex(),
     onLoadEarlier: () => setChatVisibleLimit((value) => Math.min(visibleChatMessages.length, value + CHAT_MESSAGE_LOAD_STEP)),
     onChatScroll,
@@ -676,7 +676,7 @@ export function useProjectChatPopup({
     onSlashCommandApply: applySlashCommand,
     onSlashCommandIndexChange: (updater) => setSlashCommandIndex((value) => updater(value)),
     onClearSlashDraft: () => setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, '')),
-    onSend: () => void sendCodexChatMessage(),
+    onSend: () => void sendGatewayChatMessage(),
     onPlannerQuestionAnswer: (answer) => void sendPlannerClarification(answer)
   }
 

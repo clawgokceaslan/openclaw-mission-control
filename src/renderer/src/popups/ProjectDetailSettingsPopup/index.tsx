@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import type { AppSelectOption } from '@renderer/components/select/AppSelect'
 import { AppSelect } from '@renderer/components/select/AppSelect'
 import { LuCircleCheck, LuTriangleAlert } from 'react-icons/lu'
-import type { Agent, Gateway, Project, ProjectCodexSettings, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Workspace } from '@shared/types/entities'
-import { CODEX_LANGUAGE_OPTIONS, CODEX_REASONING_EFFORT_OPTIONS, codexModelReasoningEfforts, codexModelSupportsReasoning, normalizeCodexLanguage, normalizeCodexReasoningEffort } from '@shared/utils/codex-language'
-import { CODEX_PROMPT_SHAPES, normalizeCodexPromptShape } from '@shared/utils/codex-prompt-shape'
+import type { Agent, Gateway, Project, ProjectGatewaySettings, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Workspace } from '@shared/types/entities'
+import { GATEWAY_LANGUAGE_OPTIONS, GATEWAY_REASONING_EFFORT_OPTIONS, gatewayModelReasoningEfforts, gatewayModelSupportsReasoning, normalizeGatewayLanguage, normalizeGatewayReasoningEffort } from '@shared/utils/gateway-language'
+import { GATEWAY_PROMPT_SHAPES, normalizeGatewayPromptShape } from '@shared/utils/gateway-prompt-shape'
 import type { ProjectSettingsTab } from '@renderer/screens/projects/detail/types'
 import { StatusTemplatePickerModal } from '@renderer/components/projects/detail/ProjectModals/StatusTemplatePickerModal'
 import { ProjectGroupPickerModal } from '@renderer/components/projects/detail/ProjectModals/ProjectGroupPickerModal'
@@ -54,35 +54,35 @@ export interface ProjectDetailSettingsPopupProps {
     onChooseWorkspaceFolder: () => void
     onCreateWorkspace?: () => Promise<Workspace | null> | Workspace | null
 
-    selectedCodexGatewayOption: ProjectSettingsOption | null
+    selectedGatewayOption: ProjectSettingsOption | null
     gateways?: Gateway[]
-    codexGatewayOptions: AppSelectOption[]
+    gatewayOptions: AppSelectOption[]
     selectedRuntimeWorkspaceOption: AppSelectOption | null
     selectedDefaultModelOption: AppSelectOption | null
     selectedDefaultPlanModelOption: AppSelectOption | null
     selectedDefaultRunModelOption: AppSelectOption | null
-    projectCodexModelOptions: AppSelectOption[]
-    codexModelOptions: unknown[]
-    codexModelLoading: boolean
-    codexModelError: string | null
-    codexDefaultModel: string
-    codexDefaultPlanModel: string
-    codexDefaultRunModel: string
-    codexLanguage: string
-    codexPromptShape: ProjectCodexSettings['promptShape']
-    codexPlanReasoningEffort: string
-    codexRunReasoningEffort: string
-    codexGatewayId: string
-    codexRuntimeWorkspaceId: string
-    onSetCodexGatewayId: (value: string) => void
-    onSetCodexDefaultModel: (value: string) => void
-    onSetCodexDefaultPlanModel: (value: string) => void
-    onSetCodexDefaultRunModel: (value: string) => void
-    onSetCodexRuntimeWorkspaceId: (value: string) => void
-    onSetCodexModelError: (value: string | null) => void
-    codexSaving: boolean
-    onSaveProjectCodexSettings: (draft?: { gatewayId?: string; runtimeWorkspaceId?: string; planModel?: string; runModel?: string; language?: string; promptShape?: ProjectCodexSettings['promptShape']; planReasoningEffort?: string; runReasoningEffort?: string }) => ProjectCodexSettings | void | Promise<ProjectCodexSettings | void>
-    onRefreshCodexGatewayModels?: (gatewayId: string) => Promise<void> | void
+    projectGatewayModelOptions: AppSelectOption[]
+    gatewayModelOptions: unknown[]
+    gatewayModelLoading: boolean
+    gatewayModelError: string | null
+    gatewayDefaultModel: string
+    gatewayDefaultPlanModel: string
+    gatewayDefaultRunModel: string
+    gatewayLanguage: string
+    codexPromptShape: ProjectGatewaySettings['promptShape']
+    gatewayPlanReasoningEffort: string
+    gatewayRunReasoningEffort: string
+    gatewayId: string
+    gatewayRuntimeWorkspaceId: string
+    onSetGatewayId: (value: string) => void
+    onSetGatewayDefaultModel: (value: string) => void
+    onSetGatewayDefaultPlanModel: (value: string) => void
+    onSetGatewayDefaultRunModel: (value: string) => void
+    onSetGatewayRuntimeWorkspaceId: (value: string) => void
+    onSetGatewayModelError: (value: string | null) => void
+    gatewaySaving: boolean
+    onSaveProjectGatewaySettings: (draft?: { gatewayId?: string; runtimeWorkspaceId?: string; planModel?: string; runModel?: string; language?: string; promptShape?: ProjectGatewaySettings['promptShape']; planReasoningEffort?: string; runReasoningEffort?: string }) => ProjectGatewaySettings | void | Promise<ProjectGatewaySettings | void>
+    onRefreshGatewayModels?: (gatewayId: string) => Promise<void> | void
     agents?: Agent[]
     skills?: Skill[]
     defaultAgentId: string
@@ -131,14 +131,14 @@ export interface ProjectDetailSettingsPopupProps {
 export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDetailSettingsPopupProps) {
   const s = scope as any
   const [activeTab, setActiveTab] = useState<ProjectSettingsTab>(scope.projectSettingsTab)
-  const [gatewayIdDraft, setGatewayIdDraft] = useState(scope.codexGatewayId)
-  const [runtimeWorkspaceIdDraft, setRuntimeWorkspaceIdDraft] = useState(scope.codexRuntimeWorkspaceId)
-  const [planModelDraft, setPlanModelDraft] = useState(scope.codexDefaultPlanModel || scope.codexDefaultModel)
-  const [runModelDraft, setRunModelDraft] = useState(scope.codexDefaultRunModel || scope.codexDefaultModel)
-  const [languageDraft, setLanguageDraft] = useState(normalizeCodexLanguage(scope.codexLanguage))
-  const [promptShapeDraft, setPromptShapeDraft] = useState(normalizeCodexPromptShape(scope.codexPromptShape))
-  const [planReasoningDraft, setPlanReasoningDraft] = useState(normalizeCodexReasoningEffort(scope.codexPlanReasoningEffort))
-  const [runReasoningDraft, setRunReasoningDraft] = useState(normalizeCodexReasoningEffort(scope.codexRunReasoningEffort))
+  const [gatewayIdDraft, setGatewayIdDraft] = useState(scope.gatewayId)
+  const [runtimeWorkspaceIdDraft, setRuntimeWorkspaceIdDraft] = useState(scope.gatewayRuntimeWorkspaceId)
+  const [planModelDraft, setPlanModelDraft] = useState(scope.gatewayDefaultPlanModel || scope.gatewayDefaultModel)
+  const [runModelDraft, setRunModelDraft] = useState(scope.gatewayDefaultRunModel || scope.gatewayDefaultModel)
+  const [languageDraft, setLanguageDraft] = useState(normalizeGatewayLanguage(scope.gatewayLanguage))
+  const [promptShapeDraft, setPromptShapeDraft] = useState(normalizeGatewayPromptShape(scope.codexPromptShape))
+  const [planReasoningDraft, setPlanReasoningDraft] = useState(normalizeGatewayReasoningEffort(scope.gatewayPlanReasoningEffort))
+  const [runReasoningDraft, setRunReasoningDraft] = useState(normalizeGatewayReasoningEffort(scope.gatewayRunReasoningEffort))
   const [defaultAgentIdDraft, setDefaultAgentIdDraft] = useState(scope.defaultAgentId)
   const [defaultSkillIdsDraft, setDefaultSkillIdsDraft] = useState<string[]>(scope.defaultSkillIds ?? [])
   const [workspaceTargetIdDraft, setWorkspaceTargetIdDraft] = useState(scope.selectedWorkspaceId ?? '')
@@ -154,14 +154,14 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
     if (hydratedProjectId === nextProjectId) return
     setHydratedProjectId(nextProjectId)
     setActiveTab(scope.projectSettingsTab === 'codex' ? 'models' : scope.projectSettingsTab)
-    setGatewayIdDraft(scope.codexGatewayId)
-    setRuntimeWorkspaceIdDraft(scope.codexRuntimeWorkspaceId)
-    setPlanModelDraft(scope.codexDefaultPlanModel || scope.codexDefaultModel)
-    setRunModelDraft(scope.codexDefaultRunModel || scope.codexDefaultModel)
-    setLanguageDraft(normalizeCodexLanguage(scope.codexLanguage))
-    setPromptShapeDraft(normalizeCodexPromptShape(scope.codexPromptShape))
-    setPlanReasoningDraft(normalizeCodexReasoningEffort(scope.codexPlanReasoningEffort))
-    setRunReasoningDraft(normalizeCodexReasoningEffort(scope.codexRunReasoningEffort))
+    setGatewayIdDraft(scope.gatewayId)
+    setRuntimeWorkspaceIdDraft(scope.gatewayRuntimeWorkspaceId)
+    setPlanModelDraft(scope.gatewayDefaultPlanModel || scope.gatewayDefaultModel)
+    setRunModelDraft(scope.gatewayDefaultRunModel || scope.gatewayDefaultModel)
+    setLanguageDraft(normalizeGatewayLanguage(scope.gatewayLanguage))
+    setPromptShapeDraft(normalizeGatewayPromptShape(scope.codexPromptShape))
+    setPlanReasoningDraft(normalizeGatewayReasoningEffort(scope.gatewayPlanReasoningEffort))
+    setRunReasoningDraft(normalizeGatewayReasoningEffort(scope.gatewayRunReasoningEffort))
     setDefaultAgentIdDraft(scope.defaultAgentId)
     setDefaultSkillIdsDraft(scope.defaultSkillIds ?? [])
     setWorkspaceTargetIdDraft(scope.selectedWorkspaceId ?? '')
@@ -169,7 +169,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
     setCodexSaveError(null)
     setDefaultsSaveMessage(null)
     setDefaultsSaveError(null)
-  }, [open, scope.project?.id, hydratedProjectId, scope.projectSettingsTab, scope.codexGatewayId, scope.codexRuntimeWorkspaceId, scope.codexDefaultModel, scope.codexDefaultPlanModel, scope.codexDefaultRunModel, scope.codexLanguage, scope.codexPromptShape, scope.codexPlanReasoningEffort, scope.codexRunReasoningEffort, scope.defaultAgentId, scope.defaultSkillIds, scope.selectedWorkspaceId])
+  }, [open, scope.project?.id, hydratedProjectId, scope.projectSettingsTab, scope.gatewayId, scope.gatewayRuntimeWorkspaceId, scope.gatewayDefaultModel, scope.gatewayDefaultPlanModel, scope.gatewayDefaultRunModel, scope.gatewayLanguage, scope.codexPromptShape, scope.gatewayPlanReasoningEffort, scope.gatewayRunReasoningEffort, scope.defaultAgentId, scope.defaultSkillIds, scope.selectedWorkspaceId])
 
   useEffect(() => {
     if (!open) setHydratedProjectId(null)
@@ -177,34 +177,34 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
 
   useEffect(() => {
     if (!open) return
-    setPromptShapeDraft(normalizeCodexPromptShape(scope.codexPromptShape))
+    setPromptShapeDraft(normalizeGatewayPromptShape(scope.codexPromptShape))
   }, [open, scope.codexPromptShape])
 
-  const localGatewayOptions = useMemo(() => scope.codexGatewayOptions, [scope.codexGatewayOptions])
+  const localGatewayOptions = useMemo(() => scope.gatewayOptions, [scope.gatewayOptions])
   const localWorkspaceOptions = useMemo(() => scope.workspaceOptions ?? (scope.workspaces ?? []).map((workspace) => ({ label: workspace.name, value: workspace.id })), [scope.workspaceOptions, scope.workspaces])
   const localSelectedGateway = useMemo(() => (scope.gateways ?? []).find((gateway) => gateway.id === gatewayIdDraft) ?? null, [scope.gateways, gatewayIdDraft])
   const localGatewayModels = useMemo(() => codexConfigOf(localSelectedGateway).models ?? [], [localSelectedGateway])
   const localModelOptions = useMemo<AppSelectOption[]>(() => {
     if (localGatewayModels.length > 0) return localGatewayModels.map((model) => ({ label: model.label || model.id, value: model.id }))
-    return gatewayIdDraft === scope.codexGatewayId ? scope.projectCodexModelOptions : []
-  }, [gatewayIdDraft, localGatewayModels, scope.codexGatewayId, scope.projectCodexModelOptions])
+    return gatewayIdDraft === scope.gatewayId ? scope.projectGatewayModelOptions : []
+  }, [gatewayIdDraft, localGatewayModels, scope.gatewayId, scope.projectGatewayModelOptions])
   const localSelectedGatewayOption = useMemo(() => localGatewayOptions.find((option) => option.value === gatewayIdDraft) ?? null, [gatewayIdDraft, localGatewayOptions])
   const localSelectedWorkspaceOption = useMemo(() => localWorkspaceOptions.find((option) => option.value === runtimeWorkspaceIdDraft) ?? null, [localWorkspaceOptions, runtimeWorkspaceIdDraft])
   const localSelectedPlanModelOption = useMemo(() => localModelOptions.find((option) => option.value === planModelDraft) ?? null, [localModelOptions, planModelDraft])
   const localSelectedRunModelOption = useMemo(() => localModelOptions.find((option) => option.value === runModelDraft) ?? null, [localModelOptions, runModelDraft])
-  const languageOptions = useMemo<AppSelectOption[]>(() => CODEX_LANGUAGE_OPTIONS.map((option) => ({ label: option.label, value: option.value })), [])
-  const promptShapeOptions = useMemo<AppSelectOption[]>(() => CODEX_PROMPT_SHAPES.map((shape) => ({ label: shape === 'json' ? 'JSON' : shape === 'toon' ? 'Toon' : 'Markdown', value: shape })), [])
+  const languageOptions = useMemo<AppSelectOption[]>(() => GATEWAY_LANGUAGE_OPTIONS.map((option) => ({ label: option.label, value: option.value })), [])
+  const promptShapeOptions = useMemo<AppSelectOption[]>(() => GATEWAY_PROMPT_SHAPES.map((shape) => ({ label: shape === 'json' ? 'JSON' : shape === 'toon' ? 'Toon' : 'Markdown', value: shape })), [])
   const localPlanModel = useMemo(() => localGatewayModels.find((model) => model.id === planModelDraft) ?? null, [localGatewayModels, planModelDraft])
   const localRunModel = useMemo(() => localGatewayModels.find((model) => model.id === runModelDraft) ?? null, [localGatewayModels, runModelDraft])
-  const planSupportsReasoning = codexModelSupportsReasoning(localPlanModel)
-  const runSupportsReasoning = codexModelSupportsReasoning(localRunModel)
+  const planSupportsReasoning = gatewayModelSupportsReasoning(localPlanModel)
+  const runSupportsReasoning = gatewayModelSupportsReasoning(localRunModel)
   const planReasoningOptions = useMemo<AppSelectOption[]>(() => {
-    const efforts = codexModelReasoningEfforts(localPlanModel)
-    return CODEX_REASONING_EFFORT_OPTIONS.filter((option) => efforts.includes(option.value)).map((option) => ({ label: option.label, value: option.value }))
+    const efforts = gatewayModelReasoningEfforts(localPlanModel)
+    return GATEWAY_REASONING_EFFORT_OPTIONS.filter((option) => efforts.includes(option.value)).map((option) => ({ label: option.label, value: option.value }))
   }, [localPlanModel])
   const runReasoningOptions = useMemo<AppSelectOption[]>(() => {
-    const efforts = codexModelReasoningEfforts(localRunModel)
-    return CODEX_REASONING_EFFORT_OPTIONS.filter((option) => efforts.includes(option.value)).map((option) => ({ label: option.label, value: option.value }))
+    const efforts = gatewayModelReasoningEfforts(localRunModel)
+    return GATEWAY_REASONING_EFFORT_OPTIONS.filter((option) => efforts.includes(option.value)).map((option) => ({ label: option.label, value: option.value }))
   }, [localRunModel])
   const selectedLanguageOption = useMemo(() => languageOptions.find((option) => option.value === languageDraft) ?? languageOptions[0] ?? null, [languageDraft, languageOptions])
   const selectedPromptShapeOption = useMemo(() => promptShapeOptions.find((option) => option.value === promptShapeDraft) ?? promptShapeOptions[0] ?? null, [promptShapeDraft, promptShapeOptions])
@@ -228,7 +228,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
     setActiveTab(tab)
   }
 
-  const handleSaveCodexSettings = async () => {
+  const handleSaveGatewaySettings = async () => {
     setCodexSaveMessage(null)
     setCodexSaveError(null)
     try {
@@ -237,16 +237,16 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
         : activeTab === 'language'
           ? { language: languageDraft }
           : { gatewayId: gatewayIdDraft, runtimeWorkspaceId: runtimeWorkspaceIdDraft, planModel: planModelDraft, runModel: runModelDraft, language: languageDraft, promptShape: promptShapeDraft, planReasoningEffort: planSupportsReasoning ? planReasoningDraft : '', runReasoningEffort: runSupportsReasoning ? runReasoningDraft : '' }
-      const saved = await s.onSaveProjectCodexSettings(codexDraft)
+      const saved = await s.onSaveProjectGatewaySettings(codexDraft)
       if (saved && typeof saved === 'object') {
         setGatewayIdDraft(saved.gatewayId ?? '')
         setRuntimeWorkspaceIdDraft(saved.runtimeWorkspaceId ?? '')
         setPlanModelDraft(saved.planModel ?? saved.defaultModel ?? '')
         setRunModelDraft(saved.runModel ?? saved.defaultModel ?? '')
-        setLanguageDraft(normalizeCodexLanguage(saved.language ?? languageDraft))
-        setPromptShapeDraft(normalizeCodexPromptShape(saved.promptShape ?? promptShapeDraft))
-        setPlanReasoningDraft(normalizeCodexReasoningEffort(saved.planReasoningEffort ?? planReasoningDraft))
-        setRunReasoningDraft(normalizeCodexReasoningEffort(saved.runReasoningEffort ?? runReasoningDraft))
+        setLanguageDraft(normalizeGatewayLanguage(saved.language ?? languageDraft))
+        setPromptShapeDraft(normalizeGatewayPromptShape(saved.promptShape ?? promptShapeDraft))
+        setPlanReasoningDraft(normalizeGatewayReasoningEffort(saved.planReasoningEffort ?? planReasoningDraft))
+        setRunReasoningDraft(normalizeGatewayReasoningEffort(saved.runReasoningEffort ?? runReasoningDraft))
       }
       setCodexSaveMessage('Saved')
     } catch (error) {
@@ -274,8 +274,8 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
     setRunModelDraft('')
     setCodexSaveMessage(null)
     setCodexSaveError(null)
-    s.onSetCodexModelError(null)
-    if (value) void s.onRefreshCodexGatewayModels?.(value)
+    s.onSetGatewayModelError(null)
+    if (value) void s.onRefreshGatewayModels?.(value)
   }
 
   const codexValidationMessage = !gatewayIdDraft
@@ -623,7 +623,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     options={languageOptions}
                     placeholder="Select language"
                     onChange={(option) => {
-                      setLanguageDraft(normalizeCodexLanguage(option?.value))
+                      setLanguageDraft(normalizeGatewayLanguage(option?.value))
                       setCodexSaveMessage(null)
                       setCodexSaveError(null)
                     }}
@@ -650,7 +650,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     options={promptShapeOptions}
                     placeholder="Select prompt format"
                     onChange={(option) => {
-                      setPromptShapeDraft(normalizeCodexPromptShape(option?.value))
+                      setPromptShapeDraft(normalizeGatewayPromptShape(option?.value))
                       setCodexSaveMessage(null)
                       setCodexSaveError(null)
                     }}
@@ -668,7 +668,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     type="button"
                     className={promptShapeDraft === option.value ? styles.promptShapeActive : ''}
                     onClick={() => {
-                      setPromptShapeDraft(normalizeCodexPromptShape(option.value))
+                      setPromptShapeDraft(normalizeGatewayPromptShape(option.value))
                       setCodexSaveMessage(null)
                       setCodexSaveError(null)
                     }}
@@ -721,7 +721,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                   <AppSelect
                     value={localSelectedPlanModelOption}
                     options={localModelOptions}
-                    placeholder={s.codexModelLoading ? 'Loading models...' : localModelOptions.length > 0 ? 'Select plan model' : 'Select a gateway to load models'}
+                    placeholder={s.gatewayModelLoading ? 'Loading models...' : localModelOptions.length > 0 ? 'Select plan model' : 'Select a gateway to load models'}
                     isDisabled={!gatewayIdDraft || localModelOptions.length === 0}
                     onChange={(option) => {
                       setPlanModelDraft(option?.value ?? '')
@@ -738,7 +738,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                       options={planReasoningOptions}
                       placeholder="Select reasoning"
                       onChange={(option) => {
-                        setPlanReasoningDraft(normalizeCodexReasoningEffort(option?.value))
+                        setPlanReasoningDraft(normalizeGatewayReasoningEffort(option?.value))
                         setCodexSaveMessage(null)
                         setCodexSaveError(null)
                       }}
@@ -750,7 +750,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                   <AppSelect
                     value={localSelectedRunModelOption}
                     options={localModelOptions}
-                    placeholder={s.codexModelLoading ? 'Loading models...' : localModelOptions.length > 0 ? 'Select run model' : 'Select a gateway to load models'}
+                    placeholder={s.gatewayModelLoading ? 'Loading models...' : localModelOptions.length > 0 ? 'Select run model' : 'Select a gateway to load models'}
                     isDisabled={!gatewayIdDraft || localModelOptions.length === 0}
                     onChange={(option) => {
                       setRunModelDraft(option?.value ?? '')
@@ -767,7 +767,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                       options={runReasoningOptions}
                       placeholder="Select reasoning"
                       onChange={(option) => {
-                        setRunReasoningDraft(normalizeCodexReasoningEffort(option?.value))
+                        setRunReasoningDraft(normalizeGatewayReasoningEffort(option?.value))
                         setCodexSaveMessage(null)
                         setCodexSaveError(null)
                       }}
@@ -775,8 +775,8 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                   </label>
                 ) : null}
               </div>
-              {s.codexModelLoading ? <div className={styles.settingsEmptyState}>Loading models from Codex CLI...</div> : null}
-              {s.codexModelError ? <div className={styles.settingsEmptyState}>{s.codexModelError}</div> : null}
+              {s.gatewayModelLoading ? <div className={styles.settingsEmptyState}>Loading models from Codex CLI...</div> : null}
+              {s.gatewayModelError ? <div className={styles.settingsEmptyState}>{s.gatewayModelError}</div> : null}
               {codexSaveFeedback}
             </div>
           ) : null}
@@ -814,10 +814,10 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
               <span>{codexValidationMessage || 'Task and template model tabs inherit this gateway default unless they explicitly override it.'}</span>
               <button
                 type="button"
-                onClick={() => void handleSaveCodexSettings()}
-                disabled={s.codexSaving || Boolean(codexValidationMessage)}
+                onClick={() => void handleSaveGatewaySettings()}
+                disabled={s.gatewaySaving || Boolean(codexValidationMessage)}
               >
-                {s.codexSaving ? 'Saving...' : 'Save Model Settings'}
+                {s.gatewaySaving ? 'Saving...' : 'Save Model Settings'}
               </button>
             </>
           ) : activeTab === 'language' ? (
@@ -825,10 +825,10 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
               <span>Language is a high-priority Codex instruction for planning, running, chat, and JSON updates.</span>
               <button
                 type="button"
-                onClick={() => void handleSaveCodexSettings()}
-                disabled={s.codexSaving}
+                onClick={() => void handleSaveGatewaySettings()}
+                disabled={s.gatewaySaving}
               >
-                {s.codexSaving ? 'Saving...' : 'Save language'}
+                {s.gatewaySaving ? 'Saving...' : 'Save language'}
               </button>
             </>
           ) : activeTab === 'promptShape' ? (
@@ -836,10 +836,10 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
               <span>Markdown is used for unsaved and legacy projects.</span>
               <button
                 type="button"
-                onClick={() => void handleSaveCodexSettings()}
-                disabled={s.codexSaving}
+                onClick={() => void handleSaveGatewaySettings()}
+                disabled={s.gatewaySaving}
               >
-                {s.codexSaving ? 'Saving...' : 'Save prompt format'}
+                {s.gatewaySaving ? 'Saving...' : 'Save prompt format'}
               </button>
             </>
           ) : activeTab === 'agents' ? (

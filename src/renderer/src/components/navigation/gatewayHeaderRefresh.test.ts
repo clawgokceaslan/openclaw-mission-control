@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { codexHeaderRefreshModeFromTaskActivityArgs, codexHeaderRefreshModeFromTaskUpdatedArgs } from './codexHeaderRefresh'
+import { gatewayHeaderRefreshModeFromTaskActivityArgs, gatewayHeaderRefreshModeFromTaskUpdatedArgs } from './gatewayHeaderRefresh'
 
 describe('Codex header refresh event classification', () => {
   it('forces an immediate source recount when Codex work starts or enters post-run', () => {
-    expect(codexHeaderRefreshModeFromTaskActivityArgs([{
+    expect(gatewayHeaderRefreshModeFromTaskActivityArgs([{
       message: {
         id: 'start',
         runId: 'run-1',
-        source: 'codex-chat',
+        source: 'gateway-chat',
         role: 'thinking',
         status: 'running',
         body: 'Codex is thinking...',
@@ -15,27 +15,27 @@ describe('Codex header refresh event classification', () => {
       }
     }])).toBe('immediate')
 
-    expect(codexHeaderRefreshModeFromTaskActivityArgs([{
+    expect(gatewayHeaderRefreshModeFromTaskActivityArgs([{
       message: {
         id: 'post-run',
         runId: 'post-run-1',
         conversationId: 'run-1',
-        source: 'codex-run',
+        source: 'gateway-run',
         role: 'system',
         status: 'completed',
         body: 'Starting Codex post-run prompt.',
-        metadata: { codexBlock: 'post-run-start' },
+        metadata: { gatewayBlock: 'post-run-start' },
         createdAt: 2
       }
     }])).toBe('immediate')
   })
 
   it('keeps streaming Codex updates debounced but recounts terminal events immediately', () => {
-    expect(codexHeaderRefreshModeFromTaskActivityArgs([{
+    expect(gatewayHeaderRefreshModeFromTaskActivityArgs([{
       message: {
         id: 'stream',
         runId: 'run-1',
-        source: 'codex-run',
+        source: 'gateway-run',
         role: 'assistant',
         status: 'completed',
         body: 'Partial streamed output.',
@@ -43,29 +43,29 @@ describe('Codex header refresh event classification', () => {
       }
     }])).toBe('debounced')
 
-    expect(codexHeaderRefreshModeFromTaskActivityArgs([{
+    expect(gatewayHeaderRefreshModeFromTaskActivityArgs([{
       message: {
         id: 'done',
         runId: 'run-1',
-        source: 'codex-run',
+        source: 'gateway-run',
         role: 'system',
         status: 'completed',
         body: 'Codex run completed.',
-        metadata: { codexBlock: 'run-complete' },
+        metadata: { gatewayBlock: 'run-complete' },
         createdAt: 4
       }
     }])).toBe('immediate')
   })
 
   it('uses taskUpdated lifecycle actions for final recounts', () => {
-    expect(codexHeaderRefreshModeFromTaskUpdatedArgs([{ action: 'activity_complete' }])).toBe('immediate')
-    expect(codexHeaderRefreshModeFromTaskUpdatedArgs([{ action: 'codex_plan_state' }])).toBe('immediate')
-    expect(codexHeaderRefreshModeFromTaskUpdatedArgs([{ action: 'ready_for_review' }])).toBe('immediate')
-    expect(codexHeaderRefreshModeFromTaskUpdatedArgs([{ action: 'updated' }])).toBe('debounced')
+    expect(gatewayHeaderRefreshModeFromTaskUpdatedArgs([{ action: 'activity_complete' }])).toBe('immediate')
+    expect(gatewayHeaderRefreshModeFromTaskUpdatedArgs([{ action: 'codex_plan_state' }])).toBe('immediate')
+    expect(gatewayHeaderRefreshModeFromTaskUpdatedArgs([{ action: 'ready_for_review' }])).toBe('immediate')
+    expect(gatewayHeaderRefreshModeFromTaskUpdatedArgs([{ action: 'updated' }])).toBe('debounced')
   })
 
   it('ignores non-Codex activity messages', () => {
-    expect(codexHeaderRefreshModeFromTaskActivityArgs([{
+    expect(gatewayHeaderRefreshModeFromTaskActivityArgs([{
       message: {
         id: 'comment',
         runId: 'local-1',
