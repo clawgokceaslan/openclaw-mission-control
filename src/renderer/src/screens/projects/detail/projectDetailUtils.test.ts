@@ -129,12 +129,30 @@ describe('task Codex card metadata', () => {
     expect(result.map((status) => [status.label, status.tone, status.active, status.iconOnly])).toEqual([
       ['Planned', 'planned', undefined, true],
       ['Running', 'running', true, undefined],
-      ['Follow Up', 'follow-up', true, undefined]
+      ['Follow Up', 'follow-up', undefined, undefined]
     ])
     expect(taskCodexActiveTone({
       ...task('active-run', 'todo', 0),
       payload: { activityMessages: [{ id: 'run', runId: 'run-1', source: 'codex-run', role: 'system', status: 'running', body: 'run', createdAt: 9_500 }] }
     }, now)).toBe('running')
+  })
+
+  it('does not mark completed chats as active for card border animation', () => {
+    const now = 10_000
+    const completedTask = {
+      ...task('completed-chats', 'todo', 0),
+      payload: {
+        codexPlanState: { state: 'needs-clarification', conversationId: 'plan-1' },
+        activityMessages: [
+          { id: 'plan', runId: 'plan-1', conversationId: 'plan-1', source: 'codex-plan', role: 'system', status: 'completed', body: 'plan', createdAt: 7_000, updatedAt: 7_500 },
+          { id: 'run', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'system', status: 'completed', body: 'run', createdAt: 8_000, updatedAt: 8_500 },
+          { id: 'chat', runId: 'chat-1', conversationId: 'chat-1', source: 'codex-chat', role: 'assistant', status: 'completed', body: 'chat', createdAt: 9_000, updatedAt: 9_500 }
+        ]
+      }
+    } satisfies TaskEntity
+
+    expect(taskCodexSurfaceStatuses(completedTask, now).some((status) => status.active)).toBe(false)
+    expect(taskCodexActiveTone(completedTask, now)).toBeNull()
   })
 
   it('returns latest Plan and Run action chips by source', () => {

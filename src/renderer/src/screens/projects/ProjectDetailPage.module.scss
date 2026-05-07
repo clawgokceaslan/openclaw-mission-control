@@ -791,7 +791,7 @@
 .taskCardActive {
   --task-active-accent: var(--omc-primary);
   border-color: color-mix(in srgb, var(--task-active-accent) 58%, var(--omc-border-strong)) !important;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--task-active-accent) 16%, transparent), 0 0 18px color-mix(in srgb, var(--task-active-accent) 12%, transparent) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--task-active-accent) 12%, transparent) !important;
 
   &::before {
     content: '';
@@ -799,10 +799,36 @@
     inset: -1px;
     border-radius: inherit;
     pointer-events: none;
-    background: linear-gradient(115deg, transparent 0%, transparent 32%, color-mix(in srgb, var(--task-active-accent) 42%, transparent) 48%, transparent 64%, transparent 100%);
-    opacity: 0.46;
-    transform: translateX(-70%);
-    animation: taskCardActiveSweep 2.8s ease-in-out infinite;
+    padding: 1px;
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      transparent 238deg,
+      color-mix(in srgb, var(--task-active-accent) 18%, transparent) 258deg,
+      color-mix(in srgb, #ffffff 56%, var(--task-active-accent)) 274deg,
+      color-mix(in srgb, var(--task-active-accent) 88%, transparent) 292deg,
+      transparent 318deg,
+      transparent 360deg
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    animation: taskBorderActiveSpin 2.8s linear infinite;
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    left: 10px;
+    top: -4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    pointer-events: none;
+    background: radial-gradient(circle, #ffffff 0 18%, var(--task-active-accent) 42%, transparent 72%);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--task-active-accent) 76%, transparent);
+    animation: taskBorderLightOrbit 2.8s linear infinite;
   }
 }
 
@@ -1305,6 +1331,7 @@
   min-height: 62px;
   border: none;
   border-top: 1px solid var(--omc-border-subtle);
+  border-radius: 8px;
   background: transparent;
   padding: 0 12px;
   text-align: left;
@@ -1318,19 +1345,44 @@
 
 .listRowActive {
   --task-active-accent: var(--omc-primary);
-  background: color-mix(in srgb, var(--task-active-accent) 5%, transparent);
+  border-top-color: transparent;
 
   &::before {
     content: '';
     position: absolute;
-    left: 0;
-    top: 10px;
-    bottom: 10px;
-    width: 2px;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    padding: 1px;
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      transparent 238deg,
+      color-mix(in srgb, var(--task-active-accent) 18%, transparent) 258deg,
+      color-mix(in srgb, #ffffff 56%, var(--task-active-accent)) 274deg,
+      color-mix(in srgb, var(--task-active-accent) 88%, transparent) 292deg,
+      transparent 318deg,
+      transparent 360deg
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    animation: taskBorderActiveSpin 2.8s linear infinite;
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    left: 10px;
+    top: -4px;
+    width: 8px;
+    height: 8px;
     border-radius: 999px;
-    background: var(--task-active-accent);
-    box-shadow: 0 0 12px color-mix(in srgb, var(--task-active-accent) 38%, transparent);
-    animation: taskRowActivePulse 1.9s ease-in-out infinite;
+    pointer-events: none;
+    background: radial-gradient(circle, #ffffff 0 18%, var(--task-active-accent) 42%, transparent 72%);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--task-active-accent) 76%, transparent);
+    animation: taskBorderLightOrbit 2.8s linear infinite;
   }
 }
 
@@ -1538,6 +1590,7 @@
   min-height: 58px;
   border: none;
   border-bottom: 1px solid var(--omc-border-subtle);
+  border-radius: 8px;
   background: var(--omc-surface);
   color: var(--omc-text-strong);
   text-align: left;
@@ -1564,19 +1617,43 @@
 
 .tableRowActive {
   --task-active-accent: var(--omc-primary);
-  background: color-mix(in srgb, var(--task-active-accent) 5%, var(--omc-surface));
 
   &::before {
     content: '';
     position: absolute;
-    left: 0;
-    top: 9px;
-    bottom: 9px;
-    width: 2px;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    padding: 1px;
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      transparent 238deg,
+      color-mix(in srgb, var(--task-active-accent) 18%, transparent) 258deg,
+      color-mix(in srgb, #ffffff 56%, var(--task-active-accent)) 274deg,
+      color-mix(in srgb, var(--task-active-accent) 88%, transparent) 292deg,
+      transparent 318deg,
+      transparent 360deg
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    animation: taskBorderActiveSpin 2.8s linear infinite;
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    left: 10px;
+    top: -4px;
+    width: 8px;
+    height: 8px;
     border-radius: 999px;
-    background: var(--task-active-accent);
-    box-shadow: 0 0 12px color-mix(in srgb, var(--task-active-accent) 38%, transparent);
-    animation: taskRowActivePulse 1.9s ease-in-out infinite;
+    pointer-events: none;
+    background: radial-gradient(circle, #ffffff 0 18%, var(--task-active-accent) 42%, transparent 72%);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--task-active-accent) 76%, transparent);
+    animation: taskBorderLightOrbit 2.8s linear infinite;
   }
 }
 
@@ -8143,34 +8220,36 @@
   }
 }
 
-@keyframes taskCardActiveSweep {
-  0% {
-    transform: translateX(-72%);
-    opacity: 0;
-  }
-
-  22% {
-    opacity: 0.42;
-  }
-
-  58% {
-    opacity: 0.36;
-  }
-
-  100% {
-    transform: translateX(72%);
-    opacity: 0;
+@keyframes taskBorderActiveSpin {
+  to {
+    transform: rotate(1turn);
   }
 }
 
-@keyframes taskRowActivePulse {
-  0%,
-  100% {
-    opacity: 0.48;
+@keyframes taskBorderLightOrbit {
+  0% {
+    left: 10px;
+    top: -4px;
+  }
+
+  25% {
+    left: calc(100% - 14px);
+    top: -4px;
   }
 
   50% {
-    opacity: 1;
+    left: calc(100% - 4px);
+    top: calc(100% - 14px);
+  }
+
+  75% {
+    left: 10px;
+    top: calc(100% - 4px);
+  }
+
+  100% {
+    left: 10px;
+    top: -4px;
   }
 }
 

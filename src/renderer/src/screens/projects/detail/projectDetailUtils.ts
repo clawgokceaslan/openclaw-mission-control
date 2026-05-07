@@ -248,19 +248,19 @@ export function taskCodexSurfaceStatuses(task: TaskEntity, now = Date.now()): Ta
       key: 'needs-info',
       label: 'Plan için bilgi gerekiyor',
       tone: 'needs-info',
-      conversationId: planBadge.conversationId,
-      active: true
+      conversationId: planBadge.conversationId
     })
   }
 
   const latestPlan = latestActivityMessage(task, 'codex-plan')
   if (latestPlan && planBadge?.state !== 'needs-clarification' && planBadge?.state !== 'planned') {
+    const active = isFreshActiveMessage(latestPlan, now)
     statuses.push({
       key: 'planning',
       label: 'Planning',
       tone: 'planning',
       conversationId: conversationIdOfActivity(latestPlan),
-      active: true
+      active: active || undefined
     })
   }
 
@@ -272,18 +272,19 @@ export function taskCodexSurfaceStatuses(task: TaskEntity, now = Date.now()): Ta
       label: running ? 'Running' : 'Post Running',
       tone: running ? 'running' : 'post-running',
       conversationId: conversationIdOfActivity(latestRun),
-      active: true
+      active: running || undefined
     })
   }
 
   const latestFollowUp = latestActivityMessage(task, 'codex-chat')
   if (latestFollowUp) {
+    const active = isFreshActiveMessage(latestFollowUp, now)
     statuses.push({
       key: 'follow-up',
       label: 'Follow Up',
       tone: 'follow-up',
       conversationId: conversationIdOfActivity(latestFollowUp),
-      active: true
+      active: active || undefined
     })
   }
 
