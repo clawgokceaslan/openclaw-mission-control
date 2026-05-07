@@ -37,7 +37,7 @@ interface UseProjectWorkspaceSettingsContext {
     | 'workspaceDraftPath'
     | 'projectGroupNameDraft'
     | 'projectGroupDescriptionDraft'
-    | 'setCodexSaving'
+    | 'setGatewaySaving'
     | 'setError'
     | 'setProject'
     | 'setWorkspaces'
@@ -159,7 +159,7 @@ export function useProjectWorkspaceSettings({
     workspaceDraftPath,
     projectGroupNameDraft,
     projectGroupDescriptionDraft,
-    setCodexSaving,
+    setGatewaySaving,
     setError,
     setProject,
     setWorkspaces,
@@ -354,7 +354,7 @@ export function useProjectWorkspaceSettings({
     const nextPlanReasoningEffort = draft?.planReasoningEffort ?? savedGateway.planReasoningEffort ?? null
     const nextRunReasoningEffort = draft?.runReasoningEffort ?? savedGateway.runReasoningEffort ?? null
 
-    setCodexSaving(true)
+    setGatewaySaving(true)
     const response = await invokeBridge<Project>(IPC_CHANNELS.projects.update, {
       actorToken: token,
       id: project.id,
@@ -370,7 +370,7 @@ export function useProjectWorkspaceSettings({
         runReasoningEffort: nextRunReasoningEffort || null
       }
     })
-    setCodexSaving(false)
+    setGatewaySaving(false)
     if (!response.ok || !response.data) {
       const message = response.error?.message ?? 'Unable to save Codex settings'
       setError(message)

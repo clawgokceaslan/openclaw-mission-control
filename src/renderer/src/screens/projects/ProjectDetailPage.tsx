@@ -250,7 +250,7 @@ export function ProjectDetailPage() {
     gatewayModelError,
     setGatewayModelError,
     gatewaySaving,
-    setCodexSaving,
+    setGatewaySaving,
     gatewayRunLaunching,
     setGatewayRunLaunching,
     gatewayPlanLaunching,
