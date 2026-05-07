@@ -5,25 +5,25 @@ import { getBootMotivation, splashConfig } from './splashContent'
 const appIconSrc = new URL('../../../../../../app-icon.png', import.meta.url).href
 
 const codeRain = [
-  'task.status -> review',
-  'agent.sync(context)',
-  'workspace.ready = true',
-  'gateway.pulse(200)',
-  'plan.execute(next)',
-  'diff.check(scope)',
-  'subtasks.map(run)',
-  'ship.when(green)'
+  'const mission = await loadWorkspace()',
+  'if (task.ready) queue.push(task)',
+  'gateway.stream({ mode: "plan" })',
+  'agent.apply(projectRules)',
+  'diff.scope(["renderer", "scss"])',
+  'await build.when(typecheck.green)',
+  'task.status = "review"',
+  'push({ branch: "main", clean: true })'
 ]
 
 const taskRain = [
-  'Read Task.md',
-  'Resolve context',
-  'Map renderer state',
-  'Check IPC boundary',
-  'Prepare overlay',
-  'Verify build',
-  'Push mission log',
-  'Ready for review'
+  'Review · App Splash Loader',
+  'Active · Renderer Overlay',
+  'Queued · Sync Context',
+  'Running · Build Check',
+  'Ready · Task Timeline',
+  'Review · Mission Log',
+  'Active · Agent Scope',
+  'Done · Push Commit'
 ]
 
 const statusNodes = ['CONTEXT', 'TASKS', 'GATEWAY', 'AGENTS', 'BUILD', 'REVIEW']

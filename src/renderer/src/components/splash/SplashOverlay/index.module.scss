@@ -3,14 +3,14 @@
   inset: 0;
   z-index: 3000;
   min-width: 320px;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
   overflow: hidden;
   padding: clamp(24px, 6vw, 72px);
   background:
-    radial-gradient(circle at 18% 18%, rgba(45, 95, 218, 0.28), transparent 28%),
-    radial-gradient(circle at 82% 74%, rgba(34, 160, 104, 0.2), transparent 30%),
-    linear-gradient(135deg, #07101e 0%, #101b2e 48%, #16263a 100%);
+    linear-gradient(115deg, rgba(83, 111, 174, 0.14) 0%, transparent 34%),
+    linear-gradient(180deg, #090d12 0%, #111820 48%, #0c1117 100%);
   color: #f8fbff;
   opacity: 1;
   transform: scale(1);
@@ -24,18 +24,20 @@
     position: absolute;
     inset: 0;
     background:
-      linear-gradient(90deg, rgba(147, 180, 255, 0.08) 1px, transparent 1px),
-      linear-gradient(180deg, rgba(147, 180, 255, 0.06) 1px, transparent 1px);
-    background-size: 54px 54px;
-    mask-image: radial-gradient(circle at center, black 0%, transparent 76%);
-    animation: gridDrift 14s linear infinite;
+      linear-gradient(90deg, rgba(236, 242, 255, 0.045) 1px, transparent 1px),
+      linear-gradient(180deg, rgba(236, 242, 255, 0.035) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: linear-gradient(90deg, black 0%, black 62%, transparent 100%);
+    animation: gridDrift 18s linear infinite;
   }
 
   &::after {
     content: '';
     position: absolute;
     inset: 0;
-    background: linear-gradient(180deg, transparent 0%, rgba(7, 16, 30, 0.44) 58%, rgba(7, 16, 30, 0.84) 100%);
+    background:
+      linear-gradient(90deg, rgba(9, 13, 18, 0.08) 0%, transparent 42%, rgba(9, 13, 18, 0.78) 100%),
+      linear-gradient(180deg, transparent 0%, rgba(9, 13, 18, 0.58) 100%);
     pointer-events: none;
   }
 
@@ -46,93 +48,154 @@
 
     .signalGrid {
       position: absolute;
-      inset: 12%;
-      border: 1px solid rgba(147, 180, 255, 0.12);
-      border-radius: 28px;
-      box-shadow:
-        inset 0 0 80px rgba(45, 95, 218, 0.1),
-        0 0 90px rgba(34, 160, 104, 0.08);
-      animation: signalPulse 3.8s ease-in-out infinite;
+      top: 18%;
+      left: clamp(24px, 8vw, 112px);
+      width: min(58vw, 720px);
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(116, 154, 255, 0.64), rgba(72, 205, 145, 0.42), transparent);
+      opacity: 0.56;
+      animation: signalSweep 3.8s ease-in-out infinite;
     }
 
     .orbit {
       position: absolute;
       top: 50%;
-      left: 50%;
-      width: min(74vw, 860px);
+      left: clamp(240px, 58vw, 920px);
+      width: min(58vw, 760px);
       aspect-ratio: 1;
       transform: translate(-50%, -50%);
-      border: 1px solid rgba(147, 180, 255, 0.13);
+      border: 1px solid rgba(236, 242, 255, 0.06);
       border-radius: 50%;
-      animation: orbitSpin 26s linear infinite;
+      opacity: 0.78;
+      animation: orbitSpin 34s linear infinite;
 
       &::before,
       &::after {
         content: '';
         position: absolute;
         inset: 14%;
-        border: 1px dashed rgba(34, 160, 104, 0.17);
+        border: 1px solid rgba(72, 205, 145, 0.08);
         border-radius: 50%;
       }
 
       &::after {
         inset: 29%;
-        border-style: solid;
-        border-color: rgba(255, 255, 255, 0.08);
+        border-color: rgba(255, 255, 255, 0.045);
       }
 
       span {
         position: absolute;
         top: 50%;
         left: 50%;
-        padding: 6px 10px;
-        border: 1px solid rgba(147, 180, 255, 0.2);
-        border-radius: 999px;
-        background: rgba(8, 18, 33, 0.62);
-        color: rgba(248, 251, 255, 0.78);
+        color: rgba(248, 251, 255, 0.42);
         font-size: 0.68rem;
-        font-weight: 800;
-        letter-spacing: 0.08em;
+        font-weight: 700;
+        letter-spacing: 0.12em;
         transform:
           rotate(calc(var(--node-index) * 60deg))
-          translateX(min(37vw, 430px))
+          translateX(min(29vw, 380px))
           rotate(calc(var(--node-index) * -60deg));
       }
     }
 
-    .codeRain,
-    .taskRain {
+    .codeRain {
       position: absolute;
-      inset: -20% 0;
+      top: -18%;
+      bottom: -18%;
+      left: clamp(18px, 4vw, 64px);
+      width: min(44vw, 620px);
       pointer-events: none;
+      counter-reset: code-line;
+      transform: skewY(-3deg);
+
+      &::before {
+        content: 'src/mission/control.ts';
+        position: absolute;
+        top: 12%;
+        left: 0;
+        width: min(100%, 520px);
+        padding: 8px 14px 9px 38px;
+        border-bottom: 1px solid rgba(236, 242, 255, 0.08);
+        background:
+          radial-gradient(circle at 16px 50%, rgba(255, 95, 86, 0.72) 0 4px, transparent 5px),
+          radial-gradient(circle at 30px 50%, rgba(255, 189, 46, 0.72) 0 4px, transparent 5px),
+          radial-gradient(circle at 44px 50%, rgba(39, 201, 63, 0.72) 0 4px, transparent 5px),
+          rgba(8, 13, 20, 0.34);
+        color: rgba(227, 238, 255, 0.38);
+        font-family: 'SFMono-Regular', Consolas, monospace;
+        font-size: 0.66rem;
+      }
 
       span {
         position: absolute;
-        top: -18%;
-        left: calc(6% + (var(--line-index, var(--task-index)) * 11%));
-        max-width: min(260px, 38vw);
-        padding: 8px 10px;
-        border: 1px solid rgba(147, 180, 255, 0.12);
-        border-radius: 10px;
-        background: rgba(7, 16, 30, 0.5);
-        color: rgba(227, 238, 255, 0.72);
+        top: -20%;
+        left: 0;
+        width: min(100%, 520px);
+        padding: 9px 18px 9px 48px;
+        border-left: 1px solid rgba(116, 154, 255, 0.22);
+        background:
+          linear-gradient(90deg, rgba(116, 154, 255, 0.055), transparent 82%),
+          rgba(8, 13, 20, 0.22);
+        color: rgba(227, 238, 255, 0.44);
         font-family: 'SFMono-Regular', Consolas, monospace;
         font-size: clamp(0.62rem, 1.4vw, 0.82rem);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        animation: rainFall calc(7s + (var(--line-index, var(--task-index)) * 0.8s)) linear infinite;
-        animation-delay: calc(var(--line-index, var(--task-index)) * -0.72s);
+        animation: codeStream calc(8.5s + (var(--line-index) * 0.7s)) linear infinite;
+        animation-delay: calc(var(--line-index) * -0.82s);
+
+        &::before {
+          content: counter(code-line, decimal-leading-zero);
+          counter-increment: code-line;
+          position: absolute;
+          left: 14px;
+          color: rgba(227, 238, 255, 0.22);
+        }
       }
     }
 
     .taskRain {
+      position: absolute;
+      top: -22%;
+      right: clamp(12px, 3vw, 48px);
+      bottom: -18%;
+      width: min(30vw, 320px);
+      pointer-events: none;
+
       span {
-        left: calc(12% + (var(--task-index) * 10%));
-        border-color: rgba(34, 160, 104, 0.18);
-        color: rgba(210, 255, 232, 0.72);
-        animation-name: taskFall;
-        animation-duration: calc(8.5s + (var(--task-index) * 0.65s));
+        position: absolute;
+        top: -20%;
+        right: 0;
+        width: min(100%, 280px);
+        padding: 11px 14px 12px 34px;
+        border: 1px solid rgba(72, 205, 145, 0.16);
+        border-radius: 8px;
+        background:
+          linear-gradient(135deg, rgba(72, 205, 145, 0.12), rgba(116, 154, 255, 0.06)),
+          rgba(8, 13, 20, 0.42);
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16);
+        color: rgba(210, 255, 232, 0.58);
+        font-size: clamp(0.68rem, 1.2vw, 0.82rem);
+        font-weight: 700;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        animation: taskStream calc(9s + (var(--task-index) * 0.72s)) cubic-bezier(0.45, 0, 0.55, 1) infinite;
+        animation-delay: calc(var(--task-index) * -0.88s);
+
+        &::before {
+          content: '';
+          position: absolute;
+          top: 50%;
+          left: 13px;
+          width: 8px;
+          aspect-ratio: 1;
+          border-radius: 50%;
+          background: rgba(72, 205, 145, 0.72);
+          transform: translateY(-50%);
+          box-shadow: 0 0 18px rgba(72, 205, 145, 0.34);
+        }
       }
     }
   }
@@ -140,47 +203,43 @@
   .splashPanel {
     position: relative;
     z-index: 1;
-    width: min(720px, 100%);
+    width: min(680px, 100%);
     display: grid;
     gap: clamp(22px, 4vw, 34px);
-    justify-items: center;
-    text-align: center;
-    padding: clamp(28px, 5vw, 46px);
-    border: 1px solid rgba(216, 227, 242, 0.16);
-    border-radius: 22px;
-    background: rgba(8, 18, 33, 0.48);
-    box-shadow: 0 26px 80px rgba(0, 0, 0, 0.36);
-    backdrop-filter: blur(22px);
+    justify-items: start;
+    text-align: left;
+    padding: 0;
+    animation: panelIntro 780ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 
     .brandStack {
-      display: grid;
+      display: flex;
+      align-items: center;
       gap: 18px;
-      justify-items: center;
+      justify-items: start;
       min-width: 0;
 
       .logoShell {
         position: relative;
-        width: clamp(82px, 14vw, 118px);
+        width: clamp(54px, 8vw, 78px);
         aspect-ratio: 1;
         display: grid;
         place-items: center;
 
         span {
           position: absolute;
-          inset: 0;
-          border: 1px solid rgba(147, 180, 255, 0.34);
-          border-radius: 26px;
-          background: linear-gradient(135deg, rgba(45, 95, 218, 0.34), rgba(34, 160, 104, 0.2));
-          box-shadow: 0 0 46px rgba(45, 95, 218, 0.34);
-          animation: logoCharge 2.4s ease-in-out infinite;
+          inset: -12%;
+          border: 1px solid rgba(116, 154, 255, 0.22);
+          border-radius: 50%;
+          opacity: 0.72;
+          animation: logoBreathe 2.8s ease-in-out infinite;
         }
 
         img {
           position: relative;
-          width: 68%;
-          height: 68%;
+          width: 74%;
+          height: 74%;
           object-fit: contain;
-          filter: drop-shadow(0 16px 28px rgba(0, 0, 0, 0.26));
+          filter: drop-shadow(0 14px 24px rgba(0, 0, 0, 0.3));
         }
       }
 
@@ -191,20 +250,20 @@
 
         p {
           margin: 0;
-          color: rgba(147, 180, 255, 0.86);
+          color: rgba(147, 180, 255, 0.72);
           font-size: 0.76rem;
-          font-weight: 850;
-          letter-spacing: 0.14em;
+          font-weight: 750;
+          letter-spacing: 0.12em;
           text-transform: uppercase;
         }
 
         h1 {
           margin: 0;
           color: #ffffff;
-          font-size: clamp(2rem, 6vw, 4.5rem);
-          font-weight: 900;
+          font-size: clamp(2.2rem, 6vw, 4.25rem);
+          font-weight: 780;
           letter-spacing: 0;
-          line-height: 0.95;
+          line-height: 1;
           overflow-wrap: anywhere;
         }
       }
@@ -219,17 +278,17 @@
       h2 {
         margin: 0;
         color: #f8fbff;
-        font-size: clamp(1rem, 2.4vw, 1.36rem);
-        font-weight: 850;
+        font-size: clamp(1rem, 2.3vw, 1.28rem);
+        font-weight: 720;
         letter-spacing: 0;
         line-height: 1.28;
       }
 
       p {
         margin: 0;
-        color: rgba(227, 238, 255, 0.72);
+        color: rgba(227, 238, 255, 0.64);
         font-size: clamp(0.86rem, 1.8vw, 1rem);
-        font-weight: 600;
+        font-weight: 500;
         line-height: 1.55;
       }
     }
@@ -241,13 +300,10 @@
       gap: 12px;
       min-width: 0;
       max-width: 100%;
-      padding: 9px 14px;
-      border: 1px solid rgba(147, 180, 255, 0.18);
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.08);
-      color: rgba(248, 251, 255, 0.88);
+      padding: 0;
+      color: rgba(248, 251, 255, 0.7);
       font-size: 0.82rem;
-      font-weight: 800;
+      font-weight: 650;
 
       span {
         min-width: 0;
@@ -267,21 +323,21 @@
           position: absolute;
           inset: 0;
           border: 2px solid transparent;
-          border-top-color: #93b4ff;
+          border-top-color: rgba(147, 180, 255, 0.92);
           border-radius: 50%;
-          animation: spinnerTurn 880ms linear infinite;
+          animation: spinnerTurn 980ms cubic-bezier(0.62, 0, 0.38, 1) infinite;
 
           &:nth-child(2) {
             inset: 5px;
-            border-top-color: #22a068;
-            animation-duration: 1180ms;
+            border-top-color: rgba(72, 205, 145, 0.78);
+            animation-duration: 1320ms;
             animation-direction: reverse;
           }
 
           &:nth-child(3) {
             inset: 10px;
-            border-top-color: #ffffff;
-            animation-duration: 1480ms;
+            border-top-color: rgba(255, 255, 255, 0.78);
+            animation-duration: 1680ms;
           }
         }
       }
@@ -297,16 +353,18 @@
 
 @media (max-width: 640px) {
   .splashOverlay {
-    padding: 18px;
+    align-items: flex-end;
+    padding: 28px 22px 42px;
 
     .animationField {
       .orbit {
-        width: 94vw;
+        left: 76%;
+        width: 112vw;
 
         span {
           transform:
             rotate(calc(var(--node-index) * 60deg))
-            translateX(47vw)
+            translateX(56vw)
             rotate(calc(var(--node-index) * -60deg));
         }
       }
@@ -315,17 +373,28 @@
       .taskRain {
         span {
           max-width: 46vw;
-          padding: 7px 8px;
         }
+      }
+
+      .codeRain {
+        left: 18px;
+        width: 58vw;
+        opacity: 0.66;
+      }
+
+      .taskRain {
+        right: 12px;
+        width: 42vw;
+        opacity: 0.74;
       }
     }
 
     .splashPanel {
-      border-radius: 18px;
+      gap: 22px;
 
       .loaderRow {
         width: 100%;
-        justify-content: center;
+        justify-content: start;
       }
     }
   }
@@ -339,7 +408,9 @@
     .animationField .signalGrid,
     .animationField .orbit,
     .animationField .codeRain span,
+    .animationField .codeRain::before,
     .animationField .taskRain span,
+    .splashPanel,
     .splashPanel .brandStack .logoShell span,
     .splashPanel .loaderRow .spinner span {
       animation: none;
@@ -357,20 +428,20 @@
   }
 
   to {
-    background-position: 54px 54px;
+    background-position: 64px 64px;
   }
 }
 
-@keyframes signalPulse {
+@keyframes signalSweep {
   0%,
   100% {
-    opacity: 0.46;
-    transform: scale(0.98);
+    opacity: 0.18;
+    transform: translate3d(-12px, 0, 0) scaleX(0.82);
   }
 
   50% {
-    opacity: 0.86;
-    transform: scale(1.02);
+    opacity: 0.72;
+    transform: translate3d(24px, 0, 0) scaleX(1);
   }
 }
 
@@ -384,50 +455,62 @@
   }
 }
 
-@keyframes rainFall {
+@keyframes codeStream {
   from {
-    transform: translate3d(0, -10vh, 0) rotate(-2deg);
+    transform: translate3d(0, -8vh, 0);
     opacity: 0;
   }
 
   12%,
   78% {
-    opacity: 0.82;
+    opacity: 0.7;
   }
 
   to {
-    transform: translate3d(-5vw, 128vh, 0) rotate(3deg);
+    transform: translate3d(0, 124vh, 0);
     opacity: 0;
   }
 }
 
-@keyframes taskFall {
+@keyframes taskStream {
   from {
-    transform: translate3d(0, -15vh, 0) rotate(2deg);
+    transform: translate3d(4vw, -14vh, 0) scale(0.98);
     opacity: 0;
   }
 
   14%,
   74% {
-    opacity: 0.74;
+    opacity: 0.78;
   }
 
   to {
-    transform: translate3d(6vw, 124vh, 0) rotate(-3deg);
+    transform: translate3d(-1vw, 126vh, 0) scale(1);
     opacity: 0;
   }
 }
 
-@keyframes logoCharge {
+@keyframes panelIntro {
+  from {
+    opacity: 0;
+    transform: translate3d(-18px, 10px, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes logoBreathe {
   0%,
   100% {
-    transform: rotate(0deg) scale(1);
-    opacity: 0.78;
+    transform: scale(0.94);
+    opacity: 0.36;
   }
 
   50% {
-    transform: rotate(3deg) scale(1.04);
-    opacity: 1;
+    transform: scale(1.12);
+    opacity: 0.72;
   }
 }
 
@@ -436,4 +519,3 @@
     transform: rotate(360deg);
   }
 }
-
