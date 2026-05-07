@@ -148,7 +148,7 @@ export function withTaskMeta(task: TaskEntity): TaskEntity {
 
 export type TaskCodexPlanBadge = {
   state: 'planned' | 'needs-clarification'
-  label: 'Planned' | 'Needs info'
+  label: 'Planned' | 'Plan için bilgi gerekiyor'
   conversationId?: string
 }
 
@@ -168,7 +168,16 @@ export type TaskCodexConversationMatch = {
   at: number
 }
 
-function taskActivityMessages(task: TaskEntity): TaskActivityMessage[] {
+export type TaskCodexSurfaceStatus = {
+  key: string
+  label: 'Planned' | 'Plan için bilgi gerekiyor' | 'Planning' | 'Running' | 'Post Running' | 'Follow Up'
+  tone: 'planned' | 'needs-info' | 'planning' | 'running' | 'post-running' | 'follow-up'
+  conversationId?: string
+  iconOnly?: boolean
+  active?: boolean
+}
+
+export function taskActivityMessages(task: TaskEntity): TaskActivityMessage[] {
   const messages = task.payload?.activityMessages
   if (!Array.isArray(messages)) return []
   return messages.filter((item): item is TaskActivityMessage => {
@@ -196,11 +205,94 @@ export function taskCodexPlanBadge(task: TaskEntity): TaskCodexPlanBadge | null 
   if (record.state === 'needs-clarification') {
     return {
       state: 'needs-clarification',
-      label: 'Needs info',
+      label: 'Plan için bilgi gerekiyor',
       conversationId: typeof record.conversationId === 'string' ? record.conversationId : undefined
     }
   }
   return null
+}
+
+function latestActivityMessage(task: TaskEntity, source: TaskActivityMessage['source']): TaskActivityMessage | null {
+  let latest: TaskActivityMessage | null = null
+  for (const message of taskActivityMessages(task)) {
+    if (message.source !== source) continue
+    const at = message.updatedAt ?? message.createdAt
+    if (!latest || (latest.updatedAt ?? latest.createdAt) < at) latest = message
+  }
+  return latest
+}
+
+function isFreshActiveMessage(message: TaskActivityMessage, now: number): boolean {
+  if (message.status !== 'running' && message.status !== 'queued') return false
+  return now - (message.updatedAt ?? message.createdAt) <= 15 * 60 * 1000
+}
+
+function conversationIdOfActivity(message: TaskActivityMessage): string {
+  return message.conversationId || message.runId
+}
+
+export function taskCodexSurfaceStatuses(task: TaskEntity, now = Date.now()): TaskCodexSurfaceStatus[] {
+  const statuses: TaskCodexSurfaceStatus[] = []
+  const planBadge = taskCodexPlanBadge(task)
+
+  if (planBadge?.state === 'planned') {
+    statuses.push({
+      key: 'planned',
+      label: 'Planned',
+      tone: 'planned',
+      conversationId: planBadge.conversationId,
+      iconOnly: true
+    })
+  } else if (planBadge?.state === 'needs-clarification') {
+    statuses.push({
+      key: 'needs-info',
+      label: 'Plan için bilgi gerekiyor',
+      tone: 'needs-info',
+      conversationId: planBadge.conversationId,
+      active: true
+    })
+  }
+
+  const latestPlan = latestActivityMessage(task, 'codex-plan')
+  if (latestPlan && planBadge?.state !== 'needs-clarification' && planBadge?.state !== 'planned') {
+    statuses.push({
+      key: 'planning',
+      label: 'Planning',
+      tone: 'planning',
+      conversationId: conversationIdOfActivity(latestPlan),
+      active: true
+    })
+  }
+
+  const latestRun = latestActivityMessage(task, 'codex-run')
+  if (latestRun) {
+    const running = isFreshActiveMessage(latestRun, now)
+    statuses.push({
+      key: running ? 'running' : 'post-running',
+      label: running ? 'Running' : 'Post Running',
+      tone: running ? 'running' : 'post-running',
+      conversationId: conversationIdOfActivity(latestRun),
+      active: true
+    })
+  }
+
+  const latestFollowUp = latestActivityMessage(task, 'codex-chat')
+  if (latestFollowUp) {
+    statuses.push({
+      key: 'follow-up',
+      label: 'Follow Up',
+      tone: 'follow-up',
+      conversationId: conversationIdOfActivity(latestFollowUp),
+      active: true
+    })
+  }
+
+  return statuses
+}
+
+export function taskCodexActiveTone(task: TaskEntity, now = Date.now()): TaskCodexSurfaceStatus['tone'] | null {
+  const active = taskCodexSurfaceStatuses(task, now).find((status) => status.active)
+  return active?.tone ?? null
 }
 
 export function latestTaskCodexConversation(task: TaskEntity, source: TaskCodexConversationSource): TaskCodexConversationMatch | null {

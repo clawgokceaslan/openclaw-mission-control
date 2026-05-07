@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskEntity } from '@shared/types/entities'
 import type { ProjectStatusColumn } from './status'
-import { latestTaskCodexConversation, orderTasksByStatusGroups, projectCodexSettings, reorderTasksForDrop, taskCodexActionChips, taskCodexPlanBadge } from './projectDetailUtils'
+import { latestTaskCodexConversation, orderTasksByStatusGroups, projectCodexSettings, reorderTasksForDrop, taskCodexActionChips, taskCodexActiveTone, taskCodexPlanBadge, taskCodexSurfaceStatuses } from './projectDetailUtils'
 
 function task(id: string, status: string, order: number): TaskEntity {
   return {
@@ -110,7 +110,31 @@ describe('task Codex card metadata', () => {
     expect(taskCodexPlanBadge({
       ...task('needs-info', 'todo', 0),
       payload: { codexPlanState: { state: 'needs-clarification', conversationId: 'plan-2' } }
-    })).toEqual({ state: 'needs-clarification', label: 'Needs info', conversationId: 'plan-2' })
+    })).toEqual({ state: 'needs-clarification', label: 'Plan için bilgi gerekiyor', conversationId: 'plan-2' })
+  })
+
+  it('builds card surface statuses for planned, running, post-running and follow-up states', () => {
+    const now = 10_000
+    const result = taskCodexSurfaceStatuses({
+      ...task('with-surface-statuses', 'todo', 0),
+      payload: {
+        codexPlanState: { state: 'planned', conversationId: 'plan-1' },
+        activityMessages: [
+          { id: 'run', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'system', status: 'running', body: 'run', createdAt: 9_000, updatedAt: 9_500 },
+          { id: 'chat', runId: 'chat-1', conversationId: 'chat-1', source: 'codex-chat', role: 'assistant', status: 'completed', body: 'chat', createdAt: 7_000, updatedAt: 7_500 }
+        ]
+      }
+    }, now)
+
+    expect(result.map((status) => [status.label, status.tone, status.active, status.iconOnly])).toEqual([
+      ['Planned', 'planned', undefined, true],
+      ['Running', 'running', true, undefined],
+      ['Follow Up', 'follow-up', true, undefined]
+    ])
+    expect(taskCodexActiveTone({
+      ...task('active-run', 'todo', 0),
+      payload: { activityMessages: [{ id: 'run', runId: 'run-1', source: 'codex-run', role: 'system', status: 'running', body: 'run', createdAt: 9_500 }] }
+    }, now)).toBe('running')
   })
 
   it('returns latest Plan and Run action chips by source', () => {

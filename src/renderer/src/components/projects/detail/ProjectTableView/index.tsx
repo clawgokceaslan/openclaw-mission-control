@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent } from 'react'
-import { LuCheck, LuChevronDown, LuFileText, LuGripVertical, LuPlay, LuPlus } from 'react-icons/lu'
+import { LuCheck, LuChevronDown, LuCircleCheck, LuFileText, LuGripVertical, LuEllipsis, LuPlay, LuPlus } from 'react-icons/lu'
 import type { Agent, CustomField, TaskEntity } from '@shared/types/entities'
 import { TagPill } from '@renderer/components/tags/TagPill'
 import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
 import { formatTaskDate, resolveProjectStatusColumn } from '@renderer/screens/projects/detail/status'
-import { taskCodexActionChips, taskCodexPlanBadge, type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
+import { taskCodexActionChips, taskCodexActiveTone, taskCodexSurfaceStatuses, type TaskCodexSurfaceStatus, type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
 interface ProjectTableViewProps {
@@ -38,25 +38,50 @@ function StatusPill({ status, columns }: { status: TaskEntity['status']; columns
 }
 
 function TaskCodexStrip({ task, onOpenTaskChat }: { task: TaskEntity; onOpenTaskChat: (taskId: string, conversationId: string) => void }) {
-  const planBadge = taskCodexPlanBadge(task)
+  const statuses = taskCodexSurfaceStatuses(task)
   const actions = taskCodexActionChips(task)
-  if (!planBadge && actions.length === 0) return null
+  const [open, setOpen] = useState(false)
+  if (statuses.length === 0 && actions.length === 0) return null
   const openChat = (event: MouseEvent<HTMLButtonElement>, conversationId: string) => {
     event.preventDefault()
     event.stopPropagation()
+    setOpen(false)
     onOpenTaskChat(task.id, conversationId)
   }
   return (
     <span className={styles.taskCodexStrip}>
-      {planBadge ? <span className={`${styles.taskCodexStateBadge} ${planBadge.state === 'needs-clarification' ? styles.taskCodexNeedsInfo : styles.taskCodexPlanned}`}>{planBadge.label}</span> : null}
-      {actions.map((action) => (
-        <button key={action.source} type="button" className={`${styles.taskCodexActionChip} ${action.source === 'codex-plan' ? styles.taskCodexActionPlan : styles.taskCodexActionRun}`} onClick={(event) => openChat(event, action.conversationId)} title={`Open ${action.label} chat`}>
-          {action.source === 'codex-plan' ? <LuFileText size={12} /> : <LuPlay size={12} />}
-          {action.label}
-        </button>
+      {statuses.map((status) => (
+        <span key={status.key} className={`${styles.taskCodexStateBadge} ${styles[`taskCodexTone_${status.tone}`] ?? ''}`} title={status.label} aria-label={status.label}>
+          {status.iconOnly ? <LuCircleCheck size={13} /> : status.label}
+        </span>
       ))}
+      {actions.length > 0 ? (
+        <span className={styles.taskCodexMenuWrap}>
+          <button type="button" className={styles.taskCodexMenuButton} onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            setOpen((current) => !current)
+          }} aria-label="Task Codex actions" aria-expanded={open}>
+            <LuEllipsis size={14} />
+          </button>
+          {open ? (
+            <span className={styles.taskCodexMenu}>
+              {actions.map((action) => (
+                <button key={action.source} type="button" onClick={(event) => openChat(event, action.conversationId)}>
+                  {action.source === 'codex-plan' ? <LuFileText size={13} /> : <LuPlay size={13} />}
+                  {action.label} chat
+                </button>
+              ))}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
     </span>
   )
+}
+
+function activeRowClass(tone: TaskCodexSurfaceStatus['tone'] | null) {
+  return tone ? `${styles.tableRowActive} ${styles[`tableRowActive_${tone}`] ?? ''}` : ''
 }
 
 export function ProjectTableView({ tasks, columns, tableColumns, customFields, agents, onOpenTask, onOpenTaskChat, onOpenCreateTask, onStatusChange, onReorder, onOpenColumnPicker, onColumnWidthChange }: ProjectTableViewProps) {
@@ -203,7 +228,7 @@ export function ProjectTableView({ tasks, columns, tableColumns, customFields, a
               key={task.id}
               role="button"
               tabIndex={0}
-              className={`${styles.tableRow} ${dragTaskId === task.id ? styles.tableRowDragging : ''} ${dropTarget?.taskId === task.id && dragTaskId !== task.id ? dropTarget.position === 'before' ? styles.tableRowDropBefore : styles.tableRowDropAfter : ''}`}
+              className={`${styles.tableRow} ${activeRowClass(taskCodexActiveTone(task))} ${dragTaskId === task.id ? styles.tableRowDragging : ''} ${dropTarget?.taskId === task.id && dragTaskId !== task.id ? dropTarget.position === 'before' ? styles.tableRowDropBefore : styles.tableRowDropAfter : ''}`}
               draggable
               onDragStart={(event) => {
                 setDragTaskId(task.id)

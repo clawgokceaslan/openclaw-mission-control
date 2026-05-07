@@ -1,10 +1,10 @@
 import { useState, type CSSProperties, type DragEvent, type MouseEvent } from 'react'
-import { LuCalendarPlus, LuChevronDown, LuFileText, LuPlay, LuPlus, LuUserPlus } from 'react-icons/lu'
+import { LuCalendarPlus, LuChevronDown, LuCircleCheck, LuFileText, LuEllipsis, LuPlay, LuPlus, LuUserPlus } from 'react-icons/lu'
 import type { Agent, TaskEntity } from '@shared/types/entities'
 import { TagPill } from '@renderer/components/tags/TagPill'
 import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
 import { formatTaskDate } from '@renderer/screens/projects/detail/status'
-import { taskCodexActionChips, taskCodexPlanBadge, type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
+import { taskCodexActionChips, taskCodexActiveTone, taskCodexSurfaceStatuses, type TaskCodexSurfaceStatus, type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
 interface ProjectListViewProps {
@@ -26,25 +26,50 @@ function eventDropPosition(event: DragEvent<HTMLElement>): TaskDropPosition {
 }
 
 function TaskCodexStrip({ task, onOpenTaskChat }: { task: TaskEntity; onOpenTaskChat: (taskId: string, conversationId: string) => void }) {
-  const planBadge = taskCodexPlanBadge(task)
+  const statuses = taskCodexSurfaceStatuses(task)
   const actions = taskCodexActionChips(task)
-  if (!planBadge && actions.length === 0) return null
+  const [open, setOpen] = useState(false)
+  if (statuses.length === 0 && actions.length === 0) return null
   const openChat = (event: MouseEvent<HTMLButtonElement>, conversationId: string) => {
     event.preventDefault()
     event.stopPropagation()
+    setOpen(false)
     onOpenTaskChat(task.id, conversationId)
   }
   return (
     <span className={styles.taskCodexStrip}>
-      {planBadge ? <span className={`${styles.taskCodexStateBadge} ${planBadge.state === 'needs-clarification' ? styles.taskCodexNeedsInfo : styles.taskCodexPlanned}`}>{planBadge.label}</span> : null}
-      {actions.map((action) => (
-        <button key={action.source} type="button" className={`${styles.taskCodexActionChip} ${action.source === 'codex-plan' ? styles.taskCodexActionPlan : styles.taskCodexActionRun}`} onClick={(event) => openChat(event, action.conversationId)} title={`Open ${action.label} chat`}>
-          {action.source === 'codex-plan' ? <LuFileText size={12} /> : <LuPlay size={12} />}
-          {action.label}
-        </button>
+      {statuses.map((status) => (
+        <span key={status.key} className={`${styles.taskCodexStateBadge} ${styles[`taskCodexTone_${status.tone}`] ?? ''}`} title={status.label} aria-label={status.label}>
+          {status.iconOnly ? <LuCircleCheck size={13} /> : status.label}
+        </span>
       ))}
+      {actions.length > 0 ? (
+        <span className={styles.taskCodexMenuWrap}>
+          <button type="button" className={styles.taskCodexMenuButton} onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            setOpen((current) => !current)
+          }} aria-label="Task Codex actions" aria-expanded={open}>
+            <LuEllipsis size={14} />
+          </button>
+          {open ? (
+            <span className={styles.taskCodexMenu}>
+              {actions.map((action) => (
+                <button key={action.source} type="button" onClick={(event) => openChat(event, action.conversationId)}>
+                  {action.source === 'codex-plan' ? <LuFileText size={13} /> : <LuPlay size={13} />}
+                  {action.label} chat
+                </button>
+              ))}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
     </span>
   )
+}
+
+function activeRowClass(tone: TaskCodexSurfaceStatus['tone'] | null) {
+  return tone ? `${styles.listRowActive} ${styles[`listRowActive_${tone}`] ?? ''}` : ''
 }
 
 export function ProjectListView({ columns, tasksByStatus, agents, collapsedStatuses, onToggleStatus, onOpenTask, onOpenTaskChat, onOpenCreateTask, onDropStatus, onReorder }: ProjectListViewProps) {
@@ -92,7 +117,7 @@ export function ProjectListView({ columns, tasksByStatus, agents, collapsedStatu
                     key={task.id}
                     role="button"
                     tabIndex={0}
-                    className={`${styles.listRow} ${dropTarget?.taskId === task.id ? dropTarget.position === 'before' ? styles.listRowDropBefore : styles.listRowDropAfter : ''}`}
+                    className={`${styles.listRow} ${activeRowClass(taskCodexActiveTone(task))} ${dropTarget?.taskId === task.id ? dropTarget.position === 'before' ? styles.listRowDropBefore : styles.listRowDropAfter : ''}`}
                     draggable
                     onDragStart={(event) => event.dataTransfer.setData('text/plain', task.id)}
                     onDragOver={(event) => {
