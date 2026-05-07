@@ -4,6 +4,7 @@ import {
   LuMessageSquare,
   LuPlus
 } from 'react-icons/lu'
+import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS, type AppNavigateState } from '@shared/contracts/ipc'
 import { CODEX_REASONING_EFFORT_OPTIONS, DEFAULT_CODEX_LANGUAGE, codexModelReasoningEfforts, codexModelSupportsReasoning } from '@shared/utils/codex-language'
 import { inferCodexChatPhase, type CodexChatPhase } from '@shared/utils/codex-chat-phase'
@@ -147,10 +148,12 @@ function loadInitialRatio() {
 }
 
 export function ProjectDetailPage() {
-  const params = useParams<{ projectId?: string }>()
+  const params = useParams<{ projectId?: string; taskId?: string; subtaskId?: string }>()
   const location = useLocation()
   const navigate = useNavigate()
   const projectId = params.projectId
+  const routeTaskId = params.taskId ?? null
+  const routeSubtaskId = params.subtaskId ?? null
   const { token, user } = useAuth()
   const [projectDetailRawState, projectDetailDispatch] = useProjectDetailReducer({
     chatVisibleLimit: CHAT_INITIAL_MESSAGE_LIMIT,
@@ -481,6 +484,69 @@ export function ProjectDetailPage() {
     },
     tasks
   })
+
+  const projectDetailRoute = () => projectId ? `/projects/${encodeURIComponent(projectId)}` : APP_ROUTES.PROJECTS
+  const taskDetailRoute = (taskId: string) => `${projectDetailRoute()}/tasks/${encodeURIComponent(taskId)}`
+  const subtaskDetailRoute = (taskId: string, subtaskId: string) => `${taskDetailRoute(taskId)}/subtasks/${encodeURIComponent(subtaskId)}`
+
+  const navigateToProjectDetail = (options: { replace?: boolean } = {}) => {
+    navigate(projectDetailRoute(), { replace: options.replace ?? false })
+  }
+
+  const navigateToTaskDetail = (taskId: string, options: { replace?: boolean } = {}) => {
+    navigate(taskDetailRoute(taskId), { replace: options.replace ?? false })
+  }
+
+  const navigateToSubtaskDetail = (taskId: string, subtaskId: string, options: { replace?: boolean } = {}) => {
+    navigate(subtaskDetailRoute(taskId, subtaskId), { replace: options.replace ?? false })
+  }
+
+  useEffect(() => {
+    if (!routeTaskId) {
+      if (selectedTaskId || selectedSubtaskId) clearSelection()
+      return
+    }
+
+    if (selectedTaskId !== routeTaskId) setSelectedTaskId(routeTaskId)
+
+    if (routeSubtaskId) {
+      if (selectedSubtaskId !== routeSubtaskId) setSelectedSubtaskId(routeSubtaskId)
+      if (detailViewMode !== 'subtask') setDetailViewMode('subtask')
+      if (detailTab === 'subtasks' || detailTab === 'model') setDetailTab('agent')
+      return
+    }
+
+    if (selectedSubtaskId) setSelectedSubtaskId(null)
+    if (detailViewMode !== 'task') setDetailViewMode('task')
+    if (detailTab !== 'subtasks') setDetailTab('subtasks')
+  }, [
+    routeTaskId,
+    routeSubtaskId,
+    selectedTaskId,
+    selectedSubtaskId,
+    detailViewMode,
+    detailTab,
+    setSelectedTaskId,
+    setSelectedSubtaskId,
+    setDetailViewMode,
+    setDetailTab,
+    clearSelection
+  ])
+
+  useEffect(() => {
+    if (!routeTaskId || !routeSubtaskId || tasks.length === 0) return
+    const routeTask = tasks.find((task) => task.id === routeTaskId) ?? null
+    const parentTask = tasks.find((task) => (task.subtasks ?? []).some((subtask) => subtask.id === routeSubtaskId)) ?? null
+
+    if (parentTask && parentTask.id !== routeTaskId) {
+      navigateToSubtaskDetail(parentTask.id, routeSubtaskId, { replace: true })
+      return
+    }
+
+    if (!parentTask && routeTask) {
+      navigateToTaskDetail(routeTask.id, { replace: true })
+    }
+  }, [routeTaskId, routeSubtaskId, tasks])
 
   useEffect(() => {
     let cancelled = false
@@ -931,9 +997,11 @@ export function ProjectDetailPage() {
           setDetailViewMode('task')
           setSelectedSubtaskId(null)
           setDetailTab('subtasks')
+          navigateToTaskDetail(selectedTask.id, { replace: true })
           return
         }
         clearSelection()
+        navigateToProjectDetail({ replace: true })
       }
     }
     window.addEventListener('keydown', onEsc)
@@ -1245,14 +1313,14 @@ export function ProjectDetailPage() {
 
   const openRecentChat = (row: ProjectRecentChatRow) => {
     setPendingChatOpen({ taskId: row.taskId, conversationId: row.conversationId })
-    setSelectedTaskId(row.taskId)
+    navigateToTaskDetail(row.taskId)
     setDetailViewMode('task')
     setSelectedSubtaskId(null)
   }
 
   const openTaskChatConversation = (taskId: string, conversationId: string) => {
     setPendingChatOpen({ taskId, conversationId })
-    setSelectedTaskId(taskId)
+    navigateToTaskDetail(taskId)
     setDetailViewMode('task')
     setSelectedSubtaskId(null)
   }
@@ -1433,6 +1501,7 @@ export function ProjectDetailPage() {
 
   const closeSelectedTaskDetail = () => {
     clearSelection()
+    navigateToProjectDetail({ replace: true })
   }
 
   const syncProjectWorkspace = () => {
@@ -1516,14 +1585,13 @@ export function ProjectDetailPage() {
   useEffect(() => {
     const state = location.state as AppNavigateState | null
     if (state?.openTaskId && state.openTaskChat) {
-      openTask(state.openTaskId)
       if (state.openTaskConversationId) {
         setPendingChatOpen({
           taskId: state.openTaskId,
           conversationId: state.openTaskConversationId
         })
       }
-      navigate(location.pathname, { replace: true, state: null })
+      navigate(taskDetailRoute(state.openTaskId), { replace: true, state: null })
       return
     }
     if (state?.openProjectSettings) {
@@ -2451,7 +2519,7 @@ export function ProjectDetailPage() {
     setIsTaskImportOpen(false)
     if (response.data.warnings.length > 0) setError(response.data.warnings.join(' '))
     await refresh()
-    setSelectedTaskId(response.data.task.id)
+    navigateToTaskDetail(response.data.task.id, { replace: true })
     setDetailViewMode('task')
     setSelectedSubtaskId(null)
   }
@@ -2722,6 +2790,9 @@ export function ProjectDetailPage() {
   }
 
   const openSubtaskDetail = (subtaskId: string) => {
+    if (selectedTask?.id) {
+      navigateToSubtaskDetail(selectedTask.id, subtaskId)
+    }
     setSelectedSubtaskId(subtaskId)
     setDetailViewMode('subtask')
     setDetailTab('agent')
@@ -3220,7 +3291,7 @@ export function ProjectDetailPage() {
             void onDropColumn(event, status)
           }}
           onReorder={(sourceTaskId, targetTaskId, position) => void reorderTableTasks(sourceTaskId, targetTaskId, position)}
-          onOpenTask={setSelectedTaskId}
+          onOpenTask={navigateToTaskDetail}
           onOpenTaskChat={openTaskChatConversation}
           onOpenCreateTask={openCreateTask}
           onStatusChange={(taskId, status) => void updateTaskStatus(taskId, status)}
@@ -3380,6 +3451,10 @@ export function ProjectDetailPage() {
               splitTemplate,
               onResizeStart: () => setIsResizingSplit(true),
               clearSelection,
+              closeTaskDetail: () => {
+                clearSelection()
+                navigateToProjectDetail({ replace: true })
+              },
               isTitleEditing,
               setIsTitleEditing,
               titleDraft,
@@ -3467,6 +3542,7 @@ export function ProjectDetailPage() {
                 setDetailViewMode('task')
                 setDetailTab('subtasks')
                 setCustomFieldError(null)
+                navigateToTaskDetail(selectedTask.id, { replace: true })
               }}
               onOpenChat={() => undefined}
               onEditTitle={() => {
@@ -3487,6 +3563,13 @@ export function ProjectDetailPage() {
                 onResizeStart: () => setIsResizingSplit(true),
                 setSelectedSubtaskId,
                 setDetailViewMode,
+                closeSubtaskDetail: () => {
+                  setSelectedSubtaskId(null)
+                  setDetailViewMode('task')
+                  setDetailTab('subtasks')
+                  setCustomFieldError(null)
+                  navigateToTaskDetail(selectedTask.id, { replace: true })
+                },
                 setCustomFieldError,
                 editingSubtaskId,
                 setEditingSubtaskId,

@@ -66,6 +66,8 @@ const SIGNED_IN_ROUTES: RouteConfig[] = [
   { path: APP_ROUTES.PROJECTS, element: <ProjectsPage /> },
   { path: APP_ROUTES.PROJECTS_NEW, element: <ProjectNewPage /> },
   { path: APP_ROUTES.PROJECT_DETAIL, element: <ProjectDetailPage /> },
+  { path: APP_ROUTES.PROJECT_TASK_DETAIL, element: <ProjectDetailPage /> },
+  { path: APP_ROUTES.PROJECT_SUBTASK_DETAIL, element: <ProjectDetailPage /> },
   { path: APP_ROUTES.WORKSPACES, element: <SettingsTabRedirect tab="workspaces" /> },
   { path: APP_ROUTES.AGENTS, element: <AgentsPage /> },
   { path: APP_ROUTES.AGENTS_NEW, element: <AgentNewPage /> },

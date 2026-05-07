@@ -288,7 +288,7 @@ function TaskDetailBody({ scope }: { scope: Record<string, any> }) {
     <div className={styles.modalBody} ref={scope.modalBodyRef} style={scope.splitTemplate ? { gridTemplateColumns: scope.splitTemplate } as CSSProperties : undefined}>
       <div className={styles.detailPane}>
         <section className={styles.breadcrumbRow}>
-          <button type="button" className={styles.breadcrumbBtn} onClick={() => scope.clearSelection?.()}>{scope.project?.name ?? 'Project'}</button>
+          <button type="button" className={styles.breadcrumbBtn} onClick={() => (scope.closeTaskDetail ?? scope.clearSelection)?.()}>{scope.project?.name ?? 'Project'}</button>
           <span className={styles.breadcrumbSep}>&gt;</span>
           <button type="button" className={styles.breadcrumbBtn} onClick={() => { scope.setDetailViewMode?.('task'); scope.setSelectedSubtaskId?.(null); setDetailTab('subtasks') }}>{task.title}</button>
         </section>
@@ -383,7 +383,7 @@ function SubtaskDetailBody({ scope }: { scope: Record<string, any> }) {
     <div className={styles.modalBody} ref={scope.modalBodyRef} style={scope.splitTemplate ? { gridTemplateColumns: scope.splitTemplate } as CSSProperties : undefined}>
       <div className={styles.detailPane}>
         <section className={styles.breadcrumbRow}>
-          <button type="button" className={styles.breadcrumbBtn} onClick={() => { scope.setSelectedSubtaskId?.(null); scope.setDetailViewMode?.('task'); scope.setDetailTab?.('subtasks') }}>{task.title}</button>
+          <button type="button" className={styles.breadcrumbBtn} onClick={() => { scope.closeSubtaskDetail?.(); if (!scope.closeSubtaskDetail) { scope.setSelectedSubtaskId?.(null); scope.setDetailViewMode?.('task'); scope.setDetailTab?.('subtasks') } }}>{task.title}</button>
           <span className={styles.breadcrumbSep}>&gt;</span>
           <button type="button" className={styles.breadcrumbBtnActive}>{subtask.title}</button>
         </section>

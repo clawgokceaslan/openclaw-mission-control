@@ -7,6 +7,8 @@ export const APP_ROUTES = {
   PROJECTS: '/projects',
   PROJECTS_NEW: '/projects/new',
   PROJECT_DETAIL: '/projects/:projectId',
+  PROJECT_TASK_DETAIL: '/projects/:projectId/tasks/:taskId',
+  PROJECT_SUBTASK_DETAIL: '/projects/:projectId/tasks/:taskId/subtasks/:subtaskId',
   WORKSPACES: '/workspaces',
   AGENTS: '/agents',
   AGENTS_NEW: '/agents/new',
