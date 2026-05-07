@@ -713,6 +713,7 @@
 
 .taskCardActive {
   --task-active-accent: var(--omc-primary);
+  --task-active-glow-radius: 8px;
   border-color: color-mix(in srgb, var(--task-active-accent) 58%, var(--omc-border-strong)) !important;
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--task-active-accent) 12%, transparent) !important;
 
@@ -732,14 +733,26 @@
   &::after {
     content: '';
     position: absolute;
-    left: 10px;
-    top: -4px;
-    width: 8px;
-    height: 8px;
+    left: var(--task-active-glow-radius);
+    top: 0;
+    width: 18px;
+    height: 18px;
     border-radius: 999px;
     pointer-events: none;
-    background: radial-gradient(circle, #ffffff 0 18%, var(--task-active-accent) 42%, transparent 72%);
-    box-shadow: 0 0 12px color-mix(in srgb, var(--task-active-accent) 76%, transparent);
+    transform: translate(-50%, -50%);
+    background:
+      radial-gradient(
+        circle,
+        color-mix(in srgb, #ffffff 78%, var(--task-active-accent) 22%) 0 10%,
+        color-mix(in srgb, var(--task-active-accent) 84%, transparent) 24%,
+        color-mix(in srgb, var(--task-active-accent) 42%, transparent) 46%,
+        color-mix(in srgb, var(--task-active-accent) 14%, transparent) 64%,
+        transparent 82%
+      );
+    filter: blur(0.3px);
+    box-shadow:
+      0 0 11px color-mix(in srgb, var(--task-active-accent) 46%, transparent),
+      0 0 18px color-mix(in srgb, var(--task-active-accent) 22%, transparent);
     animation: taskBorderLightOrbit 2.8s linear infinite;
   }
 }
@@ -7536,28 +7549,48 @@
 
 @keyframes taskBorderLightOrbit {
   0% {
-    left: 10px;
-    top: -4px;
+    left: var(--task-active-glow-radius);
+    top: 0;
+  }
+
+  20% {
+    left: calc(100% - var(--task-active-glow-radius));
+    top: 0;
   }
 
   25% {
-    left: calc(100% - 14px);
-    top: -4px;
+    left: 100%;
+    top: var(--task-active-glow-radius);
+  }
+
+  45% {
+    left: 100%;
+    top: calc(100% - var(--task-active-glow-radius));
   }
 
   50% {
-    left: calc(100% - 4px);
-    top: calc(100% - 14px);
+    left: calc(100% - var(--task-active-glow-radius));
+    top: 100%;
+  }
+
+  70% {
+    left: var(--task-active-glow-radius);
+    top: 100%;
   }
 
   75% {
-    left: 10px;
-    top: calc(100% - 4px);
+    left: 0;
+    top: calc(100% - var(--task-active-glow-radius));
+  }
+
+  95% {
+    left: 0;
+    top: var(--task-active-glow-radius);
   }
 
   100% {
-    left: 10px;
-    top: -4px;
+    left: var(--task-active-glow-radius);
+    top: 0;
   }
 }
 

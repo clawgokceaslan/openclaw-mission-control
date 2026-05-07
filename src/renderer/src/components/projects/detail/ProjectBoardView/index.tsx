@@ -5,7 +5,7 @@ import type { Agent, Tag, TaskEntity } from '@shared/types/entities'
 import { TagPill } from '@renderer/components/tags/TagPill'
 import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
 import { formatTaskDate } from '@renderer/screens/projects/detail/status'
-import { taskCodexActiveTone, type TaskCodexSurfaceStatus, type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
+import { taskCodexActiveTone, taskCodexLatestSurfaceStatus, type TaskCodexSurfaceStatus, type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
 interface ProjectBoardViewProps {
@@ -37,6 +37,10 @@ function eventDropPosition(event: DragEvent<HTMLElement>): TaskDropPosition {
 
 function activeTaskClass(tone: TaskCodexSurfaceStatus['tone'] | null) {
   return tone ? `${styles.taskCardActive} ${styles[`taskCardActive_${tone}`] ?? ''}` : ''
+}
+
+function codexStatusClass(status: TaskCodexSurfaceStatus) {
+  return `${styles.taskCodexStateBadge} ${styles[`taskCodexTone_${status.tone}`] ?? ''}`
 }
 
 export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus, onReorder, onOpenTask, onOpenSubtask, onOpenCreateTask }: ProjectBoardViewProps) {
@@ -118,6 +122,7 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
                 const subtasks = task.subtasks ?? []
                 const expanded = Boolean(expandedSubtasks[task.id])
                 const activeTone = taskCodexActiveTone(task)
+                const chatStatus = taskCodexLatestSurfaceStatus(task)
                 return (
                   <Card
                   key={task.id}
@@ -150,9 +155,11 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
                     <div className={styles.taskTop}>
                       <h3>{task.title}</h3>
                     </div>
-                    <div className={styles.taskStatusRow}>
-                      <span className={styles.taskStatusBadge}>{column.title}</span>
-                    </div>
+                    {chatStatus ? (
+                      <div className={styles.taskStatusRow}>
+                        <span className={codexStatusClass(chatStatus)}>{chatStatus.label}</span>
+                      </div>
+                    ) : null}
                     <div className={styles.projectTaskMeta}>
                       <span><LuUserPlus size={14} /> {agentName(task)}</span>
                       <span><LuCalendarPlus size={14} /> {formatTaskDate(task.updatedAt)}</span>

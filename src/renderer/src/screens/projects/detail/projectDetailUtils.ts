@@ -365,6 +365,31 @@ export function taskCodexActiveTone(task: TaskEntity, now = Date.now()): TaskCod
   return active?.tone ?? null
 }
 
+export function taskCodexLatestSurfaceStatus(task: TaskEntity, now = Date.now()): TaskCodexSurfaceStatus | null {
+  const messages = taskActivityMessages(task)
+  if (messages.length === 0) return null
+
+  const latestMessageTimeByConversation = new Map<string, number>()
+  for (const message of messages) {
+    const conversationId = conversationIdOfActivity(message)
+    const at = activityMessageTime(message)
+    const current = latestMessageTimeByConversation.get(conversationId)
+    if (current === undefined || current <= at) latestMessageTimeByConversation.set(conversationId, at)
+  }
+
+  let latest: { status: TaskCodexSurfaceStatus; at: number; index: number } | null = null
+  taskCodexSurfaceStatuses(task, now).forEach((status, index) => {
+    if (status.statusKey === 'not-planned') return
+    const at = status.conversationId ? latestMessageTimeByConversation.get(status.conversationId) : undefined
+    if (at === undefined) return
+    if (!latest || latest.at < at || (latest.at === at && latest.index < index)) {
+      latest = { status, at, index }
+    }
+  })
+
+  return latest?.status ?? null
+}
+
 function normalizeConversationSourcePhase(source: TaskCodexConversationSource): CodexChatPhase {
   if (source === 'codex-plan') return 'PLAN'
   if (source === 'codex-run') return 'RUN'

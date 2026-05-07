@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskEntity } from '@shared/types/entities'
-import { latestTaskCodexConversation, projectCodexSettings, reorderTasksForDrop, taskCodexActionChips, taskCodexActiveTone, taskCodexPlanBadge, taskCodexSurfaceStatuses } from './projectDetailUtils'
+import { latestTaskCodexConversation, projectCodexSettings, reorderTasksForDrop, taskCodexActionChips, taskCodexActiveTone, taskCodexLatestSurfaceStatus, taskCodexPlanBadge, taskCodexSurfaceStatuses } from './projectDetailUtils'
 
 function task(id: string, status: string, order: number): TaskEntity {
   return {
@@ -91,6 +91,7 @@ describe('task Codex card metadata', () => {
       ['Not Planned', 'neutral', undefined]
     ])
     expect(taskCodexActiveTone(task('no-plan', 'todo', 0))).toBeNull()
+    expect(taskCodexLatestSurfaceStatus(task('no-plan', 'todo', 0))).toBeNull()
   })
 
   it('builds card surface statuses for planned, running, post-running and follow-up states', () => {
@@ -115,6 +116,22 @@ describe('task Codex card metadata', () => {
       ...task('active-run', 'todo', 0),
       payload: { activityMessages: [{ id: 'run', runId: 'run-1', source: 'codex-run', role: 'system', status: 'running', body: 'run', createdAt: 9_500 }] }
     }, now)).toBe('working')
+  })
+
+  it('returns the latest chat lifecycle status for kanban cards without task status fallback', () => {
+    const now = 10_000
+    const result = taskCodexLatestSurfaceStatus({
+      ...task('kanban-chat-status', 'done', 0),
+      payload: {
+        codexPlanState: { state: 'planned', conversationId: 'plan-1' },
+        activityMessages: [
+          { id: 'plan', runId: 'plan-1', conversationId: 'plan-1', source: 'codex-plan', role: 'system', status: 'completed', body: 'planned', createdAt: 8_000, updatedAt: 8_100, metadata: { codexBlock: 'run-complete' } },
+          { id: 'run', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'thinking', status: 'running', body: 'working', createdAt: 9_000, updatedAt: 9_500 }
+        ]
+      }
+    }, now)
+
+    expect(result).toMatchObject({ statusKey: 'working', label: 'Working', tone: 'working', active: true })
   })
 
   it('uses completed status labels for finished run, post-run and follow-up phases', () => {
