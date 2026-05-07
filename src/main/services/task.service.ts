@@ -51,6 +51,7 @@ import { safeConsole } from '../utils/safe-output.js'
 import { showCodexNotification } from '../utils/codex-notifications.js'
 import { formatUsageSummary, parseCodexEvents, type CodexNormalizedEvent, type CodexUsageSummary } from '../../shared/utils/codex-events.js'
 import { codexLanguageDisplayName, normalizeCodexLanguage, normalizeCodexReasoningEffort, type CodexLanguagePair } from '../../shared/utils/codex-language.js'
+import { normalizeCodexPromptShape, type CodexPromptShape } from '../../shared/utils/codex-prompt-shape.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -119,6 +120,11 @@ type ProjectPromptSnapshot = {
   postRunPrompt: string
 }
 
+type PromptSection = {
+  name: string
+  value: unknown
+}
+
 export type PlannerQuestionOption = {
   id: string
   label: string
@@ -155,7 +161,7 @@ type TaskActivityMessage = {
   updatedAt?: number
 }
 
-type RunningCodexConversationType = 'plan' | 'run' | 'chat' | 'steer'
+type RunningCodexConversationType = 'plan' | 'run' | 'chat' | 'steer' | 'post-run'
 
 type RunningCodexConversationSummary = RunningCodexTaskRow & {
   latestActivityBody: string
@@ -204,16 +210,24 @@ function isTerminalCodexActivityMessage(message: TaskActivityMessage): boolean {
 
 function runningConversationTypeOf(message: TaskActivityMessage): RunningCodexConversationType {
   if (message.source === 'codex-plan') return 'plan'
-  if (message.source === 'codex-run') return 'run'
   const metadata = asRecord(message.metadata)
+  const codexBlock = typeof metadata.codexBlock === 'string' ? metadata.codexBlock : ''
+  const parentRunId = typeof metadata.parentRunId === 'string' ? metadata.parentRunId.trim() : ''
+  const messageConversationId = typeof message.conversationId === 'string' ? message.conversationId.trim() : ''
+  const messageRunId = message.runId.trim()
+  const isPostRunConversation = codexBlock === 'post-run-start' || codexBlock === 'post-run-prompt' || Boolean(
+    parentRunId
+  ) || (messageRunId && messageConversationId && messageRunId !== messageConversationId)
+  if (message.source === 'codex-run' && isPostRunConversation) return 'post-run'
+  if (message.source === 'codex-run') return 'run'
   return typeof metadata.mode === 'string' && metadata.mode === 'steer' ? 'steer' : 'chat'
 }
 
 function runningConversationLabel(type: RunningCodexConversationType): string {
-  if (type === 'plan') return 'Plan'
+  if (type === 'plan') return 'Planning'
   if (type === 'run') return 'Run'
-  if (type === 'steer') return 'Steer chat'
-  return 'Chat'
+  if (type === 'post-run') return 'Post Running'
+  return 'Running'
 }
 
 function compactRunningActivitySummary(message: TaskActivityMessage): string {
@@ -562,6 +576,62 @@ function projectCodexReasoningEffort(project: { metrics?: Record<string, unknown
   return normalizeCodexReasoningEffort(mode === 'plan' ? record.planReasoningEffort : record.runReasoningEffort)
 }
 
+function projectCodexPromptShape(project: { metrics?: Record<string, unknown> | null }): CodexPromptShape {
+  const codex = project.metrics?.codex
+  if (!codex || typeof codex !== 'object' || Array.isArray(codex)) return 'markdown'
+  return normalizeCodexPromptShape((codex as Record<string, unknown>).promptShape)
+}
+
+function nonEmptyPromptSections(sections: PromptSection[]): PromptSection[] {
+  return sections.filter((section) => {
+    const value = section.value
+    if (value === null || value === undefined) return false
+    if (typeof value === 'string') return value.trim().length > 0
+    if (Array.isArray(value)) return value.length > 0
+    if (typeof value === 'object') return Object.keys(value as Record<string, unknown>).length > 0
+    return true
+  })
+}
+
+function renderJsonPrompt(family: string, sections: PromptSection[]): string {
+  const payload = {
+    format: 'open_mission_control_codex_prompt',
+    shape: 'json',
+    family,
+    sections: nonEmptyPromptSections(sections)
+  }
+  return JSON.stringify(payload, null, 2)
+}
+
+function toonScalar(value: unknown): string {
+  if (typeof value === 'string') return value.includes('\n') ? `|\n${value.split('\n').map((line) => `  ${line}`).join('\n')}` : value
+  return JSON.stringify(value)
+}
+
+function renderToonValue(name: string, value: unknown): string {
+  if (Array.isArray(value)) {
+    if (value.every((item) => typeof item === 'string')) return `${name}[]:\n${value.map((item) => `  - ${item}`).join('\n')}`
+    return `${name}[]:\n${value.map((item) => `  - ${JSON.stringify(item)}`).join('\n')}`
+  }
+  if (value && typeof value === 'object') return `${name}: ${JSON.stringify(value)}`
+  return `${name}: ${toonScalar(value)}`
+}
+
+function renderToonPrompt(family: string, sections: PromptSection[]): string {
+  return [
+    'shape: toon',
+    `family: ${family}`,
+    ...nonEmptyPromptSections(sections).map((section) => renderToonValue(section.name, section.value))
+  ].join('\n')
+}
+
+function renderPrompt(family: string, shape: unknown, markdown: () => string, structured: () => PromptSection[]): string {
+  const normalizedShape = normalizeCodexPromptShape(shape)
+  if (normalizedShape === 'markdown') return markdown()
+  const sections = structured()
+  return normalizedShape === 'json' ? renderJsonPrompt(family, sections) : renderToonPrompt(family, sections)
+}
+
 function codexReasoningConfigArg(reasoningEffort: string): string {
   return `model_reasoning_effort="${normalizeCodexReasoningEffort(reasoningEffort)}"`
 }
@@ -716,10 +786,10 @@ export function initialCodexPrompt(
   projectId: string,
   taskId: string,
   omcInstructionsPath: string,
-  options: { language?: string; languages?: CodexLanguagePair; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null } = {}
+  options: { language?: string; languages?: CodexLanguagePair; promptShape?: CodexPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null } = {}
 ): string {
   const language = typeof options.languages === 'object' ? options.languages.outputLanguage : options.language
-  return [
+  const rows = [
     `Open Mission Control runtime workspace is ${runtimeWorkspacePath}.`,
     `The exported task files are in ${exportWorkspacePath}.`,
     `The Open Mission Control project id is ${projectId} and task id is ${taskId}.`,
@@ -736,7 +806,18 @@ export function initialCodexPrompt(
     'Use the local .omc CLI ready-for-review operation only after implementation and checks are complete.',
     'When the implementation is complete, summarize the changed files and remaining checks in Codex.',
     'Do not ask for the ZIP; all exported files are already available in the export directory.'
-  ].join(' ')
+  ]
+  return renderPrompt('run', options.promptShape, () => rows.join(' '), () => [
+    { name: 'runtime_workspace', value: runtimeWorkspacePath },
+    { name: 'export_workspace', value: exportWorkspacePath },
+    { name: 'ids', value: { projectId, taskId } },
+    { name: 'language_instruction', value: codexLanguageInstruction(language) },
+    { name: 'project_instructions', value: projectInstructionsSection(options.projectPrompt, { audience: 'run' }) },
+    { name: 'effective_agent', value: effectiveAgentSection(options.effectiveAgent) },
+    { name: 'omc_cli_instructions_path', value: omcInstructionsPath },
+    { name: 'required_reads', value: [`${exportWorkspacePath}/Task.md`, `${exportWorkspacePath}/Agents.md`, `${exportWorkspacePath}/Skills.md`, `${exportWorkspacePath}/attachments/ if present`] },
+    { name: 'execution_instructions', value: rows.slice(8) }
+  ])
 }
 
 export const PLANNER_GENERIC_TEXT_REJECT_LIST = [
@@ -788,7 +869,7 @@ export function initialPlannerPrompt(
   helperPath: string,
   contextPath: string,
   plannedTaskPath: string,
-  options: { language?: string; languages?: CodexLanguagePair; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null; clarificationMode?: PlannerClarificationMode } = {}
+  options: { language?: string; languages?: CodexLanguagePair; promptShape?: CodexPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null; clarificationMode?: PlannerClarificationMode } = {}
 ): string {
   const questionsPath = plannedTaskPath.replace(/planned-task\.json$/i, 'questions.json')
   const language = typeof options.languages === 'object' ? options.languages.outputLanguage : options.language
@@ -826,7 +907,7 @@ export function initialPlannerPrompt(
         'Do not create a new task in this planning flow.',
         `After the update succeeds, run: node ${helperPath} finish`
       ]
-  return [
+  const rows = [
     'You are planning an Open Mission Control task inside Codex TUI.',
     'Do not use MCP for this flow. Use the local helper CLI in this workspace.',
     `First run: node ${helperPath} context > ${contextPath}`,
@@ -838,7 +919,20 @@ export function initialPlannerPrompt(
     'Apply the high-priority project instructions before producing the planned task. Use context JSON as supporting detail, not as a replacement for those instructions.',
     ...modeRules,
     ...sharedRules
-  ].join(' ')
+  ]
+  return renderPrompt('plan', options.promptShape, () => rows.join(' '), () => [
+    { name: 'role', value: rows[0] },
+    { name: 'mcp_policy', value: rows[1] },
+    { name: 'first_command', value: `node ${helperPath} context > ${contextPath}` },
+    { name: 'ids', value: { projectId, taskId } },
+    { name: 'language_instruction', value: codexLanguageInstruction(language) },
+    { name: 'project_instructions', value: projectInstructionsSection(options.projectPrompt, { audience: 'plan' }) },
+    { name: 'effective_agent', value: effectiveAgentSection(options.effectiveAgent) },
+    { name: 'task_context_policy', value: rows.slice(7, 9) },
+    { name: 'clarification_mode', value: clarificationMode },
+    { name: 'mode_rules', value: modeRules },
+    { name: 'shared_rules', value: sharedRules }
+  ])
 }
 
 function plannerClarificationPrompt(input: {
@@ -847,13 +941,16 @@ function plannerClarificationPrompt(input: {
   transcript: TaskActivityMessage[]
   language?: string
   languages?: CodexLanguagePair
+  promptShape?: CodexPromptShape
 }): string {
   if (!input.clarificationMessage?.trim() && input.transcript.length === 0) return ''
-  const transcript = input.transcript
+  const transcriptRows = input.transcript
     .slice(-32)
+    .map((item) => ({ role: item.role, body: item.body, source: item.source, createdAt: item.createdAt }))
+  const transcript = transcriptRows
     .map((item) => `${item.role.toUpperCase()}: ${item.body}`)
     .join('\n\n')
-  return [
+  const rows = [
     `This planning run continues plan conversation ${input.conversationId}.`,
     codexLanguageInstruction(input.language ?? input.languages),
     input.clarificationMessage?.trim()
@@ -861,7 +958,14 @@ function plannerClarificationPrompt(input: {
       : '',
     transcript ? `Recent plan conversation transcript:\n${transcript}` : '',
     'Use the user clarification as the highest-priority answer to the planner questions, then re-run context and continue planning.'
-  ].filter(Boolean).join('\n\n')
+  ]
+  return renderPrompt('plan_continuation', input.promptShape, () => rows.filter(Boolean).join('\n\n'), () => [
+    { name: 'conversation_id', value: input.conversationId },
+    { name: 'language_instruction', value: codexLanguageInstruction(input.language ?? input.languages) },
+    { name: 'user_clarification_answer', value: input.clarificationMessage?.trim() ?? '' },
+    { name: 'recent_plan_conversation_transcript', value: transcriptRows },
+    { name: 'continuation_policy', value: 'Use the user clarification as the highest-priority answer to the planner questions, then re-run context and continue planning.' }
+  ])
 }
 
 type PromptComment = {
@@ -988,9 +1092,12 @@ export function codexChatPrompt(input: {
   attachments?: Array<{ name: string; path: string }>
   language?: string
   languages?: CodexLanguagePair
+  promptShape?: CodexPromptShape
 }): string {
-  const transcript = input.transcript
+  const transcriptRows = input.transcript
     .slice(-24)
+    .map((item) => ({ role: item.role, body: item.body, source: item.source, createdAt: item.createdAt }))
+  const transcript = transcriptRows
     .map((item) => `${item.role.toUpperCase()}: ${item.body}`)
     .join('\n\n')
   const modeInstruction = input.mode === 'plan'
@@ -1018,7 +1125,7 @@ export function codexChatPrompt(input: {
     ? `Latest run output context:\n${input.followUpContext.trim()}`
     : ''
   const importantComments = importantTaskCommentsSection(input.task, input.context)
-  return [
+  const rows = [
     'You are continuing an Open Mission Control task chat.',
     modeInstruction,
     codexLanguageInstruction(language),
@@ -1036,7 +1143,23 @@ export function codexChatPrompt(input: {
     attachments,
     'Respond with concrete next steps or implementation notes. If you make changes, summarize files and checks.',
     'Do not use MCP in this flow.'
-  ].filter(Boolean).join('\n\n')
+  ]
+  return renderPrompt('chat', input.promptShape, () => rows.filter(Boolean).join('\n\n'), () => [
+    { name: 'role', value: rows[0] },
+    { name: 'mode_instruction', value: modeInstruction },
+    { name: 'language_instruction', value: codexLanguageInstruction(language) },
+    { name: 'project_settings', value: projectSettingsSectionFromPlannerContext(input.context) },
+    { name: userPromptLabel.replace(/\s+/g, '_').toLowerCase(), value: input.message },
+    { name: 'latest_run_output_context', value: input.followUpContext?.trim() || '' },
+    { name: 'project_instructions', value: projectInstructionsSection(projectInstructions, { audience: instructionAudience }) },
+    { name: 'effective_agent', value: effectiveAgentSection(effectiveAgent) },
+    { name: 'important_task_comments', value: importantComments },
+    { name: 'task', value: { id: input.task.id, title: input.task.title, description: input.task.description ?? '' } },
+    { name: 'current_task_context', value: routedContext },
+    { name: 'recent_chat_transcript', value: transcriptRows },
+    { name: 'attachments', value: input.attachments ?? [] },
+    { name: 'response_policy', value: ['Respond with concrete next steps or implementation notes. If you make changes, summarize files and checks.', 'Do not use MCP in this flow.'] }
+  ])
 }
 
 type CodexThinkingSegment = {
@@ -1801,14 +1924,15 @@ function extractCodexSessionId(rawEvents: string): string | undefined {
   return undefined
 }
 
-function postRunContinuationPrompt(input: {
+export function postRunContinuationPrompt(input: {
   language?: string
+  promptShape?: CodexPromptShape
   projectPrompt: ProjectPromptSnapshot
   effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null
   primaryFinalMessage: string
   primaryChanges: ReturnType<typeof codexOutputChanges>
 }): string {
-  return [
+  const rows = [
     'You are continuing an Open Mission Control Codex Run after the primary exec process completed successfully.',
     codexLanguageInstruction(input.language),
     projectInstructionsSection(input.projectPrompt, { audience: 'run' }),
@@ -1818,7 +1942,18 @@ function postRunContinuationPrompt(input: {
     input.primaryChanges.hasChanges ? `Primary run Codex-reported changes:\n${input.primaryChanges.body}` : '',
     `Post-run prompt:\n${input.projectPrompt.postRunPrompt.trim()}`,
     'When done, summarize only the post-run work, changed files, and verification.'
-  ].filter(Boolean).join('\n\n')
+  ]
+  return renderPrompt('post_run', input.promptShape, () => rows.filter(Boolean).join('\n\n'), () => [
+    { name: 'role', value: rows[0] },
+    { name: 'language_instruction', value: codexLanguageInstruction(input.language) },
+    { name: 'project_instructions', value: projectInstructionsSection(input.projectPrompt, { audience: 'run' }) },
+    { name: 'effective_agent', value: effectiveAgentSection(input.effectiveAgent) },
+    { name: 'continuation_policy', value: 'Do not restart the original task. Continue from the current workspace state and apply only the Post-run prompt.' },
+    { name: 'primary_run_final_message', value: input.primaryFinalMessage.trim() },
+    { name: 'primary_run_changes', value: input.primaryChanges.hasChanges ? input.primaryChanges.body : '' },
+    { name: 'post_run_prompt', value: input.projectPrompt.postRunPrompt.trim() },
+    { name: 'completion_policy', value: 'When done, summarize only the post-run work, changed files, and verification.' }
+  ])
 }
 
 function summarizeCodexExecEvents(
@@ -3008,6 +3143,7 @@ export class TaskService {
     if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
     const projectPrompt = projectPromptSnapshot(project)
     const language = await resolveCodexLanguageSetting(this.appSettings, access.data.actorOrgId, project, payload)
+    const promptShape = projectCodexPromptShape(project)
     const reasoningEffort = projectCodexReasoningEffort(project, 'run', payload.reasoningEffort)
     const effectiveAgent = await this.effectiveAgentForTask(access.data.task, access.data.actorOrgId, project)
 
@@ -3058,6 +3194,7 @@ export class TaskService {
       const instructionsRelativePath = plannerRunRelativePath(runId, 'OMC_CLI.md')
       const prompt = initialCodexPrompt(exportWorkspacePath, runtimeWorkspacePath, project.id, access.data.task.id, instructionsRelativePath, {
         language,
+        promptShape,
         projectPrompt,
         effectiveAgent
       })
@@ -3278,6 +3415,7 @@ export class TaskService {
           const postFinalMessagePath = join(runFolderPath, 'post-run-final-message.md')
           const postPrompt = postRunContinuationPrompt({
             language,
+            promptShape,
             projectPrompt,
             effectiveAgent,
             primaryFinalMessage,
@@ -3759,6 +3897,7 @@ export class TaskService {
     if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
     const projectPrompt = projectPromptSnapshot(project)
     const language = await resolveCodexLanguageSetting(this.appSettings, access.data.actorOrgId, project, payload)
+    const promptShape = projectCodexPromptShape(project)
     const reasoningEffort = projectCodexReasoningEffort(project, 'plan', payload.reasoningEffort)
     const effectiveAgent = await this.effectiveAgentForTask(access.data.task, access.data.actorOrgId, project)
 
@@ -3848,11 +3987,12 @@ export class TaskService {
         `Read ${instructionsRelativePath} first.`,
         initialPlannerPrompt(project.id, access.data.task.id, helperRelativePath, contextRelativePath, plannedTaskRelativePath, {
           language,
+          promptShape,
           projectPrompt,
           effectiveAgent,
           clarificationMode
         }),
-        plannerClarificationPrompt({ conversationId, clarificationMessage, transcript, language })
+        plannerClarificationPrompt({ conversationId, clarificationMessage, transcript, language, promptShape })
       ].join(' ')
       const codexCommand = [
         shellQuote(codexPath),
@@ -4199,6 +4339,7 @@ export class TaskService {
     const runtimeWorkspace = await this.workspaces.get(runtimeWorkspaceId)
     if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
     const language = await resolveCodexLanguageSetting(this.appSettings, access.data.actorOrgId, project, payload)
+    const promptShape = projectCodexPromptShape(project)
 
     const taskId = access.data.task.id
     const taskTitle = access.data.task.title
@@ -4246,7 +4387,8 @@ export class TaskService {
       followUpContext: typeof payload.followUpContext === 'string' ? payload.followUpContext : undefined,
       mode,
       attachments,
-      language
+      language,
+      promptShape
     })
     const activitySource: TaskActivityMessage['source'] = mode === 'plan' ? 'codex-plan' : 'codex-chat'
     const execArgs = [

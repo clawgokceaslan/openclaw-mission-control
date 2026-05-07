@@ -9,7 +9,7 @@ import { promisify } from 'node:util'
 import type { ProjectStatus, TaskChecklistItem, TaskEntity } from '../../shared/types/entities.js'
 import type { NormalizedTaskJsonImport, NormalizedImportedSubtask } from './task-json-import.js'
 import { TaskJsonImportNormalizer } from './task-json-import.js'
-import { codexChatPrompt, codexOutputChanges, codexWorkspaceChanges, initialCodexPrompt, initialPlannerPrompt, normalizePlannerQuestionPayload, omcCliInstructions, plannerJsonGuidance, shouldStartPostRunPrompt, summarizeRunningConversation, TaskService, validatePlannerTaskJsonQuality, writeTaskSnapshotToExportWorkspace } from './task.service.js'
+import { codexChatPrompt, codexOutputChanges, codexWorkspaceChanges, initialCodexPrompt, initialPlannerPrompt, normalizePlannerQuestionPayload, omcCliInstructions, plannerJsonGuidance, postRunContinuationPrompt, shouldStartPostRunPrompt, summarizeRunningConversation, TaskService, validatePlannerTaskJsonQuality, writeTaskSnapshotToExportWorkspace } from './task.service.js'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 
 const execFileAsync = promisify(execFile)
@@ -210,6 +210,30 @@ describe('codexChatPrompt', () => {
     expect(planPrompt).not.toContain('General context should be chat-only.')
     expect(planPrompt).not.toContain('Rules should be chat-only.')
     expect(planPrompt).not.toContain('Post-run should never be chat prompt context.')
+  })
+
+  it('serializes chat prompts as structured JSON and Toon when requested', () => {
+    const jsonPrompt = codexChatPrompt({
+      task: taskWithComments(),
+      message: 'Continue.',
+      transcript: [{ role: 'assistant', body: 'Earlier work', id: 'm1', runId: 'r1', source: 'codex-chat', createdAt: 1 }],
+      mode: 'chat',
+      promptShape: 'json'
+    })
+    const parsed = JSON.parse(jsonPrompt)
+
+    expect(parsed.shape).toBe('json')
+    expect(parsed.family).toBe('chat')
+    expect(parsed.sections.find((section: { name: string }) => section.name === 'recent_chat_transcript').value).toEqual([
+      { role: 'assistant', body: 'Earlier work', source: 'codex-chat', createdAt: 1 }
+    ])
+    expect(codexChatPrompt({
+      task: taskWithComments(),
+      message: 'Continue.',
+      transcript: [],
+      mode: 'chat',
+      promptShape: 'toon'
+    })).toContain('family: chat')
   })
 })
 
@@ -446,6 +470,41 @@ describe('planner quality gate', () => {
     expect(runPrompt).toContain('Default output for run.')
     expect(runPrompt).toContain('Rules for run.')
     expect(runPrompt).not.toContain('Post-run prompt text.')
+  })
+
+  it('keeps Markdown as the default and serializes plan and run prompts as valid JSON or Toon', () => {
+    const markdown = initialPlannerPrompt('project-1', 'task-1', 'helper.mjs', 'context.json', 'planned-task.json')
+    const jsonPlanner = initialPlannerPrompt('project-1', 'task-1', 'helper.mjs', 'context.json', 'planned-task.json', { promptShape: 'json' })
+    const jsonRun = initialCodexPrompt('/export', '/runtime', 'project-1', 'task-1', '.omc/runs/run/OMC_CLI.md', { promptShape: 'json' })
+    const toonRun = initialCodexPrompt('/export', '/runtime', 'project-1', 'task-1', '.omc/runs/run/OMC_CLI.md', { promptShape: 'toon' })
+
+    expect(markdown).toContain('You are planning an Open Mission Control task inside Codex TUI.')
+    expect(markdown.trim().startsWith('{')).toBe(false)
+    expect(JSON.parse(jsonPlanner).family).toBe('plan')
+    expect(JSON.parse(jsonRun).family).toBe('run')
+    expect(toonRun).toContain('shape: toon')
+    expect(toonRun).toContain('family: run')
+  })
+
+  it('serializes post-run prompts as structured JSON', () => {
+    const prompt = postRunContinuationPrompt({
+      language: 'en',
+      promptShape: 'json',
+      projectPrompt: {
+        generalContext: '',
+        generalPrompt: '',
+        planGuide: '',
+        defaultOutput: '',
+        rules: '',
+        postRunPrompt: 'Clean up generated artifacts.'
+      },
+      primaryFinalMessage: 'Done.',
+      primaryChanges: { hasChanges: false, body: '', files: 0, insertions: 0, deletions: 0, fileStats: [] }
+    })
+
+    const parsed = JSON.parse(prompt)
+    expect(parsed.family).toBe('post_run')
+    expect(parsed.sections.find((section: { name: string }) => section.name === 'post_run_prompt').value).toBe('Clean up generated artifacts.')
   })
 })
 
@@ -823,6 +882,62 @@ describe('running Codex conversations', () => {
     expect(rows[0].conversationType).toBe('steer')
     expect(rows[1].conversationType).toBe('run')
     expect(rows[0].liveStatus).toBe('running')
+  })
+
+  it('classifies active post-run conversations from post-run metadata and status flow', () => {
+    const now = 1_700_000_000_000
+    const task = {
+      id: 'task-2',
+      projectId: 'project-1',
+      title: 'Post-run Task',
+      status: 'active',
+      payload: {
+        activityMessages: [
+          {
+            id: 'run-done',
+            runId: 'run-main',
+            source: 'codex-run',
+            role: 'system',
+            status: 'completed',
+            body: 'Run completed',
+            createdAt: now - 60_000,
+            metadata: { codexBlock: 'run-complete' }
+          },
+          {
+            id: 'post-run-start',
+            runId: 'run-post',
+            conversationId: 'run-main',
+            source: 'codex-run',
+            role: 'system',
+            status: 'running',
+            body: 'Starting post-run prompt',
+            createdAt: now - 45_000,
+            metadata: { codexBlock: 'post-run-start', parentRunId: 'run-main' }
+          },
+          {
+            id: 'post-run-prompt',
+            runId: 'run-post',
+            conversationId: 'run-main',
+            source: 'codex-run',
+            role: 'assistant',
+            status: 'running',
+            body: 'Review and validate all changes',
+            createdAt: now - 40_000,
+            metadata: { codexBlock: 'post-run-prompt', parentRunId: 'run-main' }
+          }
+        ]
+      },
+      createdAt: 1,
+      updatedAt: 1
+    } as TaskEntity
+
+    const rows = summarizeRunningConversation(task, { id: 'project-1', name: 'Project One', description: 'Desc' }, task.payload.activityMessages as any[], now)
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0].codexConversationId).toBe('run-main')
+    expect(rows[0].conversationType).toBe('post-run')
+    expect(rows[0].liveStatus).toBe('running')
+    expect(rows[0].latestActivitySummary).toBe('Review and validate all changes')
   })
 
   it('paginates live conversation rows from listRunningCodex', async () => {

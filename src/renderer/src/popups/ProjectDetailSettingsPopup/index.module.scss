@@ -238,6 +238,39 @@
   }
 }
 
+.promptShapeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+
+  > div {
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 12px;
+    background: var(--omc-surface-muted);
+    padding: 12px;
+    display: grid;
+    gap: 5px;
+  }
+
+  strong {
+    color: var(--omc-text-strong);
+    font-size: 0.9rem;
+    font-weight: 900;
+  }
+
+  span {
+    color: var(--omc-text-muted);
+    font-size: 0.8rem;
+    font-weight: 700;
+    line-height: 1.35;
+  }
+}
+
+.promptShapeActive {
+  border-color: var(--omc-primary) !important;
+  background: var(--omc-active-bg) !important;
+}
+
 .settingsFormGrid {
   display: grid;
   gap: 12px;
@@ -618,6 +651,7 @@
   }
 
   .statusEditorRow,
+  .promptShapeGrid,
   .statusMappingRow,
   .settingsMiniTable > div {
     grid-template-columns: minmax(0, 1fr);

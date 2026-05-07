@@ -12,6 +12,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { copyFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { normalizeCodexPromptShape } from '../../shared/utils/codex-prompt-shape.js'
 
 const CODEX_LANGUAGE_VALUES = new Set(['tr', 'en'])
 const CODEX_REASONING_VALUES = new Set(['minimal', 'low', 'medium', 'high', 'xhigh'])
@@ -83,7 +84,10 @@ export class ProjectService {
       payload.workspaceId = workspaceId.data ?? null
     }
     if ('codex' in payload) {
-      const codex = await this.normalizeCodexSettings(actor.user.organizationId, payload.codex)
+      const currentCodex = current.metrics?.codex && typeof current.metrics.codex === 'object' && !Array.isArray(current.metrics.codex)
+        ? current.metrics.codex as ProjectCodexSettings
+        : {}
+      const codex = await this.normalizeCodexSettings(actor.user.organizationId, { ...currentCodex, ...(payload.codex ?? {}) })
       if (!codex.ok) return errorResponse(codex.error?.code ?? ErrorCodes.Validation, codex.error?.message ?? 'Codex settings are invalid', codex.error?.details)
       payload.metrics = {
         ...(current.metrics ?? {}),
@@ -115,6 +119,7 @@ export class ProjectService {
       ?? null
     const planReasoningEffort = normalizeCodexReasoningValue(codex.planReasoningEffort)
     const runReasoningEffort = normalizeCodexReasoningValue(codex.runReasoningEffort)
+    const promptShape = normalizeCodexPromptShape(codex.promptShape)
     return okResponse({
       gatewayId,
       runtimeWorkspaceId: runtimeWorkspaceId.data ?? null,
@@ -122,6 +127,7 @@ export class ProjectService {
       planModel,
       runModel,
       language,
+      promptShape,
       planReasoningEffort,
       runReasoningEffort
     })

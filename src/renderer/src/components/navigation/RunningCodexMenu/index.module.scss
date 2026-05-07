@@ -145,6 +145,25 @@
     padding: 10px;
   }
 
+  .runningCodexSection {
+    display: grid;
+    gap: 8px;
+    padding: 4px 0 0;
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--omc-surface-muted) 45%, var(--omc-surface));
+    padding: 10px;
+  }
+
+  .runningCodexSection h3 {
+    margin: 0;
+    padding: 0;
+    color: var(--omc-text-strong);
+    font-size: 0.77rem;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+  }
+
   .runningCodexRow {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;

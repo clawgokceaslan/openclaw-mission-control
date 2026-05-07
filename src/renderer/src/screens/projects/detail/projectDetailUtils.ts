@@ -9,6 +9,7 @@ import type {
 import type { ProjectTableViewConfig, TableColumnConfig, TaskActivityMessage } from './types'
 import type { ProjectStatusColumn } from './status'
 import { normalizeCodexLanguage, normalizeCodexReasoningEffort } from '@shared/utils/codex-language'
+import { normalizeCodexPromptShape } from '@shared/utils/codex-prompt-shape'
 
 export function projectCodexSettings(project: Project | null): ProjectCodexSettings {
   const value = project?.metrics?.codex
@@ -26,6 +27,7 @@ export function projectCodexSettings(project: Project | null): ProjectCodexSetti
     planModel: typeof record.planModel === 'string' ? record.planModel : null,
     runModel: typeof record.runModel === 'string' ? record.runModel : null,
     language: typeof record.language === 'string' ? normalizeCodexLanguage(record.language) : legacyLanguage ? normalizeCodexLanguage(legacyLanguage) : null,
+    promptShape: normalizeCodexPromptShape(record.promptShape),
     planReasoningEffort: normalizeCodexReasoningEffort(record.planReasoningEffort),
     runReasoningEffort: normalizeCodexReasoningEffort(record.runReasoningEffort),
     inputLanguage: typeof record.inputLanguage === 'string' ? record.inputLanguage : null,

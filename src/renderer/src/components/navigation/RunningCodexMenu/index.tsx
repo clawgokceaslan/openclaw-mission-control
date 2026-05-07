@@ -9,9 +9,42 @@ import { useOutsidePointerDown } from '../useOutsidePointerDown'
 import styles from './index.module.scss'
 
 const PAGE_SIZE = 8
+const RUNNING_SECTION_KEYS = ['planning', 'postRunning', 'running'] as const
+type RunningSectionKey = typeof RUNNING_SECTION_KEYS[number]
+
+type RunningSection = {
+  key: RunningSectionKey
+  title: string
+  rows: RunningCodexTaskRow[]
+}
 
 function formatTimestamp(value: number): string {
   return new Date(value).toLocaleString()
+}
+
+function buildRunningSections(rows: RunningCodexTaskRow[]): RunningSection[] {
+  const sectionMap = new Map<RunningSectionKey, RunningCodexTaskRow[]>([
+    ['planning', []],
+    ['postRunning', []],
+    ['running', []]
+  ])
+
+  for (const row of rows) {
+    if (row.conversationType === 'plan') {
+      sectionMap.get('planning')!.push(row)
+    } else if (row.conversationType === 'post-run') {
+      sectionMap.get('postRunning')!.push(row)
+    } else {
+      sectionMap.get('running')!.push(row)
+    }
+  }
+
+  const sections: RunningSection[] = [
+    { key: 'planning', title: 'Planning', rows: sectionMap.get('planning')! },
+    { key: 'postRunning', title: 'Post Running', rows: sectionMap.get('postRunning')! },
+    { key: 'running', title: 'Running', rows: sectionMap.get('running')! }
+  ]
+  return sections.filter((section) => section.rows.length > 0)
 }
 
 export function RunningCodexMenu() {
@@ -59,6 +92,7 @@ export function RunningCodexMenu() {
     if (!open) return
     void loadPage(1)
   }, [loadPage, open])
+  const sections = useMemo(() => buildRunningSections(rows), [rows])
 
   useOutsidePointerDown(open, containerRef, () => setOpen(false))
 
@@ -107,38 +141,43 @@ export function RunningCodexMenu() {
             <div className={`${styles.runningCodexState} ${styles.runningCodexError}`}>{error}</div>
           ) : hasRows ? (
             <div className={styles.runningCodexList}>
-              {rows.map((row) => (
-                <button
-                  key={`${row.taskId}:${row.codexConversationId}`}
-                  type="button"
-                  className={styles.runningCodexRow}
-                  onClick={() => void selectRow(row)}
-                  disabled={globalBusy || openingConversationId === row.codexConversationId}
-                  aria-label={`Open ${row.taskTitle} ${runningCodexConversationTypeLabel(row.conversationType)} conversation`}
-                  title={`Open ${row.taskTitle}`}
-                >
-                  <div className={styles.runningCodexRowCopy}>
-                    <strong title={row.taskTitle}>{row.taskTitle}</strong>
-                    <span title={row.projectName}>
-                      {row.projectName} · {runningCodexConversationTypeLabel(row.conversationType)} · {row.taskStatus}
-                    </span>
-                    <small>
-                      <em className={row.liveStatus === 'running' ? styles.runningCodexLiveRunning : styles.runningCodexLiveQueued}>
-                        {runningCodexLiveStatusLabel(row.liveStatus)}
-                      </em>
-                      <span title={row.latestActivitySummary}>{formatRunningCodexActivitySummary(row.latestActivitySummary) || 'Active conversation'}</span>
-                      <b>{formatTimestamp(row.latestAt)}</b>
-                    </small>
-                  </div>
-                  <LuArrowRight size={14} />
-                </button>
+              {sections.map((section) => (
+                <section key={section.key} className={styles.runningCodexSection}>
+                  <h3>{section.title}</h3>
+                  {section.rows.map((row) => (
+                    <button
+                      key={`${row.taskId}:${row.codexConversationId}:${section.key}`}
+                      type="button"
+                      className={styles.runningCodexRow}
+                      onClick={() => void selectRow(row)}
+                      disabled={globalBusy || openingConversationId === row.codexConversationId}
+                      aria-label={`Open ${row.taskTitle} ${runningCodexConversationTypeLabel(row.conversationType)} conversation`}
+                      title={`Open ${row.taskTitle}`}
+                    >
+                      <div className={styles.runningCodexRowCopy}>
+                        <strong title={row.taskTitle}>{row.taskTitle}</strong>
+                        <span title={row.projectName}>
+                          {row.projectName} · {runningCodexConversationTypeLabel(row.conversationType)} · {row.taskStatus}
+                        </span>
+                        <small>
+                          <em className={row.liveStatus === 'running' ? styles.runningCodexLiveRunning : styles.runningCodexLiveQueued}>
+                            {runningCodexLiveStatusLabel(row.liveStatus)}
+                          </em>
+                          <span title={row.latestActivitySummary}>{formatRunningCodexActivitySummary(row.latestActivitySummary) || 'Active conversation'}</span>
+                          <b>{formatTimestamp(row.latestAt)}</b>
+                        </small>
+                      </div>
+                      <LuArrowRight size={14} />
+                    </button>
+                  ))}
+                </section>
               ))}
             </div>
           ) : (
             <div className={styles.runningCodexEmpty}>
               <LuMessageSquare size={18} />
               <strong>No running conversations</strong>
-              <span>Queued and running Codex plan, run, chat, and steer conversations will appear here.</span>
+              <span>Queued and running Codex plan, run, chat, steer, and post-run conversations will appear here.</span>
             </div>
           )}
           <footer>

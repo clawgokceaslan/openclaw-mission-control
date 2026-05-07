@@ -360,6 +360,7 @@ export interface UpdateProjectRequest {
     planModel?: string | null
     runModel?: string | null
     language?: string | null
+    promptShape?: 'markdown' | 'json' | 'toon' | null
     planReasoningEffort?: string | null
     runReasoningEffort?: string | null
     inputLanguage?: string | null
@@ -430,7 +431,7 @@ export interface ListRunningCodexTasksRequest {
   pageSize?: number
 }
 
-export type RunningCodexConversationType = 'plan' | 'run' | 'chat' | 'steer'
+export type RunningCodexConversationType = 'plan' | 'run' | 'chat' | 'steer' | 'post-run'
 
 export interface RunningCodexTaskRow {
   taskId: string

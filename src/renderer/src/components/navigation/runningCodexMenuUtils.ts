@@ -1,10 +1,12 @@
 import type { RunningCodexConversationType } from '@shared/contracts/ipc'
 
-export function runningCodexConversationTypeLabel(type: RunningCodexConversationType): string {
-  if (type === 'plan') return 'Plan'
+export function runningCodexConversationTypeLabel(type: RunningCodexConversationType | string): string {
+  if (type === 'plan') return 'Planning'
   if (type === 'run') return 'Run'
-  if (type === 'steer') return 'Steer chat'
-  return 'Chat'
+  if (type === 'steer') return 'Running'
+  if (type === 'post-run') return 'Post Running'
+  if (type === 'chat') return 'Running'
+  return 'Running'
 }
 
 export function runningCodexLiveStatusLabel(status: 'queued' | 'running'): string {

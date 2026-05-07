@@ -3,10 +3,12 @@ import { formatRunningCodexActivitySummary, runningCodexConversationTypeLabel, r
 
 describe('running Codex menu helpers', () => {
   it('labels conversation types and live states clearly', () => {
-    expect(runningCodexConversationTypeLabel('plan')).toBe('Plan')
+    expect(runningCodexConversationTypeLabel('plan')).toBe('Planning')
     expect(runningCodexConversationTypeLabel('run')).toBe('Run')
-    expect(runningCodexConversationTypeLabel('chat')).toBe('Chat')
-    expect(runningCodexConversationTypeLabel('steer')).toBe('Steer chat')
+    expect(runningCodexConversationTypeLabel('chat')).toBe('Running')
+    expect(runningCodexConversationTypeLabel('steer')).toBe('Running')
+    expect(runningCodexConversationTypeLabel('post-run')).toBe('Post Running')
+    expect(runningCodexConversationTypeLabel('mystery')).toBe('Running')
     expect(runningCodexLiveStatusLabel('queued')).toBe('Queued')
     expect(runningCodexLiveStatusLabel('running')).toBe('Running')
   })

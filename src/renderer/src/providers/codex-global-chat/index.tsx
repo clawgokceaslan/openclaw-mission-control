@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
-import { IPC_CHANNELS } from '@shared/contracts/ipc'
+import { IPC_CHANNELS, type RunningCodexConversationType } from '@shared/contracts/ipc'
 import type { CustomField, Gateway, Project, ProjectStatus, Skill, Tag, TaskEntity, Workspace, Agent } from '@shared/types/entities'
 import { DEFAULT_CODEX_LANGUAGE } from '@shared/utils/codex-language'
 import { ChatPopup } from '@renderer/popups/ChatPopup'
@@ -23,7 +23,7 @@ type OpenTaskConversationRequest = {
   projectId: string
   taskId: string
   conversationId: string
-  conversationType?: 'plan' | 'run' | 'chat' | 'steer'
+  conversationType?: RunningCodexConversationType
 }
 
 type GlobalCodexChatContextValue = {

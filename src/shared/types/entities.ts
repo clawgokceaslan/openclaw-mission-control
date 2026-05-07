@@ -36,6 +36,7 @@ export interface ProjectCodexSettings {
   planModel?: string | null
   runModel?: string | null
   language?: string | null
+  promptShape?: 'markdown' | 'json' | 'toon' | null
   planReasoningEffort?: string | null
   runReasoningEffort?: string | null
   /** Legacy project language fields. Read as fallback only; new saves should write language. */

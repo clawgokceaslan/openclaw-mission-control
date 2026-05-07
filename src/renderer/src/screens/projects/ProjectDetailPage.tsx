@@ -616,6 +616,7 @@ export function ProjectDetailPage() {
   })
 
   const projectCodexLanguage = savedCodexSettings.language || savedCodexSettings.outputLanguage || savedCodexSettings.inputLanguage || codexLanguage
+  const projectCodexPromptShape = savedCodexSettings.promptShape || 'markdown'
   const projectCodexPlanReasoningEffort = savedCodexSettings.planReasoningEffort || 'medium'
   const projectCodexRunReasoningEffort = savedCodexSettings.runReasoningEffort || 'medium'
 
@@ -2807,6 +2808,7 @@ export function ProjectDetailPage() {
     codexDefaultPlanModel,
     codexDefaultRunModel,
     codexLanguage: projectCodexLanguage,
+    codexPromptShape: projectCodexPromptShape,
     codexPlanReasoningEffort: projectCodexPlanReasoningEffort,
     codexRunReasoningEffort: projectCodexRunReasoningEffort,
     codexGatewayId,
