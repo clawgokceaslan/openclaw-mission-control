@@ -6,6 +6,7 @@ import { invokeBridge, loadList } from '@renderer/utils/api'
 import { Membership, Organization } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { Link } from 'react-router-dom'
+import { LoadingState } from '@renderer/components/loading'
 
 interface OrganizationPayload extends Organization {
   members?: Membership[]
@@ -71,7 +72,7 @@ export function OrganizationPage() {
           <p>Id: {organization.id}</p>
         </div>
       ) : (
-        <p>Kuruluş yükleniyor...</p>
+        <LoadingState messageIndex={2} />
       )}
 
       <h2>Invite</h2>
@@ -87,7 +88,7 @@ export function OrganizationPage() {
       {inviteResult && <p>Sonuç: {inviteResult}</p>}
 
       <h2>Members</h2>
-      <p>{membersStatus}</p>
+      {membersStatus === 'Yükleniyor...' ? <LoadingState variant="skeleton" rows={3} columns={2} messageIndex={3} /> : <p>{membersStatus}</p>}
       <ul>
         {members.map((member) => (
           <li key={member.id}>
@@ -99,4 +100,3 @@ export function OrganizationPage() {
     </section>
   )
 }
-

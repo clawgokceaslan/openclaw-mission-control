@@ -4,6 +4,7 @@ import type { Agent, Project, ProjectStatus, Skill, Tag, TaskEntity } from '@sha
 import { TaskDetailPopup } from '@renderer/popups/TaskDetail'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList } from '@renderer/utils/api'
+import { LoadingState } from '@renderer/components/loading'
 import { columnsFromProjectStatuses, resolveProjectStatusColumn } from '@renderer/screens/projects/detail/status'
 import styles from './GlobalTaskDetailModal.module.scss'
 
@@ -90,10 +91,7 @@ export function GlobalTaskDetailModal({ taskId, projectId, onClose }: GlobalTask
     >
       <div className={styles.globalTaskDetail}>
         {loading ? (
-          <div className={styles.state}>
-            <strong>Loading task detail</strong>
-            <span>Preparing the created task and project data.</span>
-          </div>
+          <LoadingState messageIndex={2} />
         ) : error ? (
           <div className={styles.state}>
             <strong>Task detail could not be opened</strong>

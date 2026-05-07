@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AppSelectOption } from '@renderer/components/select/AppSelect'
 import { AppSelect } from '@renderer/components/select/AppSelect'
-import { LuCircleCheck, LuLoaderCircle, LuTriangleAlert } from 'react-icons/lu'
+import { LuCircleCheck, LuTriangleAlert } from 'react-icons/lu'
+import { LoadingState } from '@renderer/components/loading'
 import type { Agent, Gateway, Project, ProjectGatewaySettings, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Workspace } from '@shared/types/entities'
 import { GATEWAY_LANGUAGE_OPTIONS, GATEWAY_REASONING_EFFORT_OPTIONS, gatewayModelReasoningEfforts, gatewayModelSupportsReasoning, normalizeGatewayLanguage, normalizeGatewayReasoningEffort } from '@shared/utils/gateway-language'
 import { GATEWAY_PROMPT_SHAPES, normalizeGatewayPromptShape } from '@shared/utils/gateway-prompt-shape'
@@ -37,7 +38,7 @@ function SettingsSaveToast({ feedback }: { feedback: SettingsSaveFeedback }) {
       aria-live="polite"
     >
       <span className={styles.settingsSaveToastIcon} aria-hidden="true">
-        {isError ? <LuTriangleAlert size={16} /> : isSaving ? <LuLoaderCircle size={16} /> : <LuCircleCheck size={16} />}
+        {isError ? <LuTriangleAlert size={16} /> : isSaving ? <LoadingState size="compact" message="" /> : <LuCircleCheck size={16} />}
       </span>
       <span className={styles.settingsSaveToastCopy}>
         <strong>{feedback.title}</strong>
@@ -836,7 +837,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                   <AppSelect
                     value={localSelectedPlanModelOption}
                     options={localModelOptions}
-                    placeholder={s.gatewayModelLoading ? 'Loading models...' : localModelOptions.length > 0 ? 'Select plan model' : 'Select a gateway to load models'}
+                    placeholder={s.gatewayModelLoading ? 'Modeller hazırlanıyor...' : localModelOptions.length > 0 ? 'Select plan model' : 'Select a gateway to load models'}
                     isDisabled={!gatewayIdDraft || localModelOptions.length === 0}
                     onChange={(option) => {
                       setPlanModelDraft(option?.value ?? '')
@@ -863,7 +864,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                   <AppSelect
                     value={localSelectedRunModelOption}
                     options={localModelOptions}
-                    placeholder={s.gatewayModelLoading ? 'Loading models...' : localModelOptions.length > 0 ? 'Select run model' : 'Select a gateway to load models'}
+                    placeholder={s.gatewayModelLoading ? 'Modeller hazırlanıyor...' : localModelOptions.length > 0 ? 'Select run model' : 'Select a gateway to load models'}
                     isDisabled={!gatewayIdDraft || localModelOptions.length === 0}
                     onChange={(option) => {
                       setRunModelDraft(option?.value ?? '')
@@ -886,7 +887,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                   </label>
                 ) : null}
               </div>
-              {s.gatewayModelLoading ? <div className={styles.settingsEmptyState}>Loading models from Codex CLI...</div> : null}
+              {s.gatewayModelLoading ? <LoadingState size="compact" messageIndex={4} /> : null}
               {s.gatewayModelError ? <div className={styles.settingsEmptyState}>{s.gatewayModelError}</div> : null}
             </div>
           ) : null}
@@ -921,7 +922,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                 onClick={() => void handleSaveGatewaySettings()}
                 disabled={s.gatewaySaving || Boolean(codexValidationMessage)}
               >
-                {s.gatewaySaving ? 'Saving...' : 'Save Model Settings'}
+                {s.gatewaySaving ? <LoadingState size="compact" messageIndex={2} /> : 'Save Model Settings'}
               </button>
             </>
           ) : activeTab === 'language' ? (

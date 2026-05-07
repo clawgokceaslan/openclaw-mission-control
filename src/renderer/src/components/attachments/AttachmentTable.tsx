@@ -1,5 +1,6 @@
 import { useRef, useState, type DragEvent } from 'react'
 import type { TaskAttachment } from '@shared/types/entities'
+import { LoadingState } from '@renderer/components/loading'
 import { AttachmentRow, downloadAttachment, formatFileSize } from './attachments'
 import styles from './AttachmentTable.module.scss'
 
@@ -53,7 +54,7 @@ export function AttachmentTable({ rows, uploading = false, onUpload, onRemove, o
           <span>Drop files here or select from your computer.</span>
         </div>
         <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}>
-          {uploading ? 'Uploading...' : 'Choose files'}
+          {uploading ? <LoadingState size="compact" messageIndex={4} /> : 'Choose files'}
         </button>
         <input
           ref={inputRef}
@@ -78,7 +79,13 @@ export function AttachmentTable({ rows, uploading = false, onUpload, onRemove, o
             </tr>
           </thead>
           <tbody>
-            {rows.length > 0 ? rows.map((row) => (
+            {uploading && rows.length === 0 ? (
+              <tr>
+                <td colSpan={5}>
+                  <LoadingState variant="skeleton" rows={3} columns={5} messageIndex={4} />
+                </td>
+              </tr>
+            ) : rows.length > 0 ? rows.map((row) => (
               <tr key={row.id}>
                 <td>
                   <span className={styles.attachmentName}>{row.name}</span>

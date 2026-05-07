@@ -1,13 +1,14 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import styles from './ProjectGroupsPage.module.scss'
-import { Alert, Button, Card, Form, Modal, Spinner } from 'react-bootstrap'
+import { Alert, Button, Card, Form, Modal } from 'react-bootstrap'
 import { LuPencil, LuPlus, LuTrash2 } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
 import { Project, ProjectGroup } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
+import { LoadingState } from '@renderer/components/loading'
 
 type EditorMode = 'create' | 'edit' | null
 
@@ -201,8 +202,6 @@ export function ProjectGroupsPage() {
       </header>
 
       {error ? <Alert variant="danger" className={styles.notice}>{error}</Alert> : null}
-      {status !== 'Ready' ? <Alert variant="info" className={styles.notice}>{status}</Alert> : null}
-
       {!isEditorOpen ? (
         <section className={styles.tableCard}>
           <div className={styles.tableHead}>
@@ -211,7 +210,9 @@ export function ProjectGroupsPage() {
             <span>Updated</span>
             <span>Actions</span>
           </div>
-          {items.length > 0 ? items.map((item) => (
+          {status !== 'Ready' && items.length === 0 ? (
+            <LoadingState variant="skeleton" rows={4} columns={4} messageIndex={0} />
+          ) : items.length > 0 ? items.map((item) => (
             <div key={item.id} className={styles.tableRow}>
               <span>
                 <Link to={`${APP_ROUTES.PROJECT_GROUPS}/${item.id}`} className={styles.groupNameLink}>{item.name}</Link>
@@ -305,7 +306,7 @@ export function ProjectGroupsPage() {
               <div className={styles.actions}>
                 <Button variant="link" className={styles.cancelBtn} onClick={closeEditor} disabled={isSubmitting}>Cancel</Button>
                 <Button type="submit" className={styles.submitBtn} disabled={isSubmitting || !groupName.trim()}>
-                  {isSubmitting ? <Spinner size="sm" /> : (editorMode === 'create' ? 'Create group' : 'Save changes')}
+                  {isSubmitting ? <LoadingState size="compact" messageIndex={2} /> : (editorMode === 'create' ? 'Create group' : 'Save changes')}
                 </Button>
               </div>
             </Form>
@@ -325,7 +326,7 @@ export function ProjectGroupsPage() {
           <div className={styles.deleteActions}>
             <Button variant="outline-secondary" onClick={() => setDeleteTarget(null)} disabled={isSubmitting}>Cancel</Button>
             <Button variant="primary" onClick={() => void confirmDelete()} disabled={isSubmitting}>
-              {isSubmitting ? <Spinner size="sm" /> : 'Delete'}
+              {isSubmitting ? <LoadingState size="compact" messageIndex={3} /> : 'Delete'}
             </Button>
           </div>
         </Modal.Body>

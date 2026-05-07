@@ -4,6 +4,7 @@ import { IPC_CHANNELS, type PaginatedResponse, type PlanTaskGatewayRequest, type
 import type { Project, ProjectStatus, TaskEntity } from '@shared/types/entities'
 import { DEFAULT_GATEWAY_LANGUAGE } from '@shared/utils/gateway-language'
 import { GlobalTaskDetailModal } from '@renderer/components/navigation/GlobalTaskDetailModal'
+import { LoadingState } from '@renderer/components/loading'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { projectGatewaySettings, taskGatewaySurfaceStatuses, withTaskMeta } from '@renderer/screens/projects/detail/projectDetailUtils'
@@ -458,7 +459,7 @@ export function AutoPlansPage() {
             <button type="button" onClick={addSelectedToQueue} disabled={selectedTaskIds.length === 0}>Add selected</button>
           </header>
           <div className={styles.taskList}>
-            {loading ? <div className={styles.emptyState}>Loading tasks...</div> : filteredTasks.length ? filteredTasks.map((task) => {
+            {loading ? <LoadingState variant="skeleton" rows={5} columns={2} messageIndex={1} /> : filteredTasks.length ? filteredTasks.map((task) => {
               const project = projectsById.get(task.projectId)
               const status = taskStatus(task)
               const missing = missingPlanLabel(project)

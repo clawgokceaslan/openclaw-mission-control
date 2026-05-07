@@ -8,6 +8,7 @@ import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } fr
 import { createSerializedAsyncRunner } from '@renderer/utils/serializedAsync'
 import { ChatPopup } from '@renderer/popups/ChatPopup'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
+import { LoadingState } from '@renderer/components/loading'
 import {
   CHAT_INITIAL_MESSAGE_LIMIT,
   CHAT_MESSAGE_LOAD_STEP,
@@ -864,15 +865,15 @@ export function LastChatsPage() {
       </header>
 
       {error ? <p className={styles.error}>{error}</p> : null}
-      <p className={styles.statusNotice}>{status}</p>
+      {status === 'Ready' ? <p className={styles.statusNotice}>{status}</p> : null}
 
       {!error && status !== 'Ready' && conversations.length === 0 ? (
-        <p className={styles.emptyState}>Loading...</p>
+        <LoadingState variant="skeleton" rows={5} columns={3} messageIndex={4} />
       ) : null}
 
-      {totalConversations === 0 ? (
+      {totalConversations === 0 && status === 'Ready' ? (
         <p className={styles.emptyState}>No chats found yet.</p>
-      ) : (
+      ) : totalConversations > 0 ? (
         <div className={styles.groupList}>
           {GROUPS.map((group) => {
             const rows = grouped[group.key]
@@ -951,7 +952,7 @@ export function LastChatsPage() {
             )
           })}
         </div>
-      )}
+      ) : null}
 
       {chatState ? (
         <ChatPopup

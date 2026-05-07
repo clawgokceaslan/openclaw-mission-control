@@ -4,6 +4,7 @@ import { IPC_CHANNELS, type PaginatedResponse, type PlannedGatewayTaskRow, type 
 import type { Agent, CustomField, Project, ProjectStatus, Skill, Tag, TaskEntity } from '@shared/types/entities'
 import { DEFAULT_GATEWAY_LANGUAGE } from '@shared/utils/gateway-language'
 import { GlobalTaskDetailModal } from '@renderer/components/navigation/GlobalTaskDetailModal'
+import { LoadingState } from '@renderer/components/loading'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { buildProjectWorkspaceExportTaskPayload, buildTaskZipArchive } from '@renderer/screens/projects/detail/taskExport'
@@ -542,7 +543,7 @@ export function AutoRunPage() {
             <button type="button" onClick={addSelectedToQueue} disabled={selectedTaskIds.length === 0}>Add selected</button>
           </header>
           <div className={styles.taskList}>
-            {loading ? <div className={styles.emptyState}>Loading tasks...</div> : filteredTasks.length ? filteredTasks.map(renderTaskCard) : <div className={styles.emptyState}>No second-status PLANNED tasks match this project.</div>}
+            {loading ? <LoadingState variant="skeleton" rows={5} columns={2} messageIndex={0} /> : filteredTasks.length ? filteredTasks.map(renderTaskCard) : <div className={styles.emptyState}>No second-status PLANNED tasks match this project.</div>}
             {otherTasks.length ? (
               <details className={styles.otherTasks}>
                 <summary>Other current-project tasks <span>{otherTasks.length}</span></summary>

@@ -6,6 +6,7 @@ import { PROJECT_INSTRUCTION_TABS } from '@renderer/constants/project-instructio
 import type { ProjectPromptTab } from '@renderer/screens/projects/detail/types'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList } from '@renderer/utils/api'
+import { LoadingState } from '@renderer/components/loading'
 import styles from './ProjectInstructionTemplatesPage.module.scss'
 
 const emptyTemplate: ProjectInstructionTemplatePayload = {
@@ -186,7 +187,9 @@ export function ProjectInstructionTemplatesPage() {
           <span>Actions</span>
         </div>
 
-        {filtered.length > 0 ? filtered.map((item) => (
+        {loading && filtered.length === 0 ? (
+          <LoadingState variant="skeleton" rows={5} columns={5} messageIndex={1} />
+        ) : filtered.length > 0 ? filtered.map((item) => (
           <div key={item.id} className={styles.tableRow}>
             <span className={styles.nameCell}>
               {item.name}
@@ -207,7 +210,7 @@ export function ProjectInstructionTemplatesPage() {
             </span>
           </div>
         )) : (
-          <div className={styles.emptyRow}>{loading ? 'Loading project instruction templates...' : 'No templates match your search.'}</div>
+          <div className={styles.emptyRow}>No templates match your search.</div>
         )}
       </section>
 
@@ -251,7 +254,7 @@ export function ProjectInstructionTemplatesPage() {
               <footer className={styles.modalFooter}>
                 <p>One template covers every Project Instructions tab. Save creates reusable copy text; projects do not keep a live link to this template.</p>
                 <button type="button" className={styles.secondaryButton} onClick={() => setEditor(null)} disabled={saving}>Cancel</button>
-                <button type="submit" className={styles.primaryButton} disabled={saving || !editor.name.trim()}>{saving ? 'Saving...' : editor.mode === 'copy' ? 'Save custom copy' : 'Save'}</button>
+                <button type="submit" className={styles.primaryButton} disabled={saving || !editor.name.trim()}>{saving ? <LoadingState size="compact" messageIndex={2} /> : editor.mode === 'copy' ? 'Save custom copy' : 'Save'}</button>
               </footer>
             </form>
           </section>

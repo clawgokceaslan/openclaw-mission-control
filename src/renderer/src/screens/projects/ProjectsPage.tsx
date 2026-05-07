@@ -6,6 +6,7 @@ import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
 import type { Project, ProjectGroup, ProjectStatus, StatusTemplate, TaskEntity, Workspace } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
+import { LoadingState } from '@renderer/components/loading'
 import { PROJECT_STATUS_COLUMNS } from './detail/status'
 import styles from './ProjectsPage.module.scss'
 
@@ -320,7 +321,7 @@ export function ProjectsPage() {
                     </option>
                   ))}
                 </select>
-                {statusTemplates.length === 0 ? <small className={styles.fieldHint}>Status templates are loading.</small> : null}
+                {statusTemplates.length === 0 ? <LoadingState size="compact" messageIndex={3} /> : null}
               </label>
               <label>
                 <span>Workspace</span>

@@ -13,6 +13,7 @@ import { clearRendererDiagnosticContext, setRendererDiagnosticContext } from '@r
 import { Agent, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, CustomField } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
+import { LoadingState } from '@renderer/components/loading'
 import { prefixDataFormatTokens, type DescriptionDataFormat } from '@renderer/components/markdown/MarkdownDescriptionEditor'
 import { storedAttachmentRows } from '@renderer/components/attachments/AttachmentTable'
 import { AttachmentRow, attachmentRowsFromDescription, removeAttachmentFromMarkdown, uploadTaskAttachment } from '@renderer/components/attachments/attachments'
@@ -3157,7 +3158,7 @@ export function ProjectDetailPage() {
     return (
       <section className={styles.page}>
         <h1 className={styles.title}>Project</h1>
-        <p>{error ?? 'Loading...'}</p>
+        {error ? <p>{error}</p> : <LoadingState messageIndex={0} />}
       </section>
     )
   }
@@ -3193,11 +3194,7 @@ export function ProjectDetailPage() {
               aria-label="Loading project analytics"
               style={{ gridTemplateColumns: 'minmax(0, 1fr)', placeItems: 'center', padding: 24 }}
             >
-              <div className={styles.workspaceSummaryCard} style={{ width: 'min(420px, 100%)' }}>
-                <strong>Loading analytics...</strong>
-                <span>Preparing project reports and charts.</span>
-                <div className={styles.workspaceProgress}><span /></div>
-              </div>
+              <LoadingState messageIndex={1} />
             </section>
           </>
         }

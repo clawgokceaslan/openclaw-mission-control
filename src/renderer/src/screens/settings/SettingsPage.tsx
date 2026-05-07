@@ -8,6 +8,7 @@ import type { Agent } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList } from '@renderer/utils/api'
+import { LoadingState } from '@renderer/components/loading'
 import { WorkspacesPage } from '@renderer/screens/workspaces/WorkspacesPage'
 import { GatewaysPage } from '@renderer/screens/gateways/GatewaysPage'
 import { GatewayDetailPage } from '@renderer/screens/gateways/GatewayDetailPage'
@@ -368,7 +369,7 @@ export function SettingsPage() {
         ? 'Active database'
         : 'Missing source'
   const sourceStepMessage = databaseLoading
-    ? 'Loading database status...'
+    ? 'Veritabanı durumu hazırlanıyor.'
     : databaseLoadError
       ? databaseLoadError
       : hasValidSource
@@ -568,7 +569,7 @@ export function SettingsPage() {
                     </header>
                     <div className={styles.pathInput}>
                       <span>{sourcePath || 'No source selected'}</span>
-                      <b>{databaseLoading ? 'Loading' : databaseLoadError ? 'Error' : sourceStatus}</b>
+                      <b>{databaseLoading ? <LoadingState size="compact" message="" /> : databaseLoadError ? 'Error' : sourceStatus}</b>
                     </div>
                     <div className={styles.databaseActions}>
                       <button type="button" className={styles.secondaryButton} onClick={() => void pickSourceDatabaseFile()} disabled={databaseMoving || databaseLoading}>
@@ -640,7 +641,7 @@ export function SettingsPage() {
                     </div>
                     <div className={styles.databaseActions}>
                       <button type="button" className={styles.primaryButton} onClick={applyDatabaseMove} disabled={confirmDisabled}>
-                        {databaseMoving ? 'Moving...' : 'Move database'}
+                        {databaseMoving ? <LoadingState size="compact" messageIndex={2} /> : 'Move database'}
                       </button>
                     </div>
                   </div>
@@ -663,7 +664,7 @@ export function SettingsPage() {
                   </button>
                   <button type="button" className={styles.secondaryButton} onClick={() => void refreshDatabaseLocation()} disabled={databaseLoading}>
                     <LuRefreshCw size={15} />
-                    {databaseLoading ? 'Refreshing...' : 'Refresh'}
+                    {databaseLoading ? <LoadingState size="compact" message="" /> : 'Refresh'}
                   </button>
                 </div>
                 {databaseMessage ? <p className={styles.settingMessage}>{databaseMessage}</p> : null}

@@ -5,6 +5,7 @@ import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import type { Agent, CodexCliGatewayConfig, CodexCliModel, CustomField, Gateway, OutputFormat, Project, ProjectStatus, Skill, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskJsonImportResult, TaskTemplate, TaskTemplatePayload } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
+import { LoadingState } from '@renderer/components/loading'
 import { prefixDataFormatTokens, type DescriptionDataFormat } from '@renderer/components/markdown/MarkdownDescriptionEditor'
 import { storedAttachmentRows } from '@renderer/components/attachments/AttachmentTable'
 import { AttachmentRow, attachmentRowsFromDescription, normalizeAttachments, removeAttachmentFromMarkdown, uploadTaskAttachment } from '@renderer/components/attachments/attachments'
@@ -1484,7 +1485,9 @@ export function TaskTemplatesPage() {
           <span>Updated</span>
           <span>Actions</span>
         </div>
-        {filteredItems.length > 0 ? pagedItems.map((item) => (
+        {loading && filteredItems.length === 0 ? (
+          <LoadingState variant="skeleton" rows={5} columns={5} messageIndex={2} />
+        ) : filteredItems.length > 0 ? pagedItems.map((item) => (
           <div key={item.id} className={styles.tableRow}>
             <span className={styles.nameCell}>{item.name}</span>
             <span className={styles.mutedCell}>{item.description || 'No description.'}</span>
@@ -1497,7 +1500,7 @@ export function TaskTemplatesPage() {
             </span>
           </div>
         )) : (
-          <div className={styles.emptyRow}>{loading ? 'Loading task templates...' : hasActiveFilters ? 'No templates match your filters.' : 'No task templates configured.'}</div>
+          <div className={styles.emptyRow}>{hasActiveFilters ? 'No templates match your filters.' : 'No task templates configured.'}</div>
         )}
         <footer className={styles.tablePagination}>
           <span>{pageStart}-{pageEnd} of {filteredItems.length}</span>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import styles from './FeaturePage.module.scss'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList } from '@renderer/utils/api'
+import { LoadingState } from '@renderer/components/loading'
 import { IpcChannel } from '@shared/contracts/ipc'
 
 export function FeaturePage({ title, channel }: { title: string; channel?: IpcChannel }) {
@@ -33,7 +34,7 @@ export function FeaturePage({ title, channel }: { title: string; channel?: IpcCh
   return (
     <section className={styles.page}>
       <h1 className={styles.title}>{title}</h1>
-      <p className={styles.status}>{status}</p>
+      {status === 'Yükleniyor...' ? <LoadingState messageIndex={0} /> : <p className={styles.status}>{status}</p>}
       {error && <p className={styles.error}>{error}</p>}
       <div className={styles.list}>
         <ul>

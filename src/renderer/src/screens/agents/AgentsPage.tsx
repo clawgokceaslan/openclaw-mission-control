@@ -18,6 +18,7 @@ import { invokeBridge, loadList } from '@renderer/utils/api'
 import { Agent, Tag } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
+import { LoadingState } from '@renderer/components/loading'
 import { buildSingleAgentMarkdown } from '@renderer/utils/entityMarkdown'
 import { downloadMarkdownFile } from '../projects/detail/taskExport'
 import { AGENT_IMPORT_EXAMPLE, parseAgentImportJson } from './agentImport'
@@ -483,7 +484,9 @@ export function AgentsPage() {
           <span>Updated</span>
           <span>Actions</span>
         </div>
-        {filteredItems.length > 0 ? filteredItems.map((agent) => (
+        {loading && filteredItems.length === 0 ? (
+          <LoadingState variant="skeleton" rows={5} columns={6} messageIndex={1} />
+        ) : filteredItems.length > 0 ? filteredItems.map((agent) => (
           <div key={agent.id} className={styles.tableRow}>
             <span className={styles.agentCell}>
               <strong>{agent.name}</strong>
@@ -513,11 +516,7 @@ export function AgentsPage() {
           </div>
         )) : (
           <div className={styles.emptyRow}>
-            {loading
-              ? 'Loading agents...'
-              : hasActiveFilters
-                ? 'No agents match the current search or filters.'
-                : 'No agents configured.'}
+            {hasActiveFilters ? 'No agents match the current search or filters.' : 'No agents configured.'}
           </div>
         )}
       </section>
@@ -560,7 +559,7 @@ export function AgentsPage() {
                     creatable
                     value={selectedTags}
                     options={tagOptions}
-                    placeholder={tagsLoading ? 'Loading tags...' : tags.length ? 'Search or create tags...' : 'Create a tag...'}
+                    placeholder={tagsLoading ? 'Etiketler hazırlanıyor...' : tags.length ? 'Search or create tags...' : 'Create a tag...'}
                     isDisabled={tagsLoading}
                     onChange={setSelectedTags}
                     onCreateOption={(value) => void handleCreateTag(value)}
@@ -580,7 +579,7 @@ export function AgentsPage() {
               </div>
               <footer className={styles.modalFooter}>
                 <button type="button" className={styles.secondaryButton} onClick={closeModal}>Cancel</button>
-                <button type="submit" className={styles.primaryButton} disabled={loading || !name.trim()}>{mode === 'edit' ? 'Save changes' : 'Add agent'}</button>
+                <button type="submit" className={styles.primaryButton} disabled={loading || !name.trim()}>{loading ? <LoadingState size="compact" messageIndex={2} /> : mode === 'edit' ? 'Save changes' : 'Add agent'}</button>
               </footer>
             </form>
           </section>
@@ -634,7 +633,7 @@ export function AgentsPage() {
               <p>Are you sure you want to delete <strong>{deleteAgent.name}</strong>?</p>
               <footer className={styles.modalFooter}>
                 <button type="button" className={styles.secondaryButton} onClick={() => setDeleteAgent(null)}>Cancel</button>
-                <button type="button" className={styles.dangerButton} onClick={() => void removeAgent()} disabled={loading}>Delete</button>
+                <button type="button" className={styles.dangerButton} onClick={() => void removeAgent()} disabled={loading}>{loading ? <LoadingState size="compact" messageIndex={3} /> : 'Delete'}</button>
               </footer>
             </div>
           </section>

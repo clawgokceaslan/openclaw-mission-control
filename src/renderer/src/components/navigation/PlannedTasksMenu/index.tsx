@@ -4,6 +4,7 @@ import { IPC_CHANNELS, type PaginatedResponse, type PlannedGatewayTaskRow } from
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { useGlobalGatewayChat } from '@renderer/providers/gateway-global-chat'
 import { invokeBridge, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
+import { LoadingState } from '@renderer/components/loading'
 import { gatewayHeaderRefreshModeFromTaskActivityArgs, gatewayHeaderRefreshModeFromTaskUpdatedArgs } from '../gatewayHeaderRefresh'
 import { useOutsidePointerDown } from '../useOutsidePointerDown'
 import styles from './index.module.scss'
@@ -204,7 +205,7 @@ export function PlannedTasksMenu() {
             </button>
           </header>
           {loading && !hasRows ? (
-            <div className={styles.plannedTasksState}>Loading planned tasks...</div>
+            <LoadingState variant="skeleton" rows={4} columns={2} messageIndex={3} />
           ) : error ? (
             <div className={`${styles.plannedTasksState} ${styles.plannedTasksError}`}>{error}</div>
           ) : hasRows ? (

@@ -5,6 +5,7 @@ import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { Project, Workspace } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList } from '@renderer/utils/api'
+import { LoadingState } from '@renderer/components/loading'
 import styles from './WorkspacesPage.module.scss'
 
 type WorkspaceEditor = {
@@ -147,8 +148,6 @@ export function WorkspacesPage({ embedded = false }: WorkspacesPageProps) {
       </header>
 
       {error ? <p className={styles.error}>{error}</p> : null}
-      {loading ? <p className={styles.notice}>Loading workspaces...</p> : null}
-
       <section className={styles.tableCard}>
         <div className={styles.tableHead}>
           <span>Name</span>
@@ -157,7 +156,9 @@ export function WorkspacesPage({ embedded = false }: WorkspacesPageProps) {
           <span>Updated</span>
           <span>Actions</span>
         </div>
-        {workspaces.length > 0 ? workspaces.map((workspace) => (
+        {loading && workspaces.length === 0 ? (
+          <LoadingState variant="skeleton" rows={4} columns={5} messageIndex={0} />
+        ) : workspaces.length > 0 ? workspaces.map((workspace) => (
           <div key={workspace.id} className={styles.tableRow}>
             <span className={styles.nameCell}>{workspace.name}</span>
             <span className={styles.pathCell}>{workspace.rootPath}</span>

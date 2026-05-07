@@ -7,6 +7,7 @@ import type { Skill } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge } from '@renderer/utils/api'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
+import { LoadingState } from '@renderer/components/loading'
 import { buildSingleSkillMarkdown } from '@renderer/utils/entityMarkdown'
 import { downloadMarkdownFile } from '../projects/detail/taskExport'
 import styles from './SkillsPage.module.scss'
@@ -243,7 +244,9 @@ export function SkillsPage() {
             <span>Preview</span>
             <span />
           </div>
-          {rows.length > 0 ? rows.map((skill) => (
+          {loading && rows.length === 0 ? (
+            <LoadingState variant="skeleton" rows={5} columns={6} messageIndex={1} />
+          ) : rows.length > 0 ? rows.map((skill) => (
             <div key={skill.id} className={styles.tableRow}>
               <span className={styles.skillName}>{skill.name}</span>
               <span className={styles.descriptionCell}>{markdownSnippet(skill.descriptionMarkdown)}</span>
@@ -276,7 +279,7 @@ export function SkillsPage() {
               </span>
             </div>
           )) : (
-            <div className={styles.emptyRow}>{loading ? 'Loading skills...' : 'No skills found.'}</div>
+            <div className={styles.emptyRow}>No skills found.</div>
           )}
         </section>
 
@@ -346,7 +349,7 @@ export function SkillsPage() {
               <footer className={styles.modalFooter}>
                 <button type="button" className={styles.secondaryButton} onClick={closeModal}>Cancel</button>
                 <button type="submit" className={styles.primaryButton} disabled={loading || !form.title.trim()}>
-                  {modalMode === 'edit' ? 'Save changes' : 'Add skill'}
+                  {loading ? <LoadingState size="compact" messageIndex={2} /> : modalMode === 'edit' ? 'Save changes' : 'Add skill'}
                 </button>
               </footer>
             </form>
@@ -362,7 +365,7 @@ export function SkillsPage() {
             <p>Are you sure you want to delete {deleteTarget.name}? Linked tasks will lose this skill.</p>
             <footer className={styles.modalFooter}>
               <button type="button" className={styles.secondaryButton} onClick={() => setDeleteTarget(null)}>Cancel</button>
-              <button type="button" className={styles.dangerButton} onClick={() => void removeSkill()} disabled={loading}>Delete</button>
+              <button type="button" className={styles.dangerButton} onClick={() => void removeSkill()} disabled={loading}>{loading ? <LoadingState size="compact" messageIndex={3} /> : 'Delete'}</button>
             </footer>
           </section>
         </>

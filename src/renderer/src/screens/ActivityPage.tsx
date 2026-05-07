@@ -4,6 +4,7 @@ import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
 import { Job } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
+import { LoadingState } from '@renderer/components/loading'
 
 type JobMetric = Record<string, number>
 
@@ -46,7 +47,7 @@ export function ActivityPage() {
   return (
     <section className={styles.page}>
       <h1 className={styles.title}>Activity / Jobs</h1>
-      <p className={styles.status}>{status}</p>
+      {status === 'Yükleniyor...' ? <LoadingState variant="skeleton" rows={4} columns={3} messageIndex={1} /> : <p className={styles.status}>{status}</p>}
       {error && <p className={styles.error}>{error}</p>}
       <form className={styles.form} onSubmit={onFilter}>
         <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
@@ -73,4 +74,3 @@ export function ActivityPage() {
     </section>
   )
 }
-

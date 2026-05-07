@@ -2,6 +2,7 @@ import { type CSSProperties, type Dispatch, type DragEvent, type ReactNode, type
 import { LuBot, LuListChecks, LuListTodo, LuPaperclip, LuPencil, LuPlus, LuSettings2, LuSlidersHorizontal, LuSparkles, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
 import type { Agent, CodexCliGatewayConfig, CodexCliModel, CustomField, Gateway, OutputFormat, Skill, TaskChecklistItem, TaskComment, TaskTemplate, TaskTemplatePayload } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
+import { LoadingState } from '@renderer/components/loading'
 import { MarkdownDescriptionEditor, type DescriptionDataFormat } from '@renderer/components/markdown/MarkdownDescriptionEditor'
 import { AttachmentTable } from '@renderer/components/attachments/AttachmentTable'
 import type { AttachmentRow } from '@renderer/components/attachments/attachments'
@@ -655,7 +656,7 @@ function SkillsPanel({
             <footer>
               <button type="button" onClick={() => setIsPickerOpen(false)}>Cancel</button>
               <button type="button" onClick={() => void saveDraftSkills()} disabled={draftSkillIds.length === 0 || isSaving}>
-                {isSaving ? 'Saving...' : 'Add selected'}
+                {isSaving ? <LoadingState size="compact" messageIndex={2} /> : 'Add selected'}
               </button>
             </footer>
           </section>
@@ -1044,10 +1045,10 @@ export function TaskTemplateDetailPopup(props: TaskTemplateDetailPopupProps) {
               </label>
               <label>
                 <span>Template model</span>
-                <AppSelect value={selectedTemplateModelOption} options={templateModelOptions} placeholder={gatewayModelLoading ? 'Loading models...' : 'Use project default model'} isClearable isDisabled={templateModelOptions.length === 0} onChange={(option) => onPatchTemplate({ gateway: codexOverride(templateGatewayId || null, option?.value ?? null) })} />
+                <AppSelect value={selectedTemplateModelOption} options={templateModelOptions} placeholder={gatewayModelLoading ? 'Modeller hazırlanıyor...' : 'Use project default model'} isClearable isDisabled={templateModelOptions.length === 0} onChange={(option) => onPatchTemplate({ gateway: codexOverride(templateGatewayId || null, option?.value ?? null) })} />
               </label>
             </div>
-            {gatewayModelLoading ? <p className={styles.customFieldEmpty}>Loading models from Codex CLI...</p> : gatewayModelError ? <p className={styles.customFieldEmpty}>{gatewayModelError}</p> : templateModelOptions.length === 0 ? <p className={styles.customFieldEmpty}>No cached Codex models yet. Refresh models from Gateways to populate explicit options.</p> : null}
+            {gatewayModelLoading ? <LoadingState size="compact" messageIndex={4} /> : gatewayModelError ? <p className={styles.customFieldEmpty}>{gatewayModelError}</p> : templateModelOptions.length === 0 ? <p className={styles.customFieldEmpty}>No cached Codex models yet. Refresh models from Gateways to populate explicit options.</p> : null}
           </>
         ) : null}
       </section>

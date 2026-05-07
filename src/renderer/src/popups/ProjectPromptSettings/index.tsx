@@ -6,6 +6,7 @@ import type { ProjectPromptTab } from '@renderer/screens/projects/detail/types'
 import { PROJECT_INSTRUCTION_TABS } from '@renderer/constants/project-instructions'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { loadList } from '@renderer/utils/api'
+import { LoadingState } from '@renderer/components/loading'
 import styles from './index.module.scss'
 
 interface ProjectPromptSettingsPopupProps {
@@ -257,7 +258,7 @@ export function ProjectPromptSettingsPopup({
               </button>
             ) : null}
             <button type="button" onClick={onClose} disabled={saving}>Cancel</button>
-            <button type="button" onClick={onSave} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+            <button type="button" onClick={onSave} disabled={saving}>{saving ? <LoadingState size="compact" messageIndex={2} /> : 'Save'}</button>
           </div>
         </footer>
       </section>

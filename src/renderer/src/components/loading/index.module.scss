@@ -1,0 +1,114 @@
+.loader {
+  min-width: 0;
+  color: var(--omc-text-muted);
+
+  .srOnly {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  &.spinnerLoader {
+    min-height: 92px;
+    display: grid;
+    place-items: center;
+    gap: 10px;
+    text-align: center;
+    padding: 18px;
+
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid var(--omc-border);
+      border-top-color: var(--omc-primary);
+      border-radius: 999px;
+      animation: loaderSpin 0.8s linear infinite;
+    }
+
+    .message {
+      max-width: 360px;
+      color: var(--omc-text-muted);
+      font-size: 0.88rem;
+      font-weight: 750;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  &.compact {
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 0;
+
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border-width: 2px;
+    }
+
+    .message {
+      max-width: 220px;
+      color: currentColor;
+      font-size: 0.78rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+
+  &.skeletonLoader {
+    display: grid;
+    gap: 0;
+
+    .skeletonRow {
+      min-height: 58px;
+      border-top: 1px solid var(--omc-border-subtle);
+      display: grid;
+      grid-template-columns: repeat(var(--loader-columns), minmax(0, 1fr));
+      gap: 16px;
+      align-items: center;
+      padding: 0 24px;
+    }
+
+    .skeletonCell {
+      height: 14px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--omc-surface-muted), var(--omc-border-subtle), var(--omc-surface-muted));
+      background-size: 220% 100%;
+      animation: loaderPulse 1.25s ease-in-out infinite;
+
+      &:nth-child(2n) {
+        width: 74%;
+      }
+
+      &:nth-child(3n) {
+        width: 48%;
+      }
+    }
+  }
+}
+
+@keyframes loaderSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes loaderPulse {
+  0% {
+    background-position: 120% 0;
+  }
+
+  100% {
+    background-position: -120% 0;
+  }
+}

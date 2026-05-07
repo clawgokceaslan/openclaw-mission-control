@@ -7,6 +7,7 @@ import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { DatabaseLocationState, PickDatabaseFolderResponse } from '@shared/contracts/ipc'
 import { invokeBridge } from '@renderer/utils/api'
 import { LuDatabase, LuFolderOpen, LuRefreshCw, LuRotateCcw, LuUserRound } from 'react-icons/lu'
+import { LoadingState } from '@renderer/components/loading'
 
 export function ProfileSetupPage() {
   const { refresh, token, updateProfile } = useAuth()
@@ -151,7 +152,7 @@ export function ProfileSetupPage() {
 
           <div className={styles.databaseBox}>
             <small>{selectedDatabaseFolder ? 'Selected folder' : 'Current default folder'}</small>
-            <strong>{effectiveDatabaseFolder || 'Loading database folder...'}</strong>
+            <strong>{effectiveDatabaseFolder || <LoadingState size="compact" messageIndex={0} />}</strong>
             <span>{databaseStatus}</span>
           </div>
 
@@ -174,7 +175,7 @@ export function ProfileSetupPage() {
 
         <div className={styles.footer}>
           <button type="submit" disabled={pending}>
-            {pending ? 'Kaydediliyor...' : 'Kaydet ve Devam Et'}
+            {pending ? <LoadingState size="compact" messageIndex={2} /> : 'Kaydet ve Devam Et'}
           </button>
         </div>
       </form>

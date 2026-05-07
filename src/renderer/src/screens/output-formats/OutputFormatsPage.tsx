@@ -5,6 +5,7 @@ import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { AgentOutputFormatField, OutputFormat } from '@shared/types/entities'
 import { invokeBridge, loadList } from '@renderer/utils/api'
 import { useAuth } from '@renderer/providers/auth/auth-state'
+import { LoadingState } from '@renderer/components/loading'
 import styles from './OutputFormatsPage.module.scss'
 
 const FIELD_TYPES: NonNullable<AgentOutputFormatField['valueType']>[] = ['string', 'number', 'boolean', 'array', 'enum']
@@ -933,7 +934,9 @@ export function OutputFormatsPage() {
           <span>Updated</span>
           <span>Actions</span>
         </div>
-        {items.length > 0 ? items.map((item) => (
+        {loading && items.length === 0 ? (
+          <LoadingState variant="skeleton" rows={5} columns={5} messageIndex={3} />
+        ) : items.length > 0 ? items.map((item) => (
           <div key={item.id} className={styles.tableRow}>
             <span className={styles.formatNameContainer}>
               <span className={styles.formatName}>{item.name}</span>
@@ -956,7 +959,7 @@ export function OutputFormatsPage() {
             </span>
           </div>
         )) : (
-          <div className={styles.emptyRow}>{loading ? 'Loading data formats...' : 'No data formats configured.'}</div>
+          <div className={styles.emptyRow}>No data formats configured.</div>
         )}
       </section>
 
@@ -972,7 +975,7 @@ export function OutputFormatsPage() {
               <p>Are you sure you want to delete <strong>{deleteFormat.name}</strong>?</p>
               <footer className={styles.modalFooter}>
                 <button type="button" className={styles.secondaryButton} onClick={() => setDeleteFormat(null)}>Cancel</button>
-                <button type="button" className={styles.dangerButton} onClick={() => void removeFormat()} disabled={loading}>Delete</button>
+                <button type="button" className={styles.dangerButton} onClick={() => void removeFormat()} disabled={loading}>{loading ? <LoadingState size="compact" messageIndex={3} /> : 'Delete'}</button>
               </footer>
             </div>
           </section>

@@ -4,6 +4,7 @@ import { IPC_CHANNELS, type RunningGatewayGroupCounts, type RunningGatewayGroupK
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { useGlobalGatewayChat } from '@renderer/providers/gateway-global-chat'
 import { invokeBridge, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
+import { LoadingState } from '@renderer/components/loading'
 import { formatRunningGatewayActivitySummary, runningCodexConversationTypeLabel, runningCodexGroupLabel, runningCodexLiveStatusLabel } from '../runningGatewayMenuUtils'
 import { gatewayHeaderRefreshModeFromTaskActivityArgs, gatewayHeaderRefreshModeFromTaskUpdatedArgs } from '../gatewayHeaderRefresh'
 import { useOutsidePointerDown } from '../useOutsidePointerDown'
@@ -277,7 +278,7 @@ export function RunningGatewayMenu() {
             ))}
           </div>
           {loading && !hasRows ? (
-            <div className={styles.runningCodexState}>Loading active conversations...</div>
+            <LoadingState variant="skeleton" rows={4} columns={2} messageIndex={4} />
           ) : error ? (
             <div className={`${styles.runningCodexState} ${styles.runningCodexError}`}>{error}</div>
           ) : hasRows ? (

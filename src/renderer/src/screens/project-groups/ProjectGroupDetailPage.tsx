@@ -6,6 +6,7 @@ import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { Project, ProjectGroup, TaskEntity } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { loadList } from '@renderer/utils/api'
+import { LoadingState } from '@renderer/components/loading'
 import styles from './ProjectGroupsPage.module.scss'
 
 function formatUpdatedAt(value?: number) {
@@ -79,7 +80,7 @@ export function ProjectGroupDetailPage() {
       </header>
 
       {error ? <p className={styles.formError}>{error}</p> : null}
-      {status !== 'Ready' ? <p className={styles.notice}>{status}</p> : null}
+      {status !== 'Ready' ? <LoadingState variant="skeleton" rows={4} columns={5} messageIndex={1} /> : null}
 
       {!group && status === 'Ready' ? (
         <section className={styles.tableCard}>

@@ -19,6 +19,7 @@ import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
 import { useAuth } from '@renderer/providers/auth/auth-state'
+import { LoadingState } from '@renderer/components/loading'
 import type { Agent, Gateway, GatewaySession, Job, Project, ProjectStatus, Skill, TaskEntity } from '@shared/types/entities'
 import styles from './DashboardPage.module.scss'
 
@@ -265,7 +266,7 @@ export function DashboardPage() {
         </div>
       </header>
       {error ? <p className={styles.dashboardNotice}>{error}</p> : null}
-      {loading ? <p className={styles.dashboardNotice}>Loading dashboard data...</p> : null}
+      {loading ? <LoadingState messageIndex={0} /> : null}
       {vm && metrics ? (
         <>
           <div className={styles.heroGrid}>
@@ -385,7 +386,7 @@ export function DetailedDashboardPage() {
         </div>
       </header>
       {error ? <p className={styles.dashboardNotice}>{error}</p> : null}
-      {loading ? <p className={styles.dashboardNotice}>Loading detailed dashboard...</p> : null}
+      {loading ? <LoadingState messageIndex={1} /> : null}
       {vm && metrics ? (
         <>
           <div className={styles.heroGrid}>

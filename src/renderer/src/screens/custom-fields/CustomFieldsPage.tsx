@@ -5,6 +5,7 @@ import { invokeBridge, loadList } from '@renderer/utils/api'
 import type { CustomField } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
+import { LoadingState } from '@renderer/components/loading'
 import styles from './CustomFieldsPage.module.scss'
 
 const TYPE_OPTIONS: Array<AppSelectOption & { value: CustomField['type'] }> = [
@@ -227,7 +228,9 @@ export function CustomFieldsPage() {
           <span>Preview</span>
           <span>Actions</span>
         </div>
-        {items.length > 0 ? items.map((item) => (
+        {loading && items.length === 0 ? (
+          <LoadingState variant="skeleton" rows={5} columns={6} messageIndex={2} />
+        ) : items.length > 0 ? items.map((item) => (
           <div key={item.id} className={styles.tableRow}>
             <span className={styles.fieldName}>{item.name}</span>
             <span className={styles.descriptionCell}>{item.description || 'No description.'}</span>
@@ -252,7 +255,7 @@ export function CustomFieldsPage() {
             </span>
           </div>
         )) : (
-          <div className={styles.emptyRow}>{loading ? 'Loading custom fields...' : 'No custom fields configured.'}</div>
+          <div className={styles.emptyRow}>No custom fields configured.</div>
         )}
       </section>
 
@@ -324,7 +327,7 @@ export function CustomFieldsPage() {
               <footer className={styles.modalFooter}>
                 <button type="button" className={styles.secondaryButton} onClick={closeModal}>Cancel</button>
                 <button type="submit" className={styles.primaryButton} disabled={loading || !name.trim()}>
-                  {modalMode === 'edit' ? 'Save changes' : 'Add field'}
+                  {loading ? <LoadingState size="compact" messageIndex={0} /> : modalMode === 'edit' ? 'Save changes' : 'Add field'}
                 </button>
               </footer>
             </form>
@@ -377,7 +380,7 @@ export function CustomFieldsPage() {
               <p>Are you sure you want to delete <strong>{deleteField.name}</strong>? Existing task and subtask values for this field will be removed.</p>
               <footer className={styles.modalFooter}>
                 <button type="button" className={styles.secondaryButton} onClick={() => setDeleteField(null)}>Cancel</button>
-                <button type="button" className={styles.dangerButton} onClick={() => void removeField()} disabled={loading}>Delete</button>
+                <button type="button" className={styles.dangerButton} onClick={() => void removeField()} disabled={loading}>{loading ? <LoadingState size="compact" messageIndex={3} /> : 'Delete'}</button>
               </footer>
             </div>
           </section>
