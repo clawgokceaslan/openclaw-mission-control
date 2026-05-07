@@ -88,6 +88,7 @@ import type {
 import { ChatPopup } from '@renderer/popups/ChatPopup'
 import { TaskDetailPopup } from '@renderer/popups/TaskDetail'
 import { PlanChoiceModal } from '@renderer/popups/PlanChoiceModal'
+import { TaskPlannerChatPopup } from '@renderer/popups/TaskPlannerChatPopup'
 import styles from './ProjectDetailPage.module.scss'
 
 const DETAIL_RATIO_KEY = 'omc:task-modal:detail-ratio'
@@ -152,6 +153,7 @@ export function ProjectDetailPage() {
     chatVisibleLimit: CHAT_INITIAL_MESSAGE_LIMIT,
     detailRatio: loadInitialRatio()
   })
+  const [isTaskPlannerOpen, setIsTaskPlannerOpen] = useState(false)
   const projectDetailState = useProjectDetailDispatcher(projectDetailRawState, projectDetailDispatch)
   const {
     project,
@@ -3172,11 +3174,19 @@ export function ProjectDetailPage() {
         onTaskTitleChange={setTaskTitle}
         onQuickCreate={() => void handleQuickCreate()}
         onOpenCreateTask={() => openCreateTask(defaultStatus)}
+        onOpenTaskPlanner={() => {
+          if (!selectedTask) {
+            setError('Çoklu task planlamak için önce geniş bir task seç.')
+            return
+          }
+          setIsTaskPlannerOpen(true)
+        }}
         onOpenProjectPrompts={openProjectPromptSettings}
         onOpenAnalytics={() => setIsAnalyticsOpen(true)}
         onOpenStatusSettings={openStatusEditor}
         onSyncProject={() => void syncProjectWorkspace()}
         syncDisabled={projectSyncing}
+        taskPlannerDisabled={!selectedTask}
         onBoardSelect={() => setIsRecentChatsView(false)}
         recentChatsActive={isRecentChatsView}
         recentChatsCount={projectRecentChats.length}
@@ -3353,7 +3363,25 @@ export function ProjectDetailPage() {
         scope={projectSettingsModalScope}
       ></ProjectDetailSettingsPopup>
 
-      {selectedTask && !isChatPopupOpen ? (
+      {selectedTask ? (
+        <TaskPlannerChatPopup
+          open={isTaskPlannerOpen}
+          actorToken={token}
+          project={project}
+          sourceTask={selectedTask}
+          defaultStatus={defaultStatus}
+          onClose={() => setIsTaskPlannerOpen(false)}
+          onCreated={(createdTasks) => {
+            if (createdTasks.length > 0) {
+              const createdIds = new Set(createdTasks.map((task) => task.id))
+              setTasks((current) => [...createdTasks, ...current.filter((task) => !createdIds.has(task.id))])
+              setProjectSyncMessage(`${createdTasks.length} yeni task oluşturuldu ve kaynak task yorumuna iz bırakıldı.`)
+            }
+          }}
+        />
+      ) : null}
+
+      {selectedTask && !isChatPopupOpen && !isTaskPlannerOpen ? (
         <>
           <TaskDetailPopup
             taskId={selectedTask.id}

@@ -410,6 +410,74 @@ describe('planner quality gate', () => {
     expect(imported).toBe(false)
   })
 
+  it('reports invalid batch planner JSON with the failing task index', async () => {
+    const service = Object.create(TaskService.prototype) as TaskService & any
+    service.auth = { requireActor: async () => ({ user: { organizationId: 'org-1' } }) }
+    service.findProjectOrg = async () => 'org-1'
+    service.agents = {}
+    service.tags = { list: async () => [] }
+    service.skills = {}
+    service.customFields = { list: async () => [] }
+
+    const response = await service.plannerValidateJson({
+      actorToken: 'actor',
+      projectId: 'project-1',
+      json: [
+        plannedTask({ title: 'First planned task' }),
+        { description: 'Missing title' }
+      ]
+    })
+
+    expect(response.ok).toBe(false)
+    expect(response.error?.message).toContain('tasks[1]: title is required.')
+  })
+
+  it('creates batch planner JSON tasks and adds a trace comment to the source task', async () => {
+    const service = Object.create(TaskService.prototype) as TaskService & any
+    const importedJson: unknown[] = []
+    let traceComment = ''
+    service.plannerValidateJson = async () => ({ ok: true, data: { valid: true } })
+    service.importJson = async (payload: any) => {
+      importedJson.push(payload.json)
+      return {
+        ok: true,
+        data: {
+          task: {
+            id: `task-${importedJson.length}`,
+            projectId: payload.projectId,
+            title: payload.json.title,
+            status: 'active',
+            createdAt: 1,
+            updatedAt: 1
+          },
+          warnings: []
+        }
+      }
+    }
+    service.repo = { get: async () => ({ id: 'source-1', projectId: 'project-1', title: 'Large source task', status: 'active', createdAt: 1, updatedAt: 1 }) }
+    service.commentAdd = async (payload: any) => {
+      traceComment = payload.body
+      return { ok: true, data: [] }
+    }
+
+    const response = await service.plannerCreateFromJson({
+      actorToken: 'actor',
+      projectId: 'project-1',
+      taskId: 'source-1',
+      json: [
+        { title: 'Discovery task', description: 'Define scope.' },
+        { title: 'Delivery task', description: 'Ship the UI.' }
+      ]
+    })
+
+    expect(response.ok).toBe(true)
+    expect(response.data?.tasks?.map((task) => task.title)).toEqual(['Discovery task', 'Delivery task'])
+    expect(importedJson).toHaveLength(2)
+    expect(traceComment).toContain('Large source task')
+    expect(traceComment).toContain('Discovery task (task-1)')
+    expect(traceComment).toContain('Delivery task (task-2)')
+  })
+
   it('normalizes planner/import subtask checklists into subtask payload', async () => {
     const normalizer = new TaskJsonImportNormalizer(
       'org-1',

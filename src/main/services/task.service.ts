@@ -89,6 +89,39 @@ type PlannerBridgeContext = {
   runtimeWorkspacePath?: string
 }
 
+type PlannerJsonItem = {
+  json: unknown
+  index: number
+  fromArray: boolean
+}
+
+function parsePlannerJsonPayload(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  try {
+    return JSON.parse(value)
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : 'Enter valid JSON.')
+  }
+}
+
+function plannerJsonItems(value: unknown): PlannerJsonItem[] {
+  const parsed = parsePlannerJsonPayload(value)
+  if (Array.isArray(parsed)) {
+    if (parsed.length === 0) throw new Error('Task JSON array must include at least one task.')
+    return parsed.map((json, index) => ({ json, index, fromArray: true }))
+  }
+  return [{ json: parsed, index: 0, fromArray: false }]
+}
+
+function batchTaskTraceComment(sourceTitle: string, tasks: TaskEntity[]): string {
+  const lines = tasks.map((task, index) => `${index + 1}. ${task.title} (${task.id})`)
+  return [
+    `Bu geniş task "${sourceTitle}" çoklu planlama akışıyla ayrı tasklara bölündü:`,
+    '',
+    ...lines
+  ].join('\n')
+}
+
 type PlannerLaunchResult = {
   runFolderPath: string
   runtimeWorkspacePath: string
@@ -3469,11 +3502,43 @@ export class TaskService {
     const projectOrg = await this.findProjectOrg(projectId)
     if (!projectOrg || projectOrg !== actor.user.organizationId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
     try {
-      const normalized = await new TaskJsonImportNormalizer(actor.user.organizationId, this.agents, this.tags, this.skills, this.customFields).normalize(payload.json)
-      const qualityIssues = validatePlannerTaskJsonQuality(normalized)
-      if (qualityIssues.length > 0) {
-        return errorResponse(ErrorCodes.Validation, `Planner JSON quality check failed: ${qualityIssues[0]}`, { issues: qualityIssues })
+      const items = plannerJsonItems(payload.json)
+      const normalizer = new TaskJsonImportNormalizer(actor.user.organizationId, this.agents, this.tags, this.skills, this.customFields)
+      const normalizedItems = []
+      for (const item of items) {
+        let normalized: NormalizedTaskJsonImport
+        try {
+          normalized = await normalizer.normalize(item.json)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Invalid task JSON'
+          throw new Error(items.length > 1 ? `tasks[${item.index}]: ${message}` : message)
+        }
+        const qualityIssues = validatePlannerTaskJsonQuality(normalized)
+        if (qualityIssues.length > 0) {
+          const issues = items.length > 1 ? qualityIssues.map((issue) => `tasks[${item.index}]: ${issue}`) : qualityIssues
+          return errorResponse(ErrorCodes.Validation, `Planner JSON quality check failed: ${issues[0]}`, { issues })
+        }
+        normalizedItems.push(normalized)
       }
+      if (items[0]?.fromArray) {
+        return okResponse({
+          valid: true,
+          batch: true,
+          count: normalizedItems.length,
+          normalized: normalizedItems.map((normalized, index) => ({
+            index,
+            title: normalized.title,
+            description: normalized.description,
+            tagIds: normalized.tagIds,
+            checklistCount: normalized.checklistItems.length,
+            commentCount: normalized.comments.length,
+            subtaskCount: normalized.subtasks.length,
+            warnings: normalized.warnings
+          })),
+          warnings: Array.from(new Set(normalizedItems.flatMap((item) => item.warnings)))
+        })
+      }
+      const normalized = normalizedItems[0]
       return okResponse({
         valid: true,
         normalized: {
@@ -3503,6 +3568,46 @@ export class TaskService {
 
   async plannerCreateFromJson(payload: TaskPlannerJsonRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<TaskJsonImportResult>> {
     if (!payload?.projectId) return errorResponse(ErrorCodes.Validation, 'Project id required')
+    let items: PlannerJsonItem[]
+    try {
+      items = plannerJsonItems(payload.json)
+    } catch (error) {
+      return errorResponse(ErrorCodes.Validation, error instanceof Error ? error.message : 'Invalid task JSON')
+    }
+    if (items[0]?.fromArray) {
+      const validation = await this.plannerValidateJson(payload)
+      if (!validation.ok) return validation as ServiceResponse<TaskJsonImportResult>
+      const createdTasks: TaskEntity[] = []
+      const warnings: string[] = []
+      for (const item of items) {
+        const response = await this.importJson({ actorToken: payload.actorToken, projectId: payload.projectId, json: item.json })
+        if (!response.ok) {
+          const message = response.error?.message ?? 'Task create failed'
+          return errorResponse(response.error?.code ?? ErrorCodes.Validation, `tasks[${item.index}]: ${message}`, {
+            createdTaskIds: createdTasks.map((task) => task.id)
+          })
+        }
+        if (response.data?.task) createdTasks.push(response.data.task)
+        warnings.push(...(response.data?.warnings ?? []))
+      }
+      if (payload.taskId && createdTasks.length > 0) {
+        const sourceTask = await this.repo.get(payload.taskId)
+        if (sourceTask) {
+          const commentResponse = await this.commentAdd({
+            actorToken: payload.actorToken,
+            taskId: sourceTask.id,
+            authorName: 'Planner',
+            body: batchTaskTraceComment(sourceTask.title, createdTasks)
+          })
+          if (!commentResponse.ok) {
+            return errorResponse(commentResponse.error?.code ?? ErrorCodes.Validation, commentResponse.error?.message ?? 'Created tasks but source trace comment could not be added', {
+              createdTaskIds: createdTasks.map((task) => task.id)
+            })
+          }
+        }
+      }
+      return okResponse({ tasks: createdTasks, task: createdTasks[0], warnings: Array.from(new Set(warnings)) })
+    }
     return this.importJson({ actorToken: payload.actorToken, projectId: payload.projectId, json: payload.json })
   }
 

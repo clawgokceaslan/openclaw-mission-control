@@ -198,6 +198,7 @@ export interface ProjectInstructionTemplate {
 
 export interface TaskJsonImportResult {
   task?: TaskEntity
+  tasks?: TaskEntity[]
   template?: TaskTemplate
   warnings: string[]
 }

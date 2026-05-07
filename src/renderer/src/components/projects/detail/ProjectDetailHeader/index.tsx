@@ -1,4 +1,4 @@
-import { LuMessageSquare, LuPlus, LuRefreshCw, LuSettings2, LuSignal } from 'react-icons/lu'
+import { LuListPlus, LuMessageSquare, LuPlus, LuRefreshCw, LuSettings2, LuSignal } from 'react-icons/lu'
 import type { Project } from '@shared/types/entities'
 import { ProjectViewBar } from '../ProjectViewBar'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
@@ -10,11 +10,13 @@ interface ProjectDetailHeaderProps {
   onTaskTitleChange: (value: string) => void
   onQuickCreate: () => void
   onOpenCreateTask: () => void
+  onOpenTaskPlanner: () => void
   onOpenProjectPrompts: () => void
   onOpenAnalytics: () => void
   onOpenStatusSettings: () => void
   onSyncProject: () => void
   syncDisabled?: boolean
+  taskPlannerDisabled?: boolean
   onBoardSelect: () => void
   recentChatsActive?: boolean
   recentChatsCount?: number
@@ -28,11 +30,13 @@ export function ProjectDetailHeader({
   onTaskTitleChange,
   onQuickCreate,
   onOpenCreateTask,
+  onOpenTaskPlanner,
   onOpenProjectPrompts,
   onOpenAnalytics,
   onOpenStatusSettings,
   onSyncProject,
   syncDisabled,
+  taskPlannerDisabled,
   onBoardSelect,
   recentChatsActive,
   recentChatsCount,
@@ -60,6 +64,16 @@ export function ProjectDetailHeader({
           />
           <button type="button" className={styles.plusBtn} onClick={onOpenCreateTask} disabled={busy}>
             <LuPlus size={18} />
+          </button>
+          <button
+            type="button"
+            className={styles.iconBtn}
+            onClick={onOpenTaskPlanner}
+            disabled={taskPlannerDisabled}
+            aria-label="Seçili tasktan çoklu task planla"
+            title={taskPlannerDisabled ? 'Önce geniş bir task seç' : 'Çoklu task planla'}
+          >
+            <LuListPlus size={16} />
           </button>
           <button type="button" className={styles.iconBtn} onClick={onSyncProject} disabled={syncDisabled} aria-label="Sync project exports"><LuRefreshCw size={16} /></button>
           <button
