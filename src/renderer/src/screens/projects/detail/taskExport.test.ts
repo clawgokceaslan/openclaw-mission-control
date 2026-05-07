@@ -125,7 +125,7 @@ describe('buildTaskMarkdown', () => {
     const importJson = buildTaskImportJson({
       task: {
         ...task(),
-        tags: [{ id: 'tag-1', organizationId: 'org-1', name: 'frontend', color: '#fff', createdAt: 1, updatedAt: 1 }],
+        tags: [{ id: 'tag-1', organizationId: 'org-1', name: 'frontend', color: '#fff' }],
         customFieldValues: { field_1: 'High' },
         payload: {
           agenticInputs: { acceptanceCriteria: 'Must import cleanly.' },
@@ -137,8 +137,8 @@ describe('buildTaskMarkdown', () => {
       projectGroup: null,
       agents: [],
       skills: [],
-      tags: [{ id: 'tag-1', organizationId: 'org-1', name: 'frontend', color: '#fff', createdAt: 1, updatedAt: 1 }],
-      customFields: [{ id: 'field_1', organizationId: 'org-1', name: 'Priority', type: 'text', createdAt: 1, updatedAt: 1 }],
+      tags: [{ id: 'tag-1', organizationId: 'org-1', name: 'frontend', color: '#fff' }],
+      customFields: [{ id: 'field_1', organizationId: 'org-1', name: 'Priority', type: 'text' }],
       projectStatuses: []
     })
 

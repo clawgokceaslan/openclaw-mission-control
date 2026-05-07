@@ -14,11 +14,13 @@ import {
   groupCodexTranscriptMessages,
   hasNoChangesMessage,
   plannerQuestionPromptFromMessages,
+  prunePlannerQuestionPathAnswers,
   preserveScrollTopAfterPrepend,
   shouldLoadEarlierMessages,
   stripRawJsonFromChatBody,
   thinkingDurationLabel,
   userMessageCount,
+  visiblePlannerQuestionPath,
   visibleChatMessagesForLimit
 } from './chatUtils'
 
@@ -178,6 +180,85 @@ describe('planner question helpers', () => {
 
     expect(answer).toContain('Selected option: Chat only - Stay in chat surfaces.')
     expect(answer).toContain('Additional context: Also keep the popup blocking.')
+  })
+
+  it('walks branching planner questions from the selected option path', () => {
+    const prompt = plannerQuestionPromptFromMessages([
+      message({
+        id: 'question-1',
+        source: 'gateway-plan',
+        role: 'assistant',
+        createdAt: 10,
+        metadata: {
+          gatewayBlock: 'planner-question',
+          questions: [
+            {
+              id: 'scope',
+              question: 'Scope?',
+              options: [
+                {
+                  id: 'chat',
+                  label: 'Chat only (Recommended)',
+                  nextQuestion: { id: 'chat-depth', question: 'Which chat depth?', options: [{ id: 'guided', label: 'Guided' }] }
+                },
+                {
+                  id: 'all',
+                  label: 'All screens',
+                  nextQuestion: { id: 'all-depth', question: 'Which app depth?' }
+                }
+              ]
+            }
+          ]
+        }
+      })
+    ])
+
+    expect(prompt).not.toBeNull()
+    expect(visiblePlannerQuestionPath(prompt!.questions, { scope: 'chat' }).map((question) => question.id)).toEqual(['scope', 'chat-depth'])
+    const answer = formatPlannerClarificationAnswer({
+      prompt: prompt!,
+      selectedOptionIds: { scope: 'chat', 'chat-depth': 'guided', 'all-depth': 'stale' },
+      notes: { 'chat-depth': 'Keep the selected path.', 'all-depth': 'Do not include stale branch.' }
+    })
+
+    expect(answer).toContain('Question: Scope?')
+    expect(answer).toContain('Question: Which chat depth?')
+    expect(answer).toContain('Selected option: Guided')
+    expect(answer).not.toContain('Which app depth?')
+    expect(answer).not.toContain('Do not include stale branch.')
+  })
+
+  it('prunes answers outside the currently selected planner branch', () => {
+    const prompt = plannerQuestionPromptFromMessages([
+      message({
+        id: 'question-1',
+        source: 'gateway-plan',
+        role: 'assistant',
+        createdAt: 10,
+        metadata: {
+          gatewayBlock: 'planner-question',
+          questions: [
+            {
+              id: 'scope',
+              question: 'Scope?',
+              options: [
+                { id: 'chat', label: 'Chat', nextQuestion: { id: 'chat-depth', question: 'Chat depth?' } },
+                { id: 'all', label: 'All', nextQuestion: { id: 'all-depth', question: 'All depth?' } }
+              ]
+            }
+          ]
+        }
+      })
+    ])!
+
+    expect(prunePlannerQuestionPathAnswers(
+      prompt.questions,
+      { scope: 'all', 'chat-depth': 'old' },
+      { scope: 'Root note', 'chat-depth': 'stale', 'all-depth': 'current' }
+    )).toEqual({
+      selectedOptionIds: { scope: 'all' },
+      notes: { scope: 'Root note', 'all-depth': 'current' }
+    })
   })
 
   it('tells Codex to use judgment when no option or note is provided', () => {
