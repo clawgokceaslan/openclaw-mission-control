@@ -110,6 +110,13 @@ const STEPS: Array<{ value: PlannerStep; label: string; hint: string; method: st
   { value: 12, label: 'Task Studio', hint: 'Kaydet', method: 'PRD to tasks' }
 ]
 
+const STEP_PHASES: Array<{ title: string; description: string; steps: PlannerStep[] }> = [
+  { title: 'Tanımla', description: 'Outcome, metrik, kullanıcı', steps: [1, 2, 3] },
+  { title: 'Keşfet', description: 'Kanıt, fırsat, varsayım', steps: [4, 5] },
+  { title: 'Şekillendir', description: 'Kapsam, öncelik, deneyim', steps: [6, 7, 8] },
+  { title: 'Teslim Et', description: 'Delivery, ölçüm, risk, task', steps: [9, 10, 11, 12] }
+]
+
 const INTENT_OPTIONS: Array<{ value: PlannerIntent; title: string; description: string }> = [
   { value: 'product', title: 'Product manager akışı', description: 'Problem, kullanıcı, başarı ve bağımsız delivery taskları çıkar.' },
   { value: 'project', title: 'Project breakdown', description: 'Geniş işi milestone ve paralel iş paketlerine ayır.' },
@@ -633,6 +640,8 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
   const currentCoach = STEP_COACH[step]
   const StepIcon = STEP_ICONS[step]
   const currentStepMissing = STEP_FIELDS[step].filter((key) => !form[key].trim())
+  const currentStepReady = STEP_FIELDS[step].length - currentStepMissing.length
+  const activePhase = STEP_PHASES.find((phase) => phase.steps.includes(step)) ?? STEP_PHASES[0]
   const currentQuestionIndex = Math.min(answers.length, questions.length - 1)
   const canCreate = sortedDrafts.some((draft) => draft.title.trim() && draft.description.trim())
 
@@ -763,31 +772,51 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
             <h2>{sourceTask?.title || project.name}</h2>
           </div>
           <div className={styles.headerMetrics}>
+            <span><LuRoute size={14} /> {activePhase.title}</span>
             <span><LuGauge size={14} /> %{report.score}</span>
-            <span><LuLayers size={14} /> {report.suggestedTaskCount} öneri</span>
-            <span><LuSave size={14} /> Taslak kaydedildi</span>
+            <span><LuLayers size={14} /> {sortedDrafts.length || report.suggestedTaskCount} task</span>
+            <span><LuSave size={14} /> Otomatik kayıt</span>
           </div>
           <button type="button" className={styles.iconButton} onClick={onClose} aria-label="Kapat" title="Kapat"><LuX size={16} /></button>
         </header>
 
         <nav className={styles.stepper} aria-label="Planlama adımları">
-          {STEPS.map((item) => (
-            <button key={item.value} type="button" className={step === item.value ? styles.stepActive : styles.step} onClick={() => setStep(item.value)}>
-              <b>{item.value}</b>
-              <span>{item.label}</span>
-              <small>{item.hint}</small>
-              <em>{item.method}</em>
-            </button>
+          {STEP_PHASES.map((phase) => (
+            <section key={phase.title} className={phase.steps.includes(step) ? styles.stepGroupActive : styles.stepGroup}>
+              <header>
+                <strong>{phase.title}</strong>
+                <span>{phase.description}</span>
+              </header>
+              <div className={styles.stepGroupRail}>
+                {phase.steps.map((stepValue) => {
+                  const item = STEPS.find((entry) => entry.value === stepValue) ?? STEPS[0]
+                  return (
+                    <button key={item.value} type="button" className={step === item.value ? styles.stepActive : styles.step} onClick={() => setStep(item.value)} title={`${item.label}: ${item.method}`}>
+                      <b>{item.value}</b>
+                      <span>{item.label}</span>
+                      <small>{item.hint}</small>
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
           ))}
         </nav>
 
         <main className={styles.workspace}>
           <section className={styles.stage}>
             <div className={styles.stageIntro}>
-              <span><StepIcon size={15} /> {currentGuide.method}</span>
+              <div className={styles.stageIntroHeader}>
+                <span><StepIcon size={15} /> {currentGuide.method}</span>
+                <strong>Adım {step}/12</strong>
+              </div>
               <h3>{currentCoach.title}</h3>
               <p>{currentCoach.principle}</p>
-              <small>Çıktı: {currentCoach.output}</small>
+              <div className={styles.stageIntroMeta}>
+                <small>Çıktı: {currentCoach.output}</small>
+                <small>{currentStepReady}/{STEP_FIELDS[step].length} alan dolu</small>
+                <small>{activePhase.title} fazı</small>
+              </div>
             </div>
 
             {step === 1 ? (
@@ -934,6 +963,11 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
           </section>
 
           <aside className={styles.sidePanel}>
+            <div className={styles.sideHeader}>
+              <span>Karar konsolu</span>
+              <strong>{activePhase.title}</strong>
+              <small>{currentGuide.label} adımı, {currentGuide.method} disipliniyle ilerliyor.</small>
+            </div>
             <div className={styles.scorePanel}>
               <span>Plan skoru</span>
               <strong>%{report.score}</strong>
