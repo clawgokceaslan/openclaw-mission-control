@@ -47,6 +47,10 @@ function isTaskWorking(task: TaskEntity) {
   return taskGatewaySurfaceStatuses(task).some((status) => status.active === true)
 }
 
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
 export function AutoPlansPage() {
   const { token } = useAuth()
   const [activeStep, setActiveStep] = useState<StepKey>('scope')
@@ -67,15 +71,25 @@ export function AutoPlansPage() {
   const [automationSnapshot, setAutomationSnapshot] = useState(() => automationQueueSnapshot())
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([])
   const [draggingQueueId, setDraggingQueueId] = useState<string | null>(null)
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null)
   const stopRequestedRef = useRef(false)
 
   const projectsById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects])
   const tasksById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])
   const queuedTaskIds = useMemo(() => new Set(queue.filter((item) => item.state === 'waiting' || item.state === 'running').map((item) => item.taskId)), [queue])
   const currentProject = projectsById.get(currentProjectId)
-  const activeAutomationLabel = automationSnapshot.active ? `${automationSnapshot.active.type === 'plan' ? 'Auto Plan' : 'Auto Run'} is running` : null
+  const sameAutomationActive = automationSnapshot.active.plan
+  const otherAutomationActive = automationSnapshot.active.run
+  const activeAutomationLabel = sameAutomationActive ? 'Auto Plan is already processing a queue' : otherAutomationActive ? 'Auto Run is running independently' : null
   const activeStepIndex = Math.max(0, stepOrder.indexOf(activeStep))
   const stepProgress = `${Math.round(((activeStepIndex + 1) / stepOrder.length) * 100)}%`
+  const queueSummary = useMemo(() => ({
+    waiting: queue.filter((item) => item.state === 'waiting').length,
+    running: queue.filter((item) => item.state === 'running').length,
+    completed: queue.filter((item) => item.state === 'completed').length,
+    failed: queue.filter((item) => item.state === 'failed').length,
+    stopped: queue.filter((item) => item.state === 'stopped').length
+  }), [queue])
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -181,6 +195,11 @@ export function AutoPlansPage() {
     setActiveStep('queue')
   }
 
+  const addTaskIdToQueue = (taskId: string) => {
+    const task = tasksById.get(taskId)
+    if (task) addToQueue(task)
+  }
+
   const addSelectedToQueue = () => {
     const selected = filteredTasks.filter((task) => selectedTaskIds.includes(task.id))
     const nextItems = selected
@@ -211,12 +230,20 @@ export function AutoPlansPage() {
   const moveQueueItemToIndex = (itemId: string, targetIndex: number) => {
     setQueue((current) => {
       const index = current.findIndex((item) => item.id === itemId)
-      if (index < 0 || targetIndex < 0 || targetIndex >= current.length || index === targetIndex) return current
+      if (index < 0 || targetIndex < 0 || targetIndex > current.length || index === targetIndex) return current
       const next = [...current]
       const [item] = next.splice(index, 1)
       next.splice(targetIndex, 0, item)
       return next
     })
+  }
+
+  const onTaskDragStart = (event: DragEvent<HTMLElement>, task: TaskEntity, disabled: boolean) => {
+    if (disabled) return
+    setDraggingTaskId(task.id)
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('application/x-omc-task-id', task.id)
+    event.dataTransfer.setData('text/plain', task.id)
   }
 
   const onQueueDragStart = (event: DragEvent<HTMLElement>, item: QueueItem) => {
@@ -228,9 +255,18 @@ export function AutoPlansPage() {
 
   const onQueueDrop = (event: DragEvent<HTMLElement>, targetIndex: number) => {
     event.preventDefault()
+    event.stopPropagation()
     const itemId = draggingQueueId || event.dataTransfer.getData('text/plain')
     if (itemId) moveQueueItemToIndex(itemId, targetIndex)
     setDraggingQueueId(null)
+  }
+
+  const onQueuePanelDrop = (event: DragEvent<HTMLElement>) => {
+    event.preventDefault()
+    if (draggingQueueId) return
+    const taskId = draggingTaskId || event.dataTransfer.getData('application/x-omc-task-id')
+    if (taskId) addTaskIdToQueue(taskId)
+    setDraggingTaskId(null)
   }
 
   const planTaskReason = (task: TaskEntity) => {
@@ -268,6 +304,25 @@ export function AutoPlansPage() {
     return response.data?.conversationId || response.data?.runId || ''
   }, [mode, projectsById, tasksById, token])
 
+  const waitForPlanCompletion = useCallback(async (item: QueueItem, conversationId: string) => {
+    if (!conversationId) return
+    let observedRunningRow = false
+    const startedAt = Date.now()
+    while (!stopRequestedRef.current) {
+      const response = await invokeBridge<RunningGatewayTasksResponse>(IPC_CHANNELS.tasks.listRunningGateway, { actorToken: token, page: 1, pageSize: PAGE_SIZE, group: 'planning' })
+      const rows = response.ok && Array.isArray(response.data?.rows) ? response.data.rows : []
+      setRunningRows(rows)
+      const activeRow = rows.find((row) => row.gatewayConversationId === conversationId || row.taskId === item.taskId)
+      if (activeRow) {
+        observedRunningRow = true
+        setQueue((current) => current.map((row) => row.id === item.id ? { ...row, message: `Active: ${activeRow.latestActivitySummary || activeRow.liveStatus}` } : row))
+      }
+      if (observedRunningRow && !activeRow) return
+      if (!observedRunningRow && Date.now() - startedAt > 10000) return
+      await delay(3000)
+    }
+  }, [token])
+
   const executeQueue = async () => {
     if (queueBusy) return
     stopRequestedRef.current = false
@@ -277,14 +332,14 @@ export function AutoPlansPage() {
       for (const item of queue) {
         if (stopRequestedRef.current) break
         if (item.state !== 'waiting') continue
-        setQueue((current) => current.map((row) => row.id === item.id ? { ...row, state: 'running', message: mode === 'ask-first' ? 'Starting in ask-first mode...' : 'Starting in direct mode...' } : row))
+        setQueue((current) => current.map((row) => row.id === item.id ? { ...row, state: 'running', message: mode === 'ask-first' ? 'Active: starting in ask-first mode...' : 'Active: starting in direct mode...' } : row))
         try {
           const conversationId = await runPlan(item)
-          setQueue((current) => current
-            .map((row) => row.id === item.id ? { ...row, state: stopRequestedRef.current ? 'stopped' : 'completed', conversationId, message: mode === 'ask-first' ? 'Plan started in ask-first mode.' : 'Plan started in direct mode.' } : row)
-            .filter((row) => row.state !== 'completed'))
+          setQueue((current) => current.map((row) => row.id === item.id ? { ...row, conversationId, message: conversationId ? 'Active: plan started, waiting for completion.' : 'Completed: plan started without conversation tracking.' } : row))
+          await waitForPlanCompletion(item, conversationId)
+          setQueue((current) => current.map((row) => row.id === item.id ? { ...row, state: stopRequestedRef.current ? 'stopped' : 'completed', conversationId, message: stopRequestedRef.current ? 'Stopped.' : 'Completed: plan finished.' } : row))
         } catch (planError) {
-          setQueue((current) => current.map((row) => row.id === item.id ? { ...row, state: 'failed', message: planError instanceof Error ? planError.message : 'Plan start failed.' } : row))
+          setQueue((current) => current.map((row) => row.id === item.id ? { ...row, state: 'failed', message: planError instanceof Error ? `Failed: ${planError.message}` : 'Failed: plan start failed.' } : row))
         }
       }
       await loadData()
@@ -296,8 +351,8 @@ export function AutoPlansPage() {
   const startQueue = async () => {
     if (queueBusy || !queue.some((item) => item.state === 'waiting')) return
     setQueueBusy(true)
-    if (automationQueueSnapshot().active) {
-      setQueue((current) => current.map((item) => item.state === 'waiting' ? { ...item, message: 'Queued behind another automation flow.' } : item))
+    if (automationQueueSnapshot().active.plan) {
+      setQueue((current) => current.map((item) => item.state === 'waiting' ? { ...item, message: 'Pending: queued behind another Auto Plan batch.' } : item))
     }
     const { promise } = enqueueAutomationQueue('plan', executeQueue)
     await promise
@@ -316,6 +371,14 @@ export function AutoPlansPage() {
     await loadData()
   }
 
+  const goToRelativeStep = (direction: -1 | 1) => {
+    const nextIndex = activeStepIndex + direction
+    const nextStep = stepOrder[nextIndex]
+    if (!nextStep) return
+    if ((nextStep === 'queue' || nextStep === 'confirm') && queue.length === 0) return
+    setActiveStep(nextStep)
+  }
+
   return (
     <section className={styles.page}>
       <header className={styles.header}>
@@ -327,7 +390,7 @@ export function AutoPlansPage() {
       </header>
 
       {error ? <div className={styles.notice}>{error}</div> : null}
-      {activeAutomationLabel ? <div className={styles.notice}>{activeAutomationLabel}. New queues will wait for their turn.</div> : null}
+      {activeAutomationLabel ? <div className={styles.notice}>{activeAutomationLabel}. Auto Plan queues stay serial; Auto Run can continue separately.</div> : null}
 
       <section className={styles.modeBar}>
         <div>
@@ -388,10 +451,10 @@ export function AutoPlansPage() {
         </div>
       </section>
 
-      <div className={`${styles.layout} ${activeStep !== 'tasks' ? styles.layoutFull : ''}`}>
-        {activeStep === 'tasks' ? <aside className={styles.selector}>
+      <div className={`${styles.layout} ${activeStep === 'scope' || activeStep === 'queue' ? styles.layoutFull : ''}`}>
+        {activeStep === 'tasks' || activeStep === 'confirm' ? <aside className={styles.selector}>
           <header>
-            <div><strong>Plan task selection</strong><span>First-status NOT PLANNED tasks with no active work are shown.</span></div>
+            <div><strong>{activeStep === 'confirm' ? 'Review selection' : 'Plan task selection'}</strong><span>Drag cards to the queue target on the right.</span></div>
             <button type="button" onClick={addSelectedToQueue} disabled={selectedTaskIds.length === 0}>Add selected</button>
           </header>
           <div className={styles.taskList}>
@@ -402,7 +465,14 @@ export function AutoPlansPage() {
               const disabled = queuedTaskIds.has(task.id) || isTaskClosed(task) || Boolean(missing)
               const selected = selectedTaskIds.includes(task.id)
               return (
-                <article key={task.id} className={`${styles.taskCard} ${selected ? styles.taskCardSelected : ''} ${disabled ? styles.taskCardMuted : ''}`} onClick={() => setDetailTarget({ projectId: task.projectId, taskId: task.id })}>
+                <article
+                  key={task.id}
+                  className={`${styles.taskCard} ${selected ? styles.taskCardSelected : ''} ${disabled ? styles.taskCardMuted : ''}`}
+                  draggable={!disabled}
+                  onDragStart={(event) => onTaskDragStart(event, task, disabled)}
+                  onDragEnd={() => setDraggingTaskId(null)}
+                  onClick={() => setDetailTarget({ projectId: task.projectId, taskId: task.id })}
+                >
                   <button type="button" className={styles.selectButton} onClick={(event) => {
                     event.stopPropagation()
                     toggleSelectedTask(task.id)
@@ -450,9 +520,9 @@ export function AutoPlansPage() {
           ) : null}
 
           {activeStep === 'queue' || activeStep === 'confirm' ? (
-            <div className={styles.panel}>
+            <div className={`${styles.panel} ${draggingTaskId ? styles.dropReady : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={onQueuePanelDrop}>
               <header>
-                <div><strong>Auto Plan queue</strong><span>{queue.length} waiting or blocked item{queue.length === 1 ? '' : 's'} - {mode === 'ask-first' ? 'ask-first mode' : 'direct mode'}</span></div>
+                <div><strong>Auto Plan queue</strong><span>{queueSummary.waiting} pending · {queueSummary.running} active · {queueSummary.completed} completed · {queueSummary.failed} failed · {mode === 'ask-first' ? 'ask-first mode' : 'direct mode'}</span></div>
                 <div className={styles.panelActions}>
                   <button type="button" onClick={() => void startQueue()} disabled={queueBusy || !queue.some((item) => item.state === 'waiting')}><LuPlay size={15} /> Start</button>
                   <button type="button" onClick={() => void stopQueue()} disabled={!queueBusy && !queue.some((item) => item.state === 'waiting' || item.state === 'running')}><LuCircleStop size={15} /> Stop</button>
@@ -482,7 +552,7 @@ export function AutoPlansPage() {
                       </div>
                     </article>
                   )
-                }) : <div className={styles.emptyState}>Queue is empty. Add tasks from the Tasks step.</div>}
+                }) : <div className={styles.emptyState}>Drop task cards here or add selected tasks from the left.</div>}
               </div>
             </div>
           ) : null}
@@ -523,6 +593,12 @@ export function AutoPlansPage() {
           ) : null}
         </section>
       </div>
+
+      <nav className={styles.flowNav} aria-label="Auto Plan navigation">
+        <button type="button" onClick={() => goToRelativeStep(-1)} disabled={activeStepIndex === 0}>Previous</button>
+        <span>{stepLabels[activeStep]}</span>
+        <button type="button" onClick={() => goToRelativeStep(1)} disabled={activeStepIndex === stepOrder.length - 1 || ((stepOrder[activeStepIndex + 1] === 'queue' || stepOrder[activeStepIndex + 1] === 'confirm') && queue.length === 0)}>Next</button>
+      </nav>
 
       {projectPickerOpen ? (
         <div className={styles.modalBackdrop} role="presentation">

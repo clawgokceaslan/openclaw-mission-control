@@ -8,8 +8,14 @@ type AutomationQueueJob<T> = {
   reject: (error: unknown) => void
 }
 
-let activeJob: AutomationQueueJob<unknown> | null = null
-const pendingJobs: AutomationQueueJob<unknown>[] = []
+const activeJobs: Record<AutomationQueueType, AutomationQueueJob<unknown> | null> = {
+  plan: null,
+  run: null
+}
+const pendingJobs: Record<AutomationQueueType, AutomationQueueJob<unknown>[]> = {
+  plan: [],
+  run: []
+}
 const listeners = new Set<() => void>()
 
 function createJobId(type: AutomationQueueType): string {
@@ -21,39 +27,45 @@ function notifyListeners() {
   listeners.forEach((listener) => listener())
 }
 
-function runNextJob() {
-  if (activeJob || pendingJobs.length === 0) {
+function runNextJob(type: AutomationQueueType) {
+  if (activeJobs[type] || pendingJobs[type].length === 0) {
     notifyListeners()
     return
   }
 
-  activeJob = pendingJobs.shift() ?? null
+  activeJobs[type] = pendingJobs[type].shift() ?? null
   notifyListeners()
-  if (!activeJob) return
+  if (!activeJobs[type]) return
 
-  const job = activeJob
+  const job = activeJobs[type]
   job.execute()
     .then(job.resolve)
     .catch(job.reject)
     .finally(() => {
-      if (activeJob?.id === job.id) activeJob = null
-      runNextJob()
+      if (activeJobs[type]?.id === job.id) activeJobs[type] = null
+      runNextJob(type)
     })
 }
 
 export function enqueueAutomationQueue<T>(type: AutomationQueueType, execute: () => Promise<T>): { id: string; promise: Promise<T> } {
   const id = createJobId(type)
   const promise = new Promise<T>((resolve, reject) => {
-    pendingJobs.push({ id, type, execute, resolve, reject } as AutomationQueueJob<unknown>)
+    pendingJobs[type].push({ id, type, execute, resolve, reject } as AutomationQueueJob<unknown>)
   })
-  runNextJob()
+  runNextJob(type)
   return { id, promise }
 }
 
 export function automationQueueSnapshot() {
   return {
-    active: activeJob ? { id: activeJob.id, type: activeJob.type } : null,
-    pending: pendingJobs.map((job) => ({ id: job.id, type: job.type }))
+    active: {
+      plan: activeJobs.plan ? { id: activeJobs.plan.id, type: activeJobs.plan.type } : null,
+      run: activeJobs.run ? { id: activeJobs.run.id, type: activeJobs.run.type } : null
+    },
+    pending: {
+      plan: pendingJobs.plan.map((job) => ({ id: job.id, type: job.type })),
+      run: pendingJobs.run.map((job) => ({ id: job.id, type: job.type }))
+    }
   }
 }
 
