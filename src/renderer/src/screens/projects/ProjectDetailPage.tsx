@@ -1656,7 +1656,6 @@ export function ProjectDetailPage() {
       return saveDescription({ finalize: shouldFinalize })
     }
     if (shouldFinalize) {
-      await refresh()
       if (selectedTaskRef.current?.id === taskId) {
         setIsDescriptionEditing(false)
       }

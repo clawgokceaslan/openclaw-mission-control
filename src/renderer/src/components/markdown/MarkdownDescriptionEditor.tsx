@@ -330,10 +330,6 @@ export function MarkdownDescriptionEditor({
   }
 
   const handleKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-      event.preventDefault()
-      onCommit?.()
-    }
     if (event.key === 'Escape') {
       if (pendingRole) {
         event.preventDefault()
