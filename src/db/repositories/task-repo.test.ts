@@ -112,16 +112,18 @@ describe('TaskRepository.listPlannedGateway', () => {
     const repo = new TaskRepository(db)
     await insertProject(db, 'project-a', 'org-1', 'Alpha')
     await insertStatus(db, 'todo-status', 'project-a', 'org-1', 'not_started', 0)
+    await insertStatus(db, 'active-status', 'project-a', 'org-1', 'active', 1)
     await insertStatus(db, 'done-status', 'project-a', 'org-1', 'done', 3)
     await insertStatus(db, 'closed-status', 'project-a', 'org-1', 'closed', 4)
-    await insertTaskWithStatus(db, 'task-ready', 'project-a', 'Ready planned', 'todo-status', 50, { gatewayPlanState: { state: 'planned' } })
+    await insertTaskWithStatus(db, 'task-ready', 'project-a', 'Ready planned', 'active-status', 50, { gatewayPlanState: { state: 'planned' } })
+    await insertTaskWithStatus(db, 'task-todo', 'project-a', 'Todo planned', 'todo-status', 45, { gatewayPlanState: { state: 'planned' } })
     await insertTaskWithStatus(db, 'task-done', 'project-a', 'Done planned', 'done-status', 40, { gatewayPlanState: { state: 'planned' } })
     await insertTaskWithStatus(db, 'task-closed', 'project-a', 'Closed planned', 'closed-status', 30, { gatewayPlanState: { state: 'planned' } })
-    await insertTaskWithStatus(db, 'task-started', 'project-a', 'Started planned', 'todo-status', 20, {
+    await insertTaskWithStatus(db, 'task-started', 'project-a', 'Started planned', 'active-status', 20, {
       gatewayPlanState: { state: 'planned' },
       activityMessages: [{ source: 'gateway-run', status: 'running' }]
     })
-    await insertTaskWithStatus(db, 'task-finished', 'project-a', 'Finished planned', 'todo-status', 10, {
+    await insertTaskWithStatus(db, 'task-finished', 'project-a', 'Finished planned', 'active-status', 10, {
       gatewayPlanState: { state: 'planned' },
       activityMessages: [{ source: 'gateway-run', status: 'completed', metadata: { gatewayBlock: 'run-complete' } }]
     })

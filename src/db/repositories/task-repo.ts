@@ -71,6 +71,16 @@ export class TaskRepository extends BaseRepository<TaskEntity> {
       p.organization_id = @orgId
       AND json_extract(t.payload_json, '$.gatewayPlanState.state') = 'planned'
       AND COALESCE(ps.category, lower(t.status)) NOT IN ('done', 'closed')
+      AND (
+        NOT EXISTS (SELECT 1 FROM project_statuses project_status_check WHERE project_status_check.project_id = t.project_id)
+        OR t.status = (
+          SELECT second_status.id
+          FROM project_statuses second_status
+          WHERE second_status.project_id = t.project_id
+          ORDER BY second_status.sort_order ASC, second_status.created_at ASC
+          LIMIT 1 OFFSET 1
+        )
+      )
       AND NOT EXISTS (
         SELECT 1
         FROM json_each(t.payload_json, '$.activityMessages') AS activity

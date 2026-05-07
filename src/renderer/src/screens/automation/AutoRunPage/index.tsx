@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { LuArrowDown, LuArrowUp, LuCircleStop, LuExternalLink, LuListFilter, LuPlay, LuRefreshCw, LuTrash2 } from 'react-icons/lu'
+import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { LuArrowDown, LuArrowUp, LuSquareCheck, LuCircleStop, LuExternalLink, LuGripVertical, LuListFilter, LuPlay, LuRefreshCw, LuSquare, LuTrash2 } from 'react-icons/lu'
 import { IPC_CHANNELS, type PaginatedResponse, type PlannedGatewayTaskRow, type RunningGatewayTaskRow, type RunningGatewayTasksResponse } from '@shared/contracts/ipc'
 import type { Agent, CustomField, Project, ProjectStatus, Skill, Tag, TaskEntity } from '@shared/types/entities'
 import { DEFAULT_GATEWAY_LANGUAGE } from '@shared/utils/gateway-language'
@@ -23,10 +23,6 @@ const stepOrder: StepKey[] = ['scope', 'tasks', 'queue', 'confirm']
 
 function formatDate(value: number) {
   return new Date(value).toLocaleString()
-}
-
-function textOf(value: string | undefined, fallback: string) {
-  return value?.trim() || fallback
 }
 
 function missingRunLabel(project: Project | undefined) {
@@ -68,6 +64,8 @@ export function AutoRunPage() {
   const [error, setError] = useState<string | null>(null)
   const [detailTarget, setDetailTarget] = useState<{ projectId: string; taskId: string } | null>(null)
   const [automationSnapshot, setAutomationSnapshot] = useState(() => automationQueueSnapshot())
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([])
+  const [draggingQueueId, setDraggingQueueId] = useState<string | null>(null)
   const stopRequestedRef = useRef(false)
 
   const projectsById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects])
@@ -136,16 +134,52 @@ export function AutoRunPage() {
     }
   }, [loadData])
 
+  const secondStatusByProject = useMemo(() => Object.fromEntries(Object.entries(statusesByProject).map(([projectId, statuses]) => [
+    projectId,
+    [...statuses].sort((a, b) => a.sortOrder - b.sortOrder)[1]?.id ?? ''
+  ])), [statusesByProject])
+
+  const taskStatus = useCallback((task: TaskEntity) => statusesByProject[task.projectId]?.find((status) => status.id === task.status), [statusesByProject])
+
+  const isTaskPlanned = useCallback((task: TaskEntity) => (
+    taskGatewaySurfaceStatuses(task).some((status) => status.key === 'PLAN:planned')
+  ), [])
+
+  const isRunCandidate = useCallback((task: TaskEntity) => (
+    task.projectId === currentProjectId
+    && task.status === secondStatusByProject[task.projectId]
+    && isTaskPlanned(task)
+    && !isTaskWorking(task)
+    && !hasRunHistory(task)
+  ), [currentProjectId, isTaskPlanned, secondStatusByProject])
+
+  const queryMatchesTask = useCallback((task: TaskEntity, normalizedQuery: string) => (
+    !normalizedQuery || `${task.title} ${task.description ?? ''} ${projectsById.get(task.projectId)?.name ?? ''} ${taskStatus(task)?.name ?? ''}`.toLowerCase().includes(normalizedQuery)
+  ), [projectsById, taskStatus])
+
   const filteredTasks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
     return tasks
       .filter((task) => task.projectId === currentProjectId)
-      .filter((task) => !isTaskWorking(task))
-      .filter((task) => !hasRunHistory(task))
-      .filter((task) => !normalizedQuery || `${task.title} ${task.description ?? ''} ${projectsById.get(task.projectId)?.name ?? ''}`.toLowerCase().includes(normalizedQuery))
+      .filter(isRunCandidate)
+      .filter((task) => queryMatchesTask(task, normalizedQuery))
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, 80)
-  }, [currentProjectId, projectsById, query, tasks])
+  }, [currentProjectId, isRunCandidate, query, queryMatchesTask, tasks])
+
+  const otherTasks = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    return tasks
+      .filter((task) => task.projectId === currentProjectId)
+      .filter((task) => !isRunCandidate(task))
+      .filter((task) => queryMatchesTask(task, normalizedQuery))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, 40)
+  }, [currentProjectId, isRunCandidate, query, queryMatchesTask, tasks])
+
+  useEffect(() => {
+    setSelectedTaskIds((current) => current.filter((taskId) => filteredTasks.some((task) => task.id === taskId) && !queuedTaskIds.has(taskId)))
+  }, [filteredTasks, queuedTaskIds])
 
   const isTaskClosed = useCallback((task: TaskEntity) => {
     const status = statusesByProject[task.projectId]?.find((item) => item.id === task.status)
@@ -158,6 +192,21 @@ export function AutoRunPage() {
     setActiveStep('queue')
   }
 
+  const addSelectedToQueue = () => {
+    const selected = filteredTasks.filter((task) => selectedTaskIds.includes(task.id))
+    const nextItems = selected
+      .filter((task) => !queuedTaskIds.has(task.id) && !isTaskClosed(task) && !missingRunLabel(projectsById.get(task.projectId)))
+      .map((task, index) => ({ id: `${task.id}-${Date.now()}-${index}`, taskId: task.id, projectId: task.projectId, state: 'waiting' as QueueState }))
+    if (nextItems.length === 0) return
+    setQueue((current) => [...current, ...nextItems])
+    setSelectedTaskIds([])
+    setActiveStep('queue')
+  }
+
+  const toggleSelectedTask = (taskId: string) => {
+    setSelectedTaskIds((current) => current.includes(taskId) ? current.filter((id) => id !== taskId) : [...current, taskId])
+  }
+
   const moveQueueItem = (itemId: string, direction: -1 | 1) => {
     setQueue((current) => {
       const index = current.findIndex((item) => item.id === itemId)
@@ -168,6 +217,31 @@ export function AutoRunPage() {
       next.splice(nextIndex, 0, item)
       return next
     })
+  }
+
+  const moveQueueItemToIndex = (itemId: string, targetIndex: number) => {
+    setQueue((current) => {
+      const index = current.findIndex((item) => item.id === itemId)
+      if (index < 0 || targetIndex < 0 || targetIndex >= current.length || index === targetIndex) return current
+      const next = [...current]
+      const [item] = next.splice(index, 1)
+      next.splice(targetIndex, 0, item)
+      return next
+    })
+  }
+
+  const onQueueDragStart = (event: DragEvent<HTMLElement>, item: QueueItem) => {
+    if (item.state === 'running') return
+    setDraggingQueueId(item.id)
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', item.id)
+  }
+
+  const onQueueDrop = (event: DragEvent<HTMLElement>, targetIndex: number) => {
+    event.preventDefault()
+    const itemId = draggingQueueId || event.dataTransfer.getData('text/plain')
+    if (itemId) moveQueueItemToIndex(itemId, targetIndex)
+    setDraggingQueueId(null)
   }
 
   const removeQueueItem = (itemId: string) => {
@@ -283,25 +357,43 @@ export function AutoRunPage() {
 
   const renderTaskCard = (task: TaskEntity) => {
     const project = projectsById.get(task.projectId)
+    const status = taskStatus(task)
     const missing = missingRunLabel(project)
     const disabled = queuedTaskIds.has(task.id) || isTaskClosed(task) || Boolean(missing)
+    const selected = selectedTaskIds.includes(task.id)
     return (
-      <article key={task.id} className={`${styles.taskCard} ${disabled ? styles.taskCardMuted : ''}`}>
+      <article key={task.id} className={`${styles.taskCard} ${selected ? styles.taskCardSelected : ''} ${disabled ? styles.taskCardMuted : ''}`} onClick={() => setDetailTarget({ projectId: task.projectId, taskId: task.id })}>
+        <button type="button" className={styles.selectButton} onClick={(event) => {
+          event.stopPropagation()
+          toggleSelectedTask(task.id)
+        }} disabled={disabled} aria-label={selected ? `Unselect ${task.title}` : `Select ${task.title}`}>
+          {selected ? <LuSquareCheck size={17} /> : <LuSquare size={17} />}
+        </button>
         <div className={styles.taskCardBody}>
-          <span>{project?.name ?? 'No project'}</span>
+          <span>{project?.name ?? 'No project'} · {status?.name ?? 'No status'}</span>
           <strong>{task.title}</strong>
-          <small>{textOf(project?.description, 'No project description.')}</small>
+          <small>{missing || (queuedTaskIds.has(task.id) ? 'Already queued' : 'Planned and ready for auto run')}</small>
         </div>
         <div className={styles.cardActions}>
-          <button type="button" onClick={() => setDetailTarget({ projectId: task.projectId, taskId: task.id })} title="Open task details">
-            <LuExternalLink size={15} />
-          </button>
-          <button type="button" onClick={() => addToQueue(task)} disabled={disabled} title={missing || (queuedTaskIds.has(task.id) ? 'Already queued' : 'Add to queue')}>
+          <button type="button" onClick={(event) => {
+            event.stopPropagation()
+            addToQueue(task)
+          }} disabled={disabled} title={missing || (queuedTaskIds.has(task.id) ? 'Already queued' : 'Add to queue')}>
             <LuPlay size={15} />
           </button>
         </div>
       </article>
     )
+  }
+
+  const runTaskReason = (task: TaskEntity) => {
+    const secondStatusId = secondStatusByProject[task.projectId]
+    if (task.projectId !== currentProjectId) return 'Different project'
+    if (task.status !== secondStatusId) return `Status: ${taskStatus(task)?.name ?? 'Unknown'}`
+    if (!isTaskPlanned(task)) return 'Plan is not ready'
+    if (isTaskWorking(task)) return 'Codex is active'
+    if (hasRunHistory(task)) return 'Already has run history'
+    return ''
   }
 
   return (
@@ -327,7 +419,7 @@ export function AutoRunPage() {
           <span>Search tasks</span>
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Title, description, or project" />
         </label>
-        <div className={styles.controlStat}><LuListFilter size={16} /><strong>{filteredTasks.length}</strong><span>never-run tasks</span></div>
+        <div className={styles.controlStat}><LuListFilter size={16} /><strong>{filteredTasks.length}</strong><span>planned run tasks</span></div>
       </section>
 
       <section className={styles.stepper} aria-label="Auto Run steps">
@@ -341,9 +433,25 @@ export function AutoRunPage() {
 
       <div className={`${styles.layout} ${activeStep !== 'tasks' ? styles.layoutFull : ''}`}>
         {activeStep === 'tasks' ? <aside className={styles.selector}>
-          <header><strong>Task selection</strong><span>Only current-project tasks with no run history are shown.</span></header>
+          <header>
+            <div><strong>Task selection</strong><span>Second-status PLANNED tasks with no run history are shown.</span></div>
+            <button type="button" onClick={addSelectedToQueue} disabled={selectedTaskIds.length === 0}>Add selected</button>
+          </header>
           <div className={styles.taskList}>
-            {loading ? <div className={styles.emptyState}>Loading tasks...</div> : filteredTasks.length ? filteredTasks.map(renderTaskCard) : <div className={styles.emptyState}>No never-run tasks match this project.</div>}
+            {loading ? <div className={styles.emptyState}>Loading tasks...</div> : filteredTasks.length ? filteredTasks.map(renderTaskCard) : <div className={styles.emptyState}>No second-status PLANNED tasks match this project.</div>}
+            {otherTasks.length ? (
+              <details className={styles.otherTasks}>
+                <summary>Other current-project tasks <span>{otherTasks.length}</span></summary>
+                <div className={styles.otherTaskList}>
+                  {otherTasks.map((task) => (
+                    <button key={task.id} type="button" onClick={() => setDetailTarget({ projectId: task.projectId, taskId: task.id })}>
+                      <strong>{task.title}</strong>
+                      <span>{runTaskReason(task)}</span>
+                    </button>
+                  ))}
+                </div>
+              </details>
+            ) : null}
           </div>
         </aside> : null}
 
@@ -371,8 +479,16 @@ export function AutoRunPage() {
                   const task = tasksById.get(item.taskId)
                   const project = projectsById.get(item.projectId)
                   return (
-                    <article key={item.id} className={`${styles.queueRow} ${styles[`state_${item.state}`]}`}>
-                      <span className={styles.queueIndex}>{index + 1}</span>
+                    <article
+                      key={item.id}
+                      className={`${styles.queueRow} ${draggingQueueId === item.id ? styles.queueRowDragging : ''} ${styles[`state_${item.state}`]}`}
+                      draggable={item.state !== 'running'}
+                      onDragStart={(event) => onQueueDragStart(event, item)}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => onQueueDrop(event, index)}
+                      onDragEnd={() => setDraggingQueueId(null)}
+                    >
+                      <span className={styles.queueIndex}><LuGripVertical size={14} /> {index + 1}</span>
                       <div><strong>{task?.title ?? item.taskId}</strong><span>{project?.name ?? item.projectId} - {item.message ?? item.state}</span></div>
                       <div className={styles.cardActions}>
                         <button type="button" onClick={() => moveQueueItem(item.id, -1)} disabled={index === 0 || item.state === 'running'} title="Move up"><LuArrowUp size={15} /></button>
