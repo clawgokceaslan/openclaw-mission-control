@@ -489,6 +489,11 @@
   100% { transform: translateX(250%); }
 }
 
+@keyframes task-active-border {
+  0% { background-position: -180px 0, 0 0; }
+  100% { background-position: 180px 0, 0 0; }
+}
+
 .headerActions {
   display: flex;
   align-items: center;
@@ -770,6 +775,7 @@
 }
 
 .taskCard {
+  --task-activity-accent: var(--column-accent);
   border: 1px solid color-mix(in srgb, var(--column-accent) 16%, var(--omc-border-subtle)) !important;
   border-radius: 8px !important;
   background: color-mix(in srgb, var(--omc-surface) 86%, transparent) !important;
@@ -783,6 +789,35 @@
   &:hover {
     border-color: color-mix(in srgb, var(--column-accent) 34%, var(--omc-border-strong)) !important;
     background: var(--omc-surface) !important;
+  }
+}
+
+.taskCardActive {
+  position: relative;
+  border-color: color-mix(in srgb, var(--task-activity-accent) 46%, var(--omc-border-subtle)) !important;
+  overflow: visible;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: 8px;
+    padding: 1px;
+    background:
+      linear-gradient(90deg, transparent 0 16%, var(--task-activity-accent) 42%, transparent 68%),
+      color-mix(in srgb, var(--task-activity-accent) 20%, transparent);
+    opacity: 0.58;
+    pointer-events: none;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    animation: task-active-border 2.8s linear infinite;
+  }
+
+  :global(.card-body) {
+    position: relative;
+    z-index: 1;
   }
 }
 
@@ -969,6 +1004,92 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
+  }
+}
+
+.subtaskToggle {
+  min-height: 24px;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--omc-surface-muted) 55%, transparent);
+  color: var(--omc-text-muted);
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--column-accent) 34%, var(--omc-border-strong));
+    background: var(--omc-hover-bg);
+    color: var(--omc-text-strong);
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.72;
+  }
+}
+
+.subtaskChevronOpen,
+.subtaskChevronClosed {
+  flex: 0 0 auto;
+  transition: transform 140ms ease;
+}
+
+.subtaskChevronClosed {
+  transform: rotate(-90deg);
+}
+
+.subtaskMiniList {
+  position: relative;
+  margin: 9px 0 0 7px;
+  padding-left: 10px;
+  display: grid;
+  gap: 6px;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    bottom: 10px;
+    left: 0;
+    width: 1px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--column-accent) 28%, var(--omc-border-subtle));
+  }
+}
+
+.subtaskMiniCard {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--column-accent) 16%, var(--omc-border-subtle));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--omc-surface-muted) 46%, var(--omc-surface));
+  padding: 8px 9px;
+  display: grid;
+  gap: 3px;
+
+  strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--omc-text-strong);
+    font-size: 0.82rem;
+    font-weight: 850;
+  }
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--omc-text-muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
   }
 }
 

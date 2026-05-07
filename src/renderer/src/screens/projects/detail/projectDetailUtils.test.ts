@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskEntity } from '@shared/types/entities'
 import type { ProjectStatusColumn } from './status'
-import { latestTaskCodexConversation, orderTasksByStatusGroups, projectCodexSettings, reorderTasksForDrop, taskCodexActionChips, taskCodexPlanBadge } from './projectDetailUtils'
+import { latestTaskCodexConversation, orderTasksByStatusGroups, projectCodexSettings, reorderTasksForDrop, taskCodexActionChips, taskCodexPlanBadge, taskCodexStatusItems } from './projectDetailUtils'
 
 function task(id: string, status: string, order: number): TaskEntity {
   return {
@@ -110,7 +110,27 @@ describe('task Codex card metadata', () => {
     expect(taskCodexPlanBadge({
       ...task('needs-info', 'todo', 0),
       payload: { codexPlanState: { state: 'needs-clarification', conversationId: 'plan-2' } }
-    })).toEqual({ state: 'needs-clarification', label: 'Needs info', conversationId: 'plan-2' })
+    })).toEqual({ state: 'needs-clarification', label: 'Plan için bilgi gerekiyor', conversationId: 'plan-2' })
+  })
+
+  it('derives card status surface items from latest Codex conversations', () => {
+    const result = taskCodexStatusItems({
+      ...task('with-status-surface', 'todo', 0),
+      payload: {
+        codexPlanState: { state: 'needs-clarification', conversationId: 'plan-1' },
+        activityMessages: [
+          { id: 'p', runId: 'plan-run', conversationId: 'plan-1', source: 'codex-plan', role: 'system', status: 'completed', body: 'plan', createdAt: 1, updatedAt: 1 },
+          { id: 'r', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'system', status: 'running', body: 'run', createdAt: 2, updatedAt: 2 },
+          { id: 'c', runId: 'chat-1', conversationId: 'chat-1', source: 'codex-chat', role: 'user', body: 'follow up', createdAt: 3, updatedAt: 3 }
+        ]
+      }
+    })
+
+    expect(result.map((item) => [item.label, item.tone, item.conversationId])).toEqual([
+      ['Plan için bilgi gerekiyor', 'planning', 'plan-1'],
+      ['Running', 'running', 'run-1'],
+      ['Follow Up', 'follow-up', 'chat-1']
+    ])
   })
 
   it('returns latest Plan and Run action chips by source', () => {
