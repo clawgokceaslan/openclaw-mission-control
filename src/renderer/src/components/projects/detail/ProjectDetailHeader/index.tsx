@@ -16,7 +16,6 @@ interface ProjectDetailHeaderProps {
   onOpenStatusSettings: () => void
   onSyncProject: () => void
   syncDisabled?: boolean
-  taskPlannerDisabled?: boolean
   onBoardSelect: () => void
   recentChatsActive?: boolean
   recentChatsCount?: number
@@ -36,7 +35,6 @@ export function ProjectDetailHeader({
   onOpenStatusSettings,
   onSyncProject,
   syncDisabled,
-  taskPlannerDisabled,
   onBoardSelect,
   recentChatsActive,
   recentChatsCount,
@@ -69,9 +67,8 @@ export function ProjectDetailHeader({
             type="button"
             className={styles.iconBtn}
             onClick={onOpenTaskPlanner}
-            disabled={taskPlannerDisabled}
-            aria-label="Seçili tasktan çoklu task planla"
-            title={taskPlannerDisabled ? 'Önce geniş bir task seç' : 'Çoklu task planla'}
+            aria-label="Çoklu task oluşturma merkezi"
+            title="Çoklu task oluşturma merkezi"
           >
             <LuListPlus size={16} />
           </button>

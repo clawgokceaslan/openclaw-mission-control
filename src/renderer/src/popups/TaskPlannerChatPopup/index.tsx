@@ -19,16 +19,16 @@ interface TaskPlannerChatPopupProps {
   open: boolean
   actorToken: string | null
   project: Project
-  sourceTask: TaskEntity
+  sourceTask?: TaskEntity | null
   defaultStatus?: string
   onClose: () => void
   onCreated: (tasks: TaskEntity[]) => void
 }
 
 const QUESTIONS = [
-  'Bu geniş taskın kullanıcıya veya ürüne sağlayacağı ana sonuç ne?',
-  'Bu işi bağımsız ilerleyebilecek hangi 3-6 teslimat parçasına ayırırsın?',
-  'Her parçanın kabul sinyali ne olmalı ve hangi parça önce gelmeli?'
+  'Bu task oluşturma merkezinde hangi ürün veya kullanıcı problemini planlıyoruz?',
+  'Bu kapsamdan bağımsız ilerleyebilecek hangi 3-6 task çıkmalı?',
+  'Her taskın kabul sinyali ne olmalı ve hangi sıra daha doğru?'
 ]
 
 function createDraftId() {
@@ -49,14 +49,15 @@ function splitAnswerToDraftTitles(answer: string): string[] {
     .slice(0, 6)
 }
 
-function buildDrafts(task: TaskEntity, answers: string[]): TaskPlannerDraft[] {
+function buildDrafts(project: Project, answers: string[], sourceTask?: TaskEntity | null): TaskPlannerDraft[] {
   const candidateTitles = splitAnswerToDraftTitles(answers[1] || answers.join('\n'))
+  const fallbackSubject = sourceTask?.title || project.name
   const titles = candidateTitles.length > 0
     ? candidateTitles
     : [
-      `${task.title} kapsamını netleştir`,
-      `${task.title} uygulama adımlarını çıkar`,
-      `${task.title} kabul akışını doğrula`
+      `${fallbackSubject} kapsamını netleştir`,
+      `${fallbackSubject} uygulama adımlarını çıkar`,
+      `${fallbackSubject} kabul akışını doğrula`
     ]
   const outcome = answers[0]?.trim()
   const acceptance = answers[2]?.trim()
@@ -65,7 +66,8 @@ function buildDrafts(task: TaskEntity, answers: string[]): TaskPlannerDraft[] {
     order: index + 1,
     title,
     description: [
-      `Kaynak task: ${task.title}`,
+      `Proje: ${project.name}`,
+      sourceTask ? `Opsiyonel kaynak task: ${sourceTask.title}` : '',
       outcome ? `Ana sonuç: ${outcome}` : '',
       `Beklenen çıktı: ${title}`,
       acceptance ? `Kabul sinyali ve sıralama notu: ${acceptance}` : '',
@@ -118,7 +120,7 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
       id: createDraftId(),
       order: items.length + 1,
       title: '',
-      description: `Kaynak task: ${sourceTask.title}\n\nBeklenen çıktı:`
+      description: `Proje: ${project.name}\n\nBeklenen çıktı:`
     }])
   }
 
@@ -132,7 +134,7 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
     setMessage('')
     setError('')
     if (nextAnswers.every((answer) => answer.trim())) {
-      setDrafts(buildDrafts(sourceTask, nextAnswers))
+      setDrafts(buildDrafts(project, nextAnswers, sourceTask))
       setStep(3)
     } else {
       setStep(2)
@@ -140,7 +142,7 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
   }
 
   const regenerateDrafts = () => {
-    setDrafts(buildDrafts(sourceTask, answers))
+    setDrafts(buildDrafts(project, answers, sourceTask))
     setError('')
   }
 
@@ -155,7 +157,7 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
     const response = await invokeBridge<TaskJsonImportResult>(IPC_CHANNELS.tasks.plannerCreateFromJson, {
       actorToken,
       projectId: project.id,
-      taskId: sourceTask.id,
+      ...(sourceTask?.id ? { taskId: sourceTask.id } : {}),
       json: draftsToPlannerJson(validDrafts, defaultStatus)
     })
     setBusy(false)
@@ -174,8 +176,8 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
         <header className={styles.header}>
           <span className={styles.headerIcon}><LuSparkles size={18} /></span>
           <div className={styles.headerText}>
-            <span>Çoklu Task Planlama</span>
-            <h2>{sourceTask.title}</h2>
+            <span>{sourceTask ? 'Çoklu Task Planlama' : 'Task Oluşturma Merkezi'}</span>
+            <h2>{sourceTask?.title || project.name}</h2>
           </div>
           <button type="button" className={styles.iconButton} onClick={onClose} aria-label="Kapat" title="Kapat"><LuX size={16} /></button>
         </header>
@@ -196,13 +198,13 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
         {step === 1 ? (
           <main className={styles.contextStep}>
             <div className={styles.contextSummary}>
-              <span>Kaynak task korunacak</span>
-              <h3>{sourceTask.title}</h3>
-              <p>{sourceTask.description || 'Açıklama yok.'}</p>
+              <span>{sourceTask ? 'Kaynak task korunacak' : 'Proje içinde ayrı tasklar açılacak'}</span>
+              <h3>{sourceTask?.title || project.name}</h3>
+              <p>{sourceTask?.description || project.description || 'Bu merkez, seçili taska bağlı olmadan proje için yeni task setleri planlar.'}</p>
             </div>
             <div className={styles.pmPrompt}>
               <LuListChecks size={18} />
-              <p>Akış, geniş taskı bağımsız ve doğrulanabilir tasklara bölmek için senior product manager gibi kapsam, teslimat ve kabul sinyali soruları sorar.</p>
+              <p>Akış, senior product manager gibi kapsamı netleştiren sorular sorar; sonra düzenlenebilir, bağımsız ve doğrulanabilir task taslakları üretir.</p>
             </div>
           </main>
         ) : null}
