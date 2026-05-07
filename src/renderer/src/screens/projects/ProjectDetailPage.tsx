@@ -1539,25 +1539,26 @@ export function ProjectDetailPage() {
     const draft = descriptionDraftRef.current
     if (!task) return true
     const taskId = task.id
+    const normalizedDraft = draft
     clearDescriptionAutosaveTimer()
-    if (draft === (task.description ?? '')) {
+    if (normalizedDraft === (task.description ?? '')) {
       setIsDescriptionEditing(false)
       return true
     }
     if (descriptionAutosaveInFlightRef.current) {
-      if (draft !== descriptionAutosaveSnapshotRef.current) {
+      if (normalizedDraft !== descriptionAutosaveSnapshotRef.current) {
         descriptionAutosavePendingRef.current = true
       }
       return true
     }
     const requestId = ++descriptionAutosaveRequestIdRef.current
     descriptionAutosaveInFlightRef.current = true
-    descriptionAutosaveSnapshotRef.current = draft
+    descriptionAutosaveSnapshotRef.current = normalizedDraft
     setIsDescriptionSaving(true)
     const response = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
       actorToken: token,
       id: task.id,
-      description: draft,
+      description: normalizedDraft,
       payload: {
         ...(task.payload ?? {}),
         inputFormatId: '',
@@ -1565,6 +1566,9 @@ export function ProjectDetailPage() {
       }
     })
     if (descriptionAutosaveRequestIdRef.current !== requestId) {
+      descriptionAutosaveInFlightRef.current = false
+      setIsDescriptionSaving(false)
+      descriptionAutosavePendingRef.current = false
       return true
     }
     descriptionAutosaveInFlightRef.current = false
@@ -1574,14 +1578,15 @@ export function ProjectDetailPage() {
     }
     if (!response.ok) {
       setError(response.error?.message ?? 'Unable to update description')
-      setDescriptionDraft(task.description ?? '')
-      descriptionDraftRef.current = task.description ?? ''
+      descriptionAutosaveSnapshotRef.current = normalizedDraft
+      setDescriptionDraft(normalizedDraft)
+      descriptionDraftRef.current = normalizedDraft
       descriptionAutosavePendingRef.current = false
       return false
     }
     selectedTaskRef.current = {
       ...task,
-      description: draft,
+      description: normalizedDraft,
       payload: {
         ...(task.payload ?? {}),
         inputFormatId: '',
