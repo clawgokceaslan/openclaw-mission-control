@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AppSelectOption } from '@renderer/components/select/AppSelect'
 import { AppSelect } from '@renderer/components/select/AppSelect'
-import { LuCircleCheck, LuTriangleAlert } from 'react-icons/lu'
+import { LuCircleCheck, LuLoaderCircle, LuTriangleAlert } from 'react-icons/lu'
 import type { Agent, Gateway, Project, ProjectGatewaySettings, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Workspace } from '@shared/types/entities'
 import { GATEWAY_LANGUAGE_OPTIONS, GATEWAY_REASONING_EFFORT_OPTIONS, gatewayModelReasoningEfforts, gatewayModelSupportsReasoning, normalizeGatewayLanguage, normalizeGatewayReasoningEffort } from '@shared/utils/gateway-language'
 import { GATEWAY_PROMPT_SHAPES, normalizeGatewayPromptShape } from '@shared/utils/gateway-prompt-shape'
@@ -16,19 +16,32 @@ type ProjectSettingsOption = Pick<AppSelectOption, 'label' | 'value'>
 
 type WorkspaceLike = Pick<Workspace, 'id' | 'name' | 'rootPath'>
 
-function SettingsSaveToast({ variant, title, message }: { variant: 'success' | 'error'; title: string; message: string }) {
+type SettingsSaveFeedback = {
+  state: 'saving' | 'success' | 'error'
+  title: string
+  message: string
+}
+
+function saveFeedbackTab(tab: ProjectSettingsTab): ProjectSettingsTab {
+  return tab === 'codex' ? 'models' : tab
+}
+
+function SettingsSaveToast({ feedback }: { feedback: SettingsSaveFeedback }) {
+  const isError = feedback.state === 'error'
+  const isSaving = feedback.state === 'saving'
+
   return (
     <div
-      className={`${styles.settingsSaveToast} ${variant === 'error' ? styles.settingsSaveToastError : styles.settingsSaveToastSuccess}`}
-      role={variant === 'error' ? 'alert' : 'status'}
+      className={`${styles.settingsSaveToast} ${isError ? styles.settingsSaveToastError : isSaving ? styles.settingsSaveToastSaving : styles.settingsSaveToastSuccess}`}
+      role={isError ? 'alert' : 'status'}
       aria-live="polite"
     >
       <span className={styles.settingsSaveToastIcon} aria-hidden="true">
-        {variant === 'error' ? <LuTriangleAlert size={16} /> : <LuCircleCheck size={16} />}
+        {isError ? <LuTriangleAlert size={16} /> : isSaving ? <LuLoaderCircle size={16} /> : <LuCircleCheck size={16} />}
       </span>
       <span className={styles.settingsSaveToastCopy}>
-        <strong>{title}</strong>
-        <span>{message}</span>
+        <strong>{feedback.title}</strong>
+        <span>{feedback.message}</span>
       </span>
     </div>
   )
@@ -103,8 +116,8 @@ export interface ProjectDetailSettingsPopupProps {
     onProjectGroupDescriptionChange: (value: string) => void
     onProjectGroupPickerOpen: () => void
     onProjectGroupPickerClose: () => void
-    onProjectGroupClear: () => void
-    onProjectGroupPick: (group: ProjectGroup) => void
+    onProjectGroupClear: () => void | Promise<void>
+    onProjectGroupPick: (group: ProjectGroup) => void | Promise<void>
     onSaveProjectGroup: () => void | Promise<void>
 
     projectStatuses: ProjectStatus[]
@@ -142,10 +155,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
   const [defaultAgentIdDraft, setDefaultAgentIdDraft] = useState(scope.defaultAgentId)
   const [defaultSkillIdsDraft, setDefaultSkillIdsDraft] = useState<string[]>(scope.defaultSkillIds ?? [])
   const [workspaceTargetIdDraft, setWorkspaceTargetIdDraft] = useState(scope.selectedWorkspaceId ?? '')
-  const [codexSaveMessage, setCodexSaveMessage] = useState<string | null>(null)
-  const [codexSaveError, setCodexSaveError] = useState<string | null>(null)
-  const [defaultsSaveMessage, setDefaultsSaveMessage] = useState<string | null>(null)
-  const [defaultsSaveError, setDefaultsSaveError] = useState<string | null>(null)
+  const [saveFeedbackByTab, setSaveFeedbackByTab] = useState<Partial<Record<ProjectSettingsTab, SettingsSaveFeedback>>>({})
   const [hydratedProjectId, setHydratedProjectId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -165,10 +175,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
     setDefaultAgentIdDraft(scope.defaultAgentId)
     setDefaultSkillIdsDraft(scope.defaultSkillIds ?? [])
     setWorkspaceTargetIdDraft(scope.selectedWorkspaceId ?? '')
-    setCodexSaveMessage(null)
-    setCodexSaveError(null)
-    setDefaultsSaveMessage(null)
-    setDefaultsSaveError(null)
+    setSaveFeedbackByTab({})
   }, [open, scope.project?.id, hydratedProjectId, scope.projectSettingsTab, scope.gatewayId, scope.gatewayRuntimeWorkspaceId, scope.gatewayDefaultModel, scope.gatewayDefaultPlanModel, scope.gatewayDefaultRunModel, scope.gatewayLanguage, scope.codexPromptShape, scope.gatewayPlanReasoningEffort, scope.gatewayRunReasoningEffort, scope.defaultAgentId, scope.defaultSkillIds, scope.selectedWorkspaceId])
 
   useEffect(() => {
@@ -228,9 +235,27 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
     setActiveTab(tab)
   }
 
+  const setSaveFeedback = (tab: ProjectSettingsTab, feedback: SettingsSaveFeedback) => {
+    setSaveFeedbackByTab((current) => ({ ...current, [saveFeedbackTab(tab)]: feedback }))
+  }
+
+  const clearSaveFeedback = (tab: ProjectSettingsTab) => {
+    setSaveFeedbackByTab((current) => {
+      const next = { ...current }
+      delete next[saveFeedbackTab(tab)]
+      return next
+    })
+  }
+
+  const clearActiveSaveFeedback = () => clearSaveFeedback(activeTab)
+
   const handleSaveGatewaySettings = async () => {
-    setCodexSaveMessage(null)
-    setCodexSaveError(null)
+    const feedbackTab = saveFeedbackTab(activeTab)
+    setSaveFeedback(feedbackTab, {
+      state: 'saving',
+      title: 'Saving',
+      message: 'Project Codex settings are being saved.'
+    })
     try {
       const codexDraft = activeTab === 'promptShape'
         ? { promptShape: promptShapeDraft }
@@ -248,23 +273,136 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
         setPlanReasoningDraft(normalizeGatewayReasoningEffort(saved.planReasoningEffort ?? planReasoningDraft))
         setRunReasoningDraft(normalizeGatewayReasoningEffort(saved.runReasoningEffort ?? runReasoningDraft))
       }
-      setCodexSaveMessage('Saved')
+      setSaveFeedback(feedbackTab, {
+        state: 'success',
+        title: 'Saved',
+        message: 'Project Codex settings are up to date.'
+      })
     } catch (error) {
-      setCodexSaveError(error instanceof Error ? error.message : 'Unable to save Codex settings')
+      setSaveFeedback(feedbackTab, {
+        state: 'error',
+        title: 'Save failed',
+        message: error instanceof Error ? error.message : 'Unable to save Codex settings'
+      })
     }
   }
 
   const handleSaveDefaultsSettings = async () => {
-    setDefaultsSaveMessage(null)
-    setDefaultsSaveError(null)
+    const feedbackTab = saveFeedbackTab(activeTab)
+    setSaveFeedback(feedbackTab, {
+      state: 'saving',
+      title: 'Saving',
+      message: activeTab === 'agents' ? 'Project agent default is being saved.' : 'Project skill defaults are being saved.'
+    })
     try {
       await s.onSaveProjectDefaultsSettings({
         defaultAgentId: defaultAgentIdDraft || null,
         defaultSkillIds: defaultSkillIdsDraft
       })
-      setDefaultsSaveMessage('Saved')
+      setSaveFeedback(feedbackTab, {
+        state: 'success',
+        title: 'Saved',
+        message: activeTab === 'agents' ? 'Project agent default is up to date.' : 'Project skill defaults are up to date.'
+      })
     } catch (error) {
-      setDefaultsSaveError(error instanceof Error ? error.message : 'Unable to save project defaults')
+      setSaveFeedback(feedbackTab, {
+        state: 'error',
+        title: 'Save failed',
+        message: error instanceof Error ? error.message : 'Unable to save project defaults'
+      })
+    }
+  }
+
+  const handleSaveProjectStatuses = async () => {
+    setSaveFeedback('statuses', {
+      state: 'saving',
+      title: 'Saving',
+      message: 'Project statuses are being saved.'
+    })
+    try {
+      await s.onSaveProjectStatuses()
+      setSaveFeedback('statuses', {
+        state: 'success',
+        title: 'Saved',
+        message: 'Project statuses are up to date.'
+      })
+    } catch (error) {
+      setSaveFeedback('statuses', {
+        state: 'error',
+        title: 'Save failed',
+        message: error instanceof Error ? error.message : 'Unable to update project statuses'
+      })
+    }
+  }
+
+  const handleSaveProjectGroup = async () => {
+    if (!s.projectGroupForExport) {
+      onClose()
+      return
+    }
+    setSaveFeedback('projectGroup', {
+      state: 'saving',
+      title: 'Saving',
+      message: 'Project group is being saved.'
+    })
+    try {
+      await s.onSaveProjectGroup()
+      setSaveFeedback('projectGroup', {
+        state: 'success',
+        title: 'Saved',
+        message: 'Project group is up to date.'
+      })
+    } catch (error) {
+      setSaveFeedback('projectGroup', {
+        state: 'error',
+        title: 'Save failed',
+        message: error instanceof Error ? error.message : 'Unable to save project group'
+      })
+    }
+  }
+
+  const handleProjectGroupAssignment = async (action: () => void | Promise<void>) => {
+    setSaveFeedback('projectGroup', {
+      state: 'saving',
+      title: 'Saving',
+      message: 'Project group assignment is being saved.'
+    })
+    try {
+      await action()
+      setSaveFeedback('projectGroup', {
+        state: 'success',
+        title: 'Saved',
+        message: 'Project group assignment is up to date.'
+      })
+    } catch (error) {
+      setSaveFeedback('projectGroup', {
+        state: 'error',
+        title: 'Save failed',
+        message: error instanceof Error ? error.message : 'Unable to update project group assignment'
+      })
+    }
+  }
+
+  const handleMoveProjectWorkspace = async (workspaceId: string | null) => {
+    setSaveFeedback('workspace', {
+      state: 'saving',
+      title: 'Saving',
+      message: workspaceId ? 'Project workspace is being updated.' : 'Project workspace is being detached.'
+    })
+    try {
+      await s.onMoveProjectWorkspace(workspaceId)
+      setWorkspaceTargetIdDraft(workspaceId ?? '')
+      setSaveFeedback('workspace', {
+        state: 'success',
+        title: 'Saved',
+        message: 'Project workspace is up to date.'
+      })
+    } catch (error) {
+      setSaveFeedback('workspace', {
+        state: 'error',
+        title: 'Save failed',
+        message: error instanceof Error ? error.message : 'Unable to update project workspace'
+      })
     }
   }
 
@@ -272,8 +410,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
     setGatewayIdDraft(value)
     setPlanModelDraft('')
     setRunModelDraft('')
-    setCodexSaveMessage(null)
-    setCodexSaveError(null)
+    clearActiveSaveFeedback()
     s.onSetGatewayModelError(null)
     if (value) void s.onRefreshGatewayModels?.(value)
   }
@@ -288,16 +425,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
           ? 'Select a run model.'
           : ''
 
-  const codexSaveFeedback = codexSaveError ? (
-    <SettingsSaveToast variant="error" title="Save failed" message={codexSaveError} />
-  ) : codexSaveMessage ? (
-    <SettingsSaveToast variant="success" title="Saved" message="Project Codex settings are up to date." />
-  ) : null
-  const defaultsSaveFeedback = defaultsSaveError ? (
-    <SettingsSaveToast variant="error" title="Save failed" message={defaultsSaveError} />
-  ) : defaultsSaveMessage ? (
-    <SettingsSaveToast variant="success" title="Saved" message="Project defaults are up to date." />
-  ) : null
+  const activeSaveFeedback = saveFeedbackByTab[saveFeedbackTab(activeTab)] ?? null
 
   if (!open) return null
 
@@ -325,6 +453,9 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
               </button>
             ))}
           </div>
+        </div>
+        <div className={styles.saveFeedbackRegion}>
+          {activeSaveFeedback ? <SettingsSaveToast feedback={activeSaveFeedback} /> : null}
         </div>
         <div className={styles.body}>
           {activeTab === 'statuses' ? (
@@ -462,16 +593,10 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                   <strong>{workspaceTargetIdDraft ? 'Move to selected workspace' : 'Detach workspace'}</strong>
                   <span>{workspaceTargetIdDraft === (s.selectedWorkspaceId ?? '') ? 'Selected target matches the current workspace.' : 'This will move stored project attachments into the target project folder.'}</span>
                 </div>
-                <button type="button" className={styles.tabActionButton} disabled={s.movingWorkspace || workspaceTargetIdDraft === (s.selectedWorkspaceId ?? '')} onClick={() => void s.onMoveProjectWorkspace(workspaceTargetIdDraft || null)}>
+                <button type="button" className={styles.tabActionButton} disabled={s.movingWorkspace || workspaceTargetIdDraft === (s.selectedWorkspaceId ?? '')} onClick={() => void handleMoveProjectWorkspace(workspaceTargetIdDraft || null)}>
                   {s.movingWorkspace ? 'Moving...' : 'Apply workspace'}
                 </button>
               </div>
-              {s.movingWorkspace ? (
-                <div className={styles.workspaceProgress} aria-label="Moving project workspace">
-                  <span />
-                </div>
-              ) : null}
-              {s.workspaceMoveMessage ? <p className={styles.customFieldEmpty}>{s.workspaceMoveMessage}</p> : null}
             </div>
           ) : null}
 
@@ -537,8 +662,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     onChange={(option) => {
                       if (Array.isArray(option)) return
                       setDefaultAgentIdDraft(option?.value ?? '')
-                      setDefaultsSaveMessage(null)
-                      setDefaultsSaveError(null)
+                      clearActiveSaveFeedback()
                     }}
                   />
                 </label>
@@ -549,7 +673,6 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                   <strong>{selectedDefaultAgentOption?.label ?? 'None'}</strong>
                 </div>
               </div>
-              {defaultsSaveFeedback}
               {s.projectAgentRows.length > 0 ? (
                 <div className={styles.settingsMiniTable}>
                   <div>
@@ -591,8 +714,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     placeholder="No project skills"
                     onChange={(options) => {
                       setDefaultSkillIdsDraft(Array.isArray(options) ? options.map((option) => option.value) : [])
-                      setDefaultsSaveMessage(null)
-                      setDefaultsSaveError(null)
+                      clearActiveSaveFeedback()
                     }}
                   />
                 </label>
@@ -603,7 +725,6 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                   <strong>{selectedDefaultSkillOptions.length} skill(s)</strong>
                 </div>
               </div>
-              {defaultsSaveFeedback}
             </div>
           ) : null}
 
@@ -624,13 +745,11 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     placeholder="Select language"
                     onChange={(option) => {
                       setLanguageDraft(normalizeGatewayLanguage(option?.value))
-                      setCodexSaveMessage(null)
-                      setCodexSaveError(null)
+                      clearActiveSaveFeedback()
                     }}
                   />
                 </label>
               </div>
-              {codexSaveFeedback}
             </div>
           ) : null}
 
@@ -651,8 +770,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     placeholder="Select prompt format"
                     onChange={(option) => {
                       setPromptShapeDraft(normalizeGatewayPromptShape(option?.value))
-                      setCodexSaveMessage(null)
-                      setCodexSaveError(null)
+                      clearActiveSaveFeedback()
                     }}
                   />
                 </label>
@@ -669,8 +787,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     className={promptShapeDraft === option.value ? styles.promptShapeActive : ''}
                     onClick={() => {
                       setPromptShapeDraft(normalizeGatewayPromptShape(option.value))
-                      setCodexSaveMessage(null)
-                      setCodexSaveError(null)
+                      clearActiveSaveFeedback()
                     }}
                     aria-pressed={promptShapeDraft === option.value}
                   >
@@ -679,7 +796,6 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                   </button>
                 ))}
               </div>
-              {codexSaveFeedback}
             </div>
           ) : null}
 
@@ -711,8 +827,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     placeholder="Select workspace"
                     onChange={(option) => {
                       setRuntimeWorkspaceIdDraft(option?.value ?? '')
-                      setCodexSaveMessage(null)
-                      setCodexSaveError(null)
+                      clearActiveSaveFeedback()
                     }}
                   />
                 </label>
@@ -725,8 +840,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     isDisabled={!gatewayIdDraft || localModelOptions.length === 0}
                     onChange={(option) => {
                       setPlanModelDraft(option?.value ?? '')
-                      setCodexSaveMessage(null)
-                      setCodexSaveError(null)
+                      clearActiveSaveFeedback()
                     }}
                   />
                 </label>
@@ -739,8 +853,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                       placeholder="Select reasoning"
                       onChange={(option) => {
                         setPlanReasoningDraft(normalizeGatewayReasoningEffort(option?.value))
-                        setCodexSaveMessage(null)
-                        setCodexSaveError(null)
+                        clearActiveSaveFeedback()
                       }}
                     />
                   </label>
@@ -754,8 +867,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     isDisabled={!gatewayIdDraft || localModelOptions.length === 0}
                     onChange={(option) => {
                       setRunModelDraft(option?.value ?? '')
-                      setCodexSaveMessage(null)
-                      setCodexSaveError(null)
+                      clearActiveSaveFeedback()
                     }}
                   />
                 </label>
@@ -768,8 +880,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                       placeholder="Select reasoning"
                       onChange={(option) => {
                         setRunReasoningDraft(normalizeGatewayReasoningEffort(option?.value))
-                        setCodexSaveMessage(null)
-                        setCodexSaveError(null)
+                        clearActiveSaveFeedback()
                       }}
                     />
                   </label>
@@ -777,7 +888,6 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
               </div>
               {s.gatewayModelLoading ? <div className={styles.settingsEmptyState}>Loading models from Codex CLI...</div> : null}
               {s.gatewayModelError ? <div className={styles.settingsEmptyState}>{s.gatewayModelError}</div> : null}
-              {codexSaveFeedback}
             </div>
           ) : null}
         </div>
@@ -785,7 +895,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
           {activeTab === 'statuses' ? (
             <>
               <span>Removing or replacing a status requires mapping old tasks and subtasks to a remaining status.</span>
-              <button type="button" onClick={() => void s.onSaveProjectStatuses()}>Save statuses</button>
+              <button type="button" onClick={() => void handleSaveProjectStatuses()}>Save statuses</button>
             </>
           ) : activeTab === 'workspace' ? (
             <>
@@ -797,13 +907,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
               <span>Project group assignment controls where this project appears in group views.</span>
               <button
                 type="button"
-                onClick={() => {
-                  if (s.projectGroupForExport) {
-                    void s.onSaveProjectGroup()
-                  } else {
-                    onClose()
-                  }
-                }}
+                onClick={() => void handleSaveProjectGroup()}
                 disabled={s.projectGroupSaving || Boolean(s.projectGroupForExport && !s.projectGroupNameDraft.trim())}
               >
                 {s.projectGroupForExport ? 'Save group' : 'Done'}
@@ -875,8 +979,8 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
           projectGroups={s.projectGroups}
           projectGroupSaving={s.projectGroupSaving}
           onClose={s.onProjectGroupPickerClose}
-          onClearGroup={s.onProjectGroupClear}
-          onPickGroup={(group) => s.onProjectGroupPick(group)}
+          onClearGroup={() => void handleProjectGroupAssignment(s.onProjectGroupClear)}
+          onPickGroup={(group) => void handleProjectGroupAssignment(() => s.onProjectGroupPick(group))}
         />
       ) : null}
 
@@ -889,11 +993,11 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
           onClose={s.onCloseWorkspacePicker}
           onPickNoWorkspace={() => {
             s.onCloseWorkspacePicker()
-            void s.onMoveProjectWorkspace(null)
+            void handleMoveProjectWorkspace(null)
           }}
           onPickWorkspace={(workspace: Workspace) => {
             s.onCloseWorkspacePicker()
-            void s.onMoveProjectWorkspace(workspace.id)
+            void handleMoveProjectWorkspace(workspace.id)
           }}
           workspaceDraftName={s.workspaceDraftName}
           workspaceDraftPath={s.workspaceDraftPath}
@@ -904,7 +1008,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
               const workspace = await s.onCreateWorkspace?.()
               if (!workspace) return
               s.onCloseWorkspacePicker()
-              await s.onMoveProjectWorkspace(workspace.id)
+              await handleMoveProjectWorkspace(workspace.id)
             })()
           }}
           createWorkspaceDisabled={!s.workspaceDraftName.trim() || !s.workspaceDraftPath.trim()}

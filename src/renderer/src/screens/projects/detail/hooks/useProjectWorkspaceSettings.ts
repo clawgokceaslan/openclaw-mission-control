@@ -311,9 +311,10 @@ export function useProjectWorkspaceSettings({
     })
     setMovingWorkspace(false)
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Unable to update project workspace')
+      const message = response.error?.message ?? 'Unable to update project workspace'
+      setError(message)
       setWorkspaceMoveMessage(null)
-      return
+      throw new Error(message)
     }
     setProject(response.data.project)
     setWorkspaceMoveMessage(`Workspace updated. ${response.data.movedFiles} file(s) moved.`)
@@ -409,8 +410,9 @@ export function useProjectWorkspaceSettings({
       })
       if (!removeResponse.ok) {
         setProjectGroupSaving(false)
-        setError(removeResponse.error?.message ?? 'Unable to update current project group')
-        return
+        const message = removeResponse.error?.message ?? 'Unable to update current project group'
+        setError(message)
+        throw new Error(message)
       }
     }
 
@@ -426,8 +428,9 @@ export function useProjectWorkspaceSettings({
         })
         if (!addResponse.ok) {
           setProjectGroupSaving(false)
-          setError(addResponse.error?.message ?? 'Unable to assign project group')
-          return
+          const message = addResponse.error?.message ?? 'Unable to assign project group'
+          setError(message)
+          throw new Error(message)
         }
       }
     }
@@ -450,8 +453,9 @@ export function useProjectWorkspaceSettings({
     })
     setProjectGroupSaving(false)
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Unable to save project group')
-      return
+      const message = response.error?.message ?? 'Unable to save project group'
+      setError(message)
+      throw new Error(message)
     }
     setProjectGroups((current) => current.map((group) => group.id === response.data!.id ? response.data! : group))
   }
@@ -648,8 +652,9 @@ export function useProjectWorkspaceSettings({
       mapping: statusMapping
     })
     if (!response.ok) {
-      setError(response.error?.message ?? 'Unable to update project statuses')
-      return
+      const message = response.error?.message ?? 'Unable to update project statuses'
+      setError(message)
+      throw new Error(message)
     }
     setIsStatusEditorOpen(false)
     await refresh()

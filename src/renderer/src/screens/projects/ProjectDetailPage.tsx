@@ -1649,8 +1649,8 @@ export function ProjectDetailPage() {
     void workspaceApplyStatusTemplate(template)
   }
 
-  const saveProjectStatuses = () => {
-    void workspaceSaveProjectStatuses()
+  const saveProjectStatuses = async () => {
+    await workspaceSaveProjectStatuses()
   }
 
   const saveDescription = async (options: { finalize?: boolean } = {}) => {
@@ -3118,9 +3118,9 @@ export function ProjectDetailPage() {
     onProjectGroupDescriptionChange: setProjectGroupDescriptionDraft,
     onProjectGroupPickerOpen: () => setIsProjectGroupPickerOpen(true),
     onProjectGroupPickerClose: () => setIsProjectGroupPickerOpen(false),
-    onProjectGroupClear: () => void updateProjectGroupMembership(null),
-    onProjectGroupPick: (group: ProjectGroup) => void updateProjectGroupMembership(group.id),
-    onSaveProjectGroup: () => void saveSelectedProjectGroup(),
+    onProjectGroupClear: () => updateProjectGroupMembership(null),
+    onProjectGroupPick: (group: ProjectGroup) => updateProjectGroupMembership(group.id),
+    onSaveProjectGroup: saveSelectedProjectGroup,
 
     projectStatuses,
     statusDrafts,
