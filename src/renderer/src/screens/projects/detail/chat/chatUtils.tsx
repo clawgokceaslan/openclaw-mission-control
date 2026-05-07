@@ -1,4 +1,5 @@
 import { formatUsageSummary, parseCodexEvents, type CodexUsageSummary } from '@shared/utils/codex-events'
+import { inferCodexChatPhase } from '@shared/utils/codex-chat-phase'
 import type { TaskComment, TaskEntity } from '@shared/types/entities'
 import type {
   ChatConversationSummary,
@@ -400,7 +401,7 @@ function latestNextChatHandoff(messages: TaskActivityMessage[]): string | null {
 }
 
 export function buildLatestRunFollowUpContext(messages: TaskActivityMessage[]): string {
-  const runMessages = messages.filter((message) => message.source === 'codex-run')
+  const runMessages = messages.filter((message) => inferCodexChatPhase(message) === 'RUN')
   const conversationId = buildConversationIdLatest(runMessages)
   if (!conversationId) return ''
 
@@ -439,9 +440,11 @@ export function buildLatestRunFollowUpContext(messages: TaskActivityMessage[]): 
   return truncateText(lines.join('\n'), CHAT_FOLLOW_UP_CONTEXT_MAX_LENGTH)
 }
 
-function sourceContextTitle(source: ChatMessageSource): string {
-  if (source === 'codex-plan') return 'Plan context'
-  if (source === 'codex-run') return 'Run context'
+function phaseContextTitle(message: TaskActivityMessage): string {
+  const phase = inferCodexChatPhase(message)
+  if (phase === 'PLAN') return 'Plan context'
+  if (phase === 'RUN') return 'Run context'
+  if (phase === 'POST-RUNNING') return 'Post-running context'
   return 'Chat context'
 }
 
@@ -469,11 +472,13 @@ function contextEntryFromConversation(conversationId: string, messages: TaskActi
   const status = terminal
     ? (terminal.role === 'error' || terminal.status === 'failed' || terminal.metadata?.runStatus === 'failed' ? 'failed' : 'completed')
     : last.status ?? 'event'
+  const phaseMessage = ordered.find((message) => inferCodexChatPhase(message) !== 'FOLLOW UP') ?? last
   const source = ordered.find((message) => message.source !== 'codex-chat')?.source ?? last.source
+  const phase = inferCodexChatPhase(phaseMessage)
   const result = describeRunResult(terminal?.metadata)
   const recent = ordered.slice(-CHAT_FOLLOW_UP_CONTEXT_RECENT_MESSAGES).map(messageShortLabel)
   const body = [
-    `${sourceContextTitle(source)} for conversation ${conversationId}`,
+    `${phaseContextTitle(phaseMessage)} for conversation ${conversationId}`,
     terminal ? `Status: ${terminal.body.trim() || status}` : `Status: ${status}`,
     result ? `Result: ${result}` : '',
     userMessages.length ? `Recent user direction:\n${userMessages.map((message) => `- ${truncateText(message.body.trim(), 280)}`).join('\n')}` : '',
@@ -494,7 +499,8 @@ function contextEntryFromConversation(conversationId: string, messages: TaskActi
     id: `context-${conversationId}-${last.updatedAt ?? last.createdAt}`,
     conversationId,
     source,
-    title: sourceContextTitle(source),
+    phase,
+    title: phaseContextTitle(phaseMessage),
     status,
     at: last.updatedAt ?? last.createdAt,
     preview: oneLine(assistant?.body || terminal?.body || last.body),
@@ -509,6 +515,7 @@ export function buildGeneratedContextEntries(messages: TaskActivityMessage[]): G
     const conversationId = conversationIdOf(message)
     if (!conversationId) continue
     if (!['codex-plan', 'codex-run', 'codex-chat'].includes(message.source)) continue
+    if (inferCodexChatPhase(message) === 'POST-RUNNING') continue
     const current = grouped.get(conversationId) ?? []
     current.push(message)
     grouped.set(conversationId, current)
@@ -846,6 +853,7 @@ export function buildChatConversationSummaries(messages: TaskActivityMessage[], 
     count: number
     title: string
     source: TaskActivityMessage['source']
+    phase: ChatConversationSummary['phase']
     latestAt: number
     latestStatus: ChatConversationSummary['status']
     model: string | undefined
@@ -859,7 +867,8 @@ export function buildChatConversationSummaries(messages: TaskActivityMessage[], 
     if (!id) continue
     const at = messageTimeOf(message)
     const current = grouped.get(id)
-    const nextTitle = chatConversationTitle(message.source)
+    const phase = inferCodexChatPhase(message)
+    const nextTitle = phase
     const messageModel = typeof message.metadata?.model === 'string' ? message.metadata.model : undefined
     const nextStatus = message.status ?? 'event'
     const terminalStatus = isRunCompleteMessage(message)
@@ -872,6 +881,7 @@ export function buildChatConversationSummaries(messages: TaskActivityMessage[], 
         title: nextTitle,
         count: message.role === 'user' ? 1 : 0,
         source: message.source,
+        phase,
         latestAt: at,
         latestStatus: nextStatus,
         model: messageModel,
@@ -887,6 +897,7 @@ export function buildChatConversationSummaries(messages: TaskActivityMessage[], 
       current.latestStatus = nextStatus
       current.model = messageModel ?? current.model
     }
+    if (!current.phase || current.phase === 'FOLLOW UP') current.phase = phase
     if (messageModel && !current.model) current.model = messageModel
     if (isFreshRunningMessage(message, now)) {
       current.latestRunningAt = Math.max(current.latestRunningAt, at)
@@ -915,6 +926,7 @@ export function buildChatConversationSummaries(messages: TaskActivityMessage[], 
       status: nextStatus,
       at: entry.latestAt,
       source: entry.source,
+      phase: entry.phase,
       model: entry.model
     }
   }).sort((a, b) => b.at - a.at)
@@ -945,6 +957,13 @@ export function normalizeActivityMessage(raw: unknown): TaskActivityMessage | nu
     runId: candidate.runId,
     conversationId: typeof candidate.conversationId === 'string' ? candidate.conversationId : undefined,
     source,
+    phase: inferCodexChatPhase({
+      phase: candidate.phase,
+      source,
+      runId: candidate.runId,
+      conversationId: typeof candidate.conversationId === 'string' ? candidate.conversationId : undefined,
+      metadata
+    }),
     role,
     status,
     body: candidate.body,
@@ -1022,7 +1041,8 @@ export function usageFromMetadata(metadata: Record<string, unknown> | undefined)
 }
 
 export function asCodexThread(message: TaskActivityMessage): ThreadEntry {
-  const label = message.source === 'codex-plan' ? 'Codex Plan' : message.source === 'codex-run' ? 'Codex Run' : 'Codex Chat'
+  const phase = inferCodexChatPhase(message)
+  const label = phase === 'PLAN' ? 'Codex Plan' : phase === 'RUN' ? 'Codex Run' : phase === 'POST-RUNNING' ? 'Codex Post-Running' : 'Codex Chat'
   return {
     id: `codex-${message.id}`,
     at: message.createdAt,
@@ -1035,6 +1055,7 @@ export function asCodexThread(message: TaskActivityMessage): ThreadEntry {
     ],
     evidence: [],
     source: message.source,
+    phase,
     role: message.role,
     status: message.status,
     metadata: { ...(message.metadata ?? {}), runId: message.runId, conversationId: message.conversationId ?? message.runId }

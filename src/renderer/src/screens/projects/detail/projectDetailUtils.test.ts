@@ -155,7 +155,7 @@ describe('task Codex card metadata', () => {
     expect(taskCodexActiveTone(completedTask, now)).toBeNull()
   })
 
-  it('returns latest Plan and Run action chips by source', () => {
+  it('returns latest phase action chips', () => {
     const result = taskCodexActionChips({
       ...task('with-actions', 'todo', 0),
       payload: {
@@ -168,8 +168,8 @@ describe('task Codex card metadata', () => {
     })
 
     expect(result.map((chip) => [chip.label, chip.conversationId, chip.status])).toEqual([
-      ['Plan', 'plan-new', 'completed'],
-      ['Run', 'run-new', 'running']
+      ['PLAN', 'plan-new', 'completed'],
+      ['RUN', 'run-new', 'running']
     ])
   })
 
@@ -185,7 +185,7 @@ describe('task Codex card metadata', () => {
       }
     }, 'codex-plan')
 
-    expect(result).toEqual({ source: 'codex-plan', conversationId: 'plan-updated-newer', at: 30 })
+    expect(result).toEqual({ source: 'codex-plan', phase: 'PLAN', conversationId: 'plan-updated-newer', at: 30 })
   })
 
   it('finds the latest Run conversation and falls back to runId', () => {
@@ -200,7 +200,7 @@ describe('task Codex card metadata', () => {
       }
     }, 'codex-run')
 
-    expect(result).toEqual({ source: 'codex-run', conversationId: 'run-fallback', at: 30 })
+    expect(result).toEqual({ source: 'codex-run', phase: 'RUN', conversationId: 'run-fallback', at: 30 })
   })
 
   it('returns null when no same-type conversation exists', () => {

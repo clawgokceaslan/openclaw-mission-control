@@ -1,4 +1,8 @@
 .page {
+  --omc-codex-phase-plan: #f59e0b;
+  --omc-codex-phase-run: #22c55e;
+  --omc-codex-phase-post-running: #38bdf8;
+  --omc-codex-phase-follow-up: #a78bfa;
   height: calc(100vh - 108px);
   min-height: 0;
   display: flex;
@@ -834,19 +838,19 @@
 
 .taskCardActive_planning,
 .taskCardActive_needs-info {
-  --task-active-accent: #f59e0b;
+  --task-active-accent: var(--omc-codex-phase-plan, #f59e0b);
 }
 
 .taskCardActive_running {
-  --task-active-accent: #22c55e;
+  --task-active-accent: var(--omc-codex-phase-run, #22c55e);
 }
 
 .taskCardActive_post-running {
-  --task-active-accent: #38bdf8;
+  --task-active-accent: var(--omc-codex-phase-post-running, #38bdf8);
 }
 
 .taskCardActive_follow-up {
-  --task-active-accent: #a78bfa;
+  --task-active-accent: var(--omc-codex-phase-follow-up, #a78bfa);
 }
 
 .taskCardDropBefore {
@@ -920,26 +924,27 @@
 .taskCodexNeedsInfo,
 .taskCodexTone_needs-info,
 .taskCodexTone_planning {
-  border-color: color-mix(in srgb, #f59e0b 40%, var(--omc-border));
-  background: color-mix(in srgb, #f59e0b 12%, var(--omc-surface));
-  color: color-mix(in srgb, #f59e0b 72%, var(--omc-text-strong));
+  border-color: color-mix(in srgb, var(--omc-codex-phase-plan, #f59e0b) 40%, var(--omc-border));
+  background: color-mix(in srgb, var(--omc-codex-phase-plan, #f59e0b) 12%, var(--omc-surface));
+  color: color-mix(in srgb, var(--omc-codex-phase-plan, #f59e0b) 72%, var(--omc-text-strong));
 }
 
+.taskCodexTone_run,
 .taskCodexTone_running {
-  border-color: color-mix(in srgb, #22c55e 42%, var(--omc-border));
-  background: color-mix(in srgb, #22c55e 12%, var(--omc-surface));
-  color: color-mix(in srgb, #22c55e 68%, var(--omc-text-strong));
+  border-color: color-mix(in srgb, var(--omc-codex-phase-run, #22c55e) 42%, var(--omc-border));
+  background: color-mix(in srgb, var(--omc-codex-phase-run, #22c55e) 12%, var(--omc-surface));
+  color: color-mix(in srgb, var(--omc-codex-phase-run, #22c55e) 68%, var(--omc-text-strong));
 }
 
 .taskCodexTone_post-running {
-  border-color: color-mix(in srgb, #38bdf8 42%, var(--omc-border));
-  background: color-mix(in srgb, #38bdf8 12%, var(--omc-surface));
+  border-color: color-mix(in srgb, var(--omc-codex-phase-post-running, #38bdf8) 42%, var(--omc-border));
+  background: color-mix(in srgb, var(--omc-codex-phase-post-running, #38bdf8) 12%, var(--omc-surface));
   color: color-mix(in srgb, #0284c7 74%, var(--omc-text-strong));
 }
 
 .taskCodexTone_follow-up {
-  border-color: color-mix(in srgb, #a78bfa 42%, var(--omc-border));
-  background: color-mix(in srgb, #a78bfa 12%, var(--omc-surface));
+  border-color: color-mix(in srgb, var(--omc-codex-phase-follow-up, #a78bfa) 42%, var(--omc-border));
+  background: color-mix(in srgb, var(--omc-codex-phase-follow-up, #a78bfa) 12%, var(--omc-surface));
   color: color-mix(in srgb, #7c3aed 68%, var(--omc-text-strong));
 }
 
@@ -1388,19 +1393,19 @@
 
 .listRowActive_planning,
 .listRowActive_needs-info {
-  --task-active-accent: #f59e0b;
+  --task-active-accent: var(--omc-codex-phase-plan, #f59e0b);
 }
 
 .listRowActive_running {
-  --task-active-accent: #22c55e;
+  --task-active-accent: var(--omc-codex-phase-run, #22c55e);
 }
 
 .listRowActive_post-running {
-  --task-active-accent: #38bdf8;
+  --task-active-accent: var(--omc-codex-phase-post-running, #38bdf8);
 }
 
 .listRowActive_follow-up {
-  --task-active-accent: #a78bfa;
+  --task-active-accent: var(--omc-codex-phase-follow-up, #a78bfa);
 }
 
 .listRowDropBefore {
@@ -1659,19 +1664,19 @@
 
 .tableRowActive_planning,
 .tableRowActive_needs-info {
-  --task-active-accent: #f59e0b;
+  --task-active-accent: var(--omc-codex-phase-plan, #f59e0b);
 }
 
 .tableRowActive_running {
-  --task-active-accent: #22c55e;
+  --task-active-accent: var(--omc-codex-phase-run, #22c55e);
 }
 
 .tableRowActive_post-running {
-  --task-active-accent: #38bdf8;
+  --task-active-accent: var(--omc-codex-phase-post-running, #38bdf8);
 }
 
 .tableRowActive_follow-up {
-  --task-active-accent: #a78bfa;
+  --task-active-accent: var(--omc-codex-phase-follow-up, #a78bfa);
 }
 
 .tableRowDragging {
@@ -2219,18 +2224,24 @@
 }
 
 .chatSource_plan {
-  background: color-mix(in srgb, var(--omc-primary) 14%, transparent);
-  color: var(--omc-primary-strong);
+  background: color-mix(in srgb, var(--omc-codex-phase-plan, #f59e0b) 14%, transparent);
+  color: color-mix(in srgb, var(--omc-codex-phase-plan, #f59e0b) 74%, var(--omc-text-strong));
 }
 
 .chatSource_run {
-  background: var(--omc-success-bg);
-  color: var(--omc-success-strong);
+  background: color-mix(in srgb, var(--omc-codex-phase-run, #22c55e) 14%, transparent);
+  color: color-mix(in srgb, var(--omc-codex-phase-run, #22c55e) 70%, var(--omc-text-strong));
 }
 
-.chatSource_followUp {
-  background: var(--omc-surface-muted);
-  color: var(--omc-text-muted);
+.chatSource_post-running {
+  background: color-mix(in srgb, var(--omc-codex-phase-post-running, #38bdf8) 14%, transparent);
+  color: color-mix(in srgb, #0284c7 78%, var(--omc-text-strong));
+}
+
+.chatSource_followUp,
+.chatSource_follow-up {
+  background: color-mix(in srgb, var(--omc-codex-phase-follow-up, #a78bfa) 14%, transparent);
+  color: color-mix(in srgb, #7c3aed 70%, var(--omc-text-strong));
 }
 
 .chatConversationActive {
@@ -2251,7 +2262,7 @@
 }
 
 .chatSidebarLoader {
-  min-width: 28px;
+  min-width: 22px;
   height: 16px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--omc-primary) 10%, transparent);
@@ -2275,6 +2286,19 @@
     &:nth-child(3) {
       animation-delay: 0.32s;
     }
+  }
+}
+
+.chatRunningStatusLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 
@@ -2330,6 +2354,30 @@
 .chatStatus_running {
   background: var(--omc-active-bg);
   color: var(--omc-primary-strong);
+}
+
+.chatStatus_plan_running,
+.chatStatus_plan_completed {
+  background: color-mix(in srgb, var(--omc-codex-phase-plan, #f59e0b) 14%, transparent);
+  color: color-mix(in srgb, var(--omc-codex-phase-plan, #f59e0b) 74%, var(--omc-text-strong));
+}
+
+.chatStatus_run_running,
+.chatStatus_run_completed {
+  background: color-mix(in srgb, var(--omc-codex-phase-run, #22c55e) 14%, transparent);
+  color: color-mix(in srgb, var(--omc-codex-phase-run, #22c55e) 70%, var(--omc-text-strong));
+}
+
+.chatStatus_post-running_running,
+.chatStatus_post-running_completed {
+  background: color-mix(in srgb, var(--omc-codex-phase-post-running, #38bdf8) 14%, transparent);
+  color: color-mix(in srgb, #0284c7 78%, var(--omc-text-strong));
+}
+
+.chatStatus_follow-up_running,
+.chatStatus_follow-up_completed {
+  background: color-mix(in srgb, var(--omc-codex-phase-follow-up, #a78bfa) 14%, transparent);
+  color: color-mix(in srgb, #7c3aed 70%, var(--omc-text-strong));
 }
 
 .chatStatus_completed {

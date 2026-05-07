@@ -72,8 +72,9 @@ describe('chat conversation summaries', () => {
       message({ id: 'follow-up', runId: 'chat-1', conversationId: 'run-1', source: 'codex-chat', role: 'user', createdAt: 2, body: 'Continue from the run output.' })
     ], 10)
 
-    expect(summaries[0].title).toBe('Run')
+    expect(summaries[0].title).toBe('RUN')
     expect(summaries[0].source).toBe('codex-run')
+    expect(summaries[0].phase).toBe('RUN')
     expect(summaries[0].count).toBe(1)
   })
 })
@@ -475,6 +476,18 @@ describe('chat utils helpers', () => {
 
   it('returns empty follow-up context for tasks with no run messages', () => {
     expect(buildLatestRunFollowUpContext([message({ id: 'chat-only', source: 'codex-chat', createdAt: 1, body: 'hello' })])).toBe('')
+  })
+
+  it('keeps post-running out of generated follow-up context', () => {
+    const messages = [
+      message({ id: 'run-complete', source: 'codex-run', conversationId: 'run-1', runId: 'run-1', role: 'system', status: 'completed', createdAt: 1, body: 'Run complete.', metadata: { codexBlock: 'run-complete', code: 0 } }),
+      message({ id: 'post-start', source: 'codex-run', conversationId: 'post-1', runId: 'post-1', role: 'system', status: 'running', createdAt: 2, body: 'Post started.', metadata: { codexBlock: 'post-run-start', parentRunId: 'run-1' } }),
+      message({ id: 'post-complete', source: 'codex-run', conversationId: 'post-1', runId: 'post-1', role: 'system', status: 'completed', createdAt: 3, body: 'Post complete.', metadata: { codexBlock: 'run-complete', parentRunId: 'run-1', code: 0 } })
+    ]
+
+    expect(buildLatestRunFollowUpContext(messages)).toContain('conversation run-1')
+    expect(buildLatestRunFollowUpContext(messages)).not.toContain('post-1')
+    expect(buildGeneratedContextEntries(messages).map((entry) => entry.conversationId)).toEqual(['run-1'])
   })
 
   it('builds generated context entries across plan, run, and chat conversations', () => {

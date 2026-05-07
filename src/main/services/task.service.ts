@@ -55,6 +55,7 @@ import { showCodexNotification } from '../utils/codex-notifications.js'
 import { codexProcessEnv, isCodexCliNotFoundError, resolveCodexExecutable } from '../utils/codex-cli-resolver.js'
 import { formatUsageSummary, parseCodexEvents, type CodexNormalizedEvent, type CodexUsageSummary } from '../../shared/utils/codex-events.js'
 import { codexLanguageDisplayName, normalizeCodexLanguage, normalizeCodexReasoningEffort, type CodexLanguagePair } from '../../shared/utils/codex-language.js'
+import { inferCodexChatPhase, type CodexChatPhase } from '../../shared/utils/codex-chat-phase.js'
 import { normalizeCodexPromptShape, type CodexPromptShape } from '../../shared/utils/codex-prompt-shape.js'
 
 const execFileAsync = promisify(execFile)
@@ -157,6 +158,7 @@ type TaskActivityMessage = {
     | 'codex-chat'
     | 'comment'
     | 'history'
+  phase?: CodexChatPhase
   role: 'user' | 'assistant' | 'tool' | 'system' | 'error' | 'thinking'
   status?: 'queued' | 'running' | 'completed' | 'failed'
   body: string
@@ -213,17 +215,11 @@ function isTerminalCodexActivityMessage(message: TaskActivityMessage): boolean {
 }
 
 function runningConversationTypeOf(message: TaskActivityMessage): RunningCodexConversationType {
-  if (message.source === 'codex-plan') return 'plan'
+  const phase = inferCodexChatPhase(message)
+  if (phase === 'PLAN') return 'plan'
+  if (phase === 'POST-RUNNING') return 'post-run'
+  if (phase === 'RUN') return 'run'
   const metadata = asRecord(message.metadata)
-  const codexBlock = typeof metadata.codexBlock === 'string' ? metadata.codexBlock : ''
-  const parentRunId = typeof metadata.parentRunId === 'string' ? metadata.parentRunId.trim() : ''
-  const messageConversationId = typeof message.conversationId === 'string' ? message.conversationId.trim() : ''
-  const messageRunId = message.runId.trim()
-  const isPostRunConversation = codexBlock === 'post-run-start' || codexBlock === 'post-run-prompt' || Boolean(
-    parentRunId
-  ) || (messageRunId && messageConversationId && messageRunId !== messageConversationId)
-  if (message.source === 'codex-run' && isPostRunConversation) return 'post-run'
-  if (message.source === 'codex-run') return 'run'
   return typeof metadata.mode === 'string' && metadata.mode === 'steer' ? 'steer' : 'chat'
 }
 
@@ -758,6 +754,17 @@ function routedProjectContextForPrompt(context: unknown, audience: ProjectInstru
   } else if (audience === 'chat') {
     project.planGuide = ''
     project.postRunPrompt = ''
+    const task = record.task && typeof record.task === 'object' && !Array.isArray(record.task)
+      ? { ...(record.task as Record<string, unknown>) }
+      : null
+    const payload = task?.payload && typeof task.payload === 'object' && !Array.isArray(task.payload)
+      ? { ...(task.payload as Record<string, unknown>) }
+      : null
+    if (task && payload && Array.isArray(payload.activityMessages)) {
+      payload.activityMessages = payload.activityMessages.filter((message) => inferCodexChatPhase(asRecord(message)) !== 'POST-RUNNING')
+      task.payload = payload
+      record.task = task
+    }
   }
   record.project = project
   return record
@@ -812,7 +819,10 @@ function taskActivityMessagesFromPayload(payload: unknown): TaskActivityMessage[
       && typeof candidate.runId === 'string'
       && typeof candidate.body === 'string'
       && typeof candidate.createdAt === 'number'
-  })
+  }).map((message) => ({
+    ...message,
+    phase: inferCodexChatPhase(message)
+  }))
 }
 
 function projectCodexRuntimeWorkspaceId(project: { metrics?: Record<string, unknown> }): string | null {
@@ -2868,6 +2878,7 @@ export class TaskService {
         runId: compactMessage.runId,
         conversationId: compactMessage.conversationId,
         source: compactMessage.source,
+        phase: inferCodexChatPhase(compactMessage),
         role: compactMessage.role,
         status: compactMessage.status,
         body: compactMessage.body,
@@ -3692,6 +3703,7 @@ export class TaskService {
           primaryChanges: ReturnType<typeof codexOutputChanges>
         ): Promise<number | null> => {
           const postRunId = plannerRunId(`${taskId}-post-run`)
+          const postConversationId = postRunId
           const postEventsPath = join(runFolderPath, 'post-run-events.jsonl')
           const postFinalMessagePath = join(runFolderPath, 'post-run-final-message.md')
           const postPrompt = postRunContinuationPrompt({
@@ -3732,8 +3744,9 @@ export class TaskService {
           await this.appendTaskActivityMessages(taskId, [
             {
               runId: postRunId,
-              conversationId: runId,
+              conversationId: postConversationId,
               source: 'codex-run',
+              phase: 'POST-RUNNING',
               role: 'system',
               status: 'running',
               body: 'Starting Codex post-run prompt.',
@@ -3741,8 +3754,9 @@ export class TaskService {
             },
             {
               runId: postRunId,
-              conversationId: runId,
+              conversationId: postConversationId,
               source: 'codex-run',
+              phase: 'POST-RUNNING',
               role: 'user',
               status: 'completed',
               body: projectPrompt.postRunPrompt.trim(),
@@ -3752,7 +3766,7 @@ export class TaskService {
           const postStreamer = createCodexActivityStreamer({
             taskId,
             runId: postRunId,
-            conversationId: runId,
+            conversationId: postConversationId,
             source: 'codex-run',
             eventsPath: postEventsPath
           }, (messages) => this.appendTaskActivityMessages(taskId, messages))
@@ -3775,8 +3789,9 @@ export class TaskService {
             postChild.on('error', (error) => {
               void this.appendTaskActivityMessage(taskId, {
                 runId: postRunId,
-                conversationId: runId,
+                conversationId: postConversationId,
                 source: 'codex-run',
+                phase: 'POST-RUNNING',
                 role: 'error',
                 status: 'failed',
                 body: error.message,
@@ -3805,8 +3820,9 @@ export class TaskService {
                 if (postChanges.hasChanges) {
                   postTerminalMessages.push({
                     runId: postRunId,
-                    conversationId: runId,
+                    conversationId: postConversationId,
                     source: 'codex-run',
+                    phase: 'POST-RUNNING',
                     role: 'tool',
                     status: 'completed',
                     body: postChanges.body,
@@ -3815,8 +3831,9 @@ export class TaskService {
                 }
                 postTerminalMessages.push({
                   runId: postRunId,
-                  conversationId: runId,
+                  conversationId: postConversationId,
                   source: 'codex-run',
+                  phase: 'POST-RUNNING',
                   role: 'system',
                   status: postCode === 0 ? 'completed' : 'failed',
                   body: postCode === 0 ? 'Codex post-run prompt completed.' : `Codex post-run prompt failed with code ${postCode ?? 'unknown'}.`,
@@ -3826,8 +3843,9 @@ export class TaskService {
                   const hasStreamedAssistantMessage = postStreamer.hasAssistantMessage()
                   postTerminalMessages.push({
                     runId: postRunId,
-                    conversationId: runId,
+                    conversationId: postConversationId,
                     source: 'codex-run',
+                    phase: 'POST-RUNNING',
                     role: 'assistant',
                     status: 'completed',
                     body: codexFinalAssistantBody(postFinalMessage, 'Codex post-run prompt completed.', hasStreamedAssistantMessage),
@@ -3836,8 +3854,9 @@ export class TaskService {
                 } else {
                   postTerminalMessages.push({
                     runId: postRunId,
-                    conversationId: runId,
+                    conversationId: postConversationId,
                     source: 'codex-run',
+                    phase: 'POST-RUNNING',
                     role: 'error',
                     status: 'failed',
                     body: postFinalMessage.trim() || `Codex post-run prompt exited with code ${postCode ?? 'unknown'}.`,

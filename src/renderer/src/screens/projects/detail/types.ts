@@ -1,5 +1,6 @@
 import type { AppSelectOption } from '@renderer/components/select/AppSelect'
 import type { CodexCliModel, Gateway, OutputFormat } from '@shared/types/entities'
+import type { CodexChatPhase } from '@shared/utils/codex-chat-phase'
 
 export type DetailViewMode = 'task' | 'subtask'
 export type DetailTab = 'subtasks' | 'customFields' | 'checklist' | 'attachments' | 'details' | 'agent' | 'skills' | 'model'
@@ -38,6 +39,7 @@ export type ThreadEntry = {
   source?: 'codex-plan' | 'codex-run' | 'comment' | 'history' | 'local' | 'codex-chat'
   role?: 'user' | 'assistant' | 'tool' | 'system' | 'error' | 'thinking'
   status?: 'queued' | 'running' | 'completed' | 'failed'
+  phase?: CodexChatPhase
   metadata?: Record<string, unknown>
 }
 
@@ -46,6 +48,7 @@ export type TaskActivityMessage = {
   runId: string
   conversationId?: string
   source: 'codex-plan' | 'codex-run' | 'codex-chat'
+  phase?: CodexChatPhase
   role: 'user' | 'assistant' | 'tool' | 'system' | 'error' | 'thinking'
   status?: 'queued' | 'running' | 'completed' | 'failed'
   body: string
@@ -65,6 +68,7 @@ export type ChatConversationSummary = {
   status: ChatMessageStatus | 'event'
   at: number
   source: ChatMessageSource
+  phase: CodexChatPhase
   model?: string
 }
 
@@ -72,6 +76,7 @@ export type GeneratedContextEntry = {
   id: string
   conversationId: string
   source: ChatMessageSource
+  phase: CodexChatPhase
   title: string
   status: ChatMessageStatus | 'event'
   at: number

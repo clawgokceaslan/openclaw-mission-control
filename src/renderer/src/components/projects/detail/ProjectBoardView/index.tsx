@@ -66,8 +66,8 @@ function TaskCodexStrip({ task, onOpenTaskChat }: { task: TaskEntity; onOpenTask
           {open ? (
             <span className={styles.taskCodexMenu}>
               {actions.map((action) => (
-                <button key={action.source} type="button" onClick={(event) => openChat(event, action.conversationId)}>
-                  {action.source === 'codex-plan' ? <LuFileText size={13} /> : <LuPlay size={13} />}
+                <button key={action.phase} type="button" onClick={(event) => openChat(event, action.conversationId)}>
+                  {action.phase === 'PLAN' ? <LuFileText size={13} /> : <LuPlay size={13} />}
                   {action.label} chat
                 </button>
               ))}

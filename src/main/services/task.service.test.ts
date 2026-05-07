@@ -837,11 +837,12 @@ describe('codex activity persistence', () => {
       { runId: 'run-1', source: 'codex-run', role: 'system', status: 'completed', body: 'done', metadata: { codexBlock: 'run-complete' } }
     ])
 
-    const messages = task.payload?.activityMessages as Array<{ id: string; body: string }>
+    const messages = task.payload?.activityMessages as Array<{ id: string; body: string; phase?: string }>
     expect(updates).toHaveLength(1)
     expect(messages).toHaveLength(300)
     expect(messages[0].id).toBe('old-1')
     expect(messages.at(-1)?.body).toBe('done')
+    expect(messages.at(-1)?.phase).toBe('RUN')
     expect(activityEvents).toHaveLength(2)
     expect(taskUpdatedEvents).toHaveLength(0)
 

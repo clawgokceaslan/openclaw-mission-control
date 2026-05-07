@@ -6,6 +6,7 @@ import { AppSelect, type AppSelectOption } from '@renderer/components/select/App
 import { CodexChatMessageItem, CodexWorkBlock } from '@renderer/components/projects/detail/chat/CodexChatMessageItem'
 import { formatChatTime, groupCodexTranscriptMessages } from '@renderer/screens/projects/detail/chat/chatUtils'
 import type { ChatAttachmentDraft, ChatConversationSummary, GeneratedContextEntry, PlannerClarificationMode, SlashCommand, TaskActivityMessage } from '@renderer/screens/projects/detail/types'
+import { codexChatPhaseStatusLabel, codexChatPhaseTone } from '@shared/utils/codex-chat-phase'
 import { lockModalInteractionRegion } from '@renderer/utils/modalInteractionLock'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
@@ -404,16 +405,16 @@ export function ChatPopup({
   const showContextHistory = visibleMessages.length > 0 || contextEntries.length > 0
   const conversationStatusLabel = (conversation: ChatConversationSummary) => (
     runningConversationIds.has(conversation.id)
-      ? <em className={styles.chatSidebarLoader} aria-label="Codex chat is running"><i /><i /><i /></em>
-      : conversation.status
+      ? <span className={styles.chatRunningStatusLabel}><span>{codexChatPhaseStatusLabel(conversation.phase, true)}</span><em className={styles.chatSidebarLoader} aria-label="Codex chat is running"><i /><i /><i /></em></span>
+      : conversation.status === 'event' ? conversation.phase : conversation.status.toUpperCase()
   )
   const conversationStatusClass = (conversation: ChatConversationSummary) => (
-    styles[`chatStatus_${runningConversationIds.has(conversation.id) ? 'running' : conversation.status}`] ?? ''
+    styles[`chatStatus_${codexChatPhaseTone(conversation.phase)}_${runningConversationIds.has(conversation.id) ? 'running' : conversation.status}`]
+      ?? styles[`chatStatus_${runningConversationIds.has(conversation.id) ? 'running' : conversation.status}`]
+      ?? ''
   )
   const conversationSourceClass = (conversation: ChatConversationSummary) => {
-    if (conversation.source === 'codex-plan') return styles.chatSource_plan
-    if (conversation.source === 'codex-run') return styles.chatSource_run
-    return styles.chatSource_followUp
+    return styles[`chatSource_${codexChatPhaseTone(conversation.phase)}`] ?? ''
   }
 
   return (

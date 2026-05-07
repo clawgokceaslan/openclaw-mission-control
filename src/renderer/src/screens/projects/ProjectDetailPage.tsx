@@ -6,6 +6,7 @@ import {
 } from 'react-icons/lu'
 import { IPC_CHANNELS, type AppNavigateState } from '@shared/contracts/ipc'
 import { CODEX_REASONING_EFFORT_OPTIONS, DEFAULT_CODEX_LANGUAGE, codexModelReasoningEfforts, codexModelSupportsReasoning } from '@shared/utils/codex-language'
+import { inferCodexChatPhase, type CodexChatPhase } from '@shared/utils/codex-chat-phase'
 import { invokeBridge } from '@renderer/utils/api'
 import { clearRendererDiagnosticContext, setRendererDiagnosticContext } from '@renderer/utils/rendererResilience'
 import { Agent, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, CustomField } from '@shared/types/entities'
@@ -103,18 +104,12 @@ type ProjectRecentChatRow = {
   taskId: string
   taskTitle: string
   conversationId: string
-  source: TaskActivityMessage['source']
+  phase: CodexChatPhase
   status: TaskActivityMessage['status'] | 'event'
   at: number
   count: number
   model?: string
   preview: string
-}
-
-function projectRecentChatSourceLabel(source: TaskActivityMessage['source']): string {
-  if (source === 'codex-plan') return 'Plan'
-  if (source === 'codex-run') return 'Run'
-  return 'Follow-up'
 }
 
 function projectRecentChatStatusLabel(status: ProjectRecentChatRow['status']): string {
@@ -1217,12 +1212,13 @@ export function ProjectDetailPage() {
         const ordered = [...conversationMessages].sort((a, b) => a.createdAt - b.createdAt)
         const last = ordered[ordered.length - 1]
         if (!last) return
+        const phaseMessage = ordered.find((message) => inferCodexChatPhase(message) !== 'FOLLOW UP') ?? last
         rows.push({
           id: `${task.id}:${conversationId}`,
           taskId: task.id,
           taskTitle: task.title,
           conversationId,
-          source: last.source,
+          phase: inferCodexChatPhase(phaseMessage),
           status: last.status ?? 'event',
           at: last.updatedAt ?? last.createdAt,
           count: userMessageCount(ordered),
@@ -1333,29 +1329,29 @@ export function ProjectDetailPage() {
     }
   })
 
-  const openExistingSelectedTaskCodexConversation = (source: 'codex-plan' | 'codex-run') => {
+  const openExistingSelectedTaskCodexConversation = (phase: 'PLAN' | 'RUN') => {
     if (!selectedTask) return false
-    const latestConversation = latestTaskCodexConversation(selectedTask, source)
+    const latestConversation = latestTaskCodexConversation(selectedTask, phase)
     if (!latestConversation) return false
     openTaskChatConversation(selectedTask.id, latestConversation.conversationId)
     return true
   }
 
   const hasExistingSelectedTaskPlanConversation = useMemo(() => {
-    return selectedTask ? Boolean(latestTaskCodexConversation(selectedTask, 'codex-plan')) : false
+    return selectedTask ? Boolean(latestTaskCodexConversation(selectedTask, 'PLAN')) : false
   }, [selectedTask])
 
   const hasExistingSelectedTaskRunConversation = useMemo(() => {
-    return selectedTask ? Boolean(latestTaskCodexConversation(selectedTask, 'codex-run')) : false
+    return selectedTask ? Boolean(latestTaskCodexConversation(selectedTask, 'RUN')) : false
   }, [selectedTask])
 
   const handleRunSelectedTaskWithCodex = () => {
-    if (openExistingSelectedTaskCodexConversation('codex-run')) return
+    if (openExistingSelectedTaskCodexConversation('RUN')) return
     void runSelectedTaskWithCodex()
   }
 
   const handlePlanSelectedTaskWithCodex = () => {
-    if (openExistingSelectedTaskCodexConversation('codex-plan')) return
+    if (openExistingSelectedTaskCodexConversation('PLAN')) return
     void planSelectedTaskWithCodex()
   }
 
@@ -3201,7 +3197,7 @@ export function ProjectDetailPage() {
               {projectRecentChats.map((row) => (
                 <button type="button" key={row.id} className={styles.projectRecentChatRow} onClick={() => openRecentChat(row)}>
                   <span className={styles.projectRecentChatBadges}>
-                    <b className={styles.projectRecentChatSourceBadge}>{projectRecentChatSourceLabel(row.source)}</b>
+                    <b className={styles.projectRecentChatSourceBadge}>{row.phase}</b>
                     <b className={`${styles.chatStatusBadge} ${styles[`chatStatus_${row.status}`] ?? ''}`}>{projectRecentChatStatusLabel(row.status)}</b>
                   </span>
                   <span className={styles.projectRecentChatTask}>{row.taskTitle}</span>

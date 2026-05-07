@@ -9,6 +9,7 @@ import type {
 import type { ProjectTableViewConfig, TableColumnConfig, TaskActivityMessage } from './types'
 import type { ProjectStatusColumn } from './status'
 import { normalizeCodexLanguage, normalizeCodexReasoningEffort } from '@shared/utils/codex-language'
+import { inferCodexChatPhase, type CodexChatPhase } from '@shared/utils/codex-chat-phase'
 import { normalizeCodexPromptShape } from '@shared/utils/codex-prompt-shape'
 
 export function projectCodexSettings(project: Project | null): ProjectCodexSettings {
@@ -153,25 +154,26 @@ export type TaskCodexPlanBadge = {
 }
 
 export type TaskCodexActionChip = {
-  source: 'codex-plan' | 'codex-run'
-  label: 'Plan' | 'Run'
+  phase: CodexChatPhase
+  label: CodexChatPhase
   conversationId: string
   status: TaskActivityMessage['status'] | 'event'
   at: number
 }
 
-export type TaskCodexConversationSource = 'codex-plan' | 'codex-run'
+export type TaskCodexConversationSource = CodexChatPhase | 'codex-plan' | 'codex-run'
 
 export type TaskCodexConversationMatch = {
-  source: TaskCodexConversationSource
+  source: TaskActivityMessage['source']
+  phase: CodexChatPhase
   conversationId: string
   at: number
 }
 
 export type TaskCodexSurfaceStatus = {
   key: string
-  label: 'Planned' | 'Plan için bilgi gerekiyor' | 'Planning' | 'Running' | 'Post Running' | 'Follow Up'
-  tone: 'planned' | 'needs-info' | 'planning' | 'running' | 'post-running' | 'follow-up'
+  label: 'Planned' | 'Plan için bilgi gerekiyor' | 'Planning' | 'Run' | 'Running' | 'Post Running' | 'Follow Up'
+  tone: 'planned' | 'needs-info' | 'planning' | 'run' | 'running' | 'post-running' | 'follow-up'
   conversationId?: string
   iconOnly?: boolean
   active?: boolean
@@ -188,7 +190,10 @@ export function taskActivityMessages(task: TaskEntity): TaskActivityMessage[] {
       && typeof record.role === 'string'
       && typeof record.body === 'string'
       && typeof record.createdAt === 'number'
-  })
+  }).map((message) => ({
+    ...message,
+    phase: inferCodexChatPhase(message)
+  }))
 }
 
 export function taskCodexPlanBadge(task: TaskEntity): TaskCodexPlanBadge | null {
@@ -212,10 +217,10 @@ export function taskCodexPlanBadge(task: TaskEntity): TaskCodexPlanBadge | null 
   return null
 }
 
-function latestActivityMessage(task: TaskEntity, source: TaskActivityMessage['source']): TaskActivityMessage | null {
+function latestActivityMessageByPhase(task: TaskEntity, phase: CodexChatPhase): TaskActivityMessage | null {
   let latest: TaskActivityMessage | null = null
   for (const message of taskActivityMessages(task)) {
-    if (message.source !== source) continue
+    if (inferCodexChatPhase(message) !== phase) continue
     const at = message.updatedAt ?? message.createdAt
     if (!latest || (latest.updatedAt ?? latest.createdAt) < at) latest = message
   }
@@ -252,7 +257,7 @@ export function taskCodexSurfaceStatuses(task: TaskEntity, now = Date.now()): Ta
     })
   }
 
-  const latestPlan = latestActivityMessage(task, 'codex-plan')
+  const latestPlan = latestActivityMessageByPhase(task, 'PLAN')
   if (latestPlan && planBadge?.state !== 'needs-clarification' && planBadge?.state !== 'planned') {
     const active = isFreshActiveMessage(latestPlan, now)
     statuses.push({
@@ -264,19 +269,31 @@ export function taskCodexSurfaceStatuses(task: TaskEntity, now = Date.now()): Ta
     })
   }
 
-  const latestRun = latestActivityMessage(task, 'codex-run')
+  const latestRun = latestActivityMessageByPhase(task, 'RUN')
   if (latestRun) {
     const running = isFreshActiveMessage(latestRun, now)
     statuses.push({
-      key: running ? 'running' : 'post-running',
-      label: running ? 'Running' : 'Post Running',
-      tone: running ? 'running' : 'post-running',
+      key: running ? 'running' : 'run',
+      label: running ? 'Running' : 'Run',
+      tone: running ? 'running' : 'run',
       conversationId: conversationIdOfActivity(latestRun),
       active: running || undefined
     })
   }
 
-  const latestFollowUp = latestActivityMessage(task, 'codex-chat')
+  const latestPostRunning = latestActivityMessageByPhase(task, 'POST-RUNNING')
+  if (latestPostRunning) {
+    const active = isFreshActiveMessage(latestPostRunning, now)
+    statuses.push({
+      key: 'post-running',
+      label: 'Post Running',
+      tone: 'post-running',
+      conversationId: conversationIdOfActivity(latestPostRunning),
+      active: active || undefined
+    })
+  }
+
+  const latestFollowUp = latestActivityMessageByPhase(task, 'FOLLOW UP')
   if (latestFollowUp) {
     const active = isFreshActiveMessage(latestFollowUp, now)
     statuses.push({
@@ -296,29 +313,37 @@ export function taskCodexActiveTone(task: TaskEntity, now = Date.now()): TaskCod
   return active?.tone ?? null
 }
 
-export function latestTaskCodexConversation(task: TaskEntity, source: TaskCodexConversationSource): TaskCodexConversationMatch | null {
+function normalizeConversationSourcePhase(source: TaskCodexConversationSource): CodexChatPhase {
+  if (source === 'codex-plan') return 'PLAN'
+  if (source === 'codex-run') return 'RUN'
+  return source
+}
+
+export function latestTaskCodexConversation(task: TaskEntity, requestedPhase: TaskCodexConversationSource): TaskCodexConversationMatch | null {
   let latest: TaskCodexConversationMatch | null = null
+  const normalizedPhase = normalizeConversationSourcePhase(requestedPhase)
   for (const message of taskActivityMessages(task)) {
-    if (message.source !== source) continue
+    const phase = inferCodexChatPhase(message)
+    if (phase !== normalizedPhase) continue
     const conversationId = message.conversationId || message.runId
     if (!conversationId) continue
     const at = message.updatedAt ?? message.createdAt
     if (latest && latest.at >= at) continue
-    latest = { source, conversationId, at }
+    latest = { source: message.source, phase, conversationId, at }
   }
   return latest
 }
 
 export function taskCodexActionChips(task: TaskEntity): TaskCodexActionChip[] {
-  return (['codex-plan', 'codex-run'] as const).flatMap((source) => {
-    const latest = latestTaskCodexConversation(task, source)
+  return (['PLAN', 'RUN', 'POST-RUNNING', 'FOLLOW UP'] as const).flatMap((phase) => {
+    const latest = latestTaskCodexConversation(task, phase)
     if (!latest) return []
     const message = taskActivityMessages(task)
-      .filter((item) => item.source === source && (item.conversationId || item.runId) === latest.conversationId)
+      .filter((item) => inferCodexChatPhase(item) === phase && (item.conversationId || item.runId) === latest.conversationId)
       .find((item) => (item.updatedAt ?? item.createdAt) === latest.at)
     return [{
-      source,
-      label: source === 'codex-plan' ? 'Plan' : 'Run',
+      phase,
+      label: phase,
       conversationId: latest.conversationId,
       status: message?.status ?? 'event',
       at: latest.at
