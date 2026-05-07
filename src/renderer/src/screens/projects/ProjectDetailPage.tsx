@@ -1595,6 +1595,7 @@ export function ProjectDetailPage() {
     descriptionAutosaveInFlightRef.current = true
     descriptionAutosaveSnapshotRef.current = normalizedDraft
     setIsDescriptionSaving(true)
+    const isCurrentTask = () => selectedTaskRef.current?.id === taskId
     const response = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
       actorToken: token,
       id: task.id,
@@ -1613,14 +1614,25 @@ export function ProjectDetailPage() {
     }
     descriptionAutosaveInFlightRef.current = false
     setIsDescriptionSaving(false)
-    if (selectedTaskRef.current?.id !== taskId) {
+    if (!isCurrentTask()) {
       return true
     }
+
+    const latestDraft = descriptionDraftRef.current
+    const isOutOfDate = latestDraft !== normalizedDraft
+    if (isOutOfDate) {
+      if (descriptionAutosavePendingRef.current) {
+        descriptionAutosavePendingRef.current = false
+        return saveDescription()
+      }
+      return true
+    }
+
     if (!response.ok) {
       setError(response.error?.message ?? 'Unable to update description')
-      descriptionAutosaveSnapshotRef.current = normalizedDraft
-      setDescriptionDraft(normalizedDraft)
-      descriptionDraftRef.current = normalizedDraft
+      descriptionAutosaveSnapshotRef.current = latestDraft
+      setDescriptionDraft(latestDraft)
+      descriptionDraftRef.current = latestDraft
       descriptionAutosavePendingRef.current = false
       return false
     }
