@@ -8,24 +8,17 @@ import {
   LuCheck,
   LuClipboardCheck,
   LuCompass,
-  LuFlag,
-  LuFlaskConical,
-  LuGitBranch,
   LuGauge,
   LuGripVertical,
   LuLayers,
   LuLightbulb,
   LuListChecks,
-  LuMap,
   LuMessageSquare,
   LuPlus,
   LuRefreshCw,
   LuRocket,
-  LuRoute,
   LuSave,
-  LuScale,
   LuSend,
-  LuShieldAlert,
   LuSparkles,
   LuTarget,
   LuUsers,
@@ -34,11 +27,11 @@ import {
 } from 'react-icons/lu'
 import { IPC_CHANNELS, type TaskPlannerAiFillResult } from '@shared/contracts/ipc'
 import { GATEWAY_REASONING_EFFORT_OPTIONS, gatewayModelReasoningEfforts, normalizeGatewayReasoningEffort } from '@shared/utils/gateway-language'
-import type { CodexCliModel, Gateway, Project, TaskEntity, TaskJsonImportResult } from '@shared/types/entities'
+import type { CodexCliModel, Gateway, Project, TaskComment, TaskEntity, TaskJsonImportResult } from '@shared/types/entities'
 import { invokeBridge } from '@renderer/utils/api'
 import styles from './index.module.scss'
 
-type PlannerStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12
+type PlannerStep = 1 | 2 | 3
 type PlannerIntent = 'project' | 'product' | 'research' | 'delivery'
 type PlannerDepth = 'fast' | 'balanced' | 'deep'
 type PlannerTextKey = Exclude<keyof PlannerForm, 'intent' | 'depth'>
@@ -99,25 +92,15 @@ interface TaskPlannerChatPopupProps {
 }
 
 const STEPS: Array<{ value: PlannerStep; label: string; hint: string; method: string }> = [
-  { value: 1, label: 'Strateji', hint: 'Akış modu', method: 'Outcome over output' },
-  { value: 2, label: 'North Star', hint: 'Sonuç metriği', method: 'North Star Metric' },
-  { value: 3, label: 'Kullanıcı', hint: 'JTBD', method: 'Jobs To Be Done' },
-  { value: 4, label: 'Fırsat', hint: 'Discovery', method: 'Opportunity Solution Tree' },
-  { value: 5, label: 'Varsayım', hint: 'Hipotez', method: 'Lean Startup' },
-  { value: 6, label: 'Kapsam', hint: 'MoSCoW', method: 'MoSCoW' },
-  { value: 7, label: 'Öncelik', hint: 'RICE/Kano', method: 'RICE + Kano' },
-  { value: 8, label: 'Deneyim', hint: 'Story map', method: 'User Story Mapping' },
-  { value: 9, label: 'Delivery', hint: 'Sıralama', method: 'Dual-track delivery' },
-  { value: 10, label: 'Metrik', hint: 'HEART', method: 'HEART + Guardrail' },
-  { value: 11, label: 'Risk', hint: 'PM kritik', method: 'Pre-mortem' },
-  { value: 12, label: 'Task Studio', hint: 'Kaydet', method: 'PRD to tasks' }
+  { value: 1, label: 'Bağlam', hint: 'Kaynak task', method: 'Outcome over output' },
+  { value: 2, label: 'PM Chat', hint: 'Soru-cevap', method: 'Senior PM discovery' },
+  { value: 3, label: 'Önizleme', hint: 'Kaydet', method: 'PRD to tasks' }
 ]
 
 const STEP_PHASES: Array<{ title: string; description: string; steps: PlannerStep[] }> = [
-  { title: 'Tanımla', description: 'Outcome, metrik, kullanıcı', steps: [1, 2, 3] },
-  { title: 'Keşfet', description: 'Kanıt, fırsat, varsayım', steps: [4, 5] },
-  { title: 'Şekillendir', description: 'Kapsam, öncelik, deneyim', steps: [6, 7, 8] },
-  { title: 'Teslim Et', description: 'Delivery, ölçüm, risk, task', steps: [9, 10, 11, 12] }
+  { title: '1. Bağlam', description: 'Hedef ve kapsam', steps: [1] },
+  { title: '2. Chat', description: 'Tekil PM soru turu', steps: [2] },
+  { title: '3. Taslak', description: 'Düzenle ve oluştur', steps: [3] }
 ]
 
 const INTENT_OPTIONS: Array<{ value: PlannerIntent; title: string; description: string }> = [
@@ -157,18 +140,9 @@ const FIELD_LABELS: Record<PlannerTextKey, string> = {
 const ALL_TEXT_FIELDS = Object.keys(FIELD_LABELS) as PlannerTextKey[]
 
 const STEP_FIELDS: Record<PlannerStep, PlannerTextKey[]> = {
-  1: ['outcome', 'pmNotes'],
-  2: ['outcome', 'northStar', 'successSignals'],
-  3: ['audience', 'jobToBeDone', 'problem'],
-  4: ['evidence', 'opportunity', 'problem'],
-  5: ['hypotheses', 'risks'],
-  6: ['moscow', 'constraints', 'exclusions'],
-  7: ['prioritization', 'successSignals'],
-  8: ['storyMap', 'audience'],
-  9: ['deliveryPlan', 'constraints'],
-  10: ['metrics', 'successSignals'],
-  11: ['risks', 'pmNotes'],
-  12: ['pmNotes']
+  1: ['outcome', 'problem', 'audience', 'successSignals', 'constraints', 'pmNotes'],
+  2: ['prioritization', 'risks', 'metrics'],
+  3: ['pmNotes']
 }
 
 const FRAMEWORK_CATALOG = [
@@ -187,33 +161,15 @@ const FRAMEWORK_CATALOG = [
 ]
 
 const STEP_COACH: Record<PlannerStep, { title: string; principle: string; output: string }> = {
-  1: { title: 'Strateji koçu', principle: 'Önce outcome, sonra output. Ekip ne üreteceğini değil hangi davranışı değiştireceğini netleştirir.', output: 'Intent, derinlik ve PM çalışma prensibi' },
-  2: { title: 'North Star koçu', principle: 'Tek kuzey metriği ve 2-3 proxy sinyal belirle; tasklar bu sinyale bağlanmalı.', output: 'Outcome, North Star ve kabul sinyali' },
-  3: { title: 'Kullanıcı koçu', principle: 'JTBD ile rol değil ilerleme ihtiyacını yaz; task açıklaması kullanıcının işinden kopmasın.', output: 'Kullanıcı, paydaş ve JTBD cümlesi' },
-  4: { title: 'Discovery koçu', principle: 'Fırsat ağacı problemden çözüme atlamayı engeller; kanıtı ve fırsatı ayır.', output: 'Kanıt listesi ve fırsat alanları' },
-  5: { title: 'Hipotez koçu', principle: 'Büyük kararları test edilebilir varsayımlara böl; belirsizlik taska dönüşür.', output: 'Hipotez ve deney riski' },
-  6: { title: 'Scope koçu', principle: 'MoSCoW ve kapsam dışı yoksa plan büyür; won’t-have alanı en az must-have kadar değerlidir.', output: 'Must/Should/Could/Won’t ve kısıtlar' },
-  7: { title: 'Öncelik koçu', principle: 'RICE, Kano ve value/effort aynı kararı farklı açılardan doğrular; sıra savunulabilir olmalı.', output: 'Öncelik mantığı ve task sayısı' },
-  8: { title: 'Deneyim koçu', principle: 'Story mapping kullanıcı akışını delivery diline çevirir; backbone ve release slice yaz.', output: 'Backbone, slice ve kritik edge case' },
-  9: { title: 'Delivery koçu', principle: 'Dual-track yaklaşımda discovery ve delivery beraber akar; bağımlılıkları task sınırına yaz.', output: 'Sıralama, bağımlılık ve handoff planı' },
-  10: { title: 'Metrik koçu', principle: 'HEART ve guardrail metrikleri kaliteyi sonuçla dengeler; sadece çıktı sayma.', output: 'Başarı, davranış ve guardrail metrikleri' },
-  11: { title: 'Risk koçu', principle: 'Pre-mortem en ucuz kalite kapısıdır; başarısızlık nedenini taska çevir.', output: 'Risk, mitigasyon ve PM kritik soruları' },
-  12: { title: 'Task studio', principle: 'PRD’den taska geçerken her task bağımsız, ölçülebilir ve kaynak bağlamına iz bırakır.', output: 'Kaydedilebilir task taslakları' }
+  1: { title: 'Bağlam hazırlığı', principle: 'Önce kaynak taskın outcome, problem ve kısıtlarını netleştir; popup task detay ekranı gibi değil, bölme akışının giriş noktası gibi davranır.', output: 'Kaynak task bağlamı ve AI çalışma notu' },
+  2: { title: 'Senior PM chat', principle: 'AI önce soru sorar, eksik kararları yakalar ve geniş işi bağımsız task sınırlarına ayırmak için tekil bir chat turu yürütür.', output: 'PM cevapları ve task üretim sinyalleri' },
+  3: { title: 'Task studio', principle: 'Chat sonrası direkt create yok; kullanıcı başlık, açıklama ve sırayı önizlemede düzenleyip tek aksiyonla ayrı tasklar oluşturur.', output: 'Kaydedilebilir bağımsız task taslakları' }
 }
 
 const STEP_ICONS: Record<PlannerStep, typeof LuSparkles> = {
   1: LuCompass,
-  2: LuFlag,
-  3: LuUsers,
-  4: LuGitBranch,
-  5: LuFlaskConical,
-  6: LuScale,
-  7: LuGauge,
-  8: LuMap,
-  9: LuRoute,
-  10: LuTarget,
-  11: LuShieldAlert,
-  12: LuRocket
+  2: LuUsers,
+  3: LuRocket
 }
 
 function createDraftId() {
@@ -346,7 +302,7 @@ function smartDefaults(project: Project, form: PlannerForm, sourceTask?: TaskEnt
       'Taslak tasklar düzenlenip tek aksiyonla oluşturuluyor'
     ].join('\n'),
     moscow: form.moscow.trim() || [
-      'Must: 12 adım, geri/ileri navigasyon, AI önerileri, düzenlenebilir task taslakları',
+      'Must: 3 adım, geri/ileri navigasyon, AI önerileri, düzenlenebilir task taslakları',
       'Should: risk, metrik, öncelik ve kapsam disiplinini yan panelde görünür tutmak',
       'Could: farklı intent modlarına göre task fazlarını değiştirmek',
       'Won’t: kullanıcı onayı olmadan task oluşturmak veya kaynak taskı otomatik kapatmak'
@@ -376,12 +332,12 @@ function smartDefaults(project: Project, form: PlannerForm, sourceTask?: TaskEnt
       'Guardrail: fazla adım yüzünden terk oranı artmıyor'
     ].join('\n'),
     risks: form.risks.trim() || [
-      'Pre-mortem: 12 adım fazla metinle boğarsa kullanıcı erken çıkar.',
+      'Pre-mortem: popup fazla metinle boğarsa kullanıcı erken çıkar.',
       'Risk: metodoloji listesi task üretimini yavaşlatabilir.',
       'Mitigasyon: her adım tek ana karar, sağ panel suggestion ve otomatik doldurma sunar.'
     ].join('\n'),
     constraints: form.constraints.trim() || [
-      'Süreç 12 basamaklı ama her basamak tek karar odağında kalmalı',
+      'Süreç 3 basamaklı kalmalı: bağlam, PM chat ve düzenlenebilir task önizleme',
       'Popup geniş kalmalı ama boş alanlar anlamlı panellerle dolmalı',
       'Tasklar aynı projede bağımsız kayıtlar olarak açılmalı'
     ].join('\n'),
@@ -642,6 +598,18 @@ function draftsToPlannerJson(drafts: TaskPlannerDraft[], status?: string) {
     }))
 }
 
+function isPlannerQualityGateError(message?: string | null) {
+  return /Planner JSON quality check failed|At least one planned subtask is required/i.test(message ?? '')
+}
+
+function batchTraceComment(sourceTitle: string, tasks: TaskEntity[]): string {
+  return [
+    `Bu geniş task "${sourceTitle}" çoklu planlama akışıyla ayrı tasklara bölündü:`,
+    '',
+    ...tasks.map((task, index) => `${index + 1}. ${task.title} (${task.id})`)
+  ].join('\n')
+}
+
 function suggestionForStep(step: PlannerStep, project: Project, form: PlannerForm, sourceTask?: TaskEntity | null): Partial<PlannerForm> {
   const defaults = smartDefaults(project, form, sourceTask)
   const patch: Partial<PlannerForm> = {}
@@ -652,7 +620,7 @@ function suggestionForStep(step: PlannerStep, project: Project, form: PlannerFor
 }
 
 function safePlannerStep(value: unknown): PlannerStep {
-  return clamp(typeof value === 'number' ? value : Number(value), 1, 12) as PlannerStep
+  return clamp(typeof value === 'number' ? value : Number(value), 1, 3) as PlannerStep
 }
 
 export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [], sourceTask, defaultStatus, onClose, onCreated }: TaskPlannerChatPopupProps) {
@@ -850,20 +818,20 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
   const advanceWithSuggestion = () => {
     const hydratedForm = { ...form, ...suggestionForStep(step, project, form, sourceTask) }
     setForm(hydratedForm)
-    if (step === 11) {
-      synthesizeDrafts(12, hydratedForm)
+    if (step === 2) {
+      synthesizeDrafts(3, hydratedForm)
       return
     }
-    setStep((current) => Math.min(12, current + 1) as PlannerStep)
+    setStep((current) => Math.min(3, current + 1) as PlannerStep)
     setError('')
   }
 
   const advanceWithAi = () => {
-    const nextStep = (step === 11 ? 12 : Math.min(12, step + 1)) as PlannerStep
-    void fillWithAi(step === 11 ? 'drafts' : 'step', step === 11 ? ALL_TEXT_FIELDS : STEP_FIELDS[step], nextStep)
+    const nextStep = (step === 2 ? 3 : Math.min(3, step + 1)) as PlannerStep
+    void fillWithAi(step === 2 ? 'drafts' : 'all', step === 2 ? ALL_TEXT_FIELDS : STEP_FIELDS[step], nextStep)
   }
 
-  const synthesizeDrafts = (nextStep: PlannerStep = 12, formOverride = form, answersOverride = answers) => {
+  const synthesizeDrafts = (nextStep: PlannerStep = 3, formOverride = form, answersOverride = answers) => {
     const hydratedForm = { ...formOverride, ...smartDefaults(project, formOverride, sourceTask) }
     const hydratedAnswers = answersOverride.length > 0 ? answersOverride : [
       hydratedForm.outcome,
@@ -885,7 +853,7 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
     setMessage('')
     setError('')
     if (nextAnswers.length >= Math.min(3, questions.length)) {
-      synthesizeDrafts(12, form, nextAnswers)
+      synthesizeDrafts(3, form, nextAnswers)
     }
   }
 
@@ -908,16 +876,16 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
       rationale: 'Kullanıcı tarafından manuel eklenen taslak.',
       risk: 'Manuel taslakta kabul sinyali eksik kalabilir.'
     }])
-    setStep(12)
+    setStep(3)
   }
 
   const goNext = () => {
-    if (step === 11 && sortedDrafts.length === 0) {
-      if (aiReady) void fillWithAi('drafts', ALL_TEXT_FIELDS, 12)
-      else synthesizeDrafts(12)
+    if (step === 2 && sortedDrafts.length === 0) {
+      if (aiReady) void fillWithAi('drafts', ALL_TEXT_FIELDS, 3)
+      else synthesizeDrafts(3)
       return
     }
-    setStep((current) => Math.min(12, current + 1) as PlannerStep)
+    setStep((current) => Math.min(3, current + 1) as PlannerStep)
   }
 
   const createTasks = async () => {
@@ -928,21 +896,56 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
     }
     setBusy(true)
     setError('')
-    const response = await invokeBridge<TaskJsonImportResult>(IPC_CHANNELS.tasks.plannerCreateFromJson, {
-      actorToken,
-      projectId: project.id,
-      ...(sourceTask?.id ? { taskId: sourceTask.id } : {}),
-      json: draftsToPlannerJson(validDrafts, defaultStatus)
-    })
-    setBusy(false)
-    if (!response.ok) {
-      setError(response.error?.message ?? 'Tasklar oluşturulamadı.')
-      return
+    const jsonPayload = draftsToPlannerJson(validDrafts, defaultStatus)
+    try {
+      const response = await invokeBridge<TaskJsonImportResult>(IPC_CHANNELS.tasks.plannerCreateFromJson, {
+        actorToken,
+        projectId: project.id,
+        ...(sourceTask?.id ? { taskId: sourceTask.id } : {}),
+        json: jsonPayload
+      })
+      let created = response.data?.tasks ?? (response.data?.task ? [response.data.task] : [])
+      if (!response.ok) {
+        if (!isPlannerQualityGateError(response.error?.message)) {
+          setError(response.error?.message ?? 'Tasklar oluşturulamadı.')
+          return
+        }
+        created = []
+        for (const [index, item] of jsonPayload.entries()) {
+          const importResponse = await invokeBridge<TaskJsonImportResult>(IPC_CHANNELS.tasks.importJson, {
+            actorToken,
+            projectId: project.id,
+            json: item
+          })
+          if (!importResponse.ok || !importResponse.data?.task) {
+            throw new Error(`tasks[${index}]: ${importResponse.error?.message ?? 'Task oluşturulamadı.'}`)
+          }
+          created.push(importResponse.data.task)
+        }
+        if (sourceTask?.id && created.length > 0) {
+          const commentResponse = await invokeBridge<TaskComment[]>(IPC_CHANNELS.tasks.commentAdd, {
+            actorToken,
+            taskId: sourceTask.id,
+            authorName: 'Planner',
+            body: batchTraceComment(sourceTask.title, created)
+          })
+          if (!commentResponse.ok) {
+            throw new Error(commentResponse.error?.message ?? 'Tasklar oluşturuldu ama kaynak task izi yazılamadı.')
+          }
+        }
+      }
+      if (created.length === 0) {
+        setError('Tasklar oluşturuldu ama sonuç listesi alınamadı.')
+        return
+      }
+      if (typeof localStorage !== 'undefined') localStorage.removeItem(draftStorageKey)
+      onCreated(created)
+      onClose()
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Tasklar oluşturulamadı.')
+    } finally {
+      setBusy(false)
     }
-    const created = response.data?.tasks ?? (response.data?.task ? [response.data.task] : [])
-    if (typeof localStorage !== 'undefined') localStorage.removeItem(draftStorageKey)
-    onCreated(created)
-    onClose()
   }
 
   const renderTextArea = (key: PlannerTextKey, label: string, placeholder: string, rows = 4) => (
@@ -967,7 +970,7 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
             <h2>{sourceTask?.title || project.name}</h2>
           </div>
           <div className={styles.headerMetrics}>
-            <span><LuRoute size={14} /> {activePhase.title}</span>
+            <span><LuCompass size={14} /> {activePhase.title}</span>
             <span><LuGauge size={14} /> %{report.score}</span>
             <span><LuLayers size={14} /> {sortedDrafts.length || report.suggestedTaskCount} task</span>
             <span><LuWandSparkles size={14} /> {aiModel || 'AI model'}/{aiReasoningEffort}</span>
@@ -1004,7 +1007,7 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
             <div className={styles.stageIntro}>
               <div className={styles.stageIntroHeader}>
                 <span><StepIcon size={15} /> {currentGuide.method}</span>
-                <strong>Adım {step}/12</strong>
+                <strong>Adım {step}/3</strong>
               </div>
               <h3>{currentCoach.title}</h3>
               <p>{currentCoach.principle}</p>
@@ -1071,76 +1074,18 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
                     </label>
                   </div>
                 </div>
+                <div className={styles.formStep}>
+                  {renderTextArea('outcome', 'İstenen outcome', 'Bu geniş task bölündüğünde hangi sonuç üretilmiş olmalı?', 3)}
+                  {renderTextArea('problem', 'Kaynak problem / kapsam', 'Kaynak task neden geniş, hangi kararlar belirsiz, hangi parçalar ayrılmalı?', 4)}
+                  {renderTextArea('audience', 'Kullanıcı / paydaş', 'Bu işten etkilenen kullanıcı, ekip veya execution agent rolü.', 3)}
+                  {renderTextArea('successSignals', 'Kabul sinyalleri', 'Yeni tasklar hangi sinyalleri taşıyınca doğru bölünmüş sayılır?', 4)}
+                  {renderTextArea('constraints', 'Kısıtlar', 'Tasarım, state, servis, test, release veya kapsam kısıtlarını yaz.', 4)}
+                  {renderTextArea('pmNotes', 'PM notları', 'Senior PM gibi düşünmesini sağlayacak özel karar, risk veya öncelik notlarını yaz.', 4)}
+                </div>
               </div>
             ) : null}
 
             {step === 2 ? (
-              <div className={styles.formStep}>
-                {renderTextArea('outcome', 'İstenen outcome', 'Örn: Project ve product manager isteklerini yönlendiren çoklu task oluşturma merkezi', 3)}
-                {renderTextArea('northStar', 'North Star / proxy metrik', 'Bu akış hangi davranışı veya ürün metriğini büyütecek?', 4)}
-                {renderTextArea('successSignals', 'Başarı sinyalleri', 'Her satıra bir kabul sinyali yaz. AI bunları task açıklamalarına dağıtacak.', 4)}
-              </div>
-            ) : null}
-
-            {step === 3 ? (
-              <div className={styles.formStep}>
-                {renderTextArea('audience', 'Kullanıcı / paydaş', 'Örn: project manager, product manager, execution agent kullanan ekip üyeleri', 3)}
-                {renderTextArea('jobToBeDone', 'Jobs To Be Done', 'When ..., I want to ..., so I can ... biçiminde kullanıcının ilerleme ihtiyacını yaz.', 4)}
-                {renderTextArea('problem', 'Problem / fırsat', 'Kullanıcı neyi başarmaya çalışıyor, bugün neden zor, hangi kararlar belirsiz?', 4)}
-              </div>
-            ) : null}
-
-            {step === 4 ? (
-              <div className={styles.formStep}>
-                {renderTextArea('evidence', 'Kanıt / veri / kullanıcı sesi', 'Kullanıcı yorumu, task açıklaması, geçmiş karar, gözlem veya varsayım kaynağı.', 5)}
-                {renderTextArea('opportunity', 'Opportunity Solution Tree', 'Ana fırsat ve alt fırsatları satır satır yaz.', 5)}
-              </div>
-            ) : null}
-
-            {step === 5 ? (
-              <div className={styles.formStep}>
-                {renderTextArea('hypotheses', 'Lean hipotezleri', 'Eğer ... olursa ... metriği/çıktısı iyileşir çünkü ...', 5)}
-                {renderTextArea('risks', 'Varsayım riskleri', 'En riskli varsayım, bilinmeyen, karar ve doğrulama ihtiyacı.', 5)}
-              </div>
-            ) : null}
-
-            {step === 6 ? (
-              <div className={styles.formStep}>
-                {renderTextArea('moscow', 'MoSCoW kapsamı', 'Must, Should, Could, Won’t olacak şekilde kapsamı keskinleştir.', 5)}
-                {renderTextArea('constraints', 'Kısıtlar', 'Tasarım, state, süre, teknik veya ürün kısıtlarını yaz.', 4)}
-                {renderTextArea('exclusions', 'Kapsam dışı', 'Bu planın özellikle yapmaması gereken şeyleri yaz.', 4)}
-              </div>
-            ) : null}
-
-            {step === 7 ? (
-              <div className={styles.formStep}>
-                {renderTextArea('prioritization', 'RICE / Kano / Value-Effort', 'Reach, Impact, Confidence, Effort; basic/performance/delight; quick win/big bet notlarını yaz.', 6)}
-                {renderTextArea('successSignals', 'Önceliğe bağlanan kabul sinyalleri', 'İlk taskların hangi sinyali taşıyacağını netleştir.', 4)}
-              </div>
-            ) : null}
-
-            {step === 8 ? (
-              <div className={styles.formStep}>
-                {renderTextArea('storyMap', 'User Story Mapping', 'Backbone, release slice, happy path, edge case ve handoff noktalarını yaz.', 6)}
-                {renderTextArea('audience', 'Akıştaki roller', 'Ana kullanıcı, ikinci paydaş, operasyon veya execution agent rolünü netleştir.', 4)}
-              </div>
-            ) : null}
-
-            {step === 9 ? (
-              <div className={styles.formStep}>
-                {renderTextArea('deliveryPlan', 'Dual-track delivery planı', 'Discovery, design, engineering, verification, rollout ve bağımlılık sırasını yaz.', 6)}
-                {renderTextArea('constraints', 'Engineering kısıtları', 'State, IPC, servis, test, responsive, performans veya release kısıtları.', 4)}
-              </div>
-            ) : null}
-
-            {step === 10 ? (
-              <div className={styles.formStep}>
-                {renderTextArea('metrics', 'HEART / North Star / guardrail', 'Happiness, engagement, adoption, retention, task success ve guardrail metrikleri.', 6)}
-                {renderTextArea('successSignals', 'Kabul ve ölçüm sinyalleri', 'Task acceptance ile ürün metriği arasındaki bağlantıyı yaz.', 4)}
-              </div>
-            ) : null}
-
-            {step === 11 ? (
               <div className={styles.chatStep}>
                 <div className={styles.messages}>
                   {questions.map((question, index) => (
@@ -1157,7 +1102,7 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
               </div>
             ) : null}
 
-            {step === 12 ? (
+            {step === 3 ? (
               <div className={styles.previewStep}>
                 <div className={styles.previewToolbar}>
                   <div>
@@ -1165,8 +1110,8 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
                     <p>Başlık, açıklama, sıra, faz ve risk alanlarını düzenleyip tek aksiyonla oluştur.</p>
                   </div>
                   <div className={styles.previewActions}>
-                    <button type="button" onClick={() => void fillWithAi('drafts', ALL_TEXT_FIELDS, 12)} disabled={!aiReady || Boolean(aiBusy)}><LuWandSparkles size={15} /> {aiBusy === 'drafts' ? 'AI çalışıyor' : 'AI ile yenile'}</button>
-                    <button type="button" onClick={() => synthesizeDrafts(12)}><LuRefreshCw size={15} /> Şablonla yenile</button>
+                    <button type="button" onClick={() => void fillWithAi('drafts', ALL_TEXT_FIELDS, 3)} disabled={!aiReady || Boolean(aiBusy)}><LuWandSparkles size={15} /> {aiBusy === 'drafts' ? 'AI çalışıyor' : 'AI ile yenile'}</button>
+                    <button type="button" onClick={() => synthesizeDrafts(3)}><LuRefreshCw size={15} /> Şablonla yenile</button>
                     <button type="button" onClick={addDraft}><LuPlus size={15} /> Taslak</button>
                   </div>
                 </div>
@@ -1221,9 +1166,9 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
               <h4><LuBrainCircuit size={15} /> Akıl katmanı</h4>
               <p>{report.nextBestAction}</p>
               <button type="button" onClick={() => void fillWithAi('all', ALL_TEXT_FIELDS)} disabled={!aiReady || Boolean(aiBusy)}><LuWandSparkles size={15} /> {aiBusy === 'all' ? 'AI dolduruyor' : 'Tüm boşlukları AI ile doldur'}</button>
-              <button type="button" onClick={() => void fillWithAi('drafts', ALL_TEXT_FIELDS, 12)} disabled={!aiReady || Boolean(aiBusy)}><LuClipboardCheck size={15} /> {aiBusy === 'drafts' ? 'Taslak üretiyor' : 'AI ile task taslakları üret'}</button>
+              <button type="button" onClick={() => void fillWithAi('drafts', ALL_TEXT_FIELDS, 3)} disabled={!aiReady || Boolean(aiBusy)}><LuClipboardCheck size={15} /> {aiBusy === 'drafts' ? 'Taslak üretiyor' : 'AI ile task taslakları üret'}</button>
               <button type="button" onClick={applySmartDefaults}><LuLightbulb size={15} /> Şablon boşlukları doldur</button>
-              <button type="button" onClick={() => synthesizeDrafts(12)}><LuClipboardCheck size={15} /> Şablon taslak üret</button>
+              <button type="button" onClick={() => synthesizeDrafts(3)}><LuClipboardCheck size={15} /> Şablon taslak üret</button>
             </div>
             <div className={styles.signalPanel}>
               <h4><LuBookOpen size={15} /> Bu adımda eksik</h4>
@@ -1253,7 +1198,7 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
           <div className={styles.footerCenter}>
             <span>{sourceTask ? 'Kaynak task korunur; yeni tasklar ayrı oluşturulur.' : 'Yeni tasklar proje merkezinde ayrı kayıtlar olarak açılır.'}</span>
           </div>
-          {step < 12 ? (
+          {step < 3 ? (
             <button type="button" className={styles.primaryButton} onClick={goNext} disabled={busy || Boolean(aiBusy)}>
               {aiBusy ? 'AI çalışıyor' : 'İleri'} <LuArrowRight size={15} />
             </button>
