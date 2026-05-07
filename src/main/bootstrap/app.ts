@@ -63,6 +63,12 @@ export function createMainWindow(): Electron.BrowserWindow {
 
   const url = resolveRendererSource()
   safeConsole.log('[main] Creating main window', { isDev, url })
+  const icon = resolveFromCandidates([
+    join(process.cwd(), 'app-icon.png'),
+    join(app?.getAppPath() ?? '', 'app-icon.png'),
+    join(process.resourcesPath ?? '', 'app-icon.png'),
+    join(__dirname, '..', '..', 'app-icon.png')
+  ])
 
   const window = new BrowserWindow({
     width: 1365,
@@ -71,6 +77,7 @@ export function createMainWindow(): Electron.BrowserWindow {
     minHeight: 720,
     title: 'Open Mission Control',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+    ...(icon ? { icon } : {}),
     ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 18, y: 18 } } : {}),
     webPreferences: {
       contextIsolation: false,

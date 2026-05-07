@@ -8,7 +8,10 @@ files:
   - package.json
   - node_modules
   - docs/**
+  - app-icon.png
 extraMetadata:
   main: dist/main/index.js
 asar: true
 publish: []
+mac:
+  icon: app-icon.png

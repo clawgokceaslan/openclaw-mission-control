@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react'
 import { LuArrowRight, LuMessageCircleQuestion, LuPlus, LuSearch } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import type { User } from '@shared/types/entities'
-import { useLocalAvatar } from '@renderer/components/avatar/localAvatar'
 import { UserAvatar } from '@renderer/components/avatar/UserAvatar'
 import { RunningCodexMenu } from './RunningCodexMenu'
 import { usePlannerQuestions } from '@renderer/components/planner/PlannerQuestionHost'
@@ -14,10 +13,11 @@ import { GlobalCreateTaskModal } from './GlobalCreateTaskModal'
 import { PlannedTasksMenu } from './PlannedTasksMenu'
 import { UniversalCommand, type GlobalTaskCreateInitial } from './UniversalCommand'
 
+const appIconSrc = new URL('../../../../../app-icon.png', import.meta.url).href
+
 export function TopHeader({ user }: { user: User | null }) {
   const navigate = useNavigate()
   const userName = user?.name?.trim() || 'Mission Operator'
-  const { avatarUrl } = useLocalAvatar(user?.id)
   const [open, setOpen] = useState(false)
   const [taskCreateInitial, setTaskCreateInitial] = useState<GlobalTaskCreateInitial | null>(null)
   const [questionPanelOpen, setQuestionPanelOpen] = useState(false)
@@ -60,7 +60,9 @@ export function TopHeader({ user }: { user: User | null }) {
     <Navbar className={styles.topbar}>
       <Container fluid className={styles.topbarInner}>
         <div className={styles.brandArea}>
-          <div className={styles.brandMark}>OM</div>
+          <div className={styles.brandMark}>
+            <img src={appIconSrc} alt="Open Mission Control logo" />
+          </div>
           <div className={styles.brandText}>
             <p className={styles.brandTitle}>Open Mission Control</p>
           </div>
@@ -137,7 +139,7 @@ export function TopHeader({ user }: { user: User | null }) {
           ) : null}
           </div>
           <Link className={styles.userArea} to={APP_ROUTES.PROFILE} aria-label="Open profile">
-            <UserAvatar name={userName} imageUrl={avatarUrl} alt={`${userName} avatar`} className={styles.userAvatar} />
+            <UserAvatar name={userName} imageUrl={appIconSrc} alt="Open Mission Control avatar" className={styles.userAvatar} />
           </Link>
         </div>
       </Container>
