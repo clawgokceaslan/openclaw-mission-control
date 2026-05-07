@@ -81,7 +81,7 @@ function pipelineStateLabel(statusKey?: string, fallback = 'Bekliyor') {
   if (statusKey === 'following-up') return 'Devam ediyor'
   if (statusKey === 'followed-up') return 'Devam tamamlandı'
   if (statusKey === 'needs-input') return 'Onay bekliyor'
-  if (statusKey === 'failed') return 'Hata'
+  if (statusKey === 'failed') return 'Müdahale gerekiyor'
   return fallback
 }
 
@@ -759,7 +759,7 @@ export function TaskDetailPopup({
             ) : null}
             <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.taskDetailOpenChatButton}`} onPointerDown={(event) => runHeaderAction(event, onOpenChat)} aria-label="Open chat">
               <LuMessageSquare size={16} />
-              <span className={styles.primaryActionLabel}>Chats</span>
+              <span className={styles.primaryActionLabel}>Chat</span>
             </button>
           </div>
           <div className={styles.menuWrap} ref={menuRef}>
