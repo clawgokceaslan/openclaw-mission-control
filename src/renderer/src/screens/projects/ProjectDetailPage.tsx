@@ -1584,6 +1584,9 @@ export function ProjectDetailPage() {
       descriptionAutosavePendingRef.current = false
       return false
     }
+    descriptionAutosaveSnapshotRef.current = normalizedDraft
+    descriptionDraftRef.current = normalizedDraft
+    setDescriptionDraft(normalizedDraft)
     selectedTaskRef.current = {
       ...task,
       description: normalizedDraft,
@@ -1597,8 +1600,10 @@ export function ProjectDetailPage() {
       descriptionAutosavePendingRef.current = false
       return saveDescription()
     }
-    setIsDescriptionEditing(false)
     await refresh()
+    if (selectedTaskRef.current?.id === taskId) {
+      setIsDescriptionEditing(false)
+    }
     return true
   }
 
