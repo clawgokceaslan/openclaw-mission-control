@@ -897,8 +897,8 @@ export function LastChatsPage() {
                       const currentStatusBadgeClass = displayedStatusBadgeClass(conversation, manualResolution)
                       const isActiveStatusTone = currentStatusBadgeClass === projectStyles.chatStatus_working
                         || currentStatusBadgeClass === projectStyles.chatStatus_planning
-                        || currentStatusBadgeClass === projectStyles.chatStatus_post-running
-                        || currentStatusBadgeClass === projectStyles.chatStatus_following-up
+                        || currentStatusBadgeClass === projectStyles['chatStatus_post-running']
+                        || currentStatusBadgeClass === projectStyles['chatStatus_following-up']
                       const resolveSelectClassName = [
                         styles.resolveSelect,
                         currentStatusBadgeClass === projectStyles.chatStatus_completed ? styles.resolveSelectCompleted : '',
