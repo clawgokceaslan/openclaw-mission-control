@@ -42,6 +42,7 @@ import { CompanionPage } from '@renderer/screens/CompanionPage'
 import { GlobalCreateTaskModal } from '@renderer/components/navigation/GlobalCreateTaskModal'
 import type { GlobalTaskCreateInitial } from '@renderer/components/navigation/UniversalCommand'
 import { RendererHealthReporter } from '@renderer/utils/rendererResilience'
+import { SplashOverlay } from '@renderer/components/splash/SplashOverlay'
 import styles from './App.module.scss'
 
 interface RouteConfig {
@@ -131,6 +132,7 @@ function AppRouter() {
   const [manualRetried, setManualRetried] = useState(false)
   const isRuntimeError = isElectron && typeof errorMessage === 'string' && /IPC|ipc|bridge|runtime|renderer/i.test(errorMessage)
   const retryExhausted = autoRetried && manualRetried
+  const splashReady = initialized || Boolean(errorMessage)
 
   useEffect(() => {
     const onCompanionNavigate = (...args: unknown[]) => {
@@ -164,15 +166,6 @@ function AppRouter() {
     void refresh()
   }, [initialized, user, isRuntimeError, autoRetried, refresh])
 
-  if (!initialized) {
-    return (
-      <div className={styles.pageState}>
-        <h2>Yukleniyor...</h2>
-        <p className={styles.helpText}>Session ve IPC durumu kontrol ediliyor.</p>
-      </div>
-    )
-  }
-
   const handleRetry = () => {
     if (manualRetried || retryExhausted) {
       return
@@ -181,17 +174,24 @@ function AppRouter() {
     void refresh()
   }
 
-  if (user && !user.name?.trim()) {
-    return (
+  let appContent: ReactNode
+
+  if (!initialized) {
+    appContent = (
+      <div className={styles.pageState}>
+        <h2>Yukleniyor...</h2>
+        <p className={styles.helpText}>Session ve IPC durumu kontrol ediliyor.</p>
+      </div>
+    )
+  } else if (user && !user.name?.trim()) {
+    appContent = (
       <Routes>
         <Route path={APP_ROUTES.PROFILE_SETUP} element={<ProtectedRoute><ProfileSetupPage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to={APP_ROUTES.PROFILE_SETUP} replace />} />
       </Routes>
     )
-  }
-
-  if (user) {
-    return (
+  } else if (user) {
+    appContent = (
       <>
         <SignedInRouter />
         <GlobalCreateTaskModal
@@ -201,21 +201,28 @@ function AppRouter() {
         />
       </>
     )
+  } else {
+    appContent = (
+      <div className={styles.pageState}>
+        <h2>Uygulama baslatilamadi</h2>
+        {errorMessage && <p className={styles.errorText}>{errorMessage}</p>}
+        {isRuntimeError && !manualRetried && <p className={styles.helpText}>Tekrar deneme baslatildi...</p>}
+        {retryExhausted && <p className={styles.helpText}>Tekrar deneme tamamlanamadi. Uygulamayi kapatip yeniden baslatin.</p>}
+        <button className={styles.retryButton} onClick={handleRetry} disabled={retryExhausted}>Tekrar Dene</button>
+        <p className={styles.helpText}>
+          {isElectron
+            ? 'Renderer IPC baslatilamadi. Uygulamayi kapatip tekrar baslatin.'
+            : 'Tarayicida actiysaniz bu mesaj normaldir; uygulamayi Electron ile calistirin.'}
+        </p>
+      </div>
+    )
   }
 
   return (
-    <div className={styles.pageState}>
-      <h2>Uygulama baslatilamadi</h2>
-      {errorMessage && <p className={styles.errorText}>{errorMessage}</p>}
-      {isRuntimeError && !manualRetried && <p className={styles.helpText}>Tekrar deneme baslatildi...</p>}
-      {retryExhausted && <p className={styles.helpText}>Tekrar deneme tamamlanamadi. Uygulamayi kapatip yeniden baslatin.</p>}
-      <button className={styles.retryButton} onClick={handleRetry} disabled={retryExhausted}>Tekrar Dene</button>
-      <p className={styles.helpText}>
-        {isElectron
-          ? 'Renderer IPC baslatilamadi. Uygulamayi kapatip tekrar baslatin.'
-          : 'Tarayicida actiysaniz bu mesaj normaldir; uygulamayi Electron ile calistirin.'}
-      </p>
-    </div>
+    <>
+      {appContent}
+      <SplashOverlay ready={splashReady} />
+    </>
   )
 }
 
