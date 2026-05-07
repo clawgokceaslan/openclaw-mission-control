@@ -19,12 +19,12 @@ type GatewayPlanResponse = { executionMode?: 'terminal' | 'exec'; runId?: string
 type DefaultProjectResponse = { projectId: string | null; project?: Project | null; fallbackProject?: Project | null; invalidStoredProjectId?: string | null }
 
 const PAGE_SIZE = 60
-const stepLabels: Record<StepKey, string> = { scope: 'Scope', tasks: 'Tasks', queue: 'Queue', confirm: 'Review' }
+const stepLabels: Record<StepKey, string> = { scope: 'Kapsam', tasks: 'Tasklar', queue: 'Kuyruk', confirm: 'Kontrol' }
 const stepDescriptions: Record<StepKey, string> = {
-  scope: 'Project boundary',
-  tasks: 'Pick plan targets',
-  queue: 'Order planning',
-  confirm: 'Launch safely'
+  scope: 'Proje sınırı',
+  tasks: 'Planlanacak taskları seç',
+  queue: 'Planlama sırasını düzenle',
+  confirm: 'Güvenle başlat'
 }
 const stepOrder: StepKey[] = ['scope', 'tasks', 'queue', 'confirm']
 
@@ -34,9 +34,9 @@ function formatDate(value: number) {
 
 function missingPlanLabel(project: Project | undefined) {
   const codex = projectGatewaySettings(project ?? null)
-  if (!codex.gatewayId && !(codex.planModel || codex.defaultModel)) return 'Project gateway and plan model are missing'
-  if (!codex.gatewayId) return 'Project gateway is missing'
-  if (!(codex.planModel || codex.defaultModel)) return 'Project plan model is missing'
+  if (!codex.gatewayId && !(codex.planModel || codex.defaultModel)) return 'Proje gateway ve plan modeli eksik'
+  if (!codex.gatewayId) return 'Proje gateway ayarı eksik'
+  if (!(codex.planModel || codex.defaultModel)) return 'Proje plan modeli eksik'
   return ''
 }
 
@@ -272,10 +272,10 @@ export function AutoPlansPage() {
 
   const planTaskReason = (task: TaskEntity) => {
     const firstStatusId = firstStatusByProject[task.projectId]
-    if (task.projectId !== currentProjectId) return 'Different project'
-    if (task.status !== firstStatusId) return `Status: ${taskStatus(task)?.name ?? 'Unknown'}`
-    if (!isTaskUnplanned(task)) return 'Already planned or needs input'
-    if (isTaskWorking(task)) return 'Codex is active'
+    if (task.projectId !== currentProjectId) return 'Farklı proje'
+    if (task.status !== firstStatusId) return `Durum: ${taskStatus(task)?.name ?? 'Bilinmiyor'}`
+    if (!isTaskUnplanned(task)) return 'Planlandı veya kullanıcı yanıtı bekliyor'
+    if (isTaskWorking(task)) return 'Ajan aktif'
     return ''
   }
 
@@ -387,7 +387,7 @@ export function AutoPlansPage() {
           <h1>Plan Kuyruğu</h1>
           <p>Tek task pipeline ana akıştır; birden fazla taskı planlamak gerektiğinde bu ikincil kuyruğu kullan.</p>
         </div>
-        <button type="button" onClick={() => void loadData()} disabled={loading}><LuRefreshCw size={15} /> Refresh</button>
+        <button type="button" onClick={() => void loadData()} disabled={loading}><LuRefreshCw size={15} /> Yenile</button>
       </header>
 
       {error ? <div className={styles.notice}>{error}</div> : null}
@@ -395,12 +395,12 @@ export function AutoPlansPage() {
 
       <section className={styles.modeBar}>
         <div>
-          <strong>Plan mode</strong>
-          <span>This setting applies to every task in the prepared queue.</span>
+          <strong>Plan modu</strong>
+          <span>Bu ayar hazırlanan kuyruktaki her task için geçerlidir.</span>
         </div>
-        <div className={styles.modeButtons} role="radiogroup" aria-label="Global plan mode">
-          <button type="button" className={mode === 'ask-first' ? styles.modeActive : ''} onClick={() => setMode('ask-first')} disabled={queueBusy}>Ask first</button>
-          <button type="button" className={mode === 'direct' ? styles.modeActive : ''} onClick={() => setMode('direct')} disabled={queueBusy}>Direct</button>
+        <div className={styles.modeButtons} role="radiogroup" aria-label="Genel plan modu">
+          <button type="button" className={mode === 'ask-first' ? styles.modeActive : ''} onClick={() => setMode('ask-first')} disabled={queueBusy}>Önce sor</button>
+          <button type="button" className={mode === 'direct' ? styles.modeActive : ''} onClick={() => setMode('direct')} disabled={queueBusy}>Doğrudan</button>
         </div>
       </section>
 
@@ -408,31 +408,31 @@ export function AutoPlansPage() {
         <div className={styles.scopeSummary}>
           <div className={styles.scopeIcon}><LuListFilter size={18} /></div>
           <div className={styles.scopeCopy}>
-            <span>Current project</span>
-            <strong>{currentProject?.name ?? 'No project selected'}</strong>
-            <small>Default results stay scoped here.</small>
+            <span>Geçerli proje</span>
+            <strong>{currentProject?.name ?? 'Proje seçilmedi'}</strong>
+            <small>Varsayılan sonuçlar bu kapsamda kalır.</small>
           </div>
-          <button type="button" onClick={() => setProjectPickerOpen(true)}>Switch</button>
+          <button type="button" onClick={() => setProjectPickerOpen(true)}>Değiştir</button>
         </div>
         <label className={styles.searchBox}>
-          <span>Search tasks</span>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Title, description, or project" />
+          <span>Task ara</span>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Başlık, açıklama veya proje" />
         </label>
         <div className={styles.controlStat}>
-          <span>Eligible</span>
+          <span>Uygun</span>
           <strong>{filteredTasks.length}</strong>
-          <small>not-planned tasks</small>
+          <small>plan bekleyen task</small>
         </div>
       </section>
 
       <section className={styles.stepperShell} aria-label="Plan kuyruğu ilerlemesi">
         <header className={styles.stepperHeader}>
           <div>
-            <span>Workflow</span>
+            <span>Akış</span>
             <strong>{stepLabels[activeStep]}</strong>
             <small>{stepDescriptions[activeStep]}</small>
           </div>
-          <p>{queue.length} queued · {filteredTasks.length} eligible · {mode === 'ask-first' ? 'Ask first' : 'Direct'}</p>
+          <p>{queue.length} kuyrukta · {filteredTasks.length} uygun · {mode === 'ask-first' ? 'Önce sor' : 'Doğrudan'}</p>
         </header>
         <div className={styles.stepperTrack} aria-hidden="true">
           <span style={{ width: stepProgress }} />
