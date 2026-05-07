@@ -1,8 +1,9 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { closeDb, getDatabaseLocationState, getDb, getDbPath, moveDatabaseToFolder } from './config.js'
+import { electronRuntime } from '../main/utils/electron-runtime.js'
 import { SqliteAdapter } from './adapter/sqlite.js'
 
 let originalCwd = ''
@@ -229,6 +230,34 @@ describe('Database location persistence', () => {
       expect(dbPath).toBe(join(defaultFolder, 'mission-control.sqlite'))
       expect(readFileSync(join(defaultFolder, 'mission-control.sqlite'), 'utf8')).toBe('legacy db')
       expect(readFileSync(join(legacyFolder, 'mission-control.sqlite'), 'utf8')).toBe('legacy db')
+    })
+  })
+
+  it('does not adopt legacy app data in development runtime', async () => {
+    await withTemporaryWorkspace(async () => {
+      process.env.NODE_ENV = 'development'
+      const originalApp = electronRuntime.app
+      const legacyAppData = join(process.cwd(), 'legacy-app-data')
+      const legacyDataFolder = join(legacyAppData, 'data')
+      const repoDataFolder = join(process.cwd(), 'data')
+      const legacyDbPath = join(legacyDataFolder, 'mission-control.sqlite')
+
+      mkdirSync(legacyDataFolder, { recursive: true })
+      mkdirSync(repoDataFolder, { recursive: true })
+      writeFileSync(legacyDbPath, 'legacy db')
+      electronRuntime.app = {
+        getPath: (name: string) => name === 'userData' ? legacyAppData : process.cwd(),
+        getAppPath: () => process.cwd()
+      } as typeof electronRuntime.app
+
+      try {
+        const dbPath = getDbPath()
+        expect(dbPath).toBe(join(process.cwd(), 'data', 'mission-control.sqlite'))
+        expect(existsSync(dbPath)).toBe(false)
+        expect(existsSync(legacyDbPath)).toBe(true)
+      } finally {
+        electronRuntime.app = originalApp
+      }
     })
   })
 })

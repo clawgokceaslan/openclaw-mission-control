@@ -201,6 +201,10 @@ function sqliteSidecarPaths(dbPath: string): string[] {
 }
 
 function adoptLegacyDefaultDatabaseIfNeeded(activeDbFolder: string): string {
+  if (isDevelopmentRuntime()) {
+    return activeDbFolder
+  }
+
   if (activeDbFolder !== defaultDbFolder()) return activeDbFolder
 
   const targetDbPath = join(activeDbFolder, DB_FILENAME)
