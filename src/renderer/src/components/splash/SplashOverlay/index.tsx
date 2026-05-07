@@ -14,6 +14,11 @@ interface CodeLine {
   tokens: CodeToken[]
 }
 
+interface CodeBlock {
+  lane: number
+  lines: CodeLine[]
+}
+
 const codeRain: CodeLine[] = [
   {
     lane: 2,
@@ -190,6 +195,15 @@ const codeRain: CodeLine[] = [
   }
 ]
 
+const codeBlocks: CodeBlock[] = [
+  { lane: 0, lines: [codeRain[0], codeRain[1], codeRain[2], codeRain[3], codeRain[4]] },
+  { lane: 18, lines: [codeRain[5], codeRain[6], codeRain[7], codeRain[8], codeRain[9]] },
+  { lane: 40, lines: [codeRain[10], codeRain[11], codeRain[0], codeRain[2], codeRain[5]] },
+  { lane: 62, lines: [codeRain[3], codeRain[4], codeRain[7], codeRain[9], codeRain[11]] },
+  { lane: 8, lines: [codeRain[1], codeRain[6], codeRain[8], codeRain[10], codeRain[0]] },
+  { lane: 52, lines: [codeRain[2], codeRain[5], codeRain[6], codeRain[7], codeRain[11]] }
+]
+
 const taskTitles = [
   'App Splash Loader',
   'Renderer Overlay Polish',
@@ -272,19 +286,30 @@ export function SplashOverlay({ ready }: SplashOverlayProps) {
           ))}
         </div>
         <div className={styles.codeRain}>
-          {codeRain.map((line, index) => (
-            <code
-              key={`${index}-${line.lane}`}
-              className={styles.codeLine}
+          {codeBlocks.map((block, blockIndex) => (
+            <div
+              key={`${blockIndex}-${block.lane}`}
+              className={styles.codeBlock}
               style={{
-                '--line-index': index,
-                '--line-lane': line.lane
+                '--block-index': blockIndex,
+                '--block-lane': block.lane
               } as CSSProperties}
             >
-              {line.tokens.map((token, tokenIndex) => (
-                <span key={`${token.value}-${tokenIndex}`} data-tone={token.tone}>{token.value}</span>
-              ))}
-            </code>
+              <div className={styles.codeBlockChrome}>workspace://open-mission-control/src/renderer/runtime.tsx</div>
+              <div className={styles.codeBlockBody}>
+                {block.lines.map((line, lineIndex) => (
+                  <code
+                    key={`${blockIndex}-${lineIndex}-${line.lane}`}
+                    className={styles.codeLine}
+                    style={{ '--line-index': lineIndex } as CSSProperties}
+                  >
+                    {line.tokens.map((token, tokenIndex) => (
+                      <span key={`${token.value}-${tokenIndex}`} data-tone={token.tone}>{token.value}</span>
+                    ))}
+                  </code>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
         <div className={styles.taskRain}>
