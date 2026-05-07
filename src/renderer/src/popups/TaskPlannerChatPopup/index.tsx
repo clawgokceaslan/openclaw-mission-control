@@ -4,18 +4,31 @@ import {
   LuArrowLeft,
   LuArrowRight,
   LuBrainCircuit,
+  LuBookOpen,
   LuCheck,
   LuClipboardCheck,
+  LuCompass,
+  LuFlag,
+  LuFlaskConical,
+  LuGitBranch,
   LuGauge,
   LuGripVertical,
   LuLayers,
+  LuLightbulb,
   LuListChecks,
+  LuMap,
   LuMessageSquare,
   LuPlus,
   LuRefreshCw,
+  LuRocket,
+  LuRoute,
+  LuSave,
+  LuScale,
   LuSend,
+  LuShieldAlert,
   LuSparkles,
   LuTarget,
+  LuUsers,
   LuWandSparkles,
   LuX
 } from 'react-icons/lu'
@@ -24,9 +37,10 @@ import type { Project, TaskEntity, TaskJsonImportResult } from '@shared/types/en
 import { invokeBridge } from '@renderer/utils/api'
 import styles from './index.module.scss'
 
-type PlannerStep = 1 | 2 | 3 | 4 | 5 | 6 | 7
+type PlannerStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12
 type PlannerIntent = 'project' | 'product' | 'research' | 'delivery'
 type PlannerDepth = 'fast' | 'balanced' | 'deep'
+type PlannerTextKey = Exclude<keyof PlannerForm, 'intent' | 'depth'>
 
 export type TaskPlannerDraft = {
   id: string
@@ -43,9 +57,20 @@ type PlannerForm = {
   intent: PlannerIntent
   depth: PlannerDepth
   outcome: string
+  northStar: string
   problem: string
   audience: string
+  jobToBeDone: string
+  evidence: string
+  opportunity: string
+  hypotheses: string
   successSignals: string
+  moscow: string
+  prioritization: string
+  storyMap: string
+  deliveryPlan: string
+  metrics: string
+  risks: string
   constraints: string
   exclusions: string
   pmNotes: string
@@ -70,14 +95,19 @@ interface TaskPlannerChatPopupProps {
   onCreated: (tasks: TaskEntity[]) => void
 }
 
-const STEPS: Array<{ value: PlannerStep; label: string; hint: string }> = [
-  { value: 1, label: 'Niyet', hint: 'Akışı seç' },
-  { value: 2, label: 'Ürün', hint: 'Problemi yaz' },
-  { value: 3, label: 'Başarı', hint: 'Kabul sinyali' },
-  { value: 4, label: 'Sınırlar', hint: 'Kapsamı daralt' },
-  { value: 5, label: 'PM Tur', hint: 'Soruları yanıtla' },
-  { value: 6, label: 'Sentez', hint: 'AI tamamlar' },
-  { value: 7, label: 'Taslak', hint: 'Düzenle ve aç' }
+const STEPS: Array<{ value: PlannerStep; label: string; hint: string; method: string }> = [
+  { value: 1, label: 'Strateji', hint: 'Akış modu', method: 'Outcome over output' },
+  { value: 2, label: 'North Star', hint: 'Sonuç metriği', method: 'North Star Metric' },
+  { value: 3, label: 'Kullanıcı', hint: 'JTBD', method: 'Jobs To Be Done' },
+  { value: 4, label: 'Fırsat', hint: 'Discovery', method: 'Opportunity Solution Tree' },
+  { value: 5, label: 'Varsayım', hint: 'Hipotez', method: 'Lean Startup' },
+  { value: 6, label: 'Kapsam', hint: 'MoSCoW', method: 'MoSCoW' },
+  { value: 7, label: 'Öncelik', hint: 'RICE/Kano', method: 'RICE + Kano' },
+  { value: 8, label: 'Deneyim', hint: 'Story map', method: 'User Story Mapping' },
+  { value: 9, label: 'Delivery', hint: 'Sıralama', method: 'Dual-track delivery' },
+  { value: 10, label: 'Metrik', hint: 'HEART', method: 'HEART + Guardrail' },
+  { value: 11, label: 'Risk', hint: 'PM kritik', method: 'Pre-mortem' },
+  { value: 12, label: 'Task Studio', hint: 'Kaydet', method: 'PRD to tasks' }
 ]
 
 const INTENT_OPTIONS: Array<{ value: PlannerIntent; title: string; description: string }> = [
@@ -93,14 +123,85 @@ const DEPTH_OPTIONS: Array<{ value: PlannerDepth; title: string; count: string }
   { value: 'deep', title: 'Derin', count: '6-8 task' }
 ]
 
-const FIELD_LABELS: Record<keyof Pick<PlannerForm, 'outcome' | 'problem' | 'audience' | 'successSignals' | 'constraints' | 'exclusions' | 'pmNotes'>, string> = {
+const FIELD_LABELS: Record<PlannerTextKey, string> = {
   outcome: 'İstenen sonuç',
+  northStar: 'North Star',
   problem: 'Problem / fırsat',
   audience: 'Kullanıcı / paydaş',
+  jobToBeDone: 'JTBD',
+  evidence: 'Kanıt',
+  opportunity: 'Fırsat ağacı',
+  hypotheses: 'Hipotezler',
   successSignals: 'Başarı sinyalleri',
+  moscow: 'MoSCoW',
+  prioritization: 'Öncelik',
+  storyMap: 'Story map',
+  deliveryPlan: 'Delivery plan',
+  metrics: 'Metrikler',
+  risks: 'Riskler',
   constraints: 'Kısıtlar',
   exclusions: 'Kapsam dışı',
   pmNotes: 'PM notları'
+}
+
+const STEP_FIELDS: Record<PlannerStep, PlannerTextKey[]> = {
+  1: ['outcome', 'pmNotes'],
+  2: ['outcome', 'northStar', 'successSignals'],
+  3: ['audience', 'jobToBeDone', 'problem'],
+  4: ['evidence', 'opportunity', 'problem'],
+  5: ['hypotheses', 'risks'],
+  6: ['moscow', 'constraints', 'exclusions'],
+  7: ['prioritization', 'successSignals'],
+  8: ['storyMap', 'audience'],
+  9: ['deliveryPlan', 'constraints'],
+  10: ['metrics', 'successSignals'],
+  11: ['risks', 'pmNotes'],
+  12: ['pmNotes']
+}
+
+const FRAMEWORK_CATALOG = [
+  'Marty Cagan: empowered teams, outcome over output',
+  'Teresa Torres: Opportunity Solution Tree ve continuous discovery',
+  'Jobs To Be Done: kullanıcı işini ve progress motivasyonunu netleştirme',
+  'RICE: reach, impact, confidence, effort ile öncelik',
+  'Kano: basic, performance, delight ayrımı',
+  'MoSCoW: must, should, could, won’t kapsam disiplini',
+  'User Story Mapping: backbone, slices, release cut',
+  'Lean Startup: riski hipoteze çevirip doğrulama',
+  'HEART: happiness, engagement, adoption, retention, task success',
+  'Pre-mortem: başarısızlığı önceden tasarlayıp risk kapatma',
+  'DHM: delight, hard-to-copy advantage, margin',
+  'PRD: problem, solution, scope, acceptance, rollout'
+]
+
+const STEP_COACH: Record<PlannerStep, { title: string; principle: string; output: string }> = {
+  1: { title: 'Strateji koçu', principle: 'Önce outcome, sonra output. Ekip ne üreteceğini değil hangi davranışı değiştireceğini netleştirir.', output: 'Intent, derinlik ve PM çalışma prensibi' },
+  2: { title: 'North Star koçu', principle: 'Tek kuzey metriği ve 2-3 proxy sinyal belirle; tasklar bu sinyale bağlanmalı.', output: 'Outcome, North Star ve kabul sinyali' },
+  3: { title: 'Kullanıcı koçu', principle: 'JTBD ile rol değil ilerleme ihtiyacını yaz; task açıklaması kullanıcının işinden kopmasın.', output: 'Kullanıcı, paydaş ve JTBD cümlesi' },
+  4: { title: 'Discovery koçu', principle: 'Fırsat ağacı problemden çözüme atlamayı engeller; kanıtı ve fırsatı ayır.', output: 'Kanıt listesi ve fırsat alanları' },
+  5: { title: 'Hipotez koçu', principle: 'Büyük kararları test edilebilir varsayımlara böl; belirsizlik taska dönüşür.', output: 'Hipotez ve deney riski' },
+  6: { title: 'Scope koçu', principle: 'MoSCoW ve kapsam dışı yoksa plan büyür; won’t-have alanı en az must-have kadar değerlidir.', output: 'Must/Should/Could/Won’t ve kısıtlar' },
+  7: { title: 'Öncelik koçu', principle: 'RICE, Kano ve value/effort aynı kararı farklı açılardan doğrular; sıra savunulabilir olmalı.', output: 'Öncelik mantığı ve task sayısı' },
+  8: { title: 'Deneyim koçu', principle: 'Story mapping kullanıcı akışını delivery diline çevirir; backbone ve release slice yaz.', output: 'Backbone, slice ve kritik edge case' },
+  9: { title: 'Delivery koçu', principle: 'Dual-track yaklaşımda discovery ve delivery beraber akar; bağımlılıkları task sınırına yaz.', output: 'Sıralama, bağımlılık ve handoff planı' },
+  10: { title: 'Metrik koçu', principle: 'HEART ve guardrail metrikleri kaliteyi sonuçla dengeler; sadece çıktı sayma.', output: 'Başarı, davranış ve guardrail metrikleri' },
+  11: { title: 'Risk koçu', principle: 'Pre-mortem en ucuz kalite kapısıdır; başarısızlık nedenini taska çevir.', output: 'Risk, mitigasyon ve PM kritik soruları' },
+  12: { title: 'Task studio', principle: 'PRD’den taska geçerken her task bağımsız, ölçülebilir ve kaynak bağlamına iz bırakır.', output: 'Kaydedilebilir task taslakları' }
+}
+
+const STEP_ICONS: Record<PlannerStep, typeof LuSparkles> = {
+  1: LuCompass,
+  2: LuFlag,
+  3: LuUsers,
+  4: LuGitBranch,
+  5: LuFlaskConical,
+  6: LuScale,
+  7: LuGauge,
+  8: LuMap,
+  9: LuRoute,
+  10: LuTarget,
+  11: LuShieldAlert,
+  12: LuRocket
 }
 
 function createDraftId() {
@@ -117,9 +218,20 @@ function initialPlannerForm(project: Project, sourceTask?: TaskEntity | null): P
     intent: 'product',
     depth: 'balanced',
     outcome: sourceTask?.title ?? '',
+    northStar: '',
     problem: sourceTask?.description ?? project.description ?? '',
     audience: '',
+    jobToBeDone: '',
+    evidence: '',
+    opportunity: '',
+    hypotheses: '',
     successSignals: '',
+    moscow: '',
+    prioritization: '',
+    storyMap: '',
+    deliveryPlan: '',
+    metrics: '',
+    risks: '',
     constraints: '',
     exclusions: '',
     pmNotes: ''
@@ -164,22 +276,76 @@ function defaultAudience(project: Project, form: PlannerForm) {
 
 function smartDefaults(project: Project, form: PlannerForm, sourceTask?: TaskEntity | null): Partial<PlannerForm> {
   const subject = compactText(sourceTask?.title || form.outcome || project.name)
+  const audience = form.audience.trim() || defaultAudience(project, form)
+  const sourceContext = compactText(sourceTask?.description || project.description)
   return {
     outcome: form.outcome.trim() || `${subject} için uygulanabilir, önceliklendirilmiş ve doğrulanabilir task seti oluşturmak`,
+    northStar: form.northStar.trim() || `${subject} akışında kullanıcı başına doğrulanabilir task oluşturma başarısını artırmak; proxy metrik: ilk oturumda düzenlenip kaydedilen task taslağı sayısı.`,
     problem: form.problem.trim() || compactText(sourceTask?.description || project.description) || `${subject} kapsamı fazla geniş; bağımsız iş parçaları, karar noktaları ve kabul sinyalleri net değil.`,
-    audience: form.audience.trim() || defaultAudience(project, form),
+    audience,
+    jobToBeDone: form.jobToBeDone.trim() || `When ${audience.toLowerCase()} geniş ve belirsiz bir işi planlamak zorunda kaldığında, bağımsız ve kabul sinyali olan tasklara güvenle bölmek ister, so execution tarafı beklemeden başlayabilir.`,
+    evidence: form.evidence.trim() || [
+      sourceContext ? `Kaynak bağlam: ${sourceContext}` : `Proje bağlamı: ${project.name}`,
+      'Kullanıcı beklentisi: süreç premium, yönlendirici, geri/ileri yapılabilir ve suggestion destekli olmalı.',
+      'Kabul sinyali: tasklar son adımda düzenlenip proje içinde kaydedilebilir olmalı.'
+    ].join('\n'),
+    opportunity: form.opportunity.trim() || [
+      'Ana fırsat: geniş işi ürün probleminden delivery tasklarına çevirmek',
+      'Alt fırsat: eksik bağlamı AI önerileriyle tamamlamak',
+      'Alt fırsat: kullanıcı onayından önce düzenlenebilir task studio sunmak'
+    ].join('\n'),
+    hypotheses: form.hypotheses.trim() || [
+      'Eğer kullanıcıya adım bazlı PM soruları ve öneriler verilirse daha kaliteli task taslakları üretir.',
+      'Eğer RICE, MoSCoW, JTBD ve metrikler aynı akışta görünürse scope creep azalır.',
+      'Eğer taslaklar kaydedilmeden önce düzenlenirse kullanıcı kontrol hissini kaybetmez.'
+    ].join('\n'),
     successSignals: form.successSignals.trim() || [
       'Kullanıcı tek akışta ne istediğini tarif edebiliyor',
       'AI eksik bağlamı önerilerle tamamlıyor',
       'Taslak tasklar düzenlenip tek aksiyonla oluşturuluyor'
     ].join('\n'),
+    moscow: form.moscow.trim() || [
+      'Must: 12 adım, geri/ileri navigasyon, AI önerileri, düzenlenebilir task taslakları',
+      'Should: risk, metrik, öncelik ve kapsam disiplinini yan panelde görünür tutmak',
+      'Could: farklı intent modlarına göre task fazlarını değiştirmek',
+      'Won’t: kullanıcı onayı olmadan task oluşturmak veya kaynak taskı otomatik kapatmak'
+    ].join('\n'),
+    prioritization: form.prioritization.trim() || [
+      'RICE: reach yüksek, impact yüksek, confidence orta/yüksek, effort orta',
+      'Kano: temel beklenti task kaydı; performans beklentisi hızlı öneri; delight beklentisi premium PM koçluğu',
+      'Value/Effort: önce netleştirme ve task studio, sonra gelişmiş otomasyon'
+    ].join('\n'),
+    storyMap: form.storyMap.trim() || [
+      'Backbone: strateji belirle -> kullanıcıyı netleştir -> fırsatı çıkar -> kapsamı sınırla -> taskları kaydet',
+      'Release slice 1: bilgi toplama, suggestion, taslak üretme',
+      'Release slice 2: düzenleme, sıralama, kaydetme, kaynak task izi'
+    ].join('\n'),
+    deliveryPlan: form.deliveryPlan.trim() || [
+      'Discovery: belirsiz alanları adım bazlı sorularla azalt',
+      'Design: ana çalışma alanını sade, yan paneli akıl katmanı olarak kullan',
+      'Engineering: form state, autosave, batch JSON ve task create akışını koru',
+      'Verification: build, test ve create kabul senaryolarını çalıştır'
+    ].join('\n'),
+    metrics: form.metrics.trim() || [
+      'HEART Happiness: kullanıcı akışı boğucu bulmadan tamamlıyor',
+      'Engagement: planlanan task taslağı sayısı',
+      'Adoption: planlama merkezinden oluşturulan task oranı',
+      'Retention: aynı kaynak task için taslağa geri dönme başarısı',
+      'Task Success: geçerli task JSON ile kayıt başarı oranı',
+      'Guardrail: fazla adım yüzünden terk oranı artmıyor'
+    ].join('\n'),
+    risks: form.risks.trim() || [
+      'Pre-mortem: 12 adım fazla metinle boğarsa kullanıcı erken çıkar.',
+      'Risk: metodoloji listesi task üretimini yavaşlatabilir.',
+      'Mitigasyon: her adım tek ana karar, sağ panel suggestion ve otomatik doldurma sunar.'
+    ].join('\n'),
     constraints: form.constraints.trim() || [
-      'Süreç 6-7 basamakta kalmalı',
+      'Süreç 12 basamaklı ama her basamak tek karar odağında kalmalı',
       'Popup geniş kalmalı ama boş alanlar anlamlı panellerle dolmalı',
       'Tasklar aynı projede bağımsız kayıtlar olarak açılmalı'
     ].join('\n'),
     exclusions: form.exclusions.trim() || 'Kaynak taskı otomatik kapatma, kullanıcı onayı olmadan direkt task oluşturma, task detail modalına bağımlı chat state taşıma',
-    pmNotes: form.pmNotes.trim() || 'Senior product manager gibi önce niyeti daralt, sonra delivery tasklarını bağımsız, sıralı ve kabul sinyali olan parçalara böl.'
+    pmNotes: form.pmNotes.trim() || 'Senior product manager gibi outcome’dan başla, kullanıcı işini netleştir, fırsatları kanıtla, MoSCoW ve RICE ile scope’u daralt, story map ve metrikleri task açıklamalarına taşı.'
   }
 }
 
@@ -187,11 +353,22 @@ function analyzePlan(form: PlannerForm, answers: string[], draftCount: number): 
   const missing: string[] = []
   const strengths: string[] = []
   const risks: string[] = []
-  const filled = {
+  const filled: Record<PlannerTextKey, boolean> = {
     outcome: form.outcome.trim().length > 16,
+    northStar: form.northStar.trim().length > 18,
     problem: form.problem.trim().length > 24,
     audience: form.audience.trim().length > 8,
+    jobToBeDone: form.jobToBeDone.trim().length > 20,
+    evidence: form.evidence.trim().length > 18,
+    opportunity: form.opportunity.trim().length > 18,
+    hypotheses: splitInput(form.hypotheses).length > 0 || form.hypotheses.trim().length > 18,
     successSignals: splitInput(form.successSignals).length > 0 || form.successSignals.trim().length > 18,
+    moscow: form.moscow.trim().length > 18,
+    prioritization: form.prioritization.trim().length > 18,
+    storyMap: form.storyMap.trim().length > 18,
+    deliveryPlan: form.deliveryPlan.trim().length > 18,
+    metrics: form.metrics.trim().length > 18,
+    risks: form.risks.trim().length > 18,
     constraints: form.constraints.trim().length > 8,
     exclusions: form.exclusions.trim().length > 8,
     pmNotes: form.pmNotes.trim().length > 12
@@ -200,16 +377,24 @@ function analyzePlan(form: PlannerForm, answers: string[], draftCount: number): 
   Object.entries(filled).forEach(([key, ready]) => {
     if (!ready) missing.push(FIELD_LABELS[key as keyof typeof FIELD_LABELS])
   })
-  if (filled.outcome && filled.problem) strengths.push('Problem ve hedef aynı akışta okunuyor.')
-  if (filled.successSignals) strengths.push('Kabul sinyali task açıklamalarına taşınabilir.')
-  if (filled.constraints && filled.exclusions) strengths.push('Kapsam sınırı gereksiz task üretimini azaltır.')
+  if (filled.outcome && filled.northStar) strengths.push('Outcome ve North Star aynı yöne bakıyor.')
+  if (filled.audience && filled.jobToBeDone) strengths.push('Kullanıcı işi task diline taşınabilir.')
+  if (filled.evidence && filled.opportunity) strengths.push('Discovery kanıtı ve fırsat ağacı aynı bağlamda.')
+  if (filled.successSignals && filled.metrics) strengths.push('Kabul sinyali ve ürün metriği birlikte doğrulanabilir.')
+  if (filled.moscow && filled.prioritization) strengths.push('Kapsam ve öncelik metodolojisi gereksiz işi filtreler.')
+  if (filled.storyMap && filled.deliveryPlan) strengths.push('Deneyim akışı delivery sırasına çevrilebilir.')
   if (answers.filter((answer) => answer.trim()).length >= 2) strengths.push('PM soru turu taslak sırasını besliyor.')
   if (!filled.audience) risks.push('Kullanıcı grubu belirsizse tasklar teknik yapılacak işe kayabilir.')
   if (!filled.successSignals) risks.push('Başarı sinyali yoksa oluşturulan tasklar doğrulanabilir olmaz.')
+  if (!filled.prioritization) risks.push('RICE veya value/effort yoksa task sırası politik olur, ürün değeriyle savunulamaz.')
+  if (!filled.metrics) risks.push('Metrik yoksa çıktı üretilebilir ama outcome öğrenmesi eksik kalır.')
+  if (form.risks.trim()) risks.push(...splitInput(form.risks).slice(0, 2))
   if (draftCount > 0 && draftCount < 3) risks.push('Taslak sayısı geniş bir kapsam için düşük kalabilir.')
 
+  const readyCount = Object.values(filled).filter(Boolean).length
+  const totalCount = Object.keys(filled).length
   const score = clamp(
-    Object.values(filled).filter(Boolean).length * 12 +
+    Math.round((readyCount / totalCount) * 74) +
       answers.filter((answer) => answer.trim()).length * 5 +
       Math.min(draftCount, 6) * 3,
     8,
@@ -221,21 +406,23 @@ function analyzePlan(form: PlannerForm, answers: string[], draftCount: number): 
     missing,
     strengths,
     risks,
-    nextBestAction: missing.length > 0 ? `${missing[0]} alanını doldur veya AI ile tamamlat.` : draftCount === 0 ? 'Sentez adımında taslakları üret.' : 'Taslakları sırala ve oluştur.',
+    nextBestAction: missing.length > 0 ? `${missing[0]} alanını doldur veya AI önerisiyle tamamlat.` : draftCount === 0 ? 'Task Studio adımında taslakları üret.' : 'Taslakları sırala, riskleri kontrol et ve kaydet.',
     suggestedTaskCount: taskCountForDepth(form.depth, splitInput(form.successSignals).length)
   }
 }
 
 function buildDynamicQuestions(form: PlannerForm, report: IntelligenceReport) {
   const questions = [
-    'Bu işin sonunda kullanıcı veya ekip hangi somut davranışı yapabilir hale gelmeli?',
-    'Bu akışta hangi bağımsız tasklar paralel ilerleyebilir, hangileri sıraya bağlı?',
-    'Riskli varsayım hangisi ve bunu doğrulayan kabul sinyali ne olmalı?'
+    'Marty Cagan yaklaşımıyla soruyorum: Bu plan hangi outcome’u büyütüyor, sadece hangi çıktıyı üretmiyor?',
+    'Teresa Torres Opportunity Solution Tree mantığıyla en güçlü fırsat ve alt fırsatlar hangileri?',
+    'RICE’e göre ilk üç taskın reach, impact, confidence ve effort sırası nasıl olmalı?',
+    'Pre-mortem yaparsak bu plan neden başarısız olur ve hangi task bu riski kapatır?'
   ]
   if (!form.audience.trim()) questions.unshift('Bu işten en çok etkilenen kullanıcı, rol veya paydaş kim?')
   if (!form.exclusions.trim()) questions.push('Bu planın dışında özellikle bırakmam gereken şeyler var mı?')
+  if (!form.metrics.trim()) questions.push('HEART veya North Star için hangi metrik kazanımı başarı sayılır?')
   if (report.score > 72) questions.push('Taslakları üretirken daha agresif mi parçalayayım, yoksa daha az ve büyük task mı bırakalım?')
-  return uniqueItems(questions).slice(0, 5)
+  return uniqueItems(questions).slice(0, 6)
 }
 
 function titleFromText(value: string, fallback: string) {
@@ -245,15 +432,20 @@ function titleFromText(value: string, fallback: string) {
 }
 
 function phaseTemplates(intent: PlannerIntent) {
-  if (intent === 'research') return ['Discovery', 'Varsayım', 'Karar', 'Doğrulama', 'Raporlama', 'Handoff']
-  if (intent === 'delivery') return ['Analiz', 'Mimari', 'Uygulama', 'Entegrasyon', 'Kalite', 'Release']
-  if (intent === 'project') return ['Kapsam', 'Milestone', 'Bağımlılık', 'Uygulama', 'Koordinasyon', 'Kabul']
-  return ['Discovery', 'Kapsam', 'Deneyim', 'Uygulama', 'Ölçüm', 'Kabul']
+  if (intent === 'research') return ['Strateji', 'JTBD', 'Discovery', 'Fırsat', 'Varsayım', 'Deney', 'Karar', 'Metrik', 'Risk', 'Handoff']
+  if (intent === 'delivery') return ['Strateji', 'Kapsam', 'Mimari', 'State', 'Uygulama', 'Entegrasyon', 'Kalite', 'Metrik', 'Release', 'Handoff']
+  if (intent === 'project') return ['Strateji', 'Kapsam', 'Milestone', 'Bağımlılık', 'Uygulama', 'Koordinasyon', 'Risk', 'Kabul', 'Handoff']
+  return ['Strateji', 'Kullanıcı', 'Fırsat', 'Hipotez', 'Kapsam', 'Öncelik', 'Deneyim', 'Delivery', 'Metrik', 'Risk', 'Kabul']
 }
 
 function candidateTaskTitles(form: PlannerForm, answers: string[], project: Project) {
   const explicit = uniqueItems([
     ...sentences(form.pmNotes),
+    ...sentences(form.opportunity),
+    ...sentences(form.hypotheses),
+    ...sentences(form.prioritization),
+    ...sentences(form.storyMap),
+    ...sentences(form.deliveryPlan),
     ...answers.flatMap((answer) => sentences(answer))
   ]).filter((item) => item.length > 12 && item.length < 120)
 
@@ -290,9 +482,17 @@ function buildDraftDescription(project: Project, form: PlannerForm, title: strin
   const constraints = splitInput(form.constraints)
   const exclusions = splitInput(form.exclusions)
   const risk = report.risks[0] ?? 'Kapsam genişlerse task bağımsızlığı zayıflayabilir.'
+  const priority = splitInput(form.prioritization)[order - 1] ?? splitInput(form.prioritization)[0] ?? 'RICE ve value/effort dengesiyle önceliklendir.'
+  const metric = splitInput(form.metrics)[order - 1] ?? splitInput(form.metrics)[0] ?? 'Task success ve guardrail metrikleriyle doğrula.'
   return [
     '## Amaç',
     `${title}. Bu task ${project.name} projesi içinde ${phase.toLowerCase()} basamağını bağımsız ve doğrulanabilir hale getirmeli.`,
+    '',
+    '## Product Methodology',
+    `- Faz: ${phase}`,
+    `- North Star: ${form.northStar.trim() || 'Outcome odaklı ürün kazanımı netleştirilecek.'}`,
+    `- Öncelik Mantığı: ${priority}`,
+    `- Ölçüm: ${metric}`,
     '',
     '## Bağlam',
     form.problem.trim() || form.outcome.trim(),
@@ -300,6 +500,11 @@ function buildDraftDescription(project: Project, form: PlannerForm, title: strin
     '',
     '## Kullanıcı / Paydaş',
     form.audience.trim(),
+    form.jobToBeDone.trim() ? `\nJTBD: ${form.jobToBeDone.trim()}` : '',
+    '',
+    '## Fırsat ve Varsayım',
+    form.opportunity.trim() || 'Fırsat bu task içinde daraltılacak.',
+    form.hypotheses.trim() ? `\nHipotez:\n${form.hypotheses.trim()}` : '',
     '',
     '## Beklenen İş',
     `1. ${phase} kapsamını daralt.`,
@@ -312,6 +517,7 @@ function buildDraftDescription(project: Project, form: PlannerForm, title: strin
     '## Kısıtlar',
     constraints.length > 0 ? constraints.map((constraint) => `- ${constraint}`).join('\n') : '- Mevcut proje kuralları ve tasarım standardı korunur.',
     exclusions.length > 0 ? `\n## Kapsam Dışı\n${exclusions.map((item) => `- ${item}`).join('\n')}` : '',
+    form.moscow.trim() ? `\n## MoSCoW\n${form.moscow.trim()}` : '',
     '',
     '## PM Notu',
     form.pmNotes.trim() || 'Senior product manager yaklaşımıyla küçük, bağımsız ve kabul edilebilir çıktı üret.',
@@ -365,6 +571,19 @@ function draftsToPlannerJson(drafts: TaskPlannerDraft[], status?: string) {
     }))
 }
 
+function suggestionForStep(step: PlannerStep, project: Project, form: PlannerForm, sourceTask?: TaskEntity | null): Partial<PlannerForm> {
+  const defaults = smartDefaults(project, form, sourceTask)
+  const patch: Partial<PlannerForm> = {}
+  STEP_FIELDS[step].forEach((key) => {
+    patch[key] = defaults[key]
+  })
+  return patch
+}
+
+function safePlannerStep(value: unknown): PlannerStep {
+  return clamp(typeof value === 'number' ? value : Number(value), 1, 12) as PlannerStep
+}
+
 export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, defaultStatus, onClose, onCreated }: TaskPlannerChatPopupProps) {
   const [step, setStep] = useState<PlannerStep>(1)
   const [form, setForm] = useState<PlannerForm>(() => initialPlannerForm(project, sourceTask))
@@ -373,20 +592,47 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const draftStorageKey = useMemo(() => `omc-task-planner:${project.id}:${sourceTask?.id ?? 'new'}`, [project.id, sourceTask?.id])
 
   useEffect(() => {
     if (!open) return
-    setStep(1)
-    setForm(initialPlannerForm(project, sourceTask))
-    setAnswers([])
-    setDrafts([])
+    const initialForm = initialPlannerForm(project, sourceTask)
+    try {
+      const saved = typeof localStorage === 'undefined' ? null : localStorage.getItem(draftStorageKey)
+      if (saved) {
+        const parsed = JSON.parse(saved) as { step?: PlannerStep; form?: Partial<PlannerForm>; answers?: string[]; drafts?: TaskPlannerDraft[] }
+        setStep(safePlannerStep(parsed.step ?? 1))
+        setForm({ ...initialForm, ...(parsed.form ?? {}) })
+        setAnswers(Array.isArray(parsed.answers) ? parsed.answers.filter((item) => typeof item === 'string') : [])
+        setDrafts(Array.isArray(parsed.drafts) ? parsed.drafts : [])
+      } else {
+        setStep(1)
+        setForm(initialForm)
+        setAnswers([])
+        setDrafts([])
+      }
+    } catch {
+      setStep(1)
+      setForm(initialForm)
+      setAnswers([])
+      setDrafts([])
+    }
     setMessage('')
     setError('')
-  }, [open, project.id, sourceTask?.id])
+  }, [draftStorageKey, open, project.id, project.description, sourceTask?.description, sourceTask?.id, sourceTask?.title])
+
+  useEffect(() => {
+    if (!open || typeof localStorage === 'undefined') return
+    localStorage.setItem(draftStorageKey, JSON.stringify({ step, form, answers, drafts }))
+  }, [answers, draftStorageKey, drafts, form, open, step])
 
   const sortedDrafts = useMemo(() => drafts.slice().sort((a, b) => a.order - b.order), [drafts])
   const report = useMemo(() => analyzePlan(form, answers, sortedDrafts.length), [answers, form, sortedDrafts.length])
   const questions = useMemo(() => buildDynamicQuestions(form, report), [form, report])
+  const currentGuide = STEPS.find((item) => item.value === step) ?? STEPS[0]
+  const currentCoach = STEP_COACH[step]
+  const StepIcon = STEP_ICONS[step]
+  const currentStepMissing = STEP_FIELDS[step].filter((key) => !form[key].trim())
   const currentQuestionIndex = Math.min(answers.length, questions.length - 1)
   const canCreate = sortedDrafts.some((draft) => draft.title.trim() && draft.description.trim())
 
@@ -403,7 +649,23 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
     setError('')
   }
 
-  const synthesizeDrafts = (nextStep: PlannerStep = 6, formOverride = form, answersOverride = answers) => {
+  const applyStepSuggestion = () => {
+    setForm((current) => ({ ...current, ...suggestionForStep(step, project, current, sourceTask) }))
+    setError('')
+  }
+
+  const advanceWithSuggestion = () => {
+    const hydratedForm = { ...form, ...suggestionForStep(step, project, form, sourceTask) }
+    setForm(hydratedForm)
+    if (step === 11) {
+      synthesizeDrafts(12, hydratedForm)
+      return
+    }
+    setStep((current) => Math.min(12, current + 1) as PlannerStep)
+    setError('')
+  }
+
+  const synthesizeDrafts = (nextStep: PlannerStep = 12, formOverride = form, answersOverride = answers) => {
     const hydratedForm = { ...formOverride, ...smartDefaults(project, formOverride, sourceTask) }
     const hydratedAnswers = answersOverride.length > 0 ? answersOverride : [
       hydratedForm.outcome,
@@ -425,7 +687,7 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
     setMessage('')
     setError('')
     if (nextAnswers.length >= Math.min(3, questions.length)) {
-      synthesizeDrafts(6, form, nextAnswers)
+      synthesizeDrafts(12, form, nextAnswers)
     }
   }
 
@@ -448,19 +710,15 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
       rationale: 'Kullanıcı tarafından manuel eklenen taslak.',
       risk: 'Manuel taslakta kabul sinyali eksik kalabilir.'
     }])
-    setStep(7)
+    setStep(12)
   }
 
   const goNext = () => {
-    if (step === 5 && sortedDrafts.length === 0) {
-      synthesizeDrafts(6)
+    if (step === 11 && sortedDrafts.length === 0) {
+      synthesizeDrafts(12)
       return
     }
-    if (step === 6 && sortedDrafts.length === 0) {
-      synthesizeDrafts(7)
-      return
-    }
-    setStep((current) => Math.min(7, current + 1) as PlannerStep)
+    setStep((current) => Math.min(12, current + 1) as PlannerStep)
   }
 
   const createTasks = async () => {
@@ -483,11 +741,12 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
       return
     }
     const created = response.data?.tasks ?? (response.data?.task ? [response.data.task] : [])
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(draftStorageKey)
     onCreated(created)
     onClose()
   }
 
-  const renderTextArea = (key: keyof Pick<PlannerForm, 'outcome' | 'problem' | 'audience' | 'successSignals' | 'constraints' | 'exclusions' | 'pmNotes'>, label: string, placeholder: string, rows = 4) => (
+  const renderTextArea = (key: PlannerTextKey, label: string, placeholder: string, rows = 4) => (
     <label className={styles.field}>
       <span>{label}</span>
       <textarea rows={rows} value={form[key]} onChange={(event) => updateForm(key, event.target.value)} placeholder={placeholder} />
@@ -506,6 +765,7 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
           <div className={styles.headerMetrics}>
             <span><LuGauge size={14} /> %{report.score}</span>
             <span><LuLayers size={14} /> {report.suggestedTaskCount} öneri</span>
+            <span><LuSave size={14} /> Taslak kaydedildi</span>
           </div>
           <button type="button" className={styles.iconButton} onClick={onClose} aria-label="Kapat" title="Kapat"><LuX size={16} /></button>
         </header>
@@ -516,19 +776,22 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
               <b>{item.value}</b>
               <span>{item.label}</span>
               <small>{item.hint}</small>
+              <em>{item.method}</em>
             </button>
           ))}
         </nav>
 
         <main className={styles.workspace}>
           <section className={styles.stage}>
+            <div className={styles.stageIntro}>
+              <span><StepIcon size={15} /> {currentGuide.method}</span>
+              <h3>{currentCoach.title}</h3>
+              <p>{currentCoach.principle}</p>
+              <small>Çıktı: {currentCoach.output}</small>
+            </div>
+
             {step === 1 ? (
               <div className={styles.intentStep}>
-                <div className={styles.stageHero}>
-                  <span><LuSparkles size={15} /> Standart akış</span>
-                  <h3>Bu popup artık task yazma ekranı değil, yönlendiren bir planlama merkezi.</h3>
-                  <p>Az bilgiyle başlayabilir, eksikleri AI katmanına doldurtabilir ve son adımda tüm taslakları düzenleyebilirsin.</p>
-                </div>
                 <div className={styles.intentGrid}>
                   {INTENT_OPTIONS.map((option) => (
                     <button key={option.value} type="button" className={form.intent === option.value ? styles.optionActive : styles.option} onClick={() => updateForm('intent', option.value)}>
@@ -550,27 +813,71 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
 
             {step === 2 ? (
               <div className={styles.formStep}>
-                {renderTextArea('outcome', 'İstenen sonuç', 'Örn: Project ve product manager isteklerini yönlendiren çoklu task oluşturma merkezi', 3)}
-                {renderTextArea('problem', 'Problem / fırsat', 'Kullanıcı neyi başarmaya çalışıyor, bugün neden zor, hangi kararlar belirsiz?', 6)}
+                {renderTextArea('outcome', 'İstenen outcome', 'Örn: Project ve product manager isteklerini yönlendiren çoklu task oluşturma merkezi', 3)}
+                {renderTextArea('northStar', 'North Star / proxy metrik', 'Bu akış hangi davranışı veya ürün metriğini büyütecek?', 4)}
+                {renderTextArea('successSignals', 'Başarı sinyalleri', 'Her satıra bir kabul sinyali yaz. AI bunları task açıklamalarına dağıtacak.', 4)}
               </div>
             ) : null}
 
             {step === 3 ? (
               <div className={styles.formStep}>
                 {renderTextArea('audience', 'Kullanıcı / paydaş', 'Örn: project manager, product manager, execution agent kullanan ekip üyeleri', 3)}
-                {renderTextArea('successSignals', 'Başarı sinyalleri', 'Her satıra bir kabul sinyali yaz. AI bunları task açıklamalarına dağıtacak.', 6)}
+                {renderTextArea('jobToBeDone', 'Jobs To Be Done', 'When ..., I want to ..., so I can ... biçiminde kullanıcının ilerleme ihtiyacını yaz.', 4)}
+                {renderTextArea('problem', 'Problem / fırsat', 'Kullanıcı neyi başarmaya çalışıyor, bugün neden zor, hangi kararlar belirsiz?', 4)}
               </div>
             ) : null}
 
             {step === 4 ? (
               <div className={styles.formStep}>
-                {renderTextArea('constraints', 'Kısıtlar', 'Tasarım, state, süre, teknik veya ürün kısıtlarını yaz.', 5)}
-                {renderTextArea('exclusions', 'Kapsam dışı', 'Bu planın özellikle yapmaması gereken şeyleri yaz.', 4)}
-                {renderTextArea('pmNotes', 'PM notları', 'Tasklar nasıl bölünsün, hangi sıra/öncelik mantığı kullanılsın?', 4)}
+                {renderTextArea('evidence', 'Kanıt / veri / kullanıcı sesi', 'Kullanıcı yorumu, task açıklaması, geçmiş karar, gözlem veya varsayım kaynağı.', 5)}
+                {renderTextArea('opportunity', 'Opportunity Solution Tree', 'Ana fırsat ve alt fırsatları satır satır yaz.', 5)}
               </div>
             ) : null}
 
             {step === 5 ? (
+              <div className={styles.formStep}>
+                {renderTextArea('hypotheses', 'Lean hipotezleri', 'Eğer ... olursa ... metriği/çıktısı iyileşir çünkü ...', 5)}
+                {renderTextArea('risks', 'Varsayım riskleri', 'En riskli varsayım, bilinmeyen, karar ve doğrulama ihtiyacı.', 5)}
+              </div>
+            ) : null}
+
+            {step === 6 ? (
+              <div className={styles.formStep}>
+                {renderTextArea('moscow', 'MoSCoW kapsamı', 'Must, Should, Could, Won’t olacak şekilde kapsamı keskinleştir.', 5)}
+                {renderTextArea('constraints', 'Kısıtlar', 'Tasarım, state, süre, teknik veya ürün kısıtlarını yaz.', 4)}
+                {renderTextArea('exclusions', 'Kapsam dışı', 'Bu planın özellikle yapmaması gereken şeyleri yaz.', 4)}
+              </div>
+            ) : null}
+
+            {step === 7 ? (
+              <div className={styles.formStep}>
+                {renderTextArea('prioritization', 'RICE / Kano / Value-Effort', 'Reach, Impact, Confidence, Effort; basic/performance/delight; quick win/big bet notlarını yaz.', 6)}
+                {renderTextArea('successSignals', 'Önceliğe bağlanan kabul sinyalleri', 'İlk taskların hangi sinyali taşıyacağını netleştir.', 4)}
+              </div>
+            ) : null}
+
+            {step === 8 ? (
+              <div className={styles.formStep}>
+                {renderTextArea('storyMap', 'User Story Mapping', 'Backbone, release slice, happy path, edge case ve handoff noktalarını yaz.', 6)}
+                {renderTextArea('audience', 'Akıştaki roller', 'Ana kullanıcı, ikinci paydaş, operasyon veya execution agent rolünü netleştir.', 4)}
+              </div>
+            ) : null}
+
+            {step === 9 ? (
+              <div className={styles.formStep}>
+                {renderTextArea('deliveryPlan', 'Dual-track delivery planı', 'Discovery, design, engineering, verification, rollout ve bağımlılık sırasını yaz.', 6)}
+                {renderTextArea('constraints', 'Engineering kısıtları', 'State, IPC, servis, test, responsive, performans veya release kısıtları.', 4)}
+              </div>
+            ) : null}
+
+            {step === 10 ? (
+              <div className={styles.formStep}>
+                {renderTextArea('metrics', 'HEART / North Star / guardrail', 'Happiness, engagement, adoption, retention, task success ve guardrail metrikleri.', 6)}
+                {renderTextArea('successSignals', 'Kabul ve ölçüm sinyalleri', 'Task acceptance ile ürün metriği arasındaki bağlantıyı yaz.', 4)}
+              </div>
+            ) : null}
+
+            {step === 11 ? (
               <div className={styles.chatStep}>
                 <div className={styles.messages}>
                   {questions.map((question, index) => (
@@ -587,32 +894,7 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
               </div>
             ) : null}
 
-            {step === 6 ? (
-              <div className={styles.synthesisStep}>
-                <div className={styles.synthesisHero}>
-                  <span><LuWandSparkles size={16} /> AI sentez katmanı</span>
-                  <h3>Eksikler tamamlandı, taslak mimarisi üretildi.</h3>
-                  <p>Bu adım kullanıcıyı bekletmeden kararları görünür yapar: kaç task, hangi faz, hangi risk ve hangi kabul sinyaliyle ilerleyeceğini burada netleştirir.</p>
-                </div>
-                <div className={styles.synthesisGrid}>
-                  <div>
-                    <strong>Önerilen sıra</strong>
-                    <span>{sortedDrafts.length || report.suggestedTaskCount} task, {form.depth} derinlik</span>
-                  </div>
-                  <div>
-                    <strong>Kalite skoru</strong>
-                    <span>%{report.score} hazır</span>
-                  </div>
-                  <div>
-                    <strong>Sonraki aksiyon</strong>
-                    <span>{report.nextBestAction}</span>
-                  </div>
-                </div>
-                <button type="button" className={styles.fullButton} onClick={() => synthesizeDrafts(7)}><LuRefreshCw size={15} /> Taslakları yeniden sentezle ve önizle</button>
-              </div>
-            ) : null}
-
-            {step === 7 ? (
+            {step === 12 ? (
               <div className={styles.previewStep}>
                 <div className={styles.previewToolbar}>
                   <div>
@@ -620,7 +902,7 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
                     <p>Başlık, açıklama, sıra, faz ve risk alanlarını düzenleyip tek aksiyonla oluştur.</p>
                   </div>
                   <div className={styles.previewActions}>
-                    <button type="button" onClick={() => synthesizeDrafts(7)}><LuRefreshCw size={15} /> Yeniden üret</button>
+                    <button type="button" onClick={() => synthesizeDrafts(12)}><LuRefreshCw size={15} /> Yeniden üret</button>
                     <button type="button" onClick={addDraft}><LuPlus size={15} /> Taslak</button>
                   </div>
                 </div>
@@ -657,11 +939,22 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
               <strong>%{report.score}</strong>
               <div className={styles.scoreTrack}><i style={{ width: `${report.score}%` }} /></div>
             </div>
+            <div className={styles.stepCoachPanel}>
+              <h4><StepIcon size={15} /> {currentCoach.title}</h4>
+              <p>{currentCoach.principle}</p>
+              <small>{currentCoach.output}</small>
+              <button type="button" onClick={applyStepSuggestion}><LuLightbulb size={15} /> Bu adımı öneriyle doldur</button>
+              <button type="button" onClick={advanceWithSuggestion}><LuArrowRight size={15} /> Öneriyle ilerle</button>
+            </div>
             <div className={styles.assistPanel}>
               <h4><LuBrainCircuit size={15} /> Akıl katmanı</h4>
               <p>{report.nextBestAction}</p>
               <button type="button" onClick={applySmartDefaults}><LuWandSparkles size={15} /> Boşlukları doldur</button>
-              <button type="button" onClick={() => synthesizeDrafts(7)}><LuClipboardCheck size={15} /> Direkt taslak üret</button>
+              <button type="button" onClick={() => synthesizeDrafts(12)}><LuClipboardCheck size={15} /> Direkt taslak üret</button>
+            </div>
+            <div className={styles.signalPanel}>
+              <h4><LuBookOpen size={15} /> Bu adımda eksik</h4>
+              {(currentStepMissing.length > 0 ? currentStepMissing.map((item) => FIELD_LABELS[item]) : ['Bu adım task üretimi için yeterli.']).map((item) => <p key={item}>{item}</p>)}
             </div>
             <div className={styles.signalPanel}>
               <h4><LuTarget size={15} /> Güçlü sinyaller</h4>
@@ -673,6 +966,10 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
                 ? [ ...report.missing.map((item) => `${item} eksik`), ...report.risks ].slice(0, 5)
                 : ['Kritik risk görünmüyor; taslak önizlemede son kontrol yeterli.']).map((item) => <p key={item}>{item}</p>)}
             </div>
+            <div className={styles.methodPanel}>
+              <h4><LuSparkles size={15} /> Metodoloji seti</h4>
+              {FRAMEWORK_CATALOG.map((item) => <span key={item}>{item}</span>)}
+            </div>
           </aside>
         </main>
 
@@ -683,7 +980,7 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
           <div className={styles.footerCenter}>
             <span>{sourceTask ? 'Kaynak task korunur; yeni tasklar ayrı oluşturulur.' : 'Yeni tasklar proje merkezinde ayrı kayıtlar olarak açılır.'}</span>
           </div>
-          {step < 7 ? (
+          {step < 12 ? (
             <button type="button" className={styles.primaryButton} onClick={goNext} disabled={busy}>
               İleri <LuArrowRight size={15} />
             </button>
