@@ -485,9 +485,21 @@ export function ProjectDetailPage() {
     tasks
   })
 
-  const projectDetailRoute = () => projectId ? `/projects/${encodeURIComponent(projectId)}` : APP_ROUTES.PROJECTS
-  const taskDetailRoute = (taskId: string) => `${projectDetailRoute()}/tasks/${encodeURIComponent(taskId)}`
-  const subtaskDetailRoute = (taskId: string, subtaskId: string) => `${taskDetailRoute(taskId)}/subtasks/${encodeURIComponent(subtaskId)}`
+  const routeParam = (value: string) => encodeURIComponent(value)
+  const projectDetailRoute = () => projectId
+    ? APP_ROUTES.PROJECT_DETAIL.replace(':projectId', routeParam(projectId))
+    : APP_ROUTES.PROJECTS
+  const taskDetailRoute = (taskId: string) => projectId
+    ? APP_ROUTES.PROJECT_TASK_DETAIL
+      .replace(':projectId', routeParam(projectId))
+      .replace(':taskId', routeParam(taskId))
+    : APP_ROUTES.PROJECTS
+  const subtaskDetailRoute = (taskId: string, subtaskId: string) => projectId
+    ? APP_ROUTES.PROJECT_SUBTASK_DETAIL
+      .replace(':projectId', routeParam(projectId))
+      .replace(':taskId', routeParam(taskId))
+      .replace(':subtaskId', routeParam(subtaskId))
+    : APP_ROUTES.PROJECTS
 
   const navigateToProjectDetail = (options: { replace?: boolean } = {}) => {
     navigate(projectDetailRoute(), { replace: options.replace ?? false })
@@ -3292,6 +3304,7 @@ export function ProjectDetailPage() {
           }}
           onReorder={(sourceTaskId, targetTaskId, position) => void reorderTableTasks(sourceTaskId, targetTaskId, position)}
           onOpenTask={navigateToTaskDetail}
+          onOpenSubtask={navigateToSubtaskDetail}
           onOpenTaskChat={openTaskChatConversation}
           onOpenCreateTask={openCreateTask}
           onStatusChange={(taskId, status) => void updateTaskStatus(taskId, status)}

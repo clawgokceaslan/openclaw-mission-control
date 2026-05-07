@@ -889,6 +889,34 @@
   overflow: visible;
 }
 
+.taskStatusRow {
+  min-width: 0;
+  max-width: 100%;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+}
+
+.taskStatusBadge {
+  min-width: 0;
+  max-width: 100%;
+  height: 22px;
+  border: 1px solid color-mix(in srgb, var(--column-accent) 34%, var(--omc-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--column-accent) 11%, var(--omc-surface-soft));
+  color: color-mix(in srgb, var(--column-accent) 70%, var(--omc-text-strong));
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
 .taskCodexStateBadge,
 .taskCodexActionChip {
   height: 22px;
@@ -1175,6 +1203,7 @@
   padding: 7px 8px;
   display: grid;
   gap: 3px;
+  cursor: pointer;
 
   &::before {
     content: '';
@@ -1184,6 +1213,16 @@
     width: 8px;
     height: 1px;
     background: color-mix(in srgb, var(--column-accent) 26%, var(--omc-border-subtle));
+  }
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--column-accent) 32%, var(--omc-border-strong));
+    background: var(--omc-surface);
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--column-accent) 52%, var(--omc-primary));
+    outline-offset: 2px;
   }
 
   strong {

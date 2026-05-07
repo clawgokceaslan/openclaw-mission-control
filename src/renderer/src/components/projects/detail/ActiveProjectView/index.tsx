@@ -16,6 +16,7 @@ export interface ActiveProjectViewProps {
   onDropStatus: (event: DragEvent<HTMLElement>, status: TaskEntity['status']) => void
   onReorder: (sourceTaskId: string, targetTaskId: string, position: TaskDropPosition) => void
   onOpenTask: (taskId: string) => void
+  onOpenSubtask: (taskId: string, subtaskId: string) => void
   onOpenTaskChat: (taskId: string, conversationId: string) => void
   onOpenCreateTask: (status: TaskEntity['status']) => void
   onStatusChange?: (taskId: string, status: TaskEntity['status']) => Promise<void> | void
@@ -36,6 +37,7 @@ export function ActiveProjectView({
   onDropStatus,
   onReorder,
   onOpenTask,
+  onOpenSubtask,
   onOpenTaskChat,
   onOpenCreateTask,
   onStatusChange,
@@ -56,7 +58,7 @@ export function ActiveProjectView({
         onDropStatus={onDropStatus}
         onReorder={(sourceTaskId, targetTaskId, position) => void onReorder(sourceTaskId, targetTaskId, position)}
         onOpenTask={onOpenTask}
-        onOpenTaskChat={onOpenTaskChat}
+        onOpenSubtask={onOpenSubtask}
         onOpenCreateTask={onOpenCreateTask}
       />
     )

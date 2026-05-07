@@ -1,11 +1,11 @@
-import { useRef, useState, type CSSProperties, type DragEvent, type MouseEvent, type PointerEvent } from 'react'
+import { useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react'
 import { Card } from 'react-bootstrap'
-import { LuCalendarPlus, LuChevronDown, LuCircleCheck, LuFileText, LuMessageSquare, LuEllipsis, LuPlay, LuPlus, LuUserPlus } from 'react-icons/lu'
+import { LuCalendarPlus, LuChevronDown, LuMessageSquare, LuPlus, LuUserPlus } from 'react-icons/lu'
 import type { Agent, Tag, TaskEntity } from '@shared/types/entities'
 import { TagPill } from '@renderer/components/tags/TagPill'
 import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
 import { formatTaskDate } from '@renderer/screens/projects/detail/status'
-import { taskCodexActionChips, taskCodexActiveTone, taskCodexSurfaceStatuses, type TaskCodexSurfaceStatus, type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
+import { taskCodexActiveTone, type TaskCodexSurfaceStatus, type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
 interface ProjectBoardViewProps {
@@ -15,7 +15,7 @@ interface ProjectBoardViewProps {
   onDropStatus: (event: DragEvent<HTMLElement>, status: TaskEntity['status']) => void
   onReorder: (sourceTaskId: string, targetTaskId: string, position: TaskDropPosition) => void
   onOpenTask: (taskId: string) => void
-  onOpenTaskChat: (taskId: string, conversationId: string) => void
+  onOpenSubtask: (taskId: string, subtaskId: string) => void
   onOpenCreateTask: (status: TaskEntity['status']) => void
 }
 
@@ -35,55 +35,11 @@ function eventDropPosition(event: DragEvent<HTMLElement>): TaskDropPosition {
   return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 }
 
-function TaskCodexStrip({ task, onOpenTaskChat }: { task: TaskEntity; onOpenTaskChat: (taskId: string, conversationId: string) => void }) {
-  const statuses = taskCodexSurfaceStatuses(task)
-  const actions = taskCodexActionChips(task)
-  const [open, setOpen] = useState(false)
-  if (statuses.length === 0 && actions.length === 0) return null
-  const openChat = (event: MouseEvent<HTMLButtonElement>, conversationId: string) => {
-    event.preventDefault()
-    event.stopPropagation()
-    setOpen(false)
-    onOpenTaskChat(task.id, conversationId)
-  }
-  const toggleMenu = (event: MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-    setOpen((current) => !current)
-  }
-  return (
-    <div className={styles.taskCodexStrip}>
-      {statuses.map((status) => (
-        <span key={status.key} className={`${styles.taskCodexStateBadge} ${styles[`taskCodexTone_${status.tone}`] ?? ''}`} title={status.label} aria-label={status.label}>
-          {status.iconOnly ? <LuCircleCheck size={13} /> : status.label}
-        </span>
-      ))}
-      {actions.length > 0 ? (
-        <span className={styles.taskCodexMenuWrap}>
-          <button type="button" className={styles.taskCodexMenuButton} onClick={toggleMenu} aria-label="Task Codex actions" aria-expanded={open}>
-            <LuEllipsis size={14} />
-          </button>
-          {open ? (
-            <span className={styles.taskCodexMenu}>
-              {actions.map((action) => (
-                <button key={action.phase} type="button" onClick={(event) => openChat(event, action.conversationId)}>
-                  {action.phase === 'PLAN' ? <LuFileText size={13} /> : <LuPlay size={13} />}
-                  {action.label} chat
-                </button>
-              ))}
-            </span>
-          ) : null}
-        </span>
-      ) : null}
-    </div>
-  )
-}
-
 function activeTaskClass(tone: TaskCodexSurfaceStatus['tone'] | null) {
   return tone ? `${styles.taskCardActive} ${styles[`taskCardActive_${tone}`] ?? ''}` : ''
 }
 
-export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus, onReorder, onOpenTask, onOpenTaskChat, onOpenCreateTask }: ProjectBoardViewProps) {
+export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus, onReorder, onOpenTask, onOpenSubtask, onOpenCreateTask }: ProjectBoardViewProps) {
   const agentName = (task: TaskEntity) => agents.find((agent) => agent.id === task.agentId)?.name ?? 'Unassigned'
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const panRef = useRef({ active: false, startX: 0, scrollLeft: 0 })
@@ -93,6 +49,12 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
   const canStartPan = (event: PointerEvent<HTMLElement>) => {
     const target = event.target as HTMLElement
     return !target.closest('button,a,input,textarea,select,[draggable="true"]')
+  }
+
+  const openSubtaskFromCard = (event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>, taskId: string, subtaskId: string) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onOpenSubtask(taskId, subtaskId)
   }
 
   return (
@@ -188,7 +150,9 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
                     <div className={styles.taskTop}>
                       <h3>{task.title}</h3>
                     </div>
-                    <TaskCodexStrip task={task} onOpenTaskChat={onOpenTaskChat} />
+                    <div className={styles.taskStatusRow}>
+                      <span className={styles.taskStatusBadge}>{column.title}</span>
+                    </div>
                     <div className={styles.projectTaskMeta}>
                       <span><LuUserPlus size={14} /> {agentName(task)}</span>
                       <span><LuCalendarPlus size={14} /> {formatTaskDate(task.updatedAt)}</span>
@@ -219,7 +183,16 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
                     {expanded ? (
                       <div className={styles.subtaskInlineList}>
                         {subtasks.map((subtask) => (
-                          <article key={subtask.id} className={styles.subtaskInlineCard}>
+                          <article
+                            key={subtask.id}
+                            className={styles.subtaskInlineCard}
+                            role="button"
+                            tabIndex={0}
+                            onClick={(event) => openSubtaskFromCard(event, task.id, subtask.id)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') openSubtaskFromCard(event, task.id, subtask.id)
+                            }}
+                          >
                             <strong>{subtask.title}</strong>
                             <span>{subtask.status}{subtask.assigneeName ? ` · ${subtask.assigneeName}` : ''}</span>
                           </article>
