@@ -8,8 +8,9 @@
   background: var(--omc-overlay-strong);
 
   .shell {
-    width: min(1040px, 100%);
-    max-height: min(860px, calc(100vh - 56px));
+    width: min(1280px, 100%);
+    height: min(880px, calc(100vh - 56px));
+    min-height: 720px;
     display: grid;
     grid-template-rows: auto auto minmax(0, 1fr) auto auto;
     overflow: hidden;
@@ -20,7 +21,8 @@
     box-shadow: var(--omc-shadow-large);
 
     .header {
-      display: flex;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto auto;
       align-items: center;
       gap: 12px;
       padding: 16px 18px;
@@ -28,8 +30,8 @@
       background: var(--omc-surface-raised);
 
       .headerIcon {
-        width: 36px;
-        height: 36px;
+        width: 40px;
+        height: 40px;
         display: grid;
         place-items: center;
         border-radius: var(--omc-radius-md);
@@ -39,13 +41,13 @@
 
       .headerText {
         min-width: 0;
-        flex: 1;
 
         span {
           display: block;
-          font-size: 12px;
-          font-weight: 800;
           color: var(--omc-text-muted);
+          font-size: 12px;
+          font-weight: 900;
+          letter-spacing: 0;
           text-transform: uppercase;
         }
 
@@ -53,9 +55,30 @@
           margin: 2px 0 0;
           overflow: hidden;
           color: var(--omc-text-strong);
-          font-size: 18px;
+          font-size: 19px;
           line-height: 1.25;
           text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+      }
+
+      .headerMetrics {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+
+        span {
+          min-height: 32px;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 0 10px;
+          border: 1px solid var(--omc-border);
+          border-radius: var(--omc-radius-sm);
+          background: var(--omc-surface);
+          color: var(--omc-text-muted);
+          font-size: 12px;
+          font-weight: 900;
           white-space: nowrap;
         }
       }
@@ -81,28 +104,32 @@
 
     .stepper {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(7, minmax(112px, 1fr));
       gap: 8px;
       padding: 12px 18px;
+      overflow-x: auto;
       border-bottom: 1px solid var(--omc-border-subtle);
       background: var(--omc-bg);
 
       .step,
       .stepActive {
         min-width: 0;
-        display: flex;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
         align-items: center;
-        gap: 8px;
-        padding: 9px 10px;
+        gap: 4px 8px;
+        padding: 10px;
         border: 1px solid var(--omc-border);
         border-radius: var(--omc-radius-md);
         background: var(--omc-surface);
         color: var(--omc-text-muted);
         cursor: pointer;
+        text-align: left;
 
         b {
-          width: 24px;
-          height: 24px;
+          width: 26px;
+          height: 26px;
+          grid-row: span 2;
           display: grid;
           place-items: center;
           border-radius: 999px;
@@ -113,8 +140,18 @@
 
         span {
           overflow: hidden;
+          color: inherit;
           font-size: 13px;
-          font-weight: 800;
+          font-weight: 900;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        small {
+          overflow: hidden;
+          color: var(--omc-text-muted);
+          font-size: 11px;
+          font-weight: 700;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
@@ -122,6 +159,7 @@
 
       .stepActive {
         border-color: var(--omc-primary);
+        background: var(--omc-active-bg);
         color: var(--omc-primary);
 
         b {
@@ -131,191 +169,410 @@
       }
     }
 
-    .contextStep,
-    .chatStep,
-    .previewStep {
+    .workspace {
       min-height: 0;
-      overflow: auto;
-      padding: 18px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 0;
+      overflow: hidden;
       background: var(--omc-bg);
-    }
 
-    .contextStep {
-      display: grid;
-      gap: 14px;
+      .stage {
+        min-width: 0;
+        min-height: 0;
+        overflow: auto;
+        padding: 18px;
 
-      .contextSummary,
-      .pmPrompt {
-        border: 1px solid var(--omc-border);
-        border-radius: var(--omc-radius-md);
-        background: var(--omc-surface);
-      }
-
-      .contextSummary {
-        padding: 16px;
-
-        span {
-          color: var(--omc-success-text);
-          font-size: 12px;
-          font-weight: 800;
-        }
-
-        h3 {
-          margin: 6px 0 8px;
-          color: var(--omc-text-strong);
-          font-size: 16px;
-        }
-
-        p {
-          margin: 0;
-          color: var(--omc-text-muted);
-          line-height: 1.55;
-          white-space: pre-wrap;
-        }
-      }
-
-      .pmPrompt {
-        display: flex;
-        gap: 10px;
-        padding: 14px;
-        color: var(--omc-text);
-
-        svg {
-          flex: 0 0 auto;
-          color: var(--omc-primary);
-        }
-
-        p {
-          margin: 0;
-          line-height: 1.45;
-        }
-      }
-    }
-
-    .chatStep {
-      display: grid;
-      grid-template-rows: minmax(0, 1fr) auto;
-      gap: 12px;
-
-      .messages {
-        min-height: 300px;
-        display: grid;
-        align-content: start;
-        gap: 12px;
-
-        .messageGroup {
-          display: grid;
-          gap: 8px;
-
-          .aiMessage,
-          .userMessage {
-            max-width: 76%;
-            padding: 11px 12px;
-            border: 1px solid var(--omc-border);
-            border-radius: var(--omc-radius-md);
-            background: var(--omc-surface);
-
-            p {
-              margin: 0;
-              line-height: 1.45;
-              white-space: pre-wrap;
-            }
-          }
-
-          .aiMessage {
-            display: flex;
-            gap: 8px;
-            color: var(--omc-text);
-
-            svg {
-              flex: 0 0 auto;
-              color: var(--omc-primary);
-            }
-          }
-
-          .userMessage {
-            justify-self: end;
-            border-color: var(--omc-primary);
-            background: var(--omc-active-bg);
-            color: var(--omc-text-strong);
-          }
-        }
-      }
-
-      .composer {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 10px;
-
-        textarea {
-          min-height: 92px;
-          resize: vertical;
-        }
-      }
-    }
-
-    .previewStep {
-      display: grid;
-      align-content: start;
-      gap: 14px;
-
-      .previewToolbar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-
-        span {
-          color: var(--omc-text-strong);
-          font-size: 14px;
-          font-weight: 900;
-        }
-
-        p {
-          margin: 3px 0 0;
-          color: var(--omc-text-muted);
-          font-size: 13px;
-        }
-
-        .previewActions {
-          display: flex;
-          gap: 8px;
-        }
-      }
-
-      .draftList {
-        display: grid;
-        gap: 10px;
-
-        .draftItem {
-          display: grid;
-          grid-template-columns: auto minmax(0, 1fr) auto;
-          gap: 10px;
-          padding: 12px;
+        .stageHero,
+        .synthesisHero {
+          padding: 18px;
           border: 1px solid var(--omc-border);
           border-radius: var(--omc-radius-md);
           background: var(--omc-surface);
 
-          .draftOrder {
-            display: flex;
-            align-items: flex-start;
-            gap: 6px;
-            color: var(--omc-text-muted);
+          span {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            color: var(--omc-primary);
+            font-size: 12px;
+            font-weight: 900;
+          }
 
-            input {
-              width: 54px;
-              text-align: center;
+          h3 {
+            margin: 8px 0;
+            color: var(--omc-text-strong);
+            font-size: 22px;
+            line-height: 1.25;
+          }
+
+          p {
+            margin: 0;
+            color: var(--omc-text-muted);
+            line-height: 1.55;
+          }
+        }
+
+        .intentStep {
+          display: grid;
+          gap: 14px;
+
+          .intentGrid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+
+            .option,
+            .optionActive {
+              min-height: 118px;
+              align-items: flex-start;
+              justify-content: flex-start;
+              flex-direction: column;
+              padding: 14px;
+              text-align: left;
+
+              strong {
+                color: var(--omc-text-strong);
+                font-size: 14px;
+              }
+
+              span {
+                color: var(--omc-text-muted);
+                font-size: 13px;
+                line-height: 1.45;
+              }
+            }
+
+            .optionActive {
+              border-color: var(--omc-primary);
+              background: var(--omc-active-bg);
             }
           }
 
-          .draftFields {
+          .depthRow {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+
+            .depth,
+            .depthActive {
+              min-height: 70px;
+              flex-direction: column;
+
+              strong {
+                color: var(--omc-text-strong);
+                font-size: 14px;
+              }
+
+              span {
+                color: var(--omc-text-muted);
+                font-size: 12px;
+              }
+            }
+
+            .depthActive {
+              border-color: var(--omc-primary);
+              background: var(--omc-active-bg);
+            }
+          }
+        }
+
+        .formStep {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 14px;
+
+          .field {
+            min-height: 0;
             display: grid;
             gap: 8px;
+            padding: 14px;
+            border: 1px solid var(--omc-border);
+            border-radius: var(--omc-radius-md);
+            background: var(--omc-surface);
+
+            span {
+              color: var(--omc-text-strong);
+              font-size: 13px;
+              font-weight: 900;
+            }
 
             textarea {
-              min-height: 132px;
+              min-height: 220px;
+            }
+          }
+        }
+
+        .chatStep {
+          min-height: 100%;
+          display: grid;
+          grid-template-rows: minmax(0, 1fr) auto;
+          gap: 12px;
+
+          .messages {
+            min-height: 420px;
+            display: grid;
+            align-content: start;
+            gap: 12px;
+
+            .messageGroup {
+              display: grid;
+              gap: 8px;
+
+              .aiMessage,
+              .userMessage {
+                max-width: 78%;
+                padding: 12px;
+                border: 1px solid var(--omc-border);
+                border-radius: var(--omc-radius-md);
+                background: var(--omc-surface);
+
+                p {
+                  margin: 0;
+                  line-height: 1.5;
+                  white-space: pre-wrap;
+                }
+              }
+
+              .aiMessage {
+                display: flex;
+                gap: 8px;
+                color: var(--omc-text);
+
+                svg {
+                  flex: 0 0 auto;
+                  margin-top: 2px;
+                  color: var(--omc-primary);
+                }
+              }
+
+              .userMessage {
+                justify-self: end;
+                border-color: var(--omc-primary);
+                background: var(--omc-active-bg);
+                color: var(--omc-text-strong);
+              }
+            }
+          }
+
+          .composer {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 10px;
+
+            textarea {
+              min-height: 96px;
               resize: vertical;
             }
+          }
+        }
+
+        .synthesisStep {
+          display: grid;
+          gap: 14px;
+
+          .synthesisGrid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+
+            div {
+              min-height: 112px;
+              display: grid;
+              align-content: center;
+              gap: 8px;
+              padding: 14px;
+              border: 1px solid var(--omc-border);
+              border-radius: var(--omc-radius-md);
+              background: var(--omc-surface);
+
+              strong {
+                color: var(--omc-text-strong);
+                font-size: 14px;
+              }
+
+              span {
+                color: var(--omc-text-muted);
+                line-height: 1.45;
+              }
+            }
+          }
+
+          .fullButton {
+            min-height: 44px;
+          }
+        }
+
+        .previewStep {
+          display: grid;
+          align-content: start;
+          gap: 14px;
+
+          .previewToolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 14px;
+            border: 1px solid var(--omc-border);
+            border-radius: var(--omc-radius-md);
+            background: var(--omc-surface);
+
+            span {
+              color: var(--omc-text-strong);
+              font-size: 14px;
+              font-weight: 900;
+            }
+
+            p {
+              margin: 3px 0 0;
+              color: var(--omc-text-muted);
+              font-size: 13px;
+            }
+
+            .previewActions {
+              display: flex;
+              gap: 8px;
+              flex-wrap: wrap;
+            }
+          }
+
+          .draftList {
+            display: grid;
+            gap: 10px;
+
+            .draftItem {
+              display: grid;
+              grid-template-columns: 86px minmax(0, 1fr) auto;
+              gap: 10px;
+              padding: 12px;
+              border: 1px solid var(--omc-border);
+              border-radius: var(--omc-radius-md);
+              background: var(--omc-surface);
+
+              .draftOrder {
+                display: grid;
+                align-content: start;
+                justify-items: center;
+                gap: 8px;
+                color: var(--omc-text-muted);
+
+                input {
+                  width: 58px;
+                  text-align: center;
+                }
+
+                span {
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  min-height: 26px;
+                  padding: 0 8px;
+                  border-radius: 999px;
+                  background: var(--omc-active-bg);
+                  color: var(--omc-primary);
+                  font-size: 12px;
+                  font-weight: 900;
+                }
+              }
+
+              .draftFields {
+                display: grid;
+                gap: 8px;
+
+                .inlineFields,
+                .draftMeta {
+                  display: grid;
+                  grid-template-columns: 180px minmax(0, 1fr);
+                  gap: 8px;
+                }
+
+                textarea {
+                  min-height: 210px;
+                  resize: vertical;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      .sidePanel {
+        min-width: 0;
+        min-height: 0;
+        display: grid;
+        align-content: start;
+        gap: 12px;
+        overflow: auto;
+        padding: 18px;
+        border-left: 1px solid var(--omc-border-subtle);
+        background: var(--omc-surface-raised);
+
+        .scorePanel,
+        .assistPanel,
+        .signalPanel {
+          display: grid;
+          gap: 10px;
+          padding: 14px;
+          border: 1px solid var(--omc-border);
+          border-radius: var(--omc-radius-md);
+          background: var(--omc-surface);
+        }
+
+        .scorePanel {
+          span {
+            color: var(--omc-text-muted);
+            font-size: 12px;
+            font-weight: 900;
+            text-transform: uppercase;
+          }
+
+          strong {
+            color: var(--omc-text-strong);
+            font-size: 32px;
+            line-height: 1;
+          }
+
+          .scoreTrack {
+            height: 8px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: var(--omc-surface-muted);
+
+            i {
+              height: 100%;
+              display: block;
+              border-radius: inherit;
+              background: var(--omc-primary);
+            }
+          }
+        }
+
+        .assistPanel,
+        .signalPanel {
+          h4 {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            margin: 0;
+            color: var(--omc-text-strong);
+            font-size: 13px;
+            font-weight: 900;
+
+            svg {
+              color: var(--omc-primary);
+            }
+          }
+
+          p {
+            margin: 0;
+            color: var(--omc-text-muted);
+            font-size: 13px;
+            line-height: 1.45;
+          }
+
+          button {
+            width: 100%;
           }
         }
       }
@@ -384,12 +641,28 @@
     }
 
     .footer {
-      display: flex;
-      justify-content: space-between;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
       gap: 10px;
       padding: 14px 18px;
       border-top: 1px solid var(--omc-border-subtle);
       background: var(--omc-surface-raised);
+
+      .footerCenter {
+        min-width: 0;
+        color: var(--omc-text-muted);
+        font-size: 12px;
+        font-weight: 800;
+        text-align: center;
+
+        span {
+          overflow: hidden;
+          display: block;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+      }
 
       .primaryButton {
         border-color: var(--omc-primary);
@@ -405,37 +678,81 @@
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 980px) {
   .overlay {
     padding: 10px;
 
     .shell {
-      max-height: calc(100vh - 20px);
+      height: calc(100vh - 20px);
+      min-height: 0;
 
-      .stepper {
+      .header {
+        grid-template-columns: auto minmax(0, 1fr) auto;
+
+        .headerMetrics {
+          display: none;
+        }
+      }
+
+      .workspace {
         grid-template-columns: 1fr;
-      }
 
-      .chatStep {
-        .composer {
-          grid-template-columns: 1fr;
-        }
-      }
-
-      .previewStep {
-        .previewToolbar {
-          align-items: stretch;
-          flex-direction: column;
-
-          .previewActions {
-            flex-wrap: wrap;
+        .stage {
+          .intentStep {
+            .intentGrid,
+            .depthRow {
+              grid-template-columns: 1fr;
+            }
           }
-        }
 
-        .draftList {
-          .draftItem {
+          .formStep,
+          .synthesisStep {
+            .synthesisGrid {
+              grid-template-columns: 1fr;
+            }
+          }
+
+          .formStep {
             grid-template-columns: 1fr;
           }
+
+          .previewStep {
+            .previewToolbar {
+              align-items: stretch;
+              flex-direction: column;
+            }
+
+            .draftList {
+              .draftItem {
+                grid-template-columns: 1fr;
+
+                .draftOrder {
+                  grid-auto-flow: column;
+                  justify-content: start;
+                  justify-items: start;
+                }
+
+                .draftFields {
+                  .inlineFields,
+                  .draftMeta {
+                    grid-template-columns: 1fr;
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        .sidePanel {
+          display: none;
+        }
+      }
+
+      .footer {
+        grid-template-columns: 1fr 1fr;
+
+        .footerCenter {
+          display: none;
         }
       }
     }
