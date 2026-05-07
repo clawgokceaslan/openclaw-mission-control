@@ -113,7 +113,7 @@
 
       .codeBlock {
         position: absolute;
-        top: -18%;
+        top: 0;
         left: calc(var(--block-lane) * 1vw);
         width: min(82vw, 1180px);
         min-width: 780px;
@@ -215,7 +215,7 @@
 
       .taskCard {
         position: absolute;
-        top: -18%;
+        top: 0;
         right: calc(18px + (var(--task-lane) * min(16vw, 190px)));
         width: min(34vw, 390px);
         min-width: 286px;
@@ -611,21 +611,21 @@
 
 @keyframes codePageStream {
   from {
-    transform: translate3d(0, -44vh, 0);
+    transform: translate3d(0, -84vh, 0);
   }
 
   to {
-    transform: translate3d(0, 118vh, 0);
+    transform: translate3d(0, 204vh, 0);
   }
 }
 
 @keyframes taskStream {
   from {
-    transform: translate3d(18px, -38vh, 0) rotateX(8deg) scale(1);
+    transform: translate3d(18px, -76vh, 0) rotateX(8deg) scale(1);
   }
 
   to {
-    transform: translate3d(-10px, 120vh, 0) rotateX(0deg) scale(1);
+    transform: translate3d(-10px, 196vh, 0) rotateX(0deg) scale(1);
   }
 }
 
