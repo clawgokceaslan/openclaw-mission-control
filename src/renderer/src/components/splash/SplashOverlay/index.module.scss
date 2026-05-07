@@ -100,7 +100,7 @@
 
     .codeRain {
       position: absolute;
-      inset: -70% -24% -70% -16%;
+      inset: -100% -24% -120% -16%;
       pointer-events: none;
       transform: skewY(-1.8deg);
 
@@ -209,7 +209,7 @@
 
     .taskRain {
       position: absolute;
-      inset: -56% 0 -56% 0;
+      inset: -88% 0 -112% 0;
       pointer-events: none;
       perspective: 900px;
 
@@ -515,7 +515,7 @@
       }
 
       .codeRain {
-        inset: -64% -156% -64% -44%;
+        inset: -96% -156% -120% -44%;
         opacity: 0.66;
 
         .codeBlock {
@@ -531,7 +531,7 @@
       }
 
       .taskRain {
-        inset: -56% -4% -56% 0;
+        inset: -88% -4% -112% 0;
         opacity: 0.74;
 
         .taskCard {
@@ -611,21 +611,21 @@
 
 @keyframes codePageStream {
   from {
-    transform: translate3d(0, -84vh, 0);
+    transform: translate3d(0, -96vh, 0);
   }
 
   to {
-    transform: translate3d(0, 204vh, 0);
+    transform: translate3d(0, 284vh, 0);
   }
 }
 
 @keyframes taskStream {
   from {
-    transform: translate3d(18px, -76vh, 0) rotateX(8deg) scale(1);
+    transform: translate3d(18px, -92vh, 0) rotateX(8deg) scale(1);
   }
 
   to {
-    transform: translate3d(-10px, 196vh, 0) rotateX(0deg) scale(1);
+    transform: translate3d(-10px, 268vh, 0) rotateX(0deg) scale(1);
   }
 }
 
