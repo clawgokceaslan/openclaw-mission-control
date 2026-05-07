@@ -17,7 +17,11 @@ function formatTime(timestamp: number) {
   return new Date(timestamp).toLocaleString()
 }
 
-export function WorkspacesPage() {
+interface WorkspacesPageProps {
+  embedded?: boolean
+}
+
+export function WorkspacesPage({ embedded = false }: WorkspacesPageProps) {
   const { token } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
@@ -124,7 +128,7 @@ export function WorkspacesPage() {
   }
 
   return (
-    <section className={styles.page}>
+    <section className={`${styles.page} ${embedded ? styles.embeddedPage : ''}`}>
       <header className={styles.header}>
         <div>
           <h1>Workspaces</h1>

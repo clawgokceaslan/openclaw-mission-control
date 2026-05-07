@@ -51,9 +51,15 @@ function JsonBlock({ value }: { value: unknown }) {
   return <pre>{JSON.stringify(value ?? {}, null, 2)}</pre>
 }
 
-export function GatewayDetailPage() {
+interface GatewayDetailPageProps {
+  gatewayId?: string
+  embedded?: boolean
+  onBack?: () => void
+}
+
+export function GatewayDetailPage({ gatewayId: gatewayIdProp, embedded = false, onBack }: GatewayDetailPageProps) {
   const params = useParams<{ gatewayId?: string }>()
-  const gatewayId = params.gatewayId
+  const gatewayId = gatewayIdProp ?? params.gatewayId
   const { token } = useAuth()
   const navigate = useNavigate()
   const [gateway, setGateway] = useState<Gateway | null>(null)
@@ -131,10 +137,10 @@ export function GatewayDetailPage() {
   if (!gatewayId) return <section className={styles.page}><h1>Gateway</h1><p>Gateway id is missing.</p></section>
 
   return (
-    <section className={styles.page}>
+    <section className={`${styles.page} ${embedded ? styles.embeddedPage : ''}`}>
       <header className={styles.header}>
         <div>
-          <button className={styles.backButton} onClick={() => navigate(APP_ROUTES.GATEWAYS)}>← Gateways</button>
+          <button className={styles.backButton} onClick={() => onBack ? onBack() : navigate(APP_ROUTES.GATEWAYS)}>← Gateways</button>
           <h1>{gateway?.name ?? 'Gateway'}</h1>
           <p>Named local CLI gateway</p>
         </div>

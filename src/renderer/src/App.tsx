@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useEffect, type ReactNode, useState } from 'react'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
@@ -17,12 +17,8 @@ import { ProfileSetupPage } from '@renderer/screens/ProfileSetupPage'
 import { ProjectsPage } from '@renderer/screens/projects/ProjectsPage'
 import { ProjectNewPage } from '@renderer/screens/projects/ProjectNewPage'
 import { ProjectDetailPage } from '@renderer/screens/projects/ProjectDetailPage'
-import { WorkspacesPage } from '@renderer/screens/workspaces/WorkspacesPage'
 import { AgentsPage } from '@renderer/screens/agents/AgentsPage'
 import { AgentNewPage } from '@renderer/screens/agents/AgentNewPage'
-import { GatewaysPage } from '@renderer/screens/gateways/GatewaysPage'
-import { GatewayNewPage } from '@renderer/screens/gateways/GatewayNewPage'
-import { GatewayDetailPage } from '@renderer/screens/gateways/GatewayDetailPage'
 import { SettingsPage } from '@renderer/screens/settings/SettingsPage'
 import { DocumentationPage } from '@renderer/screens/documentation/DocumentationPage'
 import { SkillsPage } from '@renderer/screens/skills/SkillsPage'
@@ -51,6 +47,17 @@ interface RouteConfig {
   element: ReactNode
 }
 
+function SettingsTabRedirect({ tab }: { tab: 'workspaces' | 'gateways' }) {
+  const location = useLocation()
+  return <Navigate to={`${APP_ROUTES.SETTINGS}?tab=${tab}${location.search ? `&${location.search.slice(1)}` : ''}`} replace />
+}
+
+function GatewayDetailRedirect() {
+  const params = useParams<{ gatewayId?: string }>()
+  const gatewayId = params.gatewayId ? `&gatewayId=${encodeURIComponent(params.gatewayId)}` : ''
+  return <Navigate to={`${APP_ROUTES.SETTINGS}?tab=gateways${gatewayId}`} replace />
+}
+
 const SIGNED_IN_ROUTES: RouteConfig[] = [
   { path: '/', element: <Navigate to={APP_ROUTES.DASHBOARD} replace /> },
   { path: APP_ROUTES.DASHBOARD, element: <DashboardPage /> },
@@ -59,12 +66,12 @@ const SIGNED_IN_ROUTES: RouteConfig[] = [
   { path: APP_ROUTES.PROJECTS, element: <ProjectsPage /> },
   { path: APP_ROUTES.PROJECTS_NEW, element: <ProjectNewPage /> },
   { path: APP_ROUTES.PROJECT_DETAIL, element: <ProjectDetailPage /> },
-  { path: APP_ROUTES.WORKSPACES, element: <WorkspacesPage /> },
+  { path: APP_ROUTES.WORKSPACES, element: <SettingsTabRedirect tab="workspaces" /> },
   { path: APP_ROUTES.AGENTS, element: <AgentsPage /> },
   { path: APP_ROUTES.AGENTS_NEW, element: <AgentNewPage /> },
-  { path: APP_ROUTES.GATEWAYS, element: <GatewaysPage /> },
-  { path: APP_ROUTES.GATEWAYS_NEW, element: <GatewayNewPage /> },
-  { path: APP_ROUTES.GATEWAY_DETAIL, element: <GatewayDetailPage /> },
+  { path: APP_ROUTES.GATEWAYS, element: <SettingsTabRedirect tab="gateways" /> },
+  { path: APP_ROUTES.GATEWAYS_NEW, element: <SettingsTabRedirect tab="gateways" /> },
+  { path: APP_ROUTES.GATEWAY_DETAIL, element: <GatewayDetailRedirect /> },
   { path: APP_ROUTES.SETTINGS, element: <SettingsPage /> },
   { path: APP_ROUTES.DOCUMENTATION, element: <DocumentationPage /> },
   { path: APP_ROUTES.DOCUMENTATION_GATEWAY, element: <DocumentationPage /> },

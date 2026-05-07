@@ -15,6 +15,71 @@ export interface CodexDoc {
 
 export const CODEX_DOCS: CodexDoc[] = [
   {
+    id: 'omc-runtime-operations',
+    title: 'OMC Runtime Operations',
+    category: 'OMC Runtime',
+    summary: 'Open Mission Control runtime dosya konumu, OMC görev akışı, CLI komutları ve dokümantasyon rehberinin tek bir kaynakta yönetimi.',
+    sourceFiles: [
+      'src/main/bootstrap/app.ts',
+      'src/main/ipc/router.ts',
+      'src/main/services/app-settings.service.ts',
+      'src/main/services/service-container.ts',
+      'src/db/config.ts',
+      'src/shared/contracts/ipc.ts',
+      'src/renderer/src/screens/settings/SettingsPage.tsx',
+      'src/renderer/src/constants/codex-docs.ts'
+    ],
+    terms: [
+      { term: 'Database folder', description: 'SQLite veritabanı dosyasının kopyalanacağı klasör.' },
+      { term: 'Pending restart', description: 'Geçişin uygulanabilmesi için uygulamanın yeniden başlatılmasını gerektiren durum.' },
+      { term: 'Runtime docs', description: 'Kod çalıştırma ve OMC CLI yürütme rehberlerinin Settings\'ten ayrılıp Documentation içinde okunabilir hale gelmesi.' }
+    ],
+    markdown: `# OMC Runtime Operations
+
+Open Mission Control now keeps runtime helper instructions in Documentation and supports configurable SQLite database folder selection in Settings.
+
+## Runtime workflow
+
+1. Open Mission Control exports \`Task.md\`, \`Agents.md\`, \`Skills.md\` and attachments into a temporary export workspace.
+2. The project workspace is opened as a runtime directory.
+3. \`.omc/runs/<run-id>/\` is created in the workspace.
+4. The run folder includes \`session.json\`, \`omc-task-client.mjs\`, and \`OMC_CLI.md\`.
+5. Codex receives the exported task path and executes changes in the runtime workspace.
+6. After implementation, Codex runs the local ready-for-review command.
+
+## Database folder behavior
+
+- Database location is stored before fallback to \`userData/data\`.
+- Moving the database file is copy-and-restart:
+  - Current \`mission-control.sqlite\` is copied to the selected folder.
+  - New folder is persisted.
+  - New path is used only on next app start.
+
+Allowed path checks include:
+
+- destination must be an existing folder;
+- destination must contain the expected file name \`mission-control.sqlite\` when copying;
+- existing non-file named \`mission-control.sqlite\` blocks move;
+- same-folder selections are rejected.
+
+## Helpful OMC commands
+
+\`\`\`bash
+node .omc/runs/<run-id>/omc-task-client.mjs context
+node .omc/runs/<run-id>/omc-task-client.mjs validate .omc/runs/<run-id>/planned-task.json
+node .omc/runs/<run-id>/omc-task-client.mjs create .omc/runs/<run-id>/planned-task.json
+node .omc/runs/<run-id>/omc-task-client.mjs update .omc/runs/<run-id>/planned-task.json
+node .omc/runs/<run-id>/omc-task-client.mjs ask .omc/runs/<run-id>/questions.json
+node .omc/runs/<run-id>/omc-task-client.mjs ready-for-review
+node .omc/runs/<run-id>/omc-task-client.mjs finish
+\`\`\`
+
+## Migration notes
+
+- Existing \`Settings\` inline OMC docs were moved here.
+- Documentation keeps both Codex CLI and OMC Runtime entries in separate categories.`
+  },
+  {
     id: 'codex-cli-gateway',
     title: 'Codex CLI Gateway',
     category: 'Gateway',

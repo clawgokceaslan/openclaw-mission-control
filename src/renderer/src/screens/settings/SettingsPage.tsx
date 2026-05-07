@@ -1,59 +1,33 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
-import { LuBot, LuCheck, LuClipboard, LuFileText, LuLanguages, LuPlay, LuTerminal } from 'react-icons/lu'
-import { IPC_CHANNELS } from '@shared/contracts/ipc'
+import { useSearchParams } from 'react-router-dom'
+import { LuBot, LuCheck, LuClipboard, LuCog, LuFolderOpen, LuHardDrive, LuLanguages, LuRefreshCw, LuSlidersHorizontal, LuWaypoints } from 'react-icons/lu'
+import { IPC_CHANNELS, type DatabaseLocationState, type PickDatabaseFolderResponse } from '@shared/contracts/ipc'
 import { CODEX_LANGUAGE_OPTIONS, DEFAULT_CODEX_LANGUAGE } from '@shared/utils/codex-language'
 import type { Agent } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList } from '@renderer/utils/api'
+import { WorkspacesPage } from '@renderer/screens/workspaces/WorkspacesPage'
+import { GatewaysPage } from '@renderer/screens/gateways/GatewaysPage'
+import { GatewayDetailPage } from '@renderer/screens/gateways/GatewayDetailPage'
 import styles from './SettingsPage.module.scss'
 
-const executionFlow = [
-  'Open Mission Control exports Task.md, optional Agents.md, optional Skills.md, and attachments into a temporary export workspace.',
-  'The selected project runtime workspace is opened as Codex working directory.',
-  'Open Mission Control creates .omc/runs/<run-id>/ inside the runtime workspace.',
-  'The run folder contains session.json, omc-task-client.mjs, and OMC_CLI.md.',
-  'Codex receives a prompt that points to Task.md and OMC_CLI.md.',
-  'Codex completes the implementation in the runtime workspace.',
-  'Codex runs the local .omc CLI ready-for-review command when the task should move to review.'
-]
+type SettingsSection = 'general' | 'workspaces' | 'gateways' | 'database'
 
-const planningFlow = [
-  'Open Mission Control creates .omc/runs/<run-id>/ in the project runtime workspace.',
-  'Codex reads OMC_CLI.md before planning.',
-  'Codex runs context to fetch the source task, project rules, allowed statuses, tags, skills, and custom fields.',
-  'Codex writes planned-task.json into the run folder.',
-  'If critical details are missing, Codex writes questions.json with optional choices and calls ask so the questions appear in chat as a popup.',
-  'Codex validates planned-task.json through the local CLI.',
-  'Codex updates the scoped source task from the validated JSON.',
-  'Codex runs finish so the temporary bridge and run folder can close.'
-]
-
-const operations = [
-  { name: 'context', command: 'node .omc/runs/<run-id>/omc-task-client.mjs context', description: 'Prints scoped project, task, allowed values, export paths, and JSON format guidance.' },
-  { name: 'validate', command: 'node .omc/runs/<run-id>/omc-task-client.mjs validate .omc/runs/<run-id>/planned-task.json', description: 'Validates and normalizes task JSON without writing changes.' },
-  { name: 'create', command: 'node .omc/runs/<run-id>/omc-task-client.mjs create .omc/runs/<run-id>/planned-task.json', description: 'Creates a new task in the scoped project from task JSON.' },
-  { name: 'update', command: 'node .omc/runs/<run-id>/omc-task-client.mjs update .omc/runs/<run-id>/planned-task.json', description: 'Updates the scoped source task from task JSON.' },
-  { name: 'ask', command: 'node .omc/runs/<run-id>/omc-task-client.mjs ask .omc/runs/<run-id>/questions.json', description: 'Pauses the planner and posts AI-generated clarification questions into the task chat.' },
-  { name: 'ready-for-review', command: 'node .omc/runs/<run-id>/omc-task-client.mjs ready-for-review', description: 'Moves the task and subtasks to Review, or the nearest pre-Done status.' },
-  { name: 'finish', command: 'node .omc/runs/<run-id>/omc-task-client.mjs finish', description: 'Signals completion and lets Open Mission Control clean up the run folder.' }
-]
-
-const mdExample = `# Open Mission Control CLI
-
-Use this local helper. Do not use MCP.
-
-1. Read this file before changing project files.
-2. Run context to load the scoped Open Mission Control task data.
-3. Use validate before create or update.
-4. For implementation runs, call ready-for-review only after the code work and checks are complete.
-5. For planning runs, call finish after update succeeds.
-`
+const databaseFallbackState: DatabaseLocationState = {
+  currentFolderPath: '',
+  currentDbPath: '',
+  pendingFolderPath: null,
+  pendingDbPath: null,
+  restartRequired: false
+}
 
 export function SettingsPage() {
   const { token } = useAuth()
-  const [copied, setCopied] = useState<string | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedTab = searchParams.get('tab') as SettingsSection | null
+  const [activeSection, setActiveSection] = useState<SettingsSection>(requestedTab && ['general', 'workspaces', 'gateways', 'database'].includes(requestedTab) ? requestedTab : 'general')
+  const selectedGatewayId = searchParams.get('gatewayId')
   const [agents, setAgents] = useState<Agent[]>([])
   const [defaultAgentId, setDefaultAgentId] = useState('')
   const [codexLanguage, setCodexLanguage] = useState(DEFAULT_CODEX_LANGUAGE)
@@ -61,6 +35,17 @@ export function SettingsPage() {
   const [codexLanguageMessage, setCodexLanguageMessage] = useState<string | null>(null)
   const [defaultAgentSaving, setDefaultAgentSaving] = useState(false)
   const [defaultAgentMessage, setDefaultAgentMessage] = useState<string | null>(null)
+  const [databaseState, setDatabaseState] = useState<DatabaseLocationState>(databaseFallbackState)
+  const [databaseFolder, setDatabaseFolder] = useState('')
+  const [databaseMoving, setDatabaseMoving] = useState(false)
+  const [databaseMessage, setDatabaseMessage] = useState<string | null>(null)
+  const [databaseCopied, setDatabaseCopied] = useState(false)
+
+  useEffect(() => {
+    if (requestedTab && ['general', 'workspaces', 'gateways', 'database'].includes(requestedTab)) {
+      setActiveSection(requestedTab)
+    }
+  }, [requestedTab])
 
   useEffect(() => {
     let cancelled = false
@@ -68,19 +53,24 @@ export function SettingsPage() {
       setAgents([])
       setDefaultAgentId('')
       setCodexLanguage(DEFAULT_CODEX_LANGUAGE)
+      setDatabaseState(databaseFallbackState)
       return
     }
     void Promise.all([
       loadList<Agent[]>(IPC_CHANNELS.agents.list, token),
       invokeBridge<{ agentId: string | null }>(IPC_CHANNELS.appSettings.getDefaultAgent, { actorToken: token }),
-      invokeBridge<{ language: string }>(IPC_CHANNELS.appSettings.getCodexLanguage, { actorToken: token })
-    ]).then(([agentResponse, defaultResponse, languageResponse]) => {
+      invokeBridge<{ language: string }>(IPC_CHANNELS.appSettings.getCodexLanguage, { actorToken: token }),
+      invokeBridge<DatabaseLocationState>(IPC_CHANNELS.appSettings.getDatabaseLocation, { actorToken: token })
+    ]).then(([agentResponse, defaultResponse, languageResponse, databaseResponse]) => {
       if (cancelled) return
       setAgents(Array.isArray(agentResponse.data) ? agentResponse.data : [])
       setDefaultAgentId(defaultResponse.ok && defaultResponse.data?.agentId ? defaultResponse.data.agentId : '')
       setCodexLanguage(languageResponse.ok && languageResponse.data?.language ? languageResponse.data.language : DEFAULT_CODEX_LANGUAGE)
+      if (databaseResponse.ok && databaseResponse.data) {
+        setDatabaseState(databaseResponse.data)
+      }
     }).catch(() => {
-      if (!cancelled) setDefaultAgentMessage('Unable to load default task agent.')
+      if (!cancelled) setDefaultAgentMessage('Ayarlar yüklenirken hata oluştu.')
     })
     return () => {
       cancelled = true
@@ -108,12 +98,6 @@ export function SettingsPage() {
     return codexLanguageOptions.find((option) => option.value === codexLanguage) ?? codexLanguageOptions[0] ?? null
   }, [codexLanguage, codexLanguageOptions])
 
-  const copy = async (key: string, value: string) => {
-    await navigator.clipboard.writeText(value)
-    setCopied(key)
-    window.setTimeout(() => setCopied((current) => current === key ? null : current), 1600)
-  }
-
   const saveDefaultAgent = async (option: AppSelectOption | null) => {
     setDefaultAgentSaving(true)
     setDefaultAgentMessage(null)
@@ -123,13 +107,13 @@ export function SettingsPage() {
         agentId: option?.value ?? null
       })
       if (!response.ok) {
-        setDefaultAgentMessage(response.error?.message ?? 'Unable to update default task agent.')
+        setDefaultAgentMessage(response.error?.message ?? 'Varsayılan görev ajanı güncellenemedi.')
         return
       }
       setDefaultAgentId(response.data?.agentId ?? '')
-      setDefaultAgentMessage(option ? 'Default task agent updated.' : 'Default task agent cleared.')
+      setDefaultAgentMessage(option ? 'Varsayılan görev ajanı güncellendi.' : 'Varsayılan görev ajanı temizlendi.')
     } catch (error) {
-      setDefaultAgentMessage(error instanceof Error ? error.message : 'Unable to update default task agent.')
+      setDefaultAgentMessage(error instanceof Error ? error.message : 'Varsayılan görev ajanı güncellenemedi.')
     } finally {
       setDefaultAgentSaving(false)
     }
@@ -144,178 +128,302 @@ export function SettingsPage() {
         language: option?.value ?? DEFAULT_CODEX_LANGUAGE
       })
       if (!response.ok) {
-        setCodexLanguageMessage(response.error?.message ?? 'Unable to update Codex language.')
+        setCodexLanguageMessage(response.error?.message ?? 'Codex dili güncellenemedi.')
         return
       }
       setCodexLanguage(response.data?.language ?? DEFAULT_CODEX_LANGUAGE)
-      setCodexLanguageMessage('Codex language updated.')
+      setCodexLanguageMessage('Codex dili güncellendi.')
     } catch (error) {
-      setCodexLanguageMessage(error instanceof Error ? error.message : 'Unable to update Codex language.')
+      setCodexLanguageMessage(error instanceof Error ? error.message : 'Codex dili güncellenemedi.')
     } finally {
       setCodexLanguageSaving(false)
     }
   }
 
+  const pickDatabaseFolder = async () => {
+    setDatabaseMessage(null)
+    try {
+      const response = await invokeBridge<PickDatabaseFolderResponse>(IPC_CHANNELS.appSettings.pickDatabaseFolder, { actorToken: token })
+      if (!response.ok) {
+        setDatabaseMessage(response.error?.message ?? 'Veri klasörü seçilemedi.')
+        return
+      }
+      if (!response.data?.folderPath) {
+        setDatabaseMessage('Veri klasörü seçimi iptal edildi.')
+        return
+      }
+      setDatabaseFolder(response.data.folderPath)
+      setDatabaseMessage(`Secilen klasör: ${response.data.folderPath}`)
+    } catch (error) {
+      setDatabaseMessage(error instanceof Error ? error.message : 'Veri klasörü seçilemedi.')
+    }
+  }
+
+  const applyDatabaseMove = async () => {
+    if (!databaseFolder) {
+      setDatabaseMessage('Önce veritabanı klasörü seçilmeli.')
+      return
+    }
+    setDatabaseMoving(true)
+    setDatabaseMessage(null)
+    try {
+      const response = await invokeBridge<DatabaseLocationState>(IPC_CHANNELS.appSettings.moveDatabaseLocation, {
+        actorToken: token,
+        folderPath: databaseFolder
+      })
+      if (!response.ok) {
+        setDatabaseMessage(response.error?.message ?? 'Veritabanı klasörü taşınamadı.')
+        return
+      }
+      setDatabaseState(response.data ?? databaseState)
+      if (response.data?.restartRequired) {
+        setDatabaseMessage('Veritabanı yeni klasöre kopyalandı. Yeni klasörün aktif olması için uygulama yeniden başlatılmalı.')
+      } else {
+        setDatabaseMessage('Veritabanı konumu zaten bu klasörde.'
+        )
+      }
+      setDatabaseFolder('')
+    } catch (error) {
+      setDatabaseMessage(error instanceof Error ? error.message : 'Veritabanı klasörü taşınamadı.')
+    } finally {
+      setDatabaseMoving(false)
+    }
+  }
+
+  const refreshDatabaseLocation = async () => {
+    setDatabaseMessage(null)
+    const response = await invokeBridge<DatabaseLocationState>(IPC_CHANNELS.appSettings.getDatabaseLocation, { actorToken: token })
+    if (!response.ok) {
+      setDatabaseMessage(response.error?.message ?? 'Veritabanı konumu yenilenemedi.')
+      return
+    }
+    setDatabaseState(response.data ?? databaseFallbackState)
+    setDatabaseMessage('Veritabanı konumu yenilendi.')
+  }
+
+  const copyDatabasePath = async () => {
+    const value = databaseState.currentDbPath || databaseState.currentFolderPath
+    if (!value) {
+      setDatabaseMessage('Kopyalanacak veritabanı yolu bulunamadı.')
+      return
+    }
+    try {
+      await navigator.clipboard?.writeText(value)
+      setDatabaseCopied(true)
+      setDatabaseMessage('Veritabanı yolu kopyalandı.')
+      window.setTimeout(() => setDatabaseCopied(false), 1600)
+    } catch {
+      setDatabaseMessage('Veritabanı yolu kopyalanamadı.')
+    }
+  }
+
+  const revealDatabasePath = async () => {
+    const value = databaseState.currentDbPath || databaseState.currentFolderPath
+    if (!value) {
+      setDatabaseMessage('Açılacak veritabanı yolu bulunamadı.')
+      return
+    }
+    const response = await invokeBridge<{ revealed: boolean }>(IPC_CHANNELS.appSettings.revealDatabaseLocation, {
+      actorToken: token,
+      path: value
+    })
+    if (!response.ok) {
+      setDatabaseMessage(response.error?.message ?? 'Veritabanı klasörü açılamadı.')
+      return
+    }
+    setDatabaseMessage('Veritabanı klasörü açıldı.')
+  }
+
+  const selectSection = (section: SettingsSection) => {
+    setActiveSection(section)
+    setSearchParams(section === 'general' ? {} : { tab: section })
+  }
+
+  const openGatewayDetail = (gatewayId: string) => {
+    setActiveSection('gateways')
+    setSearchParams({ tab: 'gateways', gatewayId })
+  }
+
+  const closeGatewayDetail = () => {
+    setActiveSection('gateways')
+    setSearchParams({ tab: 'gateways' })
+  }
+
+  const sections = [
+    { id: 'general' as SettingsSection, label: 'Genel', icon: LuSlidersHorizontal },
+    { id: 'workspaces' as SettingsSection, label: 'Workspaces', icon: LuFolderOpen },
+    { id: 'gateways' as SettingsSection, label: 'Gateways', icon: LuWaypoints },
+    { id: 'database' as SettingsSection, label: 'Veritabanı', icon: LuHardDrive }
+  ]
+
+  const hasPendingRestart = databaseState.restartRequired
+
   return (
     <section className={styles.page}>
       <header className={styles.header}>
         <div>
-          <h1>Settings</h1>
-          <p>CLI settings for Codex runs launched by Open Mission Control.</p>
+          <h1>Ayarlar</h1>
+          <p>Uygulama davranışını genel olarak yönetin.</p>
         </div>
       </header>
 
-      <section className={styles.panel}>
-        <div className={styles.panelHeader}>
-          <span className={styles.panelIcon}><LuBot size={19} /></span>
-          <div>
-            <h2>Default task agent</h2>
-            <p>Tasks without their own agent inherit this selection in detail views and Codex exports.</p>
-          </div>
-        </div>
-        <div className={styles.defaultAgentRow}>
-          <AppSelect
-            mode="single"
-            value={selectedDefaultAgentOption}
-            options={agentOptions}
-            placeholder={agents.length > 0 ? 'Choose default agent' : 'No agents available'}
-            isClearable
-            isDisabled={defaultAgentSaving || agents.length === 0}
-            onChange={(option) => {
-              if (!Array.isArray(option)) void saveDefaultAgent(option)
-            }}
-          />
-          <span>{defaultAgentSaving ? 'Saving...' : selectedDefaultAgentOption ? `${selectedDefaultAgentOption.label} is inherited by unassigned tasks.` : 'No default agent selected.'}</span>
-        </div>
-        {defaultAgentMessage ? <p className={styles.settingMessage}>{defaultAgentMessage}</p> : null}
-      </section>
+      <div className={styles.layout}>
+        <nav className={styles.tabBar} aria-label="Ayar bölümleri">
+          {sections.map((section) => {
+            const Icon = section.icon
+            const isActive = activeSection === section.id
+            return (
+              <button
+                key={section.id}
+                type="button"
+                className={isActive ? styles.activeTabItem : styles.tabItem}
+                onClick={() => selectSection(section.id)}
+              >
+                <span><Icon size={17} /></span>
+                {section.label}
+              </button>
+            )
+          })}
+        </nav>
 
-      <section className={styles.panel}>
-        <div className={styles.panelHeader}>
-          <span className={styles.panelIcon}><LuLanguages size={19} /></span>
-          <div>
-            <h2>Codex language</h2>
-            <p>Planning, running, follow-up, steer, questions, task updates, and checklist output use this language.</p>
-          </div>
-        </div>
-        <div className={styles.defaultAgentRow}>
-          <AppSelect
-            mode="single"
-            value={selectedCodexLanguageOption}
-            options={codexLanguageOptions}
-            placeholder="Choose Codex language"
-            isDisabled={codexLanguageSaving}
-            onChange={(option) => {
-              if (!Array.isArray(option)) void saveCodexLanguage(option)
-            }}
-          />
-          <span>{codexLanguageSaving ? 'Saving...' : `${selectedCodexLanguageOption?.label ?? 'Türkçe'} is sent as a high-priority Codex instruction.`}</span>
-        </div>
-        {codexLanguageMessage ? <p className={styles.settingMessage}>{codexLanguageMessage}</p> : null}
-      </section>
-
-      <section className={styles.panel}>
-        <div className={styles.panelHeader}>
-          <span className={styles.panelIcon}><LuTerminal size={19} /></span>
-          <div>
-            <h2>.omc runtime CLI</h2>
-            <p>Every Codex planning and execution run receives a local helper in the runtime workspace.</p>
-          </div>
-        </div>
-        <div className={styles.infoGrid}>
-          <span>
-            <small>Run root</small>
-            <strong>.omc/runs/&lt;run-id&gt;/</strong>
-          </span>
-          <span>
-            <small>Instruction file</small>
-            <strong>.omc/runs/&lt;run-id&gt;/OMC_CLI.md</strong>
-          </span>
-          <span>
-            <small>Helper script</small>
-            <strong>.omc/runs/&lt;run-id&gt;/omc-task-client.mjs</strong>
-          </span>
-        </div>
-      </section>
-
-      <div className={styles.clientGrid}>
-        <FlowPanel icon={<LuPlay size={19} />} title="Execution flow" items={executionFlow} />
-        <FlowPanel icon={<LuFileText size={19} />} title="Planning flow" items={planningFlow} />
-      </div>
-
-      <section className={styles.panel}>
-        <div className={styles.panelHeader}>
-          <span className={styles.panelIcon}><LuTerminal size={19} /></span>
-          <div>
-            <h2>OMC operations</h2>
-            <p>Commands available inside each runtime workspace run folder.</p>
-          </div>
-        </div>
-        <div className={styles.operationList}>
-          {operations.map((operation) => (
-            <article key={operation.name}>
-              <div>
-                <code>{operation.name}</code>
-                <p>{operation.description}</p>
+        <section className={styles.surface}>
+          {activeSection === 'general' ? (
+            <div className={styles.panel}>
+              <header className={styles.panelHeader}>
+                <span className={styles.panelIcon}><LuCog size={19} /></span>
+                <div>
+                  <h2>Genel ayarlar</h2>
+                  <p>Varsayılan görev ajanı ve Codex dili.</p>
+                </div>
+              </header>
+              <div className={styles.surfaceSection}>
+                <h3><LuBot size={17} /> Varsayılan görev ajanı</h3>
+                <div className={styles.defaultAgentRow}>
+                  <AppSelect
+                    mode="single"
+                    value={selectedDefaultAgentOption}
+                    options={agentOptions}
+                    placeholder={agents.length > 0 ? 'Varsayılan ajan seçin' : 'Kullanılabilir ajan yok'}
+                    isClearable
+                    isDisabled={defaultAgentSaving || agents.length === 0}
+                    onChange={(option) => {
+                      if (!Array.isArray(option)) void saveDefaultAgent(option)
+                    }}
+                  />
+                  <span>{defaultAgentSaving ? 'Kaydediliyor...' : selectedDefaultAgentOption ? `${selectedDefaultAgentOption.label} yeni görevlerde varsayılan olur.` : 'Varsayılan ajan atanmadı.'}</span>
+                </div>
+                {defaultAgentMessage ? <p className={styles.settingMessage}>{defaultAgentMessage}</p> : null}
               </div>
-              <CodeBlock
-                title="command"
-                value={operation.command}
-                copied={copied === operation.name}
-                onCopy={() => copy(operation.name, operation.command)}
-              />
-            </article>
-          ))}
-        </div>
-      </section>
 
-      <section className={styles.panel}>
-        <div className={styles.panelHeader}>
-          <span className={styles.panelIcon}><LuFileText size={19} /></span>
-          <div>
-            <h2>Instruction file shape</h2>
-            <p>Open Mission Control writes run-specific paths and exact commands into this Markdown file.</p>
-          </div>
-        </div>
-        <CodeBlock
-          title="OMC_CLI.md"
-          value={mdExample}
-          copied={copied === 'md-example'}
-          onCopy={() => copy('md-example', mdExample)}
-        />
-      </section>
-    </section>
-  )
-}
+              <div className={styles.surfaceSection}>
+                <h3><LuLanguages size={17} /> Codex dili</h3>
+                <div className={styles.defaultAgentRow}>
+                  <AppSelect
+                    mode="single"
+                    value={selectedCodexLanguageOption}
+                    options={codexLanguageOptions}
+                    placeholder="Codex dili seçin"
+                    isDisabled={codexLanguageSaving}
+                    onChange={(option) => {
+                      if (!Array.isArray(option)) void saveCodexLanguage(option)
+                    }}
+                  />
+                  <span>{codexLanguageSaving ? 'Kaydediliyor...' : `${selectedCodexLanguageOption?.label ?? 'Türkçe'} Codex çıktılarında kullanılacak.`}</span>
+                </div>
+                {codexLanguageMessage ? <p className={styles.settingMessage}>{codexLanguageMessage}</p> : null}
+              </div>
+            </div>
+          ) : null}
 
-function FlowPanel({ icon, title, items }: { icon: ReactNode; title: string; items: string[] }) {
-  return (
-    <section className={styles.panel}>
-      <div className={styles.panelHeader}>
-        <span className={styles.panelIcon}>{icon}</span>
-        <div>
-          <h2>{title}</h2>
-          <p>Run sequence used by Codex through Open Mission Control.</p>
-        </div>
+          {activeSection === 'workspaces' ? (
+            <div className={styles.panel}>
+              <WorkspacesPage embedded />
+            </div>
+          ) : null}
+
+          {activeSection === 'gateways' ? (
+            <div className={styles.panel}>
+              {selectedGatewayId ? (
+                <GatewayDetailPage embedded gatewayId={selectedGatewayId} onBack={closeGatewayDetail} />
+              ) : (
+                <GatewaysPage embedded onOpenGateway={openGatewayDetail} />
+              )}
+            </div>
+          ) : null}
+
+          {activeSection === 'database' ? (
+            <div className={styles.panel}>
+              <header className={styles.panelHeader}>
+                <span className={styles.panelIcon}><LuHardDrive size={19} /></span>
+                <div>
+                  <h2>SQLite veritabanı klasörü</h2>
+                  <p>Veritabanı dosyasının bulunduğu klasörü kopyala ve yeniden başlatma gerektiren değişimi uygula.</p>
+                </div>
+              </header>
+
+              <div className={styles.surfaceSection}>
+                <h3>Mevcut durum</h3>
+                <div className={styles.infoList}>
+                  <label>
+                    <small>Mevcut klasör</small>
+                    <span>{databaseState.currentFolderPath || 'Bilinmiyor'}</span>
+                  </label>
+                  <label>
+                    <small>Mevcut veritabanı dosyası</small>
+                    <span>{databaseState.currentDbPath || 'Henüz hazır değil'}</span>
+                  </label>
+                  {databaseState.pendingFolderPath ? (
+                    <label>
+                      <small>Bekleyen klasör</small>
+                      <span>{databaseState.pendingFolderPath}</span>
+                    </label>
+                  ) : null}
+                  {databaseState.pendingDbPath ? (
+                    <label>
+                      <small>Bekleyen dosya</small>
+                      <span>{databaseState.pendingDbPath}</span>
+                    </label>
+                  ) : null}
+                </div>
+
+                <p className={hasPendingRestart ? styles.restartNotice : undefined}>
+                  {hasPendingRestart
+                    ? 'Yeni klasöre geçmek için uygulamayı yeniden başlatmanız gerekiyor.'
+                    : 'Veritabanı dosyası aktif klasöre bağlı çalışır.'}
+                </p>
+                <div className={styles.databaseActions}>
+                  <button type="button" className={styles.secondaryButton} onClick={() => void copyDatabasePath()} disabled={!databaseState.currentDbPath && !databaseState.currentFolderPath}>
+                    {databaseCopied ? <LuCheck size={15} /> : <LuClipboard size={15} />}
+                    {databaseCopied ? 'Kopyalandı' : 'Yolu kopyala'}
+                  </button>
+                  <button type="button" className={styles.secondaryButton} onClick={() => void revealDatabasePath()} disabled={!databaseState.currentDbPath && !databaseState.currentFolderPath}>
+                    <LuFolderOpen size={15} />
+                    Klasörde aç
+                  </button>
+                  <button type="button" className={styles.secondaryButton} onClick={() => void refreshDatabaseLocation()}>
+                    <LuRefreshCw size={15} />
+                    Yenile
+                  </button>
+                </div>
+              </div>
+
+              <div className={styles.surfaceSection}>
+                <h3>Yeni klasör seçin</h3>
+                <div className={styles.databaseRow}>
+                  <span>{databaseFolder || 'Klasör seçilmedi.'}</span>
+                  <button type="button" onClick={pickDatabaseFolder} disabled={databaseMoving}>
+                    Klasör seç
+                  </button>
+                  <button type="button" className={styles.secondaryButton} onClick={applyDatabaseMove} disabled={databaseMoving || !databaseFolder}>
+                    {databaseMoving ? 'Taşınıyor...' : 'Klasörü uygula (yeniden başlatma gerektirir)'}
+                  </button>
+                </div>
+                {databaseMessage ? <p className={styles.settingMessage}>{databaseMessage}</p> : null}
+              </div>
+            </div>
+          ) : null}
+        </section>
       </div>
-      <ol className={styles.flowList}>
-        {items.map((item) => <li key={item}>{item}</li>)}
-      </ol>
     </section>
-  )
-}
-
-function CodeBlock({ title, value, copied, onCopy }: { title: string; value: string; copied: boolean; onCopy: () => void }) {
-  return (
-    <div className={styles.codeBlock}>
-      <div>
-        <span>{title}</span>
-        <button type="button" onClick={onCopy} disabled={!value}>
-          {copied ? <LuCheck size={14} /> : <LuClipboard size={14} />}
-          {copied ? 'Copied' : 'Copy'}
-        </button>
-      </div>
-      <pre>{value}</pre>
-    </div>
   )
 }

@@ -4,6 +4,19 @@
   align-content: start;
 }
 
+.embeddedPage {
+  .header {
+    margin: 0;
+    padding: 0 0 16px;
+    background: transparent;
+
+    h1 {
+      font-size: 1.25rem;
+      letter-spacing: 0;
+    }
+  }
+}
+
 .header {
   display: flex;
   align-items: center;

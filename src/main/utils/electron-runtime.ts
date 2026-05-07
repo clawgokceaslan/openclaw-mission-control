@@ -11,6 +11,7 @@ type ElectronRuntimeModule = {
   nativeImage?: typeof Electron.nativeImage
   powerMonitor?: typeof Electron.powerMonitor
   dialog?: typeof Electron.dialog
+  shell?: typeof Electron.shell
   ipcMain?: Electron.IpcMain
 }
 

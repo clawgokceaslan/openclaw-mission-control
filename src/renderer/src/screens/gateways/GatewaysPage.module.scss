@@ -4,6 +4,20 @@
   align-content: start;
 }
 
+.embeddedPage {
+  .header {
+    margin: 0;
+    padding: 0 0 16px;
+    border-bottom: 1px solid var(--omc-border-subtle);
+    background: transparent;
+
+    h1 {
+      font-size: 1.25rem;
+      letter-spacing: 0;
+    }
+  }
+}
+
 .header {
   margin: -22px -30px 14px;
   padding: 28px 30px;
@@ -155,10 +169,27 @@
   align-items: center;
   gap: 8px;
 
-  a {
+  a,
+  .nameButton {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+}
+
+.nameButton {
+  width: fit-content;
+  max-width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--omc-text-strong);
+  padding: 0;
+  font: inherit;
+  font-weight: 800;
+  text-align: left;
+
+  &:hover {
+    color: var(--omc-primary-strong);
   }
 }
 

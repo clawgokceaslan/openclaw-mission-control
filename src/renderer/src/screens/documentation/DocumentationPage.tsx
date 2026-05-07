@@ -1,17 +1,10 @@
-import { useMemo, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { marked } from 'marked'
-import { LuArrowRight, LuBookOpen, LuWaypoints } from 'react-icons/lu'
+import { LuBookOpen } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { CODEX_DOC_CATEGORIES, CODEX_DOCS, type CodexDoc } from '@renderer/constants/codex-docs'
 import styles from './DocumentationPage.module.scss'
-
-const GATEWAY_SOURCE_LABELS = [
-  'src/main/services/gateway/*',
-  'src/renderer/src/screens/gateways/*',
-  'src/shared/contracts/ipc.ts',
-  'src/shared/types/entities.ts'
-]
 
 function escapeHtml(value: string): string {
   return value
@@ -46,49 +39,41 @@ function matchesDoc(doc: CodexDoc, query: string, category: string): boolean {
 }
 
 export function DocumentationPage() {
-  const location = useLocation()
-  const isGatewayDocs = location.pathname === APP_ROUTES.DOCUMENTATION_GATEWAY
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('All')
   const [selectedId, setSelectedId] = useState(CODEX_DOCS[0]?.id ?? '')
 
   const categories = useMemo(() => ['All', ...CODEX_DOC_CATEGORIES], [])
   const docs = useMemo(() => CODEX_DOCS.filter((doc) => matchesDoc(doc, query, category)), [query, category])
-  const selected = docs.find((doc) => doc.id === selectedId) ?? docs[0] ?? CODEX_DOCS[0]
 
-  if (!isGatewayDocs) {
-    return (
-      <section className={styles.page}>
-        <header className={styles.header}>
-          <div>
-            <h1>Documentation</h1>
-            <p>Operational documents grouped by product surface.</p>
-          </div>
-        </header>
-        <div className={styles.docHubGrid}>
-          <Link className={styles.hubCard} to={APP_ROUTES.DOCUMENTATION_GATEWAY}>
-            <span className={styles.hubIcon}><LuWaypoints size={20} /></span>
-            <div>
-              <strong>Codex CLI</strong>
-              <p>Codex CLI gateway setup, remote app-server notes, command reference, and slash commands.</p>
-            </div>
-            <LuArrowRight size={18} />
-          </Link>
-        </div>
-      </section>
-    )
-  }
+  const docsByCategory = useMemo(() => {
+    const map = new Map<string, CodexDoc[]>()
+    for (const doc of docs) {
+      const list = map.get(doc.category) ?? []
+      list.push(doc)
+      map.set(doc.category, list)
+    }
+    return Array.from(map.entries())
+  }, [docs])
+
+  useEffect(() => {
+    if (!docs.find((doc) => doc.id === selectedId)) {
+      setSelectedId(docs[0]?.id ?? '')
+    }
+  }, [docs, selectedId])
+
+  const selected = docs.find((doc) => doc.id === selectedId) ?? docs[0] ?? CODEX_DOCS[0]
 
   return (
     <section className={styles.page}>
       <header className={styles.header}>
         <div>
-          <h1>Codex CLI</h1>
-          <p>Gateway records, external CLI runtime expectations, commands, flags, and TUI controls.</p>
+          <h1>Documentation</h1>
+          <p>Kod tabanına göre organize edilmiş operasyonel ve referans dokümanlar.</p>
         </div>
-        <Link className={styles.headerLink} to={APP_ROUTES.DOCUMENTATION}>
+        <Link className={styles.headerLink} to={APP_ROUTES.SETTINGS}>
           <LuBookOpen size={15} />
-          Documentation hub
+          Settings
         </Link>
       </header>
 
@@ -96,7 +81,7 @@ export function DocumentationPage() {
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search Codex CLI docs..."
+          placeholder="Doküman ara..."
         />
         <div className={styles.categoryChips}>
           {categories.map((item) => (
@@ -113,19 +98,28 @@ export function DocumentationPage() {
 
       <div className={styles.layout}>
         <div className={styles.cardGrid}>
-          {docs.map((doc) => (
-            <button
-              key={doc.id}
-              className={`${styles.docCard} ${selected?.id === doc.id ? styles.activeCard : ''}`}
-              onClick={() => setSelectedId(doc.id)}
-            >
-              <span>{doc.category}</span>
-              <h2>{doc.title}</h2>
-              <p>{doc.summary}</p>
-              <small>Codex CLI</small>
-            </button>
-          ))}
-          {docs.length === 0 && <p className={styles.empty}>No documentation matched your search.</p>}
+          {docsByCategory.length === 0 ? (
+            <p className={styles.empty}>Arama sonucu belge bulunamadı.</p>
+          ) : (
+            docsByCategory.map(([categoryName, rows]) => (
+              <section key={categoryName} className={styles.docCategory}>
+                <h3>{categoryName}</h3>
+                <div className={styles.docCardList}>
+                  {rows.map((doc) => (
+                    <button
+                      key={doc.id}
+                      className={`${styles.docCard} ${selected?.id === doc.id ? styles.activeCard : ''}`}
+                      onClick={() => setSelectedId(doc.id)}
+                    >
+                      <span>{doc.category}</span>
+                      <h2>{doc.title}</h2>
+                      <p>{doc.summary}</p>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ))
+          )}
         </div>
 
         {selected && (
@@ -137,16 +131,16 @@ export function DocumentationPage() {
             </div>
 
             <section className={styles.sources}>
-              <h3>Source files</h3>
+              <h4>Kaynak dosyalar</h4>
               <div>
-                {GATEWAY_SOURCE_LABELS.map((file) => (
+                {selected.sourceFiles.map((file) => (
                   <code key={file}>{file}</code>
                 ))}
               </div>
             </section>
 
             <section className={styles.terms}>
-              <h3>Terms</h3>
+              <h4>Terimler</h4>
               <div>
                 {selected.terms.map((term) => (
                   <span key={term.term}>

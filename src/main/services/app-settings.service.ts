@@ -5,8 +5,12 @@ import { AppSettingsRepository } from '../../db/repositories/workspace-repo.js'
 import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
 import { AgentRepository } from '../../db/repositories/agent-repo.js'
 import { ProjectRepository } from '../../db/repositories/project-repo.js'
+import { getDatabaseLocationState, moveDatabaseToFolder } from '../../db/config.js'
 import { AuthService } from './auth.service.js'
 import { DEFAULT_CODEX_LANGUAGE, normalizeCodexLanguage, type CodexLanguage } from '../../shared/utils/codex-language.js'
+import { ErrorCodes } from '../../shared/contracts/error-codes.js'
+import { electronRuntime } from '../utils/electron-runtime.js'
+import type { DatabaseLocationState } from '../../shared/contracts/ipc.js'
 
 const ACTIVE_GATEWAY_KEY = 'activeGatewayId'
 const DEFAULT_AGENT_KEY = 'defaultAgentId'
@@ -118,6 +122,68 @@ export class AppSettingsService {
     const language = normalizeCodexLanguage(payload?.language)
     await this.repo.set(actor.user.organizationId, CODEX_LANGUAGE_KEY, language)
     return okResponse({ language })
+  }
+
+  async getDatabaseLocation(payload: { actorToken?: string }): Promise<ServiceResponse<DatabaseLocationState>> {
+    await this.auth.requireActor(payload?.actorToken)
+    return okResponse(getDatabaseLocationState())
+  }
+
+  async pickDatabaseFolder(payload: { actorToken?: string }): Promise<ServiceResponse<{ folderPath: string } | null>> {
+    await this.auth.requireActor(payload?.actorToken)
+    const dialog = electronRuntime.dialog
+    if (!dialog) {
+      return errorResponse(ErrorCodes.Internal, 'Electron dialog runtime is unavailable')
+    }
+    const result = await dialog.showOpenDialog({
+      title: 'Select database folder',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (result.canceled || !result.filePaths[0]) {
+      return okResponse(null)
+    }
+    return okResponse({ folderPath: result.filePaths[0] })
+  }
+
+  async moveDatabaseLocation(payload: { actorToken?: string; folderPath?: string | null }): Promise<ServiceResponse<DatabaseLocationState>> {
+    await this.auth.requireActor(payload?.actorToken)
+    const folderPath = payload?.folderPath?.trim() ?? ''
+    if (!folderPath) return errorResponse(ErrorCodes.Validation, 'Destination folder is required')
+    try {
+      const state = await moveDatabaseToFolder(folderPath)
+      return okResponse(state)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to move database file'
+      const lowered = message.toLowerCase()
+      if (
+        lowered.includes('destination folder') ||
+        lowered.includes('same folder') ||
+        lowered.includes('required') ||
+        lowered.includes('database file cannot be found')
+      ) {
+        return errorResponse(ErrorCodes.Validation, message)
+      }
+      return errorResponse(ErrorCodes.Internal, message)
+    }
+  }
+
+  async revealDatabaseLocation(payload: { actorToken?: string; path?: string | null }): Promise<ServiceResponse<{ revealed: boolean }>> {
+    await this.auth.requireActor(payload?.actorToken)
+    const shell = electronRuntime.shell
+    if (!shell) {
+      return errorResponse(ErrorCodes.Internal, 'Electron shell runtime is unavailable')
+    }
+    const state = getDatabaseLocationState()
+    const targetPath = payload?.path?.trim() || state.currentDbPath || state.currentFolderPath
+    if (!targetPath) {
+      return errorResponse(ErrorCodes.Validation, 'Database path is unavailable')
+    }
+    if (targetPath.endsWith('mission-control.sqlite')) {
+      shell.showItemInFolder(targetPath)
+    } else {
+      await shell.openPath(targetPath)
+    }
+    return okResponse({ revealed: true })
   }
 }
 

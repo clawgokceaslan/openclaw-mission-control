@@ -12,8 +12,6 @@ import {
   LuTags,
   LuClipboardList,
   LuBookMarked,
-  LuWaypoints,
-  LuHardDrive,
   LuLayers,
   LuMessageSquare
 } from 'react-icons/lu'
@@ -53,8 +51,6 @@ export const NAV_BY_GROUP: Record<NavGroupKey, NavItem[]> = {
   ],
   Administration: [
     { label: 'Settings', path: APP_ROUTES.SETTINGS, group: 'Administration', icon: LuSlidersHorizontal },
-    { label: 'Workspaces', path: APP_ROUTES.WORKSPACES, group: 'Administration', icon: LuHardDrive },
-    { label: 'Gateways', path: APP_ROUTES.GATEWAYS, group: 'Administration', icon: LuWaypoints },
     { label: 'Documentation', path: APP_ROUTES.DOCUMENTATION, group: 'Administration', icon: LuBookOpen }
   ]
 }

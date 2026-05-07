@@ -57,7 +57,12 @@ function formFromGateway(gateway: Gateway): GatewayFormState {
   }
 }
 
-export function GatewaysPage() {
+interface GatewaysPageProps {
+  embedded?: boolean
+  onOpenGateway?: (gatewayId: string) => void
+}
+
+export function GatewaysPage({ embedded = false, onOpenGateway }: GatewaysPageProps) {
   const { token } = useAuth()
   const [items, setItems] = useState<Gateway[]>([])
   const [search, setSearch] = useState('')
@@ -235,7 +240,7 @@ export function GatewaysPage() {
   }
 
   return (
-    <section className={styles.page}>
+    <section className={`${styles.page} ${embedded ? styles.embeddedPage : ''}`}>
       <header className={styles.header}>
         <div>
           <h1>Gateways</h1>
@@ -283,7 +288,11 @@ export function GatewaysPage() {
             <div className={styles.tableRow} key={gateway.id}>
               <span>
                 <span className={styles.nameLine}>
-                  <Link to={`${APP_ROUTES.GATEWAYS}/${gateway.id}`}>{gateway.name}</Link>
+                  {onOpenGateway ? (
+                    <button type="button" className={styles.nameButton} onClick={() => onOpenGateway(gateway.id)}>{gateway.name}</button>
+                  ) : (
+                    <Link to={`${APP_ROUTES.GATEWAYS}/${gateway.id}`}>{gateway.name}</Link>
+                  )}
                   {isActive ? <b className={styles.activeBadge}>Active</b> : null}
                 </span>
                 <small>Local CLI</small>
