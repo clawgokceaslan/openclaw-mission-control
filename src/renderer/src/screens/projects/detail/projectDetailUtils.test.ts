@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskEntity } from '@shared/types/entities'
-import { latestTaskGatewayConversation, projectGatewaySettings, reorderTasksForDrop, taskGatewayActionChips, taskGatewayActiveTone, taskGatewayLatestSurfaceStatus, taskGatewayPlanBadge, taskGatewaySurfaceStatuses } from './projectDetailUtils'
+import { latestTaskGatewayConversation, nextStatusTopOrder, orderedTasksForStatus, projectGatewaySettings, reorderTasksForDrop, taskGatewayActionChips, taskGatewayActiveTone, taskGatewayLatestSurfaceStatus, taskGatewayPlanBadge, taskGatewaySurfaceStatuses } from './projectDetailUtils'
 
 function task(id: string, status: string, order: number): TaskEntity {
   return {
@@ -26,7 +26,7 @@ describe('project task ordering', () => {
     ])
   })
 
-  it('moves across statuses after a target task and reindexes affected groups', () => {
+  it('moves across statuses to the top and reindexes affected groups', () => {
     const source = [
       task('a', 'todo', 0),
       task('b', 'todo', 1),
@@ -38,11 +38,23 @@ describe('project task ordering', () => {
 
     expect(byId.get('b')?.status).toBe('doing')
     expect(result.updates.map((update) => [update.task.id, update.status, update.order])).toEqual([
-      ['c', 'doing', 0],
-      ['b', 'doing', 1],
+      ['b', 'doing', 0],
+      ['c', 'doing', 1],
       ['d', 'doing', 2],
       ['a', 'todo', 0]
     ])
+  })
+
+  it('orders newest rows first when no manual status order exists', () => {
+    const older = { ...task('older', 'todo', 0), payload: {}, createdAt: 10, updatedAt: 10 }
+    const newer = { ...task('newer', 'todo', 1), payload: {}, createdAt: 20, updatedAt: 20 }
+
+    expect(orderedTasksForStatus([older, newer]).map((item) => item.id)).toEqual(['newer', 'older'])
+  })
+
+  it('generates a top order before the current first task', () => {
+    expect(nextStatusTopOrder([task('a', 'todo', 0), task('b', 'todo', 1)], 'todo')).toBe(-1)
+    expect(nextStatusTopOrder([], 'todo')).toBe(0)
   })
 })
 

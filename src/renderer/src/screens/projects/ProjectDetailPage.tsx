@@ -46,7 +46,7 @@ import {
   createLocalId,
   customFieldValueToDraft,
   latestTaskGatewayConversation,
-  orderedTasksForStatus,
+  nextStatusTopOrder,
   projectDefaultAgentId,
   projectDefaultSkillIds,
   readTaskGatewayOverride,
@@ -1507,7 +1507,7 @@ export function ProjectDetailPage() {
   const handleQuickCreate = async () => {
     if (!projectId || !taskTitle.trim()) return
     setBusy(true)
-    const statusOrder = orderedTasksForStatus(tasks.filter((task) => task.status === defaultStatus)).length
+    const statusOrder = nextStatusTopOrder(tasks, defaultStatus)
     const response = await invokeBridge(IPC_CHANNELS.tasks.create, {
       actorToken: token,
       projectId,
@@ -1565,7 +1565,7 @@ export function ProjectDetailPage() {
         input: {
           ...input,
           projectId,
-          statusOrder: orderedTasksForStatus(tasks.filter((task) => task.status === input.status)).length
+          statusOrder: nextStatusTopOrder(tasks, input.status)
         },
         templates: taskTemplates,
         statusColumns,
@@ -1600,7 +1600,7 @@ export function ProjectDetailPage() {
       ...currentPayload,
       statusOrder: {
         ...currentStatusOrder,
-        [nextStatus]: orderedTasksForStatus(tasks.filter((item) => item.status === nextStatus)).length
+        [nextStatus]: nextStatusTopOrder(tasks, nextStatus)
       }
     }
     setTasks((current) => current.map((item) => (

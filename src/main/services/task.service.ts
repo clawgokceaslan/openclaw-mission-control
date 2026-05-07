@@ -2732,7 +2732,7 @@ export class TaskService {
     if (!first || !second) return
     const isFirstStatus = task.status === first.id || task.status === first.name
     if (!isFirstStatus) return
-    const payload = await this.payloadWithAppendStatusOrder(task.projectId, second.id, asPayload(task.payload))
+    const payload = await this.payloadWithPrependStatusOrder(task.projectId, second.id, asPayload(task.payload))
     const updated = await this.repo.update(task.id, { status: second.id, payload })
     if (updated) this.emitTaskUpdated(task.projectId, task.id, 'plan_status_advanced')
   }
@@ -3087,15 +3087,21 @@ export class TaskService {
     return okResponse(task)
   }
 
-  private async payloadWithAppendStatusOrder(projectId: string, status: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  private async payloadWithPrependStatusOrder(projectId: string, status: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     const nextPayload = { ...payload }
     const currentStatusOrder = asPayload(nextPayload.statusOrder)
-    const currentOrder = currentStatusOrder[status]
-    if (typeof currentOrder === 'number' && Number.isFinite(currentOrder)) return nextPayload
     const rows = await this.repo.list(projectId)
+    const firstOrder = rows
+      .filter((task) => task.status === status)
+      .map((task) => {
+        const order = asPayload(task.payload?.statusOrder)[status]
+        return typeof order === 'number' && Number.isFinite(order) ? order : null
+      })
+      .filter((order): order is number => order !== null)
+      .sort((a, b) => a - b)[0]
     nextPayload.statusOrder = {
       ...currentStatusOrder,
-      [status]: rows.filter((task) => task.status === status).length
+      [status]: typeof firstOrder === 'number' ? firstOrder - 1 : 0
     }
     return nextPayload
   }
@@ -3113,7 +3119,7 @@ export class TaskService {
     const statusResponse = await this.normalizeStatus(payload.projectId, actor.user.organizationId, payload.status)
     if (!statusResponse.ok) return statusResponse as ServiceResponse<TaskEntity>
     const status = statusResponse.data ?? 'pending'
-    const createPayload = await this.payloadWithAppendStatusOrder(payload.projectId, status, {
+    const createPayload = await this.payloadWithPrependStatusOrder(payload.projectId, status, {
       ...(payload.payload ?? {}),
       description: payload.description ?? '',
       comments: []
@@ -3159,16 +3165,16 @@ export class TaskService {
       inputFormatId: '',
       outputFormatId: ''
     }
-    const createPayload = targetTask
-      ? rootPayload
-      : await this.payloadWithAppendStatusOrder(projectId, rootStatus, rootPayload)
+    const createPayload = !targetTask || targetTask.status !== rootStatus
+      ? await this.payloadWithPrependStatusOrder(projectId, rootStatus, rootPayload)
+      : rootPayload
 
     const taskRow = targetTask
       ? await this.repo.update(targetTask.id, {
         title: imported.title,
         status: rootStatus,
         agentId: targetTask.agentId ?? null,
-        payload: rootPayload
+        payload: createPayload
       })
       : await this.repo.create({
         projectId,
@@ -3336,7 +3342,8 @@ export class TaskService {
     const statuses = await this.statuses.ensureProjectDefaults(access.data.task.projectId, access.data.actorOrgId)
     const target = this.reviewTargetStatus(statuses)
     if (!target) return errorResponse(ErrorCodes.Validation, 'Project has no statuses')
-    const updated = await this.repo.update(access.data.task.id, { status: target.id })
+    const nextPayload = await this.payloadWithPrependStatusOrder(access.data.task.projectId, target.id, asPayload(access.data.task.payload))
+    const updated = await this.repo.update(access.data.task.id, { status: target.id, payload: nextPayload })
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Task not found')
     await this.subtaskRepo.updateStatusesByTask(access.data.task.id, target.id)
     this.emitTaskUpdated(access.data.task.projectId, access.data.task.id, 'ready_for_review')
@@ -5093,11 +5100,15 @@ export class TaskService {
     }
     const nextStatusResponse = await this.normalizeStatus(current.projectId, access.data.actorOrgId, payload.status ?? current.status)
     if (!nextStatusResponse.ok) return nextStatusResponse as ServiceResponse<TaskEntity>
+    const nextStatus = nextStatusResponse.data ?? current.status
+    const payloadForUpdate = nextStatus !== current.status
+      ? await this.payloadWithPrependStatusOrder(current.projectId, nextStatus, nextPayload)
+      : nextPayload
     const updated = await this.repo.update(payload.id, {
       title: payload.title ?? current.title,
-      status: nextStatusResponse.data ?? current.status,
+      status: nextStatus,
       agentId: nextAgentId,
-      payload: nextPayload
+      payload: payloadForUpdate
     })
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Task not found')
     const [task] = await this.enrichTasks([updated])

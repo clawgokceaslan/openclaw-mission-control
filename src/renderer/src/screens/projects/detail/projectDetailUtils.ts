@@ -453,6 +453,15 @@ export function statusOrderPayload(task: TaskEntity, status: string, order: numb
   }
 }
 
+export function nextStatusTopOrder(tasks: TaskEntity[], status: string): number {
+  const firstOrder = tasks
+    .filter((task) => task.status === status)
+    .map((task) => getStatusOrder(task, status))
+    .filter((order): order is number => order !== null)
+    .sort((a, b) => a - b)[0]
+  return typeof firstOrder === 'number' ? firstOrder - 1 : 0
+}
+
 export type TaskDropPosition = 'before' | 'after'
 
 export type ReorderedTaskUpdate = {
@@ -490,9 +499,11 @@ export function reorderTasksForDrop(
   const sourceStatus = sourceTask.status
   const targetRows = orderedTasksForStatus(tasks.filter((task) => task.id !== sourceTaskId && task.status === targetStatus))
   const targetIndex = targetTaskId ? targetRows.findIndex((task) => task.id === targetTaskId) : -1
-  const insertIndex = targetIndex >= 0
-    ? position === 'before' ? targetIndex : targetIndex + 1
-    : targetRows.length
+  const insertIndex = sourceStatus !== targetStatus
+    ? 0
+    : targetIndex >= 0
+      ? position === 'before' ? targetIndex : targetIndex + 1
+      : targetRows.length
   const movedTask = { ...sourceTask, status: targetStatus }
   const nextTargetRows = [...targetRows]
   nextTargetRows.splice(Math.max(0, Math.min(insertIndex, nextTargetRows.length)), 0, movedTask)
