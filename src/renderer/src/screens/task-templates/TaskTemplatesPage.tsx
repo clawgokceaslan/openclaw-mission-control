@@ -30,7 +30,7 @@ import { createTaskWithTemplate, type CreateTaskInput } from '../projects/detail
 type CodexModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }
 
 const SAVE_DELAY_MS = 700
-const DESCRIPTION_AUTOSAVE_DELAY_MS = 1200
+const DESCRIPTION_AUTOSAVE_DELAY_MS = 5000
 const DEFAULT_DETAIL_RATIO = 0.72
 const MIN_DETAIL_WIDTH = 420
 const MIN_COMMENTS_WIDTH = 320
@@ -279,6 +279,8 @@ export function TaskTemplatesPage() {
   const [descriptionDraft, setDescriptionDraft] = useState('')
   const [templateDraft, setTemplateDraft] = useState<TaskTemplatePayload>(defaultTemplate())
   const [draftSubtasks, setDraftSubtasks] = useState<DraftSubtask[]>([])
+  const [selectedSubtaskDescriptionDraft, setSelectedSubtaskDescriptionDraft] = useState('')
+  const [isSelectedSubtaskDescriptionDirty, setIsSelectedSubtaskDescriptionDirty] = useState(false)
   const [activeTab, setActiveTab] = useState<BuilderTab>('subtasks')
   const [subtaskDetailTab, setSubtaskDetailTab] = useState<TemplateSubtaskDetailTab>('agent')
   const [selectedSubtaskId, setSelectedSubtaskId] = useState<string | null>(null)
@@ -334,6 +336,8 @@ export function TaskTemplatesPage() {
   const editingRef = useRef<TaskTemplate | null>(null)
   const nameRef = useRef('')
   const descriptionRef = useRef('')
+  const selectedSubtaskDescriptionRef = useRef('')
+  const selectedSubtaskDescriptionSavedRef = useRef('')
   const templateRef = useRef<TaskTemplatePayload>(defaultTemplate())
   const subtasksRef = useRef<DraftSubtask[]>([])
   const lastCodexModelRefreshRef = useRef<string | null>(null)
@@ -489,6 +493,14 @@ export function TaskTemplatesPage() {
   }, [selectedSubtaskId])
 
   useEffect(() => {
+    const nextDescription = getSubtaskDescription(selectedSubtask)
+    selectedSubtaskDescriptionRef.current = nextDescription
+    selectedSubtaskDescriptionSavedRef.current = nextDescription
+    setSelectedSubtaskDescriptionDraft(nextDescription)
+    setIsSelectedSubtaskDescriptionDirty(false)
+  }, [selectedSubtaskId])
+
+  useEffect(() => {
     if (!isApplyTemplateOpen) return
     if (!applyProjectId) {
       setApplyStatusColumns(PROJECT_STATUS_COLUMNS)
@@ -603,6 +615,7 @@ export function TaskTemplatesPage() {
     }
     inFlightRef.current = true
     setSaveState('saving')
+    const requestSubtaskDescriptionDraft = selectedSubtaskDescriptionRef.current
     const payload = {
       ...normalizeTemplate(templateRef.current),
       title: nameRef.current.trim(),
@@ -626,6 +639,10 @@ export function TaskTemplatesPage() {
     setItems((current) => current.map((item) => item.id === response.data?.id ? response.data : item))
     setSaveState('saved')
     setSaveError(null)
+    selectedSubtaskDescriptionSavedRef.current = requestSubtaskDescriptionDraft
+    if (selectedSubtaskDescriptionRef.current === requestSubtaskDescriptionDraft) {
+      setIsSelectedSubtaskDescriptionDirty(false)
+    }
     if (pendingRef.current) {
       pendingRef.current = false
       return persistNow()
@@ -755,13 +772,13 @@ export function TaskTemplatesPage() {
     patchTemplate({ description: nextDescription })
   }
 
-  const patchSubtasks = (updater: (current: DraftSubtask[]) => DraftSubtask[]) => {
+  const patchSubtasks = (updater: (current: DraftSubtask[]) => DraftSubtask[], options?: { schedule?: boolean }) => {
     setDraftSubtasks((current) => {
       const next = updater(current)
       subtasksRef.current = next
       return next
     })
-    scheduleSave()
+    if (options?.schedule !== false) scheduleSave()
   }
 
   const openCreate = () => {
@@ -908,6 +925,10 @@ export function TaskTemplatesPage() {
     setActiveTab('subtasks')
     setSubtaskDetailTab('agent')
     setSelectedSubtaskId(null)
+    selectedSubtaskDescriptionRef.current = ''
+    selectedSubtaskDescriptionSavedRef.current = ''
+    setSelectedSubtaskDescriptionDraft('')
+    setIsSelectedSubtaskDescriptionDirty(false)
     setCustomFieldDraft('')
     setSelectedCustomField(null)
     setCustomFieldError(null)
@@ -938,6 +959,8 @@ export function TaskTemplatesPage() {
     await persistNow()
     setEditing(null)
     setSelectedSubtaskId(null)
+    setSelectedSubtaskDescriptionDraft('')
+    setIsSelectedSubtaskDescriptionDirty(false)
     setSubtaskCommentDraft('')
     setEditingSubtaskCommentId(null)
     setSaveState('saved')
@@ -1247,12 +1270,32 @@ export function TaskTemplatesPage() {
     setTemplateSubtaskDraft('')
   }
 
-  const updateSelectedSubtaskPayload = (patch: Record<string, unknown>) => {
+  const updateSelectedSubtaskPayload = (patch: Record<string, unknown>, options?: { schedule?: boolean }) => {
     if (!selectedSubtask) return
     patchSubtasks((current) => current.map((subtask) => {
       if (subtask.uiId !== selectedSubtask.uiId) return subtask
       return { ...subtask, payload: { ...getSubtaskPayload(subtask), ...patch } }
-    }))
+    }), options)
+  }
+
+  const updateSelectedSubtaskDescription = (nextValue: string) => {
+    selectedSubtaskDescriptionRef.current = nextValue
+    setSelectedSubtaskDescriptionDraft(nextValue)
+    setIsSelectedSubtaskDescriptionDirty(nextValue !== selectedSubtaskDescriptionSavedRef.current)
+    updateSelectedSubtaskPayload({ description: nextValue, inputFormatId: '', outputFormatId: '' }, { schedule: false })
+    scheduleDescriptionSave()
+  }
+
+  const resetSelectedTemplateSubtaskDescription = () => {
+    if (descriptionTimerRef.current) {
+      window.clearTimeout(descriptionTimerRef.current)
+      descriptionTimerRef.current = null
+    }
+    const nextValue = selectedSubtaskDescriptionSavedRef.current
+    selectedSubtaskDescriptionRef.current = nextValue
+    setSelectedSubtaskDescriptionDraft(nextValue)
+    setIsSelectedSubtaskDescriptionDirty(false)
+    updateSelectedSubtaskPayload({ description: nextValue, inputFormatId: '', outputFormatId: '' }, { schedule: false })
   }
 
   const setTemplateSubtaskAgent = (agentId: string | null) => {
@@ -1513,6 +1556,8 @@ export function TaskTemplatesPage() {
           template={editing}
           nameDraft={nameDraft}
           descriptionDraft={descriptionDraft}
+          selectedSubtaskDescriptionDraft={selectedSubtaskDescriptionDraft}
+          isSelectedSubtaskDescriptionDirty={isSelectedSubtaskDescriptionDirty}
           templateDraft={templateDraft}
           draftSubtasks={draftSubtasks}
           selectedSubtask={selectedSubtask}
@@ -1533,6 +1578,8 @@ export function TaskTemplatesPage() {
           onDeleteTemplate={() => setDeleteTarget(editing)}
           onCloseSubtaskDetail={() => {
             setSelectedSubtaskId(null)
+            setSelectedSubtaskDescriptionDraft('')
+            setIsSelectedSubtaskDescriptionDirty(false)
             setCustomFieldError(null)
           }}
           onFilesDrop={(files) => void uploadTemplateAttachments(files)}
@@ -1549,6 +1596,8 @@ export function TaskTemplatesPage() {
             patchTemplate({ description: nextValue }, { schedule: false })
             scheduleDescriptionSave()
           }}
+          onSelectedSubtaskDescriptionChange={updateSelectedSubtaskDescription}
+          onResetSelectedSubtaskDescription={resetSelectedTemplateSubtaskDescription}
           onPatchTemplate={patchTemplate}
           onPatchSubtasks={patchSubtasks}
           onUpdateSelectedSubtask={updateSelectedSubtask}

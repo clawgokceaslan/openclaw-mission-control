@@ -3,7 +3,7 @@ import type { TaskEntity, TaskSubtask } from '@shared/types/entities'
 import type { ProjectDetailStateBindings } from './state/projectDetailState'
 
 export interface ProjectSelectionContext {
-  state: Pick<ProjectDetailStateBindings, 'selectedTaskId' | 'selectedSubtaskId' | 'setSelectedTaskId' | 'setSelectedSubtaskId' | 'setDetailTab' | 'setDetailViewMode' | 'setIsTitleEditing' | 'setTitleDraft' | 'setIsDescriptionEditing' | 'setDescriptionDraft'>
+  state: Pick<ProjectDetailStateBindings, 'selectedTaskId' | 'selectedSubtaskId' | 'setSelectedTaskId' | 'setSelectedSubtaskId' | 'setDetailTab' | 'setDetailViewMode' | 'setIsTitleEditing' | 'setTitleDraft' | 'setIsDescriptionEditing' | 'setIsSubtaskDescriptionDirty' | 'setDescriptionDraft'>
   tasks: TaskEntity[]
 }
 
@@ -26,6 +26,7 @@ export function useProjectSelection({ state, tasks }: ProjectSelectionContext): 
     setIsTitleEditing,
     setTitleDraft,
     setIsDescriptionEditing,
+    setIsSubtaskDescriptionDirty,
     setDescriptionDraft
   } = state
 
@@ -39,6 +40,7 @@ export function useProjectSelection({ state, tasks }: ProjectSelectionContext): 
     setDetailViewMode('task')
     setIsTitleEditing(false)
     setIsDescriptionEditing(false)
+    setIsSubtaskDescriptionDirty(false)
     setTitleDraft('')
     setDescriptionDraft('')
   }, [
@@ -49,6 +51,7 @@ export function useProjectSelection({ state, tasks }: ProjectSelectionContext): 
     setIsTitleEditing,
     setTitleDraft,
     setIsDescriptionEditing,
+    setIsSubtaskDescriptionDirty,
     setDescriptionDraft
   ])
 
@@ -62,10 +65,11 @@ export function useProjectSelection({ state, tasks }: ProjectSelectionContext): 
       setSelectedSubtaskId(null)
       setIsTitleEditing(false)
       setIsDescriptionEditing(false)
+      setIsSubtaskDescriptionDirty(false)
       setDetailTab('subtasks')
       setDetailViewMode('task')
     },
-    [setSelectedTaskId, setSelectedSubtaskId, setIsTitleEditing, setIsDescriptionEditing, setDetailTab, setDetailViewMode]
+    [setSelectedTaskId, setSelectedSubtaskId, setIsTitleEditing, setIsDescriptionEditing, setIsSubtaskDescriptionDirty, setDetailTab, setDetailViewMode]
   )
 
   const openSubtask = useCallback(

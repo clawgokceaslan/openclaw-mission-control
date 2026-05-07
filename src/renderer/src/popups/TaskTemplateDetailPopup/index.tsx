@@ -47,6 +47,8 @@ export interface TaskTemplateDetailPopupProps {
   template: TaskTemplate
   nameDraft: string
   descriptionDraft: string
+  selectedSubtaskDescriptionDraft: string
+  isSelectedSubtaskDescriptionDirty: boolean
   templateDraft: TaskTemplatePayload
   draftSubtasks: TaskTemplateDraftSubtask[]
   selectedSubtask: TaskTemplateDraftSubtask | null
@@ -68,6 +70,8 @@ export interface TaskTemplateDetailPopupProps {
   resizeTitleTextarea: (element: HTMLTextAreaElement | null) => void
   onNameChange: (value: string) => void
   onDescriptionChange: (value: string) => void
+  onSelectedSubtaskDescriptionChange: (value: string) => void
+  onResetSelectedSubtaskDescription: () => void
   onPatchTemplate: (patch: Partial<TaskTemplatePayload>) => void
   onPatchSubtasks: (updater: (current: TaskTemplateDraftSubtask[]) => TaskTemplateDraftSubtask[]) => void
   onUpdateSelectedSubtask: (patch: Partial<TaskTemplateDraftSubtask>) => void
@@ -665,6 +669,8 @@ export function TaskTemplateDetailPopup(props: TaskTemplateDetailPopupProps) {
   const {
     nameDraft,
     descriptionDraft,
+    selectedSubtaskDescriptionDraft,
+    isSelectedSubtaskDescriptionDirty,
     templateDraft,
     draftSubtasks,
     selectedSubtask,
@@ -686,6 +692,8 @@ export function TaskTemplateDetailPopup(props: TaskTemplateDetailPopupProps) {
     resizeTitleTextarea,
     onNameChange,
     onDescriptionChange,
+    onSelectedSubtaskDescriptionChange,
+    onResetSelectedSubtaskDescription,
     onPatchTemplate,
     onPatchSubtasks,
     onUpdateSelectedSubtask,
@@ -925,6 +933,7 @@ export function TaskTemplateDetailPopup(props: TaskTemplateDetailPopupProps) {
           className={styles.descriptionField}
           value={descriptionDraft}
           minHeight={220}
+          status={saveState === 'saving' ? 'saving' : saveState === 'dirty' ? 'dirty' : 'idle'}
           onChange={onDescriptionChange}
           onCommit={() => void onPersistNow()}
           placeholder="Add template description, instructions, checklists or code..."
@@ -1127,8 +1136,8 @@ export function TaskTemplateDetailPopup(props: TaskTemplateDetailPopupProps) {
             </div>
           </section>
           <section className={styles.drawerSection}>
-            <div className={styles.detailSectionHeader}><div><h4>Description</h4><p>{saveState === 'saving' ? 'Saving...' : saveState === 'dirty' ? 'Editing' : 'Ready'}</p></div></div>
-            <MarkdownDescriptionEditor value={getSubtaskDescription(selectedSubtask)} className={styles.descriptionField} minHeight={220} placeholder="Add subtask description, notes, checklists or code..." enableDataFormatCommands dataFormats={outputFormats} onCreateDataFormat={onCreateDescriptionDataFormat} onChange={(nextValue) => onUpdateSelectedSubtaskPayload({ description: nextValue, inputFormatId: '', outputFormatId: '' })} onCommit={() => void onPersistNow()} />
+            <div className={styles.detailSectionHeader}><div><h4>Description</h4><p>{saveState === 'saving' ? 'Saving...' : isSelectedSubtaskDescriptionDirty ? 'Editing' : 'Ready'}</p></div></div>
+            <MarkdownDescriptionEditor value={selectedSubtaskDescriptionDraft} className={styles.descriptionField} minHeight={220} placeholder="Add subtask description, notes, checklists or code..." status={saveState === 'saving' ? 'saving' : isSelectedSubtaskDescriptionDirty ? 'dirty' : 'idle'} enableDataFormatCommands dataFormats={outputFormats} onCreateDataFormat={onCreateDescriptionDataFormat} onChange={onSelectedSubtaskDescriptionChange} onCommit={() => void onPersistNow()} onCancel={onResetSelectedSubtaskDescription} />
           </section>
           <section className={styles.drawerSection}>
             <div className={styles.tabRow}>

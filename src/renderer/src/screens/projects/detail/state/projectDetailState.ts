@@ -86,6 +86,7 @@ export interface ProjectDetailFormsState {
   isAttachmentUploading: boolean
   descriptionDraft: string
   subtaskDescriptionDraft: string
+  isSubtaskDescriptionDirty: boolean
   isSubtaskDescriptionSaving: boolean
   commentDraft: string
   editingCommentId: string | null
@@ -318,6 +319,7 @@ export const PROJECT_DETAIL_INITIAL_STATE: ProjectDetailState = {
     isAttachmentUploading: false,
     descriptionDraft: '',
     subtaskDescriptionDraft: '',
+    isSubtaskDescriptionDirty: false,
     isSubtaskDescriptionSaving: false,
     commentDraft: '',
     editingCommentId: null,
@@ -459,6 +461,7 @@ const PROJECT_DETAIL_FIELD_TO_PATH = {
   isAttachmentUploading: ['forms', 'isAttachmentUploading'],
   descriptionDraft: ['forms', 'descriptionDraft'],
   subtaskDescriptionDraft: ['forms', 'subtaskDescriptionDraft'],
+  isSubtaskDescriptionDirty: ['forms', 'isSubtaskDescriptionDirty'],
   isSubtaskDescriptionSaving: ['forms', 'isSubtaskDescriptionSaving'],
   commentDraft: ['forms', 'commentDraft'],
   editingCommentId: ['forms', 'editingCommentId'],

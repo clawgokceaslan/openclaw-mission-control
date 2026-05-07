@@ -1,7 +1,6 @@
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { closeDb } from '../../db/config.js'
 import { createAppContext } from '../services/service-container.js'
 import { registerIpcRoutes } from '../ipc/router.js'
 import { JobScheduler } from '../services/scheduler/index.js'
@@ -10,7 +9,7 @@ import { createRendererHealthMonitor, type RendererHealthMonitor, type RendererH
 import { safeConsole } from '../utils/safe-output.js'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 import type { AppNavigateRequest } from '../../shared/contracts/ipc.js'
-import { errorResponse } from '../../shared/contracts/response.js'
+import { errorResponse, okResponse } from '../../shared/contracts/response.js'
 import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import type * as Electron from 'electron'
 
@@ -25,6 +24,8 @@ const powerMonitor = electronRuntime.powerMonitor
 
 const isDev = process.env.ELECTRON_RENDERER_URL !== undefined || process.env.NODE_ENV === 'development' || app?.isPackaged === false
 const FULL_DISK_ACCESS_SETTING_URL = 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'
+const FULL_DISK_ACCESS_PROMPT_FILE = 'full-disk-access-prompt.json'
+const OPEN_DATABASE_SETTINGS_ARG = '--omc-open-database-settings'
 
 function fileExists(path: string): boolean {
   return existsSync(path)
@@ -34,12 +35,16 @@ function resolveFromCandidates(candidates: string[]): string | undefined {
   return candidates.find(fileExists)
 }
 
+function currentModuleDir(): string {
+  return dirname(fileURLToPath(import.meta.url))
+}
+
 export function resolveRendererSource(): string {
   if (!app) {
     return 'about:blank'
   }
 
-  const baseDir = dirname(fileURLToPath(import.meta.url))
+  const baseDir = currentModuleDir()
   const viteUrl = process.env.ELECTRON_RENDERER_URL
   const viteDevUrl = process.env.VITE_DEV_SERVER_URL
   if (viteDevUrl) return viteDevUrl
@@ -66,11 +71,12 @@ export function createMainWindow(): Electron.BrowserWindow {
 
   const url = resolveRendererSource()
   safeConsole.log('[main] Creating main window', { isDev, url })
+  const baseDir = currentModuleDir()
   const icon = resolveFromCandidates([
     join(process.cwd(), 'app-icon.png'),
     join(app?.getAppPath() ?? '', 'app-icon.png'),
     join(process.resourcesPath ?? '', 'app-icon.png'),
-    join(__dirname, '..', '..', 'app-icon.png')
+    join(baseDir, '..', '..', 'app-icon.png')
   ])
 
   const window = new BrowserWindow({
@@ -142,6 +148,17 @@ function sendMainNavigation(path: string, state?: unknown): void {
   }
 }
 
+function relaunchApp(openDatabaseSettings = false): void {
+  if (!app) return
+  const args = process.argv.slice(1).filter((arg) => arg !== OPEN_DATABASE_SETTINGS_ARG)
+  if (openDatabaseSettings) args.push(OPEN_DATABASE_SETTINGS_ARG)
+  setTimeout(() => {
+    schedulerRef?.stop()
+    app.relaunch({ args })
+    app.exit(0)
+  }, 100)
+}
+
 function registerCompanionIpcRoutes(): void {
   if (!ipcMain) return
   ipcMain.handle(IPC_CHANNELS.app.navigateFromCompanion, (_event, rawRequest) => {
@@ -163,6 +180,16 @@ function registerCompanionIpcRoutes(): void {
       : request as RendererHealthPayload
     rendererHealthMonitors.get(event.sender.id)?.recordHealth(payload)
     return { ok: true, data: { received: true } }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.app.restart, () => {
+    relaunchApp(false)
+    return okResponse({ restarting: true })
+  })
+
+  ipcMain.handle(IPC_CHANNELS.app.restartToDatabaseSettings, () => {
+    relaunchApp(true)
+    return okResponse({ restarting: true })
   })
 }
 
@@ -259,12 +286,72 @@ function createCompanionTray(): void {
   trayRef.on('click', toggleCompanionWindow)
 }
 
-function requestFullDiskAccessIfNeeded(): void {
+function fullDiskAccessPromptPath(): string | null {
+  if (!app) return null
+  try {
+    return join(app.getPath('userData'), '.omc', FULL_DISK_ACCESS_PROMPT_FILE)
+  } catch {
+    return null
+  }
+}
+
+function fullDiskAccessPromptWasShown(): boolean {
+  const promptPath = fullDiskAccessPromptPath()
+  if (!promptPath || !existsSync(promptPath)) return false
+  try {
+    const parsed = JSON.parse(readFileSync(promptPath, 'utf8')) as { shown?: unknown }
+    return parsed.shown === true
+  } catch {
+    return false
+  }
+}
+
+function markFullDiskAccessPromptShown(): void {
+  const promptPath = fullDiskAccessPromptPath()
+  if (!promptPath) return
+  try {
+    mkdirSync(dirname(promptPath), { recursive: true })
+    writeFileSync(promptPath, JSON.stringify({ shown: true, shownAt: new Date().toISOString() }, null, 2))
+  } catch {
+    // Ignore prompt-state write failures; this should never block the app window.
+  }
+}
+
+function hasFullDiskAccess(): boolean {
+  if (!app || process.platform !== 'darwin' || !app.isPackaged) return true
+  let home = ''
+  try {
+    home = app.getPath('home')
+  } catch {
+    return false
+  }
+  const protectedFolders = [
+    join(home, 'Library', 'Safari'),
+    join(home, 'Library', 'Mail'),
+    join(home, 'Library', 'Messages')
+  ]
+  return protectedFolders.some((folder) => {
+    if (!existsSync(folder)) return false
+    try {
+      readdirSync(folder)
+      return true
+    } catch {
+      return false
+    }
+  })
+}
+
+function requestFullDiskAccessIfNeeded(parentWindow?: Electron.BrowserWindow | null): void {
   if (!app || process.platform !== 'darwin' || !app.isPackaged || !dialog || !shell) {
     return
   }
+  if (hasFullDiskAccess() || fullDiskAccessPromptWasShown()) {
+    return
+  }
 
-  void dialog.showMessageBox({
+  markFullDiskAccessPromptShown()
+
+  const options: Electron.MessageBoxOptions = {
     title: 'Tam Disk Erişimi İsteği',
     type: 'info',
     message: 'Open Mission Control, DMG sürümünde bazı klasör ve dosyalara erişim için Tam Disk Erişimi gerektirebilir.',
@@ -272,7 +359,12 @@ function requestFullDiskAccessIfNeeded(): void {
     buttons: ['Sistem Ayarlarını Aç', 'Daha Sonra'],
     defaultId: 0,
     cancelId: 1
-  }).then((response) => {
+  }
+  const prompt = parentWindow && !parentWindow.isDestroyed()
+    ? dialog.showMessageBox(parentWindow, options)
+    : dialog.showMessageBox(options)
+
+  void prompt.then((response) => {
     if (response.response === 0) {
       void shell.openExternal(FULL_DISK_ACCESS_SETTING_URL)
     }
@@ -312,13 +404,15 @@ export async function bootstrapApp(): Promise<void> {
       ipcRoutesRegistered = true
     }
 
-    requestFullDiskAccessIfNeeded()
-
     const scheduler = new JobScheduler(context.services.jobs.repository, context.eventBus, 1500)
     scheduler.start()
     schedulerRef = scheduler
     windowRef = createMainWindow()
     createCompanionTray()
+    setTimeout(() => requestFullDiskAccessIfNeeded(windowRef), 1500)
+    if (process.argv.includes(OPEN_DATABASE_SETTINGS_ARG)) {
+      setTimeout(() => sendMainNavigation('/settings?tab=database'), 800)
+    }
     powerMonitor?.on('resume', () => {
       setTimeout(() => recoverMainWindowIfStale('power:resume'), 1500)
     })
@@ -329,6 +423,5 @@ export async function bootstrapApp(): Promise<void> {
 
   app.on('before-quit', () => {
     schedulerRef?.stop()
-    void closeDb()
   })
 }
