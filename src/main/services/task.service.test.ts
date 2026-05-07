@@ -499,7 +499,7 @@ describe('planner quality gate', () => {
         postRunPrompt: 'Clean up generated artifacts.'
       },
       primaryFinalMessage: 'Done.',
-      primaryChanges: { hasChanges: false, body: '', files: 0, insertions: 0, deletions: 0, fileStats: [] }
+      primaryChanges: { hasChanges: false, body: '', truncated: false, metadata: {} }
     })
 
     const parsed = JSON.parse(prompt)
