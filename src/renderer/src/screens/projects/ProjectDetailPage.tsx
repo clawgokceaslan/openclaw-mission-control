@@ -443,7 +443,14 @@ export function ProjectDetailPage() {
   const descriptionAutosaveSnapshotRef = useRef('')
   const descriptionAutosaveRequestIdRef = useRef(0)
   const selectedTaskRef = useRef<TaskEntity | null>(null)
+  const selectedSubtaskRef = useRef<TaskSubtask | null>(null)
   const descriptionDraftRef = useRef('')
+  const subtaskDescriptionDraftRef = useRef('')
+  const subtaskDescriptionAutosaveTimerRef = useRef<number | null>(null)
+  const subtaskDescriptionAutosaveInFlightRef = useRef(false)
+  const subtaskDescriptionAutosavePendingRef = useRef(false)
+  const subtaskDescriptionAutosaveSnapshotRef = useRef('')
+  const subtaskDescriptionAutosaveRequestIdRef = useRef(0)
   const lastCodexModelRefreshRef = useRef<string | null>(null)
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false)
   const [isRecentChatsView, setIsRecentChatsView] = useState(false)
@@ -665,13 +672,27 @@ export function ProjectDetailPage() {
   }, [selectedTask])
 
   useEffect(() => {
+    selectedSubtaskRef.current = selectedSubtask
+  }, [selectedSubtask])
+
+  useEffect(() => {
     descriptionDraftRef.current = descriptionDraft
   }, [descriptionDraft])
+
+  useEffect(() => {
+    subtaskDescriptionDraftRef.current = subtaskDescriptionDraft
+  }, [subtaskDescriptionDraft])
 
   const clearDescriptionAutosaveTimer = () => {
     if (!descriptionAutosaveTimerRef.current) return
     window.clearTimeout(descriptionAutosaveTimerRef.current)
     descriptionAutosaveTimerRef.current = null
+  }
+
+  const clearSubtaskDescriptionAutosaveTimer = () => {
+    if (!subtaskDescriptionAutosaveTimerRef.current) return
+    window.clearTimeout(subtaskDescriptionAutosaveTimerRef.current)
+    subtaskDescriptionAutosaveTimerRef.current = null
   }
 
   useEffect(() => {
@@ -690,6 +711,23 @@ export function ProjectDetailPage() {
       clearDescriptionAutosaveTimer()
     }
   }, [descriptionDraft, detailViewMode, isDescriptionEditing, selectedTask?.id])
+
+  useEffect(() => {
+    if (!selectedSubtask || detailViewMode !== 'subtask' || !isDescriptionEditing) {
+      clearSubtaskDescriptionAutosaveTimer()
+      subtaskDescriptionAutosaveRequestIdRef.current += 1
+      subtaskDescriptionAutosaveInFlightRef.current = false
+      subtaskDescriptionAutosavePendingRef.current = false
+      return
+    }
+    clearSubtaskDescriptionAutosaveTimer()
+    subtaskDescriptionAutosaveTimerRef.current = window.setTimeout(() => {
+      void saveSubtaskDetail({ finalize: false })
+    }, DESCRIPTION_AUTOSAVE_DELAY_MS)
+    return () => {
+      clearSubtaskDescriptionAutosaveTimer()
+    }
+  }, [subtaskDescriptionDraft, detailViewMode, isDescriptionEditing, selectedSubtask?.id])
 
   useEffect(() => {
     if (!selectedTask) return
@@ -830,13 +868,15 @@ export function ProjectDetailPage() {
   }, [selectedSubtask?.id])
 
   useEffect(() => {
-    if (!selectedSubtask || isDescriptionEditing || detailViewMode !== 'subtask') return
-    setSubtaskDescriptionDraft(prefixDataFormatTokens(
+    if (!selectedSubtask || detailViewMode !== 'subtask') return
+    const nextDescription = prefixDataFormatTokens(
       getSubtaskDescription(selectedSubtask),
       getSubtaskInputFormatId(selectedSubtask),
       getSubtaskOutputFormatId(selectedSubtask),
       outputFormats
-    ))
+    )
+    if (isDescriptionEditing && nextDescription !== subtaskDescriptionDraftRef.current) return
+    setSubtaskDescriptionDraft(nextDescription)
   }, [
     selectedSubtask?.id,
     selectedSubtask?.updatedAt,
@@ -2546,27 +2586,99 @@ export function ProjectDetailPage() {
     await refresh()
   }
 
-  const saveSubtaskDetail = async () => {
-    if (!selectedSubtask) return
+  const saveSubtaskDetail = async (options: { finalize?: boolean } = {}) => {
+    const subtask = selectedSubtaskRef.current
+    if (!subtask) return true
+    const draft = subtaskDescriptionDraftRef.current
+    const shouldFinalize = options.finalize ?? true
+    const shouldTrackSavingState = shouldFinalize
+    const subtaskId = subtask.id
     const nextPayload = {
-      ...getSubtaskPayload(selectedSubtask),
-      description: subtaskDescriptionDraft,
+      ...getSubtaskPayload(subtask),
+      description: draft,
       inputFormatId: '',
       outputFormatId: ''
     }
-    setIsSubtaskDescriptionSaving(true)
+    const normalizedDraft = draft
+    const isCurrentSubtask = () => selectedSubtaskRef.current?.id === subtaskId
+    const isCurrentSubtaskDescriptionContext = () => isCurrentSubtask() && detailViewMode === 'subtask'
+
+    clearSubtaskDescriptionAutosaveTimer()
+
+    if (normalizedDraft === getSubtaskDescription(subtask)) {
+      if (shouldFinalize && isCurrentSubtaskDescriptionContext()) {
+        setIsDescriptionEditing(false)
+      }
+      return true
+    }
+
+    if (subtaskDescriptionAutosaveInFlightRef.current) {
+      if (normalizedDraft !== subtaskDescriptionAutosaveSnapshotRef.current) {
+        subtaskDescriptionAutosavePendingRef.current = true
+      }
+      return true
+    }
+
+    const requestId = ++subtaskDescriptionAutosaveRequestIdRef.current
+    subtaskDescriptionAutosaveInFlightRef.current = true
+    subtaskDescriptionAutosaveSnapshotRef.current = normalizedDraft
+    if (shouldTrackSavingState) setIsSubtaskDescriptionSaving(true)
+
     const response = await invokeBridge<TaskSubtask>(IPC_CHANNELS.tasks.subtasksUpdate, {
       actorToken: token,
-      id: selectedSubtask.id,
-      status: selectedSubtask.status,
+      id: subtask.id,
+      status: subtask.status,
       payload: nextPayload
     })
-    setIsSubtaskDescriptionSaving(false)
+
+    if (subtaskDescriptionAutosaveRequestIdRef.current !== requestId) {
+      subtaskDescriptionAutosaveInFlightRef.current = false
+      if (shouldTrackSavingState) setIsSubtaskDescriptionSaving(false)
+      subtaskDescriptionAutosavePendingRef.current = false
+      return true
+    }
+
+    subtaskDescriptionAutosaveInFlightRef.current = false
+    if (shouldTrackSavingState) setIsSubtaskDescriptionSaving(false)
+
+    if (!isCurrentSubtask()) {
+      return true
+    }
+
+    const latestDraft = subtaskDescriptionDraftRef.current
+    const isOutOfDate = latestDraft !== normalizedDraft
+    if (isOutOfDate) {
+      if (subtaskDescriptionAutosavePendingRef.current) {
+        subtaskDescriptionAutosavePendingRef.current = false
+        return saveSubtaskDetail({ finalize: shouldFinalize })
+      }
+      return true
+    }
+
     if (!response.ok) {
       setError(response.error?.message ?? 'Unable to update subtask details')
-      return
+      subtaskDescriptionAutosaveSnapshotRef.current = latestDraft
+      if (shouldFinalize) {
+        setSubtaskDescriptionDraft(latestDraft)
+      }
+      subtaskDescriptionDraftRef.current = latestDraft
+      subtaskDescriptionAutosavePendingRef.current = false
+      return false
     }
-    await refresh()
+
+    subtaskDescriptionAutosaveSnapshotRef.current = normalizedDraft
+    subtaskDescriptionDraftRef.current = normalizedDraft
+    if (shouldFinalize) {
+      setSubtaskDescriptionDraft(normalizedDraft)
+    }
+    if (subtaskDescriptionAutosavePendingRef.current) {
+      subtaskDescriptionAutosavePendingRef.current = false
+      return saveSubtaskDetail({ finalize: shouldFinalize })
+    }
+    if (shouldFinalize && isCurrentSubtaskDescriptionContext()) {
+      setIsDescriptionEditing(false)
+    }
+    return true
   }
 
   const openSubtaskDetail = (subtaskId: string) => {

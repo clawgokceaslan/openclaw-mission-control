@@ -208,6 +208,7 @@ export function MarkdownDescriptionEditor({
   const { resolvedMode } = useTheme()
   const loadingRef = useRef(false)
   const latestValueRef = useRef<string | null>(null)
+  const isEditorFocusedRef = useRef(false)
   const [isEmpty, setIsEmpty] = useState(!value.trim())
   const [pendingRole, setPendingRole] = useState<DataFormatRole | null>(null)
   const [selectedFormatId, setSelectedFormatId] = useState('')
@@ -279,6 +280,7 @@ export function MarkdownDescriptionEditor({
 
   useEffect(() => {
     if (value === latestValueRef.current) return
+    if (isEditorFocusedRef.current) return
     latestValueRef.current = value
     setIsEmpty(!value.trim())
     loadingRef.current = true
@@ -325,8 +327,13 @@ export function MarkdownDescriptionEditor({
   }
 
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
+    isEditorFocusedRef.current = false
     if (isFullscreen) return
     if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onCommit?.()
+  }
+
+  const handleFocusCapture = () => {
+    isEditorFocusedRef.current = true
   }
 
   const handleKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -341,6 +348,7 @@ export function MarkdownDescriptionEditor({
         setIsFullscreen(false)
         return
       }
+      isEditorFocusedRef.current = false
       onCancel?.()
     }
   }
@@ -426,6 +434,7 @@ export function MarkdownDescriptionEditor({
         className={`${styles.editorShell} ${className ?? ''}`}
         style={{ '--markdown-editor-min-height': `${minHeight}px` } as CSSProperties}
         data-status={status}
+        onFocusCapture={handleFocusCapture}
         onBlur={handleBlur}
         onKeyDownCapture={handleKeyDownCapture}
       >
@@ -441,7 +450,9 @@ export function MarkdownDescriptionEditor({
             aria-label="Fullscreen description editor"
             style={{ '--markdown-editor-min-height': `${minHeight}px` } as CSSProperties}
             data-status={status}
+            onFocusCapture={handleFocusCapture}
             onBlur={(event) => {
+              isEditorFocusedRef.current = false
               if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onCommit?.()
             }}
             onKeyDownCapture={handleKeyDownCapture}
