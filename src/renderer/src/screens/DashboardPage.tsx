@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import {
   CategoryScale,
@@ -19,7 +19,7 @@ import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
 import { useAuth } from '@renderer/providers/auth/auth-state'
-import type { Agent, Gateway, GatewaySession, Job, Project, Skill, TaskEntity } from '@shared/types/entities'
+import type { Agent, Gateway, GatewaySession, Job, Project, ProjectStatus, Skill, TaskEntity } from '@shared/types/entities'
 import styles from './DashboardPage.module.scss'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, PointElement, LineElement, RadialLinearScale, Filler, Tooltip, Legend)
@@ -44,10 +44,18 @@ interface DashboardVm {
   skills: Skill[]
   projects: Project[]
   tasks: TaskEntity[]
+  statuses: ProjectStatus[]
   gateways: Gateway[]
   jobs: Job[]
   sessions: SessionRow[]
   activities: ActivityRow[]
+}
+
+interface StatusWorkloadRow {
+  key: string
+  label: string
+  color: string
+  count: number
 }
 
 type MetricCardProps = {
@@ -77,6 +85,39 @@ function taskStatus(task: TaskEntity): string {
   return task.status || 'unknown'
 }
 
+function statusFallbackLabel(status: string): string {
+  if (!status || status === 'unknown') return 'Unknown'
+  return status
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function buildStatusWorkload(tasks: TaskEntity[], statuses: ProjectStatus[]): StatusWorkloadRow[] {
+  const statusById = new Map(statuses.map((status) => [status.id, status]))
+  const rows = new Map<string, StatusWorkloadRow>()
+  tasks.forEach((task) => {
+    const statusId = taskStatus(task)
+    const status = statusById.get(statusId)
+    const label = status?.name ?? statusFallbackLabel(statusId)
+    const color = status?.color || '#2F80ED'
+    const key = status ? `${label}::${color}` : statusId
+    const current = rows.get(key)
+    if (current) {
+      current.count += 1
+      return
+    }
+    rows.set(key, {
+      key,
+      label,
+      color,
+      count: 1
+    })
+  })
+  return [...rows.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+}
+
 function countBy<T>(rows: T[], keyFn: (row: T) => string): Record<string, number> {
   return rows.reduce<Record<string, number>>((acc, row) => {
     const key = keyFn(row)
@@ -87,11 +128,6 @@ function countBy<T>(rows: T[], keyFn: (row: T) => string): Record<string, number
 
 function percent(value: number): string {
   return `${value.toFixed(1)}%`
-}
-
-function chartColors(count: number): string[] {
-  const base = ['#2F80ED', '#29B764', '#FF8A3D', '#8B5CF6', '#D94B5F', '#0EA5E9', '#FACC15']
-  return Array.from({ length: count }, (_, index) => base[index % base.length])
 }
 
 function MetricCard({ label, value, hint, icon, tone = 'default' }: MetricCardProps) {
@@ -129,6 +165,12 @@ function useDashboardData() {
       return
     }
     const activeGatewayId = activeGatewayRes.ok ? activeGatewayRes.data?.gatewayId : null
+    const projects = safeArray<Project>(projectsRes.data)
+    const statusResponses = await Promise.all(projects.map((project) => invokeBridge<ProjectStatus[]>(IPC_CHANNELS.statuses.getProjectStatuses, {
+      actorToken: token,
+      projectId: project.id
+    })))
+    const statuses = statusResponses.flatMap((response) => response.ok ? safeArray<ProjectStatus>(response.data) : [])
     const gateways = safeArray<Gateway>(gatewaysRes.data).sort((a, b) => {
       if (a.id === activeGatewayId) return -1
       if (b.id === activeGatewayId) return 1
@@ -154,7 +196,8 @@ function useDashboardData() {
       agents: safeArray<Agent>(agentsRes.data),
       skills: safeArray<Skill>(skillsRes.data),
       tasks: safeArray<TaskEntity>(tasksRes.data),
-      projects: safeArray<Project>(projectsRes.data),
+      projects,
+      statuses,
       gateways,
       jobs,
       sessions,
@@ -181,15 +224,16 @@ function buildMetrics(vm: DashboardVm) {
   const failed = vm.tasks.filter((task) => ['failed', 'review'].includes(taskStatus(task))).length
   const activeTasks = vm.tasks.filter((task) => ['running', 'in_progress', 'active'].includes(taskStatus(task))).length
   const configuredAgents = vm.agents.length
+  const onlineAgents = vm.agents.filter((agent) => agent.status !== 'offline').length
   const onlineGateways = vm.gateways.filter((gateway) => gateway.status === 'online').length
   const errorRate = completed + failed > 0 ? (failed / (completed + failed)) * 100 : 0
-  return { completed, failed, activeTasks, configuredAgents, onlineGateways, errorRate }
+  return { completed, failed, activeTasks, configuredAgents, onlineAgents, onlineGateways, errorRate }
 }
 
 export function DashboardPage() {
   const { vm, loading, error, reload } = useDashboardData()
   const metrics = vm ? buildMetrics(vm) : null
-  const statusCounts = useMemo(() => vm ? countBy(vm.tasks, taskStatus) : {}, [vm])
+  const statusWorkload = useMemo(() => vm ? buildStatusWorkload(vm.tasks, vm.statuses) : [], [vm])
   const projectProgress = useMemo(() => {
     if (!vm) return null
     const completedStatuses = new Set(['completed', 'done', 'closed'])
@@ -257,11 +301,12 @@ export function DashboardPage() {
             <section className={styles.panelCard}>
               <h2>Workload by status</h2>
               <div className={styles.statusStack}>
-                {Object.entries(statusCounts).length > 0 ? Object.entries(statusCounts).map(([statusName, count]) => {
+                {statusWorkload.length > 0 ? statusWorkload.map((row) => {
+                  const count = row.count
                   const width = vm.tasks.length > 0 ? Math.max(4, Math.round((count / vm.tasks.length) * 100)) : 0
                   return (
-                    <div key={statusName} className={styles.statusRow}>
-                      <span>{statusName}</span>
+                    <div key={row.key} className={styles.statusRow} style={{ '--status-color': row.color } as CSSProperties}>
+                      <span>{row.label}</span>
                       <strong>{count}</strong>
                       <i><b style={{ width: `${width}%` }} /></i>
                     </div>
@@ -313,7 +358,7 @@ export function DashboardPage() {
 export function DetailedDashboardPage() {
   const { vm, loading, error, reload } = useDashboardData()
   const metrics = vm ? buildMetrics(vm) : null
-  const statusCounts = useMemo(() => vm ? countBy(vm.tasks, taskStatus) : {}, [vm])
+  const statusWorkload = useMemo(() => vm ? buildStatusWorkload(vm.tasks, vm.statuses) : [], [vm])
   const projectCounts = useMemo(() => {
     if (!vm) return {}
     return vm.projects.reduce<Record<string, number>>((acc, project) => {
@@ -323,7 +368,7 @@ export function DetailedDashboardPage() {
   }, [vm])
   const jobCounts = useMemo(() => vm ? countBy(vm.jobs, (job) => new Date(job.updatedAt).toLocaleDateString()) : {}, [vm])
 
-  const statusLabels = Object.keys(statusCounts)
+  const statusLabels = statusWorkload.map((row) => row.label)
   const projectLabels = Object.keys(projectCounts)
   const jobLabels = Object.keys(jobCounts).slice(-12)
 
@@ -352,7 +397,7 @@ export function DetailedDashboardPage() {
           <div className={styles.chartGrid}>
             <section className={styles.chartCard}>
               <h2>Task status distribution</h2>
-              <Doughnut data={{ labels: statusLabels, datasets: [{ data: statusLabels.map((label) => statusCounts[label]), backgroundColor: chartColors(statusLabels.length) }] }} />
+              <Doughnut data={{ labels: statusLabels, datasets: [{ data: statusWorkload.map((row) => row.count), backgroundColor: statusWorkload.map((row) => row.color) }] }} />
             </section>
             <section className={styles.chartCard}>
               <h2>Tasks by project</h2>

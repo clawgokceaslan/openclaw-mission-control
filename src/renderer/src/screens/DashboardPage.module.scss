@@ -201,7 +201,6 @@
   span {
     color: var(--omc-text-strong);
     font-weight: 850;
-    text-transform: capitalize;
   }
 
   strong {
@@ -222,7 +221,7 @@
     display: block;
     height: 100%;
     border-radius: inherit;
-    background: var(--omc-primary);
+    background: var(--status-color, var(--omc-primary));
   }
 }
 
