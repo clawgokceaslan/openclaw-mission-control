@@ -69,9 +69,16 @@ export function normalizeGatewayChatPhase(value: unknown): GatewayChatPhase | nu
   return phaseLookup.get(normalized) ?? null
 }
 
+export function gatewayMetadataBlock(metadata: Record<string, unknown> | null | undefined): string {
+  if (!metadata) return ''
+  if (typeof metadata.gatewayBlock === 'string') return metadata.gatewayBlock
+  if (typeof metadata.codexBlock === 'string') return metadata.codexBlock
+  return ''
+}
+
 function isPostRunMessage(input: GatewayChatPhaseInput): boolean {
   const metadata = input.metadata ?? {}
-  const gatewayBlock = typeof metadata.gatewayBlock === 'string' ? metadata.gatewayBlock : ''
+  const gatewayBlock = gatewayMetadataBlock(metadata)
   const parentRunId = typeof metadata.parentRunId === 'string' ? metadata.parentRunId.trim() : ''
   return gatewayBlock === 'post-run-start'
     || gatewayBlock === 'post-run-prompt'

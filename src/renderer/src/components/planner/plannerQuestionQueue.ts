@@ -1,4 +1,5 @@
 import type { Project, TaskEntity } from '@shared/types/entities'
+import { gatewayMetadataBlock } from '@shared/utils/gateway-chat-phase'
 import type { TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 import { asRecord, conversationIdOf, plannerQuestionPromptFromMessages, type PlannerQuestionPrompt } from '@renderer/screens/projects/detail/chat/chatUtils'
 import { projectGatewaySettings } from '@renderer/screens/projects/detail/projectDetailUtils'
@@ -50,7 +51,7 @@ function activityMessagesFromTaskPayload(task: TaskEntity): TaskActivityMessage[
 
 function isPlannerQuestionMessage(message: TaskActivityMessage): boolean {
   const metadata = asRecord(message.metadata)
-  return message.source === 'gateway-plan' && message.role === 'assistant' && metadata?.gatewayBlock === 'planner-question'
+  return message.source === 'gateway-plan' && message.role === 'assistant' && gatewayMetadataBlock(metadata) === 'planner-question'
 }
 
 function isClarificationAnswerFor(message: TaskActivityMessage, conversationId: string, after: number): boolean {
@@ -64,7 +65,7 @@ export function plannerQuestionItemFromActivity(event: PlannerQuestionActivityEv
   const message = event.message
   if (!message) return null
   const metadata = asRecord(message.metadata)
-  if (message.source !== 'gateway-plan' || message.role !== 'assistant' || metadata?.gatewayBlock !== 'planner-question') return null
+  if (message.source !== 'gateway-plan' || message.role !== 'assistant' || gatewayMetadataBlock(metadata) !== 'planner-question') return null
   const prompt = plannerQuestionPromptFromMessages([message])
   if (!prompt) return null
   const conversationId = prompt.conversationId

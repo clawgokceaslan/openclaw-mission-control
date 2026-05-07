@@ -11,6 +11,7 @@ import { normalizeGatewayLanguage, normalizeGatewayReasoningEffort } from '@shar
 import {
   gatewayChatLifecycleStatusKey,
   gatewayChatPhaseActionLabel,
+  gatewayMetadataBlock,
   gatewayLifecycleStatusMeta,
   inferGatewayChatPhase,
   type GatewayChatPhase,
@@ -247,7 +248,7 @@ function isTerminalActivityMessage(message: TaskActivityMessage): boolean {
   const metadata = message.metadata && typeof message.metadata === 'object' && !Array.isArray(message.metadata)
     ? message.metadata as Record<string, unknown>
     : {}
-  const gatewayBlock = typeof metadata.gatewayBlock === 'string' ? metadata.gatewayBlock : undefined
+  const gatewayBlock = gatewayMetadataBlock(metadata)
   const runStatus = typeof metadata.runStatus === 'string' ? metadata.runStatus : undefined
   if (gatewayBlock && ['command', 'log', 'changes'].includes(gatewayBlock)) return false
   return gatewayBlock === 'run-complete'
@@ -283,7 +284,12 @@ function surfaceStatus(
 
 function phaseSurfaceStatus(phase: GatewayChatPhase, message: TaskActivityMessage, active: boolean): TaskGatewaySurfaceStatus {
   const statusKey = gatewayChatLifecycleStatusKey(phase, message.status ?? 'event', active)
-  return surfaceStatus(`${phase}:${statusKey}`, statusKey, conversationIdOfActivity(message), active)
+  const status = surfaceStatus(`${phase}:${statusKey}`, statusKey, conversationIdOfActivity(message), active)
+  if (statusKey !== 'failed') return status
+  if (phase === 'PLAN') return { ...status, label: 'Planning Failed' }
+  if (phase === 'RUN') return { ...status, label: 'Running Failed' }
+  if (phase === 'POST-RUNNING') return { ...status, label: 'Post Running Failed' }
+  return { ...status, label: 'Follow-up Failed' }
 }
 
 function latestFreshActiveMessageByPhase(task: TaskEntity, phase: GatewayChatPhase, now: number): TaskActivityMessage | null {

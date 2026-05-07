@@ -301,7 +301,8 @@ export function LastChatsPage() {
 
       byConversation.forEach((groupMessages, conversationId) => {
         const ordered = [...groupMessages].sort((a, b) => a.createdAt - b.createdAt)
-        const summary = buildChatConversationSummaries(ordered)[0]
+        const summaries = buildChatConversationSummaries(ordered)
+        const summary = summaries.find((item) => item.id === conversationId) ?? summaries[0]
         const last = ordered[ordered.length - 1]
         const latestAt = last?.updatedAt ?? last?.createdAt ?? 0
         const latestBody = last?.body ?? ''

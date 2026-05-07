@@ -1,3 +1,4 @@
+import { gatewayMetadataBlock } from '@shared/utils/gateway-chat-phase'
 import type { TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 
 export type GatewayHeaderRefreshMode = 'ignore' | 'debounced' | 'immediate'
@@ -38,7 +39,7 @@ export function gatewayHeaderRefreshModeFromTaskActivityArgs(args: unknown[]): G
   const message = payload?.message
   if (!isTaskActivityMessage(message)) return 'ignore'
 
-  const gatewayBlock = typeof message.metadata?.gatewayBlock === 'string' ? message.metadata.gatewayBlock : ''
+  const gatewayBlock = gatewayMetadataBlock(message.metadata)
   if (message.status === 'queued' || message.status === 'running') return 'immediate'
   if (gatewayBlock === 'run-complete' || gatewayBlock === 'post-run-start') return 'immediate'
 

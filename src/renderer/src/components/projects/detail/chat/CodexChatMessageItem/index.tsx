@@ -10,6 +10,7 @@ import markdown from 'highlight.js/lib/languages/markdown'
 import typescript from 'highlight.js/lib/languages/typescript'
 import xml from 'highlight.js/lib/languages/xml'
 import { formatUsageSummary } from '@shared/utils/gateway-events'
+import { gatewayMetadataBlock } from '@shared/utils/gateway-chat-phase'
 import type { TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 import {
   formatChatTime,
@@ -385,7 +386,7 @@ function renderWorkTextMessage(message: TaskActivityMessage) {
 }
 
 function renderWorkToolMessage(message: TaskActivityMessage) {
-  const gatewayBlock = typeof message.metadata?.gatewayBlock === 'string' ? message.metadata.gatewayBlock : ''
+  const gatewayBlock = gatewayMetadataBlock(message.metadata)
   const pathEntries = metadataPathEntries(message.metadata)
   if (message.role === 'tool' && gatewayBlock === 'changes') {
     return (
@@ -551,7 +552,7 @@ function renderCodexTranscriptMessage(params: {
 
 export const GatewayChatMessageItem = memo(function GatewayChatMessageItem({ message }: GatewayChatMessageItemProps) {
   const usage = usageFromMetadata(message.metadata)
-  const gatewayBlock = typeof message.metadata?.gatewayBlock === 'string' ? message.metadata.gatewayBlock : ''
+  const gatewayBlock = gatewayMetadataBlock(message.metadata)
   const changesSummary = codexChangesSummary(message)
   const toolTitle = gatewayBlock === 'changes'
     ? 'Changes'

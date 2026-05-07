@@ -800,7 +800,7 @@
   }
 }
 
-.taskCodexStrip {
+.taskGatewayStrip {
   min-width: 0;
   max-width: 100%;
   margin-top: 8px;
@@ -839,8 +839,8 @@
   text-transform: uppercase;
 }
 
-.taskCodexStateBadge,
-.taskCodexActionChip {
+.taskGatewayStateBadge,
+.taskGatewayActionChip {
   height: 22px;
   max-width: 150px;
   border-radius: 999px;
@@ -857,65 +857,65 @@
   line-height: 1;
 }
 
-.taskCodexStateBadge {
+.taskGatewayStateBadge {
   border: 1px solid var(--omc-border-subtle);
   background: var(--omc-surface-soft);
   color: var(--omc-text-muted);
   text-transform: uppercase;
 }
 
-.taskCodexTone_neutral {
+.taskGatewayTone_neutral {
   border-color: color-mix(in srgb, var(--omc-text-muted) 22%, var(--omc-border));
   background: color-mix(in srgb, var(--omc-surface-muted) 64%, transparent);
   color: var(--omc-text-muted);
 }
 
-.taskCodexPlanned,
-.taskCodexTone_planned {
+.taskGatewayPlanned,
+.taskGatewayTone_planned {
   border-color: color-mix(in srgb, var(--omc-primary) 34%, var(--omc-border));
   background: var(--omc-active-bg);
   color: var(--omc-primary-strong);
 }
 
-.taskCodexNeedsInfo,
-.taskCodexTone_needs-input,
-.taskCodexTone_planning {
+.taskGatewayNeedsInfo,
+.taskGatewayTone_needs-input,
+.taskGatewayTone_planning {
   border-color: color-mix(in srgb, var(--omc-codex-phase-plan, #f59e0b) 40%, var(--omc-border));
   background: color-mix(in srgb, var(--omc-codex-phase-plan, #f59e0b) 12%, var(--omc-surface));
   color: color-mix(in srgb, var(--omc-codex-phase-plan, #f59e0b) 72%, var(--omc-text-strong));
 }
 
-.taskCodexTone_working {
+.taskGatewayTone_working {
   border-color: color-mix(in srgb, var(--omc-codex-phase-run, #22c55e) 42%, var(--omc-border));
   background: color-mix(in srgb, var(--omc-codex-phase-run, #22c55e) 12%, var(--omc-surface));
   color: color-mix(in srgb, var(--omc-codex-phase-run, #22c55e) 68%, var(--omc-text-strong));
 }
 
-.taskCodexTone_completed {
+.taskGatewayTone_completed {
   border-color: color-mix(in srgb, var(--omc-success-strong, #16a34a) 42%, var(--omc-border));
   background: color-mix(in srgb, var(--omc-success-bg, #dcfce7) 68%, var(--omc-surface));
   color: var(--omc-success-strong, #15803d);
 }
 
-.taskCodexTone_post-running {
+.taskGatewayTone_post-running {
   border-color: color-mix(in srgb, var(--omc-codex-phase-post-running, #38bdf8) 42%, var(--omc-border));
   background: color-mix(in srgb, var(--omc-codex-phase-post-running, #38bdf8) 12%, var(--omc-surface));
   color: color-mix(in srgb, #0284c7 74%, var(--omc-text-strong));
 }
 
-.taskCodexTone_following-up {
+.taskGatewayTone_following-up {
   border-color: color-mix(in srgb, var(--omc-codex-phase-follow-up, #a78bfa) 42%, var(--omc-border));
   background: color-mix(in srgb, var(--omc-codex-phase-follow-up, #a78bfa) 12%, var(--omc-surface));
   color: color-mix(in srgb, #7c3aed 68%, var(--omc-text-strong));
 }
 
-.taskCodexTone_failed {
+.taskGatewayTone_failed {
   border-color: color-mix(in srgb, var(--omc-danger, #dc2626) 42%, var(--omc-border));
-  background: var(--omc-danger-bg);
-  color: var(--omc-danger);
+  background: var(--omc-danger, #dc2626);
+  color: #fff;
 }
 
-.taskCodexActionChip {
+.taskGatewayActionChip {
   border: 1px solid var(--omc-border-subtle);
   background: color-mix(in srgb, var(--omc-surface-muted) 58%, transparent);
   color: var(--omc-text-strong);
@@ -927,21 +927,21 @@
   }
 }
 
-.taskCodexActionPlan {
+.taskGatewayActionPlan {
   color: var(--omc-primary-strong);
 }
 
-.taskCodexActionRun {
+.taskGatewayActionRun {
   color: var(--omc-success-strong, var(--omc-text-strong));
 }
 
-.taskCodexMenuWrap {
+.taskGatewayMenuWrap {
   position: relative;
   display: inline-flex;
   align-items: center;
 }
 
-.taskCodexMenuButton {
+.taskGatewayMenuButton {
   width: 24px;
   height: 22px;
   border: 1px solid var(--omc-border-subtle);
@@ -960,7 +960,7 @@
   }
 }
 
-.taskCodexMenu {
+.taskGatewayMenu {
   position: absolute;
   z-index: 20;
   top: calc(100% + 5px);

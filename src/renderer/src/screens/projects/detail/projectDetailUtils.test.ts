@@ -312,9 +312,28 @@ describe('task Codex card metadata', () => {
 
     expect(taskGatewaySurfaceStatuses(failedTask, 10_000).map((status) => [status.statusKey, status.label, status.active])).toEqual([
       ['not-planned', 'Not Planned', undefined],
-      ['failed', 'Failed', undefined]
+      ['failed', 'Running Failed', undefined]
     ])
     expect(taskGatewayActiveTone(failedTask, 10_000)).toBeNull()
+  })
+
+  it('does not show legacy command failures as failed task card badges', () => {
+    const commandFailedTask = {
+      ...task('legacy-command-failed', 'todo', 0),
+      payload: {
+        activityMessages: [
+          { id: 'run-active', runId: 'run-1', conversationId: 'run-1', source: 'gateway-run', role: 'thinking', phase: 'RUN', status: 'running', body: 'working', createdAt: 9_000, updatedAt: 9_100, metadata: { codexBlock: 'thinking', runStatus: 'running' } },
+          { id: 'command-failed', runId: 'run-1', conversationId: 'run-1', source: 'gateway-run', role: 'tool', phase: 'RUN', status: 'failed', body: 'command failed', createdAt: 9_000, updatedAt: 9_500, metadata: { codexBlock: 'command', command: 'npm test', runStatus: 'running' } }
+        ]
+      }
+    } satisfies TaskEntity
+
+    expect(taskGatewayLatestSurfaceStatus(commandFailedTask, 10_000)).toMatchObject({
+      statusKey: 'working',
+      label: 'Working',
+      tone: 'working',
+      active: true
+    })
   })
 
   it('returns latest phase action chips', () => {

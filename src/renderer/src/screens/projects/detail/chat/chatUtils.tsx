@@ -1,5 +1,5 @@
 import { formatUsageSummary, parseGatewayEvents, type GatewayUsageSummary } from '@shared/utils/gateway-events'
-import { gatewayChatPhaseActionLabel, inferGatewayChatPhase } from '@shared/utils/gateway-chat-phase'
+import { gatewayChatPhaseActionLabel, gatewayMetadataBlock, inferGatewayChatPhase } from '@shared/utils/gateway-chat-phase'
 import type { TaskComment, TaskEntity } from '@shared/types/entities'
 import type {
   ChatConversationSummary,
@@ -122,10 +122,10 @@ export function conversationIdOf(message: TaskActivityMessage): string | null {
 export function isRunCompleteMessage(message: TaskActivityMessage): boolean {
   const runMetadata = asRecord(message.metadata)
   const runStatus = typeof runMetadata?.runStatus === 'string' ? runMetadata.runStatus : undefined
-  const gatewayBlock = typeof runMetadata?.gatewayBlock === 'string' ? runMetadata.gatewayBlock : undefined
+  const gatewayBlock = gatewayMetadataBlock(runMetadata)
   if (gatewayBlock && ['command', 'log', 'changes'].includes(gatewayBlock)) return false
   return (
-    message.metadata?.gatewayBlock === 'run-complete'
+    gatewayBlock === 'run-complete'
     || message.metadata?.stopped === true
     || message.role === 'error'
     || message.status === 'failed'
@@ -267,7 +267,7 @@ export function plannerQuestionPromptFromMessages(messages: TaskActivityMessage[
   for (let index = sorted.length - 1; index >= 0; index -= 1) {
     const message = sorted[index]
     const metadata = asRecord(message.metadata)
-    if (message.source !== 'gateway-plan' || message.role !== 'assistant' || metadata?.gatewayBlock !== 'planner-question') continue
+    if (message.source !== 'gateway-plan' || message.role !== 'assistant' || gatewayMetadataBlock(metadata) !== 'planner-question') continue
     const conversationId = conversationIdOf(message)
     if (!conversationId) continue
     const answered = sorted.some((candidate) => {
@@ -415,7 +415,7 @@ export function buildLatestRunFollowUpContext(messages: TaskActivityMessage[]): 
     message.role === 'assistant' && typeof message.body === 'string' && message.body.trim()
   ))
   const reportedChanges = [...conversationMessages]
-    .filter((message) => message.role === 'tool' && message.metadata?.gatewayBlock === 'changes')
+    .filter((message) => message.role === 'tool' && gatewayMetadataBlock(message.metadata) === 'changes')
     .slice(-1)[0]
   const usage = usageFromMetadata(finalAssistant?.metadata) ?? usageFromMetadata(reportedChanges?.metadata) ?? usageFromMetadata(runComplete?.metadata)
   const result = describeRunResult(runComplete?.metadata)
@@ -465,7 +465,7 @@ function contextEntryFromConversation(conversationId: string, messages: TaskActi
   if (!last) return null
   const terminal = [...ordered].reverse().find((message) => runCompleteMessage(message))
   const assistant = [...ordered].reverse().find((message) => message.role === 'assistant' && message.body.trim())
-  const changes = [...ordered].reverse().find((message) => message.role === 'tool' && message.metadata?.gatewayBlock === 'changes')
+  const changes = [...ordered].reverse().find((message) => message.role === 'tool' && gatewayMetadataBlock(message.metadata) === 'changes')
   const userMessages = ordered.filter((message) => message.role === 'user').slice(-2)
   const usage = usageFromMetadata(assistant?.metadata) ?? usageFromMetadata(changes?.metadata) ?? usageFromMetadata(terminal?.metadata)
   const changesSummary = changes ? codexChangesSummary(changes) : null
@@ -589,26 +589,26 @@ export function thinkingDurationLabel(message: TaskActivityMessage, now = Date.n
   return formatThinkingSeconds(durationMs !== undefined ? durationMs / 1000 : undefined) ?? ''
 }
 
-function metadataCodexBlock(message: TaskActivityMessage): string {
-  return typeof message.metadata?.gatewayBlock === 'string' ? message.metadata.gatewayBlock : ''
+function metadataGatewayBlock(message: TaskActivityMessage): string {
+  return gatewayMetadataBlock(message.metadata)
 }
 
 function isWorkBlockTextMessage(message: TaskActivityMessage): boolean {
   if (message.role === 'thinking') return true
   if (message.role !== 'assistant') return false
-  const gatewayBlock = metadataCodexBlock(message)
+  const gatewayBlock = metadataGatewayBlock(message)
   return gatewayBlock !== 'planner-question'
 }
 
 function isWorkBlockToolMessage(message: TaskActivityMessage): boolean {
   if (message.role !== 'tool') return false
-  return ['command', 'log', 'changes'].includes(metadataCodexBlock(message))
+  return ['command', 'log', 'changes'].includes(metadataGatewayBlock(message))
 }
 
 function isCodexWorkMessage(message: TaskActivityMessage): boolean {
   if (!chatMessageSources.has(message.source)) return false
   if (message.role === 'error' || message.role === 'user') return false
-  if (metadataCodexBlock(message) === 'run-complete') return false
+  if (metadataGatewayBlock(message) === 'run-complete') return false
   return isWorkBlockTextMessage(message) || isWorkBlockToolMessage(message)
 }
 
@@ -631,7 +631,7 @@ function commandFileExploreCount(command: string): number {
 }
 
 function commandSummaryKind(message: TaskActivityMessage): CodexWorkSummaryKind {
-  const gatewayBlock = metadataCodexBlock(message)
+  const gatewayBlock = metadataGatewayBlock(message)
   if (gatewayBlock === 'log') return 'log'
   if (gatewayBlock === 'changes') return 'changed'
   const command = commandFromMessage(message)

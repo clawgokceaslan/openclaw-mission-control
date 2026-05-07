@@ -55,7 +55,7 @@ import { showGatewayNotification } from '../utils/gateway-notifications.js'
 import { codexProcessEnv, isCodexCliNotFoundError, resolveCodexExecutable } from '../utils/codex-cli-resolver.js'
 import { formatUsageSummary, parseGatewayEvents, type GatewayNormalizedEvent, type GatewayUsageSummary } from '../../shared/utils/gateway-events.js'
 import { gatewayLanguageDisplayName, normalizeGatewayLanguage, normalizeGatewayReasoningEffort, type GatewayLanguagePair } from '../../shared/utils/gateway-language.js'
-import { inferGatewayChatPhase, type GatewayChatPhase } from '../../shared/utils/gateway-chat-phase.js'
+import { gatewayMetadataBlock, inferGatewayChatPhase, type GatewayChatPhase } from '../../shared/utils/gateway-chat-phase.js'
 import { normalizeGatewayPromptShape, type GatewayPromptShape } from '../../shared/utils/gateway-prompt-shape.js'
 
 const execFileAsync = promisify(execFile)
@@ -194,7 +194,7 @@ function activityConversationIdOf(message: TaskActivityMessage): string | null {
 }
 
 function isRunningGatewayActivityMessage(message: TaskActivityMessage): boolean {
-  if (!message.source.startsWith('codex-')) return false
+  if (!message.source.startsWith('gateway-') && !message.source.startsWith('codex-')) return false
   const metadata = asRecord(message.metadata)
   const status = typeof message.status === 'string' ? message.status : typeof metadata.runStatus === 'string' ? metadata.runStatus : ''
   return status === 'queued' || status === 'running'
@@ -202,7 +202,7 @@ function isRunningGatewayActivityMessage(message: TaskActivityMessage): boolean 
 
 function isTerminalCodexActivityMessage(message: TaskActivityMessage): boolean {
   const metadata = asRecord(message.metadata)
-  const gatewayBlock = typeof metadata.gatewayBlock === 'string' ? metadata.gatewayBlock : ''
+  const gatewayBlock = gatewayMetadataBlock(metadata)
   const runStatus = typeof metadata.runStatus === 'string' ? metadata.runStatus : ''
   return (
     gatewayBlock === 'run-complete'
@@ -5031,7 +5031,7 @@ export class TaskService {
     const conversationMessages = taskActivityMessagesFromPayload(asPayload(access.data.task.payload))
       .filter((message) => message.conversationId === conversationId || message.runId === conversationId)
       .sort((a, b) => a.createdAt - b.createdAt)
-    const lastSource = [...conversationMessages].reverse().find((message) => message.source.startsWith('codex-'))?.source ?? 'gateway-chat'
+    const lastSource = [...conversationMessages].reverse().find((message) => message.source.startsWith('gateway-'))?.source ?? 'gateway-chat'
     const status = resolution === 'failed' ? 'failed' : 'completed'
     const body = resolution === 'stopped'
       ? 'Codex chat manually marked as stopped.'

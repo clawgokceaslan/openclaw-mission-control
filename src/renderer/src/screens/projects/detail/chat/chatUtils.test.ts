@@ -317,6 +317,18 @@ describe('chat utils helpers', () => {
     expect(block?.durationMs).toBe(9_000)
   })
 
+  it('does not mark legacy command failures as failed conversations', () => {
+    const summaries = buildChatConversationSummaries([
+      message({ id: 'thinking-legacy', runId: 'run-legacy', conversationId: 'conversation-legacy', role: 'thinking', status: 'running', createdAt: 1_000, updatedAt: 2_000, metadata: { codexBlock: 'thinking', runStatus: 'running' } }),
+      message({ id: 'command-failed-legacy', runId: 'run-legacy', conversationId: 'conversation-legacy', role: 'tool', status: 'failed', createdAt: 3_000, metadata: { codexBlock: 'command', command: 'npm test', runStatus: 'running' } })
+    ], 10_000)
+
+    expect(summaries[0]).toMatchObject({
+      id: 'conversation-legacy',
+      status: 'running'
+    })
+  })
+
   it('freezes stale running work blocks at the last activity time without a terminal row', () => {
     const now = 30 * 60 * 1000
     const items = groupCodexTranscriptMessages([
