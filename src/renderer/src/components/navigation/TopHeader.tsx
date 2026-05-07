@@ -5,6 +5,7 @@ import { LuArrowRight, LuMessageCircleQuestion, LuPlus, LuSearch } from 'react-i
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import type { User } from '@shared/types/entities'
 import { UserAvatar } from '@renderer/components/avatar/UserAvatar'
+import { useLocalAvatar } from '@renderer/components/avatar/localAvatar'
 import { RunningCodexMenu } from './RunningCodexMenu'
 import { usePlannerQuestions } from '@renderer/components/planner/PlannerQuestionHost'
 import { useOutsidePointerDown } from './useOutsidePointerDown'
@@ -23,6 +24,7 @@ export function TopHeader({ user }: { user: User | null }) {
   const [questionPanelOpen, setQuestionPanelOpen] = useState(false)
   const questionPanelRef = useRef<HTMLDivElement | null>(null)
   const { queue: plannerQuestions, hasConfigurationWarning, openQuestion } = usePlannerQuestions()
+  const { avatarUrl } = useLocalAvatar(user?.id)
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -139,7 +141,7 @@ export function TopHeader({ user }: { user: User | null }) {
           ) : null}
           </div>
           <Link className={styles.userArea} to={APP_ROUTES.PROFILE} aria-label="Open profile">
-            <UserAvatar name={userName} imageUrl={appIconSrc} alt="Open Mission Control avatar" className={styles.userAvatar} />
+            <UserAvatar name={userName} imageUrl={avatarUrl ?? null} alt="Open Mission Control avatar" className={styles.userAvatar} />
           </Link>
         </div>
       </Container>
