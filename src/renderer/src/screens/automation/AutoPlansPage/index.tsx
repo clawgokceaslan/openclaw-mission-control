@@ -6,70 +6,90 @@ import { DEFAULT_GATEWAY_LANGUAGE } from '@shared/utils/gateway-language'
 import { GlobalTaskDetailModal } from '@renderer/components/navigation/GlobalTaskDetailModal'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
-import { projectGatewaySettings, readTaskGatewayOverride, withTaskMeta } from '@renderer/screens/projects/detail/projectDetailUtils'
+import { projectGatewaySettings, taskGatewaySurfaceStatuses, withTaskMeta } from '@renderer/screens/projects/detail/projectDetailUtils'
+import { automationQueueSnapshot, enqueueAutomationQueue, subscribeAutomationQueue } from '@renderer/screens/automation/automationQueueCoordinator'
 import styles from './index.module.scss'
 
-type TabKey = 'running' | 'queue' | 'planned'
+type StepKey = 'scope' | 'tasks' | 'queue' | 'confirm'
 type PlanMode = NonNullable<PlanTaskGatewayRequest['clarificationMode']>
 type QueueState = 'waiting' | 'running' | 'completed' | 'failed' | 'stopped'
 type QueueItem = { id: string; taskId: string; projectId: string; state: QueueState; message?: string; conversationId?: string }
 type GatewayPlanResponse = { executionMode?: 'terminal' | 'exec'; runId?: string; conversationId?: string; runtimeWorkspacePath?: string }
+type DefaultProjectResponse = { projectId: string | null; project?: Project | null; fallbackProject?: Project | null; invalidStoredProjectId?: string | null }
 
 const PAGE_SIZE = 60
-const tabLabels: Record<TabKey, string> = { running: 'Çalışanlar', queue: 'Plan kuyruğu', planned: 'Planlananlar' }
+const stepLabels: Record<StepKey, string> = { scope: 'Scope', tasks: 'Tasks', queue: 'Queue', confirm: 'Review' }
+const stepOrder: StepKey[] = ['scope', 'tasks', 'queue', 'confirm']
 
 function formatDate(value: number) {
   return new Date(value).toLocaleString()
 }
 
-function missingPlanLabel(project: Project | undefined, task: TaskEntity) {
+function missingPlanLabel(project: Project | undefined) {
   const codex = projectGatewaySettings(project ?? null)
-  const override = readTaskGatewayOverride(task)
-  if (!(override.gatewayId || codex.gatewayId) && !(override.planModel || override.legacyModel || codex.planModel || codex.defaultModel)) return 'Gateway ve plan modeli eksik'
-  if (!(override.gatewayId || codex.gatewayId)) return 'Gateway eksik'
-  if (!(override.planModel || override.legacyModel || codex.planModel || codex.defaultModel)) return 'Plan modeli eksik'
+  if (!codex.gatewayId && !(codex.planModel || codex.defaultModel)) return 'Project gateway and plan model are missing'
+  if (!codex.gatewayId) return 'Project gateway is missing'
+  if (!(codex.planModel || codex.defaultModel)) return 'Project plan model is missing'
   return ''
+}
+
+function isTaskUnplanned(task: TaskEntity) {
+  return taskGatewaySurfaceStatuses(task).some((status) => status.key === 'PLAN:not-planned')
+}
+
+function isTaskWorking(task: TaskEntity) {
+  return taskGatewaySurfaceStatuses(task).some((status) => status.active === true)
 }
 
 export function AutoPlansPage() {
   const { token } = useAuth()
-  const [activeTab, setActiveTab] = useState<TabKey>('queue')
+  const [activeStep, setActiveStep] = useState<StepKey>('scope')
   const [projects, setProjects] = useState<Project[]>([])
   const [tasks, setTasks] = useState<TaskEntity[]>([])
   const [statusesByProject, setStatusesByProject] = useState<Record<string, ProjectStatus[]>>({})
   const [runningRows, setRunningRows] = useState<RunningGatewayTaskRow[]>([])
   const [plannedRows, setPlannedRows] = useState<PlannedGatewayTaskRow[]>([])
   const [queue, setQueue] = useState<QueueItem[]>([])
-  const [projectFilter, setProjectFilter] = useState('')
+  const [currentProjectId, setCurrentProjectId] = useState('')
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<PlanMode>('ask-first')
   const [loading, setLoading] = useState(true)
   const [queueBusy, setQueueBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [detailTarget, setDetailTarget] = useState<{ projectId: string; taskId: string } | null>(null)
+  const [automationSnapshot, setAutomationSnapshot] = useState(() => automationQueueSnapshot())
   const stopRequestedRef = useRef(false)
 
   const projectsById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects])
   const tasksById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])
   const queuedTaskIds = useMemo(() => new Set(queue.filter((item) => item.state === 'waiting' || item.state === 'running').map((item) => item.taskId)), [queue])
+  const currentProject = projectsById.get(currentProjectId)
+  const activeAutomationLabel = automationSnapshot.active ? `${automationSnapshot.active.type === 'plan' ? 'Auto Plan' : 'Auto Run'} is running` : null
 
   const loadData = useCallback(async () => {
     setLoading(true)
-    const [projectResponse, taskResponse, runningResponse, plannedResponse] = await Promise.all([
+    const [projectResponse, taskResponse, runningResponse, plannedResponse, defaultProjectResponse] = await Promise.all([
       loadList<Project[]>(IPC_CHANNELS.projects.list, token ?? null),
       loadList<TaskEntity[]>(IPC_CHANNELS.tasks.list, token ?? null),
       invokeBridge<RunningGatewayTasksResponse>(IPC_CHANNELS.tasks.listRunningGateway, { actorToken: token, page: 1, pageSize: PAGE_SIZE, group: 'planning' }),
-      invokeBridge<PaginatedResponse<PlannedGatewayTaskRow>>(IPC_CHANNELS.tasks.listPlannedGateway, { actorToken: token, page: 1, pageSize: PAGE_SIZE })
+      invokeBridge<PaginatedResponse<PlannedGatewayTaskRow>>(IPC_CHANNELS.tasks.listPlannedGateway, { actorToken: token, page: 1, pageSize: PAGE_SIZE }),
+      invokeBridge<DefaultProjectResponse>(IPC_CHANNELS.appSettings.getDefaultAddTaskProject, { actorToken: token })
     ])
 
     if (!projectResponse.ok) {
-      setError(projectResponse.error?.message ?? 'Projeler yuklenemedi.')
+      setError(projectResponse.error?.message ?? 'Projects could not be loaded.')
       setLoading(false)
       return
     }
 
     const nextProjects = Array.isArray(projectResponse.data) ? projectResponse.data : []
     setProjects(nextProjects)
+    setCurrentProjectId((current) => {
+      if (current && nextProjects.some((project) => project.id === current)) return current
+      const defaultProjectId = defaultProjectResponse.ok ? defaultProjectResponse.data?.project?.id ?? defaultProjectResponse.data?.fallbackProject?.id ?? defaultProjectResponse.data?.projectId ?? '' : ''
+      return defaultProjectId && nextProjects.some((project) => project.id === defaultProjectId) ? defaultProjectId : nextProjects[0]?.id ?? ''
+    })
     setTasks(Array.isArray(taskResponse.data) ? taskResponse.data.map(withTaskMeta) : [])
     setRunningRows(runningResponse.ok && Array.isArray(runningResponse.data?.rows) ? runningResponse.data.rows : [])
     setPlannedRows(plannedResponse.ok && Array.isArray(plannedResponse.data?.rows) ? plannedResponse.data.rows : [])
@@ -78,13 +98,15 @@ export function AutoPlansPage() {
       return [project.id, response.ok && Array.isArray(response.data) ? response.data : []] as const
     }))
     setStatusesByProject(Object.fromEntries(statusEntries))
-    setError(!taskResponse.ok ? taskResponse.error?.message ?? 'Tasklar yuklenemedi.' : null)
+    setError(!taskResponse.ok ? taskResponse.error?.message ?? 'Tasks could not be loaded.' : null)
     setLoading(false)
   }, [token])
 
   useEffect(() => {
     void loadData()
   }, [loadData])
+
+  useEffect(() => subscribeAutomationQueue(() => setAutomationSnapshot(automationQueueSnapshot())), [])
 
   useEffect(() => {
     const refresh = () => void loadData()
@@ -99,11 +121,13 @@ export function AutoPlansPage() {
   const filteredTasks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
     return tasks
-      .filter((task) => !projectFilter || task.projectId === projectFilter)
+      .filter((task) => task.projectId === currentProjectId)
+      .filter(isTaskUnplanned)
+      .filter((task) => !isTaskWorking(task))
       .filter((task) => !normalizedQuery || `${task.title} ${task.description ?? ''} ${projectsById.get(task.projectId)?.name ?? ''}`.toLowerCase().includes(normalizedQuery))
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, 80)
-  }, [projectFilter, projectsById, query, tasks])
+  }, [currentProjectId, projectsById, query, tasks])
 
   const isTaskClosed = useCallback((task: TaskEntity) => {
     const status = statusesByProject[task.projectId]?.find((item) => item.id === task.status)
@@ -111,9 +135,9 @@ export function AutoPlansPage() {
   }, [statusesByProject])
 
   const addToQueue = (task: TaskEntity) => {
-    if (queuedTaskIds.has(task.id) || isTaskClosed(task) || missingPlanLabel(projectsById.get(task.projectId), task)) return
+    if (queuedTaskIds.has(task.id) || isTaskClosed(task) || missingPlanLabel(projectsById.get(task.projectId))) return
     setQueue((current) => [...current, { id: `${task.id}-${Date.now()}`, taskId: task.id, projectId: task.projectId, state: 'waiting' }])
-    setActiveTab('queue')
+    setActiveStep('queue')
   }
 
   const moveQueueItem = (itemId: string, direction: -1 | 1) => {
@@ -131,12 +155,11 @@ export function AutoPlansPage() {
   const runPlan = useCallback(async (item: QueueItem) => {
     const task = tasksById.get(item.taskId)
     const project = projectsById.get(item.projectId)
-    if (!task || !project) throw new Error('Task veya proje bulunamadi.')
+    if (!task || !project) throw new Error('Task or project was not found.')
     const codex = projectGatewaySettings(project)
-    const override = readTaskGatewayOverride(task)
-    const gatewayId = override.gatewayId || codex.gatewayId || ''
-    const model = override.planModel || override.legacyModel || codex.planModel || codex.defaultModel || ''
-    if (!gatewayId || !model) throw new Error('Gateway veya plan modeli eksik.')
+    const gatewayId = codex.gatewayId || ''
+    const model = codex.planModel || codex.defaultModel || ''
+    if (!gatewayId || !model) throw new Error('Project gateway or plan model is missing.')
 
     const response = await invokeBridge<GatewayPlanResponse>(IPC_CHANNELS.tasks.planWithGateway, {
       actorToken: token,
@@ -145,31 +168,33 @@ export function AutoPlansPage() {
       gatewayId,
       model,
       language: codex.language || DEFAULT_GATEWAY_LANGUAGE,
-      reasoningEffort: override.planReasoningEffort || codex.planReasoningEffort || 'medium',
+      reasoningEffort: codex.planReasoningEffort || 'medium',
       clarificationMode: mode,
       generalContext: project.generalContext ?? '',
       generalPrompt: project.generalPrompt ?? '',
       defaultOutput: project.defaultOutput ?? ''
     })
-    if (!response.ok) throw new Error(response.error?.message ?? 'Codex plan baslatilamadi.')
+    if (!response.ok) throw new Error(response.error?.message ?? 'Codex plan could not be started.')
     return response.data?.conversationId || response.data?.runId || ''
   }, [mode, projectsById, tasksById, token])
 
-  const startQueue = async () => {
+  const executeQueue = async () => {
     if (queueBusy) return
     stopRequestedRef.current = false
     setQueueBusy(true)
-    setActiveTab('queue')
+    setActiveStep('queue')
     try {
       for (const item of queue) {
         if (stopRequestedRef.current) break
         if (item.state !== 'waiting') continue
-        setQueue((current) => current.map((row) => row.id === item.id ? { ...row, state: 'running', message: mode === 'ask-first' ? 'Soru moduyla baslatiliyor...' : 'Sorusuz modla baslatiliyor...' } : row))
+        setQueue((current) => current.map((row) => row.id === item.id ? { ...row, state: 'running', message: mode === 'ask-first' ? 'Starting in ask-first mode...' : 'Starting in direct mode...' } : row))
         try {
           const conversationId = await runPlan(item)
-          setQueue((current) => current.map((row) => row.id === item.id ? { ...row, state: stopRequestedRef.current ? 'stopped' : 'completed', conversationId, message: mode === 'ask-first' ? 'Plan soru moduyla baslatildi.' : 'Plan sorusuz baslatildi.' } : row))
+          setQueue((current) => current
+            .map((row) => row.id === item.id ? { ...row, state: stopRequestedRef.current ? 'stopped' : 'completed', conversationId, message: mode === 'ask-first' ? 'Plan started in ask-first mode.' : 'Plan started in direct mode.' } : row)
+            .filter((row) => row.state !== 'completed'))
         } catch (planError) {
-          setQueue((current) => current.map((row) => row.id === item.id ? { ...row, state: 'failed', message: planError instanceof Error ? planError.message : 'Plan baslatma hatasi.' } : row))
+          setQueue((current) => current.map((row) => row.id === item.id ? { ...row, state: 'failed', message: planError instanceof Error ? planError.message : 'Plan start failed.' } : row))
         }
       }
       await loadData()
@@ -178,11 +203,21 @@ export function AutoPlansPage() {
     }
   }
 
+  const startQueue = async () => {
+    if (queueBusy || !queue.some((item) => item.state === 'waiting')) return
+    setQueueBusy(true)
+    if (automationQueueSnapshot().active) {
+      setQueue((current) => current.map((item) => item.state === 'waiting' ? { ...item, message: 'Queued behind another automation flow.' } : item))
+    }
+    const { promise } = enqueueAutomationQueue('plan', executeQueue)
+    await promise
+  }
+
   const stopQueue = async () => {
     stopRequestedRef.current = true
     const active = queue.find((item) => item.state === 'running')
     if (active?.conversationId) await invokeBridge(IPC_CHANNELS.tasks.gatewayChatStop, { actorToken: token, taskId: active.taskId, conversationId: active.conversationId })
-    setQueue((current) => current.map((item) => item.state === 'waiting' || item.state === 'running' ? { ...item, state: 'stopped', message: 'Durduruldu.' } : item))
+    setQueue((current) => current.map((item) => item.state === 'waiting' || item.state === 'running' ? { ...item, state: 'stopped', message: 'Stopped.' } : item))
     setQueueBusy(false)
   }
 
@@ -196,76 +231,89 @@ export function AutoPlansPage() {
       <header className={styles.header}>
         <div>
           <h1>Auto Plans</h1>
-          <p>Planlanacak taskları sıraya al, başlatmadan önce global soru modunu seç.</p>
+          <p>Select not-planned tasks from the current project and prepare the plan queue step by step.</p>
         </div>
-        <button type="button" onClick={() => void loadData()} disabled={loading}><LuRefreshCw size={15} /> Yenile</button>
+        <button type="button" onClick={() => void loadData()} disabled={loading}><LuRefreshCw size={15} /> Refresh</button>
       </header>
 
       {error ? <div className={styles.notice}>{error}</div> : null}
+      {activeAutomationLabel ? <div className={styles.notice}>{activeAutomationLabel}. New queues will wait for their turn.</div> : null}
 
       <section className={styles.modeBar}>
         <div>
-          <strong>Global plan modu</strong>
-          <span>Bu seçim kuyruk başlatılmadan önce görünür kalır ve tüm tasklara aynı şekilde uygulanır.</span>
+          <strong>Plan mode</strong>
+          <span>This setting applies to every task in the prepared queue.</span>
         </div>
         <div className={styles.modeButtons} role="radiogroup" aria-label="Global plan mode">
-          <button type="button" className={mode === 'ask-first' ? styles.modeActive : ''} onClick={() => setMode('ask-first')} disabled={queueBusy}>Tüm tasklar için soru sor</button>
-          <button type="button" className={mode === 'direct' ? styles.modeActive : ''} onClick={() => setMode('direct')} disabled={queueBusy}>Tüm tasklar için sorusuz ilerle</button>
+          <button type="button" className={mode === 'ask-first' ? styles.modeActive : ''} onClick={() => setMode('ask-first')} disabled={queueBusy}>Ask first</button>
+          <button type="button" className={mode === 'direct' ? styles.modeActive : ''} onClick={() => setMode('direct')} disabled={queueBusy}>Direct</button>
         </div>
       </section>
 
       <section className={styles.controls}>
+        <div className={styles.scopeSummary}>
+          <span>Current project</span>
+          <strong>{currentProject?.name ?? 'No project selected'}</strong>
+          <button type="button" onClick={() => setProjectPickerOpen(true)}>Choose another project</button>
+        </div>
         <label>
-          <span>Proje filtresi</span>
-          <select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
-            <option value="">Tüm projeler</option>
-            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-          </select>
+          <span>Search tasks</span>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Title, description, or project" />
         </label>
-        <label>
-          <span>Task ara</span>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Başlık, açıklama veya proje" />
-        </label>
-        <div className={styles.controlStat}><LuListFilter size={16} /><strong>{filteredTasks.length}</strong><span>aday</span></div>
+        <div className={styles.controlStat}><LuListFilter size={16} /><strong>{filteredTasks.length}</strong><span>not-planned tasks</span></div>
       </section>
 
-      <div className={styles.layout}>
-        <aside className={styles.selector}>
-          <header><strong>Plan task seçimi</strong><span>Plan modeli hazır olan açık tasklar kuyruğa alınabilir.</span></header>
+      <section className={styles.stepper} aria-label="Auto Plan steps">
+        {stepOrder.map((step, index) => (
+          <button key={step} type="button" className={activeStep === step ? styles.stepActive : ''} onClick={() => setActiveStep(step)} disabled={(step === 'queue' || step === 'confirm') && queue.length === 0}>
+            <span>{index + 1}</span>
+            <strong>{stepLabels[step]}</strong>
+          </button>
+        ))}
+      </section>
+
+      <div className={`${styles.layout} ${activeStep !== 'tasks' ? styles.layoutFull : ''}`}>
+        {activeStep === 'tasks' ? <aside className={styles.selector}>
+          <header><strong>Plan task selection</strong><span>Only current-project NOT PLANNED tasks with no active work are shown.</span></header>
           <div className={styles.taskList}>
-            {loading ? <div className={styles.emptyState}>Yükleniyor...</div> : filteredTasks.length ? filteredTasks.map((task) => {
+            {loading ? <div className={styles.emptyState}>Loading tasks...</div> : filteredTasks.length ? filteredTasks.map((task) => {
               const project = projectsById.get(task.projectId)
-              const missing = missingPlanLabel(project, task)
+              const missing = missingPlanLabel(project)
               const disabled = queuedTaskIds.has(task.id) || isTaskClosed(task) || Boolean(missing)
               return (
                 <article key={task.id} className={`${styles.taskCard} ${disabled ? styles.taskCardMuted : ''}`}>
                   <div className={styles.taskCardBody}>
-                    <span>{project?.name ?? 'Proje yok'}</span>
+                    <span>{project?.name ?? 'No project'}</span>
                     <strong>{task.title}</strong>
-                    <small>{project?.description?.trim() || 'Proje aciklamasi yok.'}</small>
+                    <small>{project?.description?.trim() || 'No project description.'}</small>
                   </div>
                   <div className={styles.cardActions}>
-                    <button type="button" onClick={() => setDetailTarget({ projectId: task.projectId, taskId: task.id })} title="Task detayını aç"><LuExternalLink size={15} /></button>
-                    <button type="button" onClick={() => addToQueue(task)} disabled={disabled} title={missing || (queuedTaskIds.has(task.id) ? 'Kuyrukta' : 'Plan kuyruğuna ekle')}><LuPlay size={15} /></button>
+                    <button type="button" onClick={() => setDetailTarget({ projectId: task.projectId, taskId: task.id })} title="Open task details"><LuExternalLink size={15} /></button>
+                    <button type="button" onClick={() => addToQueue(task)} disabled={disabled} title={missing || (queuedTaskIds.has(task.id) ? 'Already queued' : 'Add to plan queue')}><LuPlay size={15} /></button>
                   </div>
                 </article>
               )
-            }) : <div className={styles.emptyState}>Filtreye uygun task yok.</div>}
+            }) : <div className={styles.emptyState}>No NOT PLANNED tasks match this project.</div>}
           </div>
-        </aside>
+        </aside> : null}
 
         <section className={styles.workbench}>
-          <div className={styles.tabs} role="tablist">
-            {(Object.keys(tabLabels) as TabKey[]).map((tab) => <button key={tab} type="button" className={activeTab === tab ? styles.tabActive : ''} onClick={() => setActiveTab(tab)}>{tabLabels[tab]}</button>)}
-          </div>
+          {activeStep === 'scope' ? (
+            <div className={styles.panel}>
+              <header><div><strong>Scope</strong><span>Default lists stay limited to the current project.</span></div></header>
+              <div className={styles.queueList}>
+                <div className={styles.emptyState}>Choose another project only when you need to continue from that project's task details.</div>
+              </div>
+            </div>
+          ) : null}
 
-          {activeTab === 'queue' ? (
+          {activeStep === 'queue' || activeStep === 'confirm' ? (
             <div className={styles.panel}>
               <header>
-                <div><strong>Auto Plan kuyruğu</strong><span>{queue.length} öğe · {mode === 'ask-first' ? 'soru sor modu' : 'sorusuz ilerleme modu'}</span></div>
+                <div><strong>Auto Plan queue</strong><span>{queue.length} waiting or blocked item{queue.length === 1 ? '' : 's'} - {mode === 'ask-first' ? 'ask-first mode' : 'direct mode'}</span></div>
                 <div className={styles.panelActions}>
-                  <button type="button" onClick={() => void startQueue()} disabled={queueBusy || !queue.some((item) => item.state === 'waiting')}><LuPlay size={15} /> Başlat</button>
-                  <button type="button" onClick={() => void stopQueue()} disabled={!queueBusy && !queue.some((item) => item.state === 'waiting' || item.state === 'running')}><LuCircleStop size={15} /> Durdur</button>
+                  <button type="button" onClick={() => void startQueue()} disabled={queueBusy || !queue.some((item) => item.state === 'waiting')}><LuPlay size={15} /> Start</button>
+                  <button type="button" onClick={() => void stopQueue()} disabled={!queueBusy && !queue.some((item) => item.state === 'waiting' || item.state === 'running')}><LuCircleStop size={15} /> Stop</button>
                 </div>
               </header>
               <div className={styles.queueList}>
@@ -275,56 +323,79 @@ export function AutoPlansPage() {
                   return (
                     <article key={item.id} className={`${styles.queueRow} ${styles[`state_${item.state}`]}`}>
                       <span className={styles.queueIndex}>{index + 1}</span>
-                      <div><strong>{task?.title ?? item.taskId}</strong><span>{project?.name ?? item.projectId} · {item.message ?? item.state}</span></div>
+                      <div><strong>{task?.title ?? item.taskId}</strong><span>{project?.name ?? item.projectId} - {item.message ?? item.state}</span></div>
                       <div className={styles.cardActions}>
-                        <button type="button" onClick={() => moveQueueItem(item.id, -1)} disabled={index === 0 || item.state === 'running'} title="Yukarı taşı"><LuArrowUp size={15} /></button>
-                        <button type="button" onClick={() => moveQueueItem(item.id, 1)} disabled={index === queue.length - 1 || item.state === 'running'} title="Aşağı taşı"><LuArrowDown size={15} /></button>
-                        <button type="button" onClick={() => setDetailTarget({ projectId: item.projectId, taskId: item.taskId })} title="Task detayını aç"><LuExternalLink size={15} /></button>
-                        <button type="button" onClick={() => setQueue((current) => current.filter((row) => row.id !== item.id || row.state === 'running'))} disabled={item.state === 'running'} title="Kuyruktan çıkar"><LuTrash2 size={15} /></button>
+                        <button type="button" onClick={() => moveQueueItem(item.id, -1)} disabled={index === 0 || item.state === 'running'} title="Move up"><LuArrowUp size={15} /></button>
+                        <button type="button" onClick={() => moveQueueItem(item.id, 1)} disabled={index === queue.length - 1 || item.state === 'running'} title="Move down"><LuArrowDown size={15} /></button>
+                        <button type="button" onClick={() => setDetailTarget({ projectId: item.projectId, taskId: item.taskId })} title="Open task details"><LuExternalLink size={15} /></button>
+                        <button type="button" onClick={() => setQueue((current) => current.filter((row) => row.id !== item.id || row.state === 'running'))} disabled={item.state === 'running'} title="Remove from queue"><LuTrash2 size={15} /></button>
                       </div>
                     </article>
                   )
-                }) : <div className={styles.emptyState}>Plan kuyruğu boş. Soldan task ekle.</div>}
+                }) : <div className={styles.emptyState}>Queue is empty. Add tasks from the Tasks step.</div>}
               </div>
             </div>
           ) : null}
 
-          {activeTab === 'running' ? (
+          {activeStep === 'confirm' ? (
             <div className={styles.panel}>
-              <header><div><strong>Çalışan planlar</strong><span>{runningRows.length} aktif plan kaydı</span></div></header>
+              <header><div><strong>Running plans</strong><span>{runningRows.length} active plan record{runningRows.length === 1 ? '' : 's'}</span></div></header>
               <div className={styles.queueList}>
                 {runningRows.length ? runningRows.map((row) => (
                   <article key={row.gatewayConversationId} className={styles.queueRow}>
                     <span className={styles.queueIndex}>{row.liveStatus}</span>
-                    <div><strong>{row.taskTitle}</strong><span>{row.projectName} · {row.latestActivitySummary} · {formatDate(row.latestAt)}</span></div>
+                    <div><strong>{row.taskTitle}</strong><span>{row.projectName} - {row.latestActivitySummary} - {formatDate(row.latestAt)}</span></div>
                     <div className={styles.cardActions}>
-                      <button type="button" onClick={() => setDetailTarget({ projectId: row.projectId, taskId: row.taskId })} title="Task detayını aç"><LuExternalLink size={15} /></button>
-                      <button type="button" onClick={() => void stopRunningRow(row)} title="Durdur"><LuCircleStop size={15} /></button>
+                      <button type="button" onClick={() => setDetailTarget({ projectId: row.projectId, taskId: row.taskId })} title="Open task details"><LuExternalLink size={15} /></button>
+                      <button type="button" onClick={() => void stopRunningRow(row)} title="Stop"><LuCircleStop size={15} /></button>
                     </div>
                   </article>
-                )) : <div className={styles.emptyState}>Aktif planlama yok.</div>}
+                )) : <div className={styles.emptyState}>No active planning run is currently visible.</div>}
               </div>
             </div>
           ) : null}
 
-          {activeTab === 'planned' ? (
+          {activeStep === 'confirm' ? (
             <div className={styles.panel}>
-              <header><div><strong>Planlanan tasklar</strong><span>{plannedRows.length} task</span></div></header>
+              <header><div><strong>Planned tasks</strong><span>{plannedRows.length} task{plannedRows.length === 1 ? '' : 's'}</span></div></header>
               <div className={styles.queueList}>
                 {plannedRows.length ? plannedRows.map((row) => (
                   <article key={row.taskId} className={styles.queueRow}>
-                    <span className={styles.queueIndex}>{row.runnable ? 'Run hazır' : 'Eksik'}</span>
-                    <div><strong>{row.taskTitle}</strong><span>{row.projectName} · {row.runnable ? 'Run tarafına aktarılabilir' : row.missing.join(', ')}</span></div>
+                    <span className={styles.queueIndex}>{row.runnable ? 'Ready' : 'Missing'}</span>
+                    <div><strong>{row.taskTitle}</strong><span>{row.projectName} - {row.runnable ? 'Available from Auto Run' : row.missing.join(', ')}</span></div>
                     <div className={styles.cardActions}>
-                      <button type="button" onClick={() => setDetailTarget({ projectId: row.projectId, taskId: row.taskId })} title="Task detayını aç"><LuExternalLink size={15} /></button>
+                      <button type="button" onClick={() => setDetailTarget({ projectId: row.projectId, taskId: row.taskId })} title="Open task details"><LuExternalLink size={15} /></button>
                     </div>
                   </article>
-                )) : <div className={styles.emptyState}>Planlanan task yok.</div>}
+                )) : <div className={styles.emptyState}>No planned tasks are visible yet.</div>}
               </div>
             </div>
           ) : null}
         </section>
       </div>
+
+      {projectPickerOpen ? (
+        <div className={styles.modalBackdrop} role="presentation">
+          <section className={styles.projectModal} role="dialog" aria-modal="true" aria-label="Choose project">
+            <header>
+              <div><strong>Choose project</strong><span>Default task lists only show the selected project.</span></div>
+              <button type="button" onClick={() => setProjectPickerOpen(false)}>Close</button>
+            </header>
+            <div className={styles.projectModalList}>
+              {projects.map((project) => (
+                <button key={project.id} type="button" className={project.id === currentProjectId ? styles.projectModalActive : ''} onClick={() => {
+                  setCurrentProjectId(project.id)
+                  setProjectPickerOpen(false)
+                  setActiveStep('tasks')
+                }}>
+                  <strong>{project.name}</strong>
+                  <span>{project.description?.trim() || 'No description'}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {detailTarget ? <GlobalTaskDetailModal taskId={detailTarget.taskId} projectId={detailTarget.projectId} onClose={() => setDetailTarget(null)} /> : null}
     </section>

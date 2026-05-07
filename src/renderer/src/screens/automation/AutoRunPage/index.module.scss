@@ -83,6 +83,35 @@
       }
     }
 
+    .scopeSummary {
+      display: grid;
+      gap: 4px;
+
+      span {
+        color: var(--omc-text-muted);
+        font-size: 0.78rem;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      strong {
+        color: var(--omc-text-strong);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      button {
+        width: fit-content;
+        border: none;
+        background: transparent;
+        color: var(--omc-primary);
+        padding: 0;
+        font-size: 0.82rem;
+        font-weight: 800;
+      }
+    }
+
     .controlStat {
       min-height: 40px;
       border: 1px solid var(--omc-border-subtle);
@@ -97,6 +126,55 @@
 
       strong {
         color: var(--omc-text-strong);
+      }
+    }
+  }
+
+  .stepper {
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 8px;
+    background: var(--omc-surface);
+    padding: 6px;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+
+    button {
+      min-height: 42px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--omc-text-muted);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-weight: 850;
+
+      span {
+        width: 22px;
+        height: 22px;
+        border-radius: 999px;
+        background: var(--omc-surface-muted);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.76rem;
+      }
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.45;
+      }
+    }
+
+    .stepActive {
+      background: var(--omc-primary);
+      color: var(--omc-inverse-text);
+
+      span {
+        background: rgb(255 255 255 / 0.18);
+        color: var(--omc-inverse-text);
       }
     }
   }
@@ -223,6 +301,10 @@
         }
       }
     }
+  }
+
+  .layoutFull {
+    grid-template-columns: 1fr;
   }
 
   .taskCard,
@@ -367,12 +449,102 @@
     text-align: center;
     font-weight: 700;
   }
+
+  .modalBackdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    background: rgb(15 23 42 / 0.42);
+    display: grid;
+    place-items: center;
+    padding: 24px;
+
+    .projectModal {
+      width: min(620px, 100%);
+      max-height: min(720px, calc(100vh - 48px));
+      border: 1px solid var(--omc-border);
+      border-radius: 8px;
+      background: var(--omc-surface);
+      box-shadow: var(--omc-shadow-lg);
+      overflow: hidden;
+      display: grid;
+
+      > header {
+        border-bottom: 1px solid var(--omc-border-subtle);
+        padding: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+
+        div {
+          display: grid;
+          gap: 3px;
+
+          strong {
+            color: var(--omc-text-strong);
+          }
+
+          span {
+            color: var(--omc-text-muted);
+            font-size: 0.84rem;
+          }
+        }
+
+        button {
+          min-height: 34px;
+          border: 1px solid var(--omc-input-border);
+          border-radius: 8px;
+          background: var(--omc-surface);
+          color: var(--omc-text-strong);
+          padding: 0 12px;
+          font-weight: 800;
+        }
+      }
+
+      .projectModalList {
+        overflow: auto;
+        padding: 10px;
+        display: grid;
+        gap: 8px;
+
+        button {
+          border: 1px solid var(--omc-border-subtle);
+          border-radius: 8px;
+          background: var(--omc-surface);
+          color: var(--omc-text);
+          padding: 10px;
+          display: grid;
+          gap: 4px;
+          text-align: left;
+
+          strong {
+            color: var(--omc-text-strong);
+          }
+
+          span {
+            color: var(--omc-text-muted);
+            font-size: 0.84rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+        }
+
+        .projectModalActive {
+          border-color: var(--omc-primary);
+          background: var(--omc-hover-bg);
+        }
+      }
+    }
+  }
 }
 
 @media (max-width: 980px) {
   .page {
     .controls,
-    .layout {
+    .layout,
+    .stepper {
       grid-template-columns: 1fr;
     }
 
