@@ -1,11 +1,10 @@
-import { useState, type CSSProperties, type DragEvent } from 'react'
-import { LuCalendarPlus, LuChevronDown, LuPlus, LuUserPlus } from 'react-icons/lu'
+import { useState, type CSSProperties, type DragEvent, type MouseEvent } from 'react'
+import { LuCalendarPlus, LuChevronDown, LuFileText, LuPlay, LuPlus, LuUserPlus } from 'react-icons/lu'
 import type { Agent, TaskEntity } from '@shared/types/entities'
 import { TagPill } from '@renderer/components/tags/TagPill'
 import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
 import { formatTaskDate } from '@renderer/screens/projects/detail/status'
-import { type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
-import { TaskCodexStatus } from '@renderer/components/projects/detail/TaskCodexStatus'
+import { taskCodexActionChips, taskCodexPlanBadge, type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
 interface ProjectListViewProps {
@@ -24,6 +23,28 @@ interface ProjectListViewProps {
 function eventDropPosition(event: DragEvent<HTMLElement>): TaskDropPosition {
   const rect = event.currentTarget.getBoundingClientRect()
   return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+}
+
+function TaskCodexStrip({ task, onOpenTaskChat }: { task: TaskEntity; onOpenTaskChat: (taskId: string, conversationId: string) => void }) {
+  const planBadge = taskCodexPlanBadge(task)
+  const actions = taskCodexActionChips(task)
+  if (!planBadge && actions.length === 0) return null
+  const openChat = (event: MouseEvent<HTMLButtonElement>, conversationId: string) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onOpenTaskChat(task.id, conversationId)
+  }
+  return (
+    <span className={styles.taskCodexStrip}>
+      {planBadge ? <span className={`${styles.taskCodexStateBadge} ${planBadge.state === 'needs-clarification' ? styles.taskCodexNeedsInfo : styles.taskCodexPlanned}`}>{planBadge.label}</span> : null}
+      {actions.map((action) => (
+        <button key={action.source} type="button" className={`${styles.taskCodexActionChip} ${action.source === 'codex-plan' ? styles.taskCodexActionPlan : styles.taskCodexActionRun}`} onClick={(event) => openChat(event, action.conversationId)} title={`Open ${action.label} chat`}>
+          {action.source === 'codex-plan' ? <LuFileText size={12} /> : <LuPlay size={12} />}
+          {action.label}
+        </button>
+      ))}
+    </span>
+  )
 }
 
 export function ProjectListView({ columns, tasksByStatus, agents, collapsedStatuses, onToggleStatus, onOpenTask, onOpenTaskChat, onOpenCreateTask, onDropStatus, onReorder }: ProjectListViewProps) {
@@ -99,7 +120,7 @@ export function ProjectListView({ columns, tasksByStatus, agents, collapsedStatu
                       if (event.key === 'Enter') onOpenTask(task.id)
                     }}
                   >
-                    <span className={styles.listNameCell}><span className={styles.listTaskDot} style={{ background: column.accent }} /><span><b>{task.title}</b><TaskCodexStatus task={task} onOpenTaskChat={onOpenTaskChat} compact /></span></span>
+                    <span className={styles.listNameCell}><span className={styles.listTaskDot} style={{ background: column.accent }} /><span><b>{task.title}</b><TaskCodexStrip task={task} onOpenTaskChat={onOpenTaskChat} /></span></span>
                     <span className={styles.listMutedCell}><LuUserPlus size={15} /> {agentName(task)}</span>
                     <span className={styles.listDateCell}><LuCalendarPlus size={15} /> {formatTaskDate(task.updatedAt)}</span>
                     <span className={styles.listTagCell}>{(task.tags ?? []).slice(0, 3).map((tag) => <TagPill key={tag.id} tag={tag} compact />)}</span>

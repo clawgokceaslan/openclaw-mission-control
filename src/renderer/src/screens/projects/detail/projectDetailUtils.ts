@@ -148,7 +148,7 @@ export function withTaskMeta(task: TaskEntity): TaskEntity {
 
 export type TaskCodexPlanBadge = {
   state: 'planned' | 'needs-clarification'
-  label: 'Planned' | 'Plan için bilgi gerekiyor'
+  label: 'Planned' | 'Needs info'
   conversationId?: string
 }
 
@@ -165,17 +165,6 @@ export type TaskCodexConversationSource = 'codex-plan' | 'codex-run'
 export type TaskCodexConversationMatch = {
   source: TaskCodexConversationSource
   conversationId: string
-  at: number
-}
-
-export type TaskCodexStatusTone = 'planning' | 'running' | 'post-running' | 'follow-up'
-
-export type TaskCodexStatusItem = {
-  key: string
-  tone: TaskCodexStatusTone
-  label: 'Planning' | 'Running' | 'Post Running' | 'Follow Up' | 'Plan için bilgi gerekiyor'
-  conversationId?: string
-  status: TaskActivityMessage['status'] | 'event'
   at: number
 }
 
@@ -207,22 +196,11 @@ export function taskCodexPlanBadge(task: TaskEntity): TaskCodexPlanBadge | null 
   if (record.state === 'needs-clarification') {
     return {
       state: 'needs-clarification',
-      label: 'Plan için bilgi gerekiyor',
+      label: 'Needs info',
       conversationId: typeof record.conversationId === 'string' ? record.conversationId : undefined
     }
   }
   return null
-}
-
-function latestActivityMessage(task: TaskEntity, conversationId: string, source?: TaskCodexConversationSource | 'codex-chat'): TaskActivityMessage | null {
-  let latest: TaskActivityMessage | null = null
-  for (const message of taskActivityMessages(task)) {
-    if (source && message.source !== source) continue
-    if ((message.conversationId || message.runId) !== conversationId) continue
-    if (latest && (latest.updatedAt ?? latest.createdAt) >= (message.updatedAt ?? message.createdAt)) continue
-    latest = message
-  }
-  return latest
 }
 
 export function latestTaskCodexConversation(task: TaskEntity, source: TaskCodexConversationSource): TaskCodexConversationMatch | null {
@@ -242,7 +220,9 @@ export function taskCodexActionChips(task: TaskEntity): TaskCodexActionChip[] {
   return (['codex-plan', 'codex-run'] as const).flatMap((source) => {
     const latest = latestTaskCodexConversation(task, source)
     if (!latest) return []
-    const message = latestActivityMessage(task, latest.conversationId, source)
+    const message = taskActivityMessages(task)
+      .filter((item) => item.source === source && (item.conversationId || item.runId) === latest.conversationId)
+      .find((item) => (item.updatedAt ?? item.createdAt) === latest.at)
     return [{
       source,
       label: source === 'codex-plan' ? 'Plan' : 'Run',
@@ -251,61 +231,6 @@ export function taskCodexActionChips(task: TaskEntity): TaskCodexActionChip[] {
       at: latest.at
     }]
   })
-}
-
-export function taskCodexStatusItems(task: TaskEntity): TaskCodexStatusItem[] {
-  const items: TaskCodexStatusItem[] = []
-  const planBadge = taskCodexPlanBadge(task)
-  const plan = latestTaskCodexConversation(task, 'codex-plan')
-  if (plan || planBadge?.conversationId) {
-    const conversationId = plan?.conversationId ?? planBadge?.conversationId
-    const message = conversationId ? latestActivityMessage(task, conversationId, 'codex-plan') : null
-    items.push({
-      key: 'planning',
-      tone: 'planning',
-      label: planBadge?.state === 'needs-clarification' ? 'Plan için bilgi gerekiyor' : 'Planning',
-      conversationId,
-      status: message?.status ?? 'event',
-      at: plan?.at ?? message?.updatedAt ?? message?.createdAt ?? 0
-    })
-  }
-
-  const run = latestTaskCodexConversation(task, 'codex-run')
-  if (run) {
-    const message = latestActivityMessage(task, run.conversationId, 'codex-run')
-    const status = message?.status ?? 'event'
-    const running = status === 'queued' || status === 'running'
-    items.push({
-      key: 'running',
-      tone: running ? 'running' : 'post-running',
-      label: running ? 'Running' : 'Post Running',
-      conversationId: run.conversationId,
-      status,
-      at: run.at
-    })
-  }
-
-  let followUp: { conversationId: string; at: number; status: TaskActivityMessage['status'] | 'event' } | null = null
-  for (const message of taskActivityMessages(task)) {
-    if (message.source !== 'codex-chat') continue
-    const conversationId = message.conversationId || message.runId
-    if (!conversationId) continue
-    const at = message.updatedAt ?? message.createdAt
-    if (followUp && followUp.at >= at) continue
-    followUp = { conversationId, at, status: message.status ?? 'event' }
-  }
-  if (followUp) {
-    items.push({
-      key: 'follow-up',
-      tone: 'follow-up',
-      label: 'Follow Up',
-      conversationId: followUp.conversationId,
-      status: followUp.status,
-      at: followUp.at
-    })
-  }
-
-  return items.sort((a, b) => a.at - b.at)
 }
 
 export const DEFAULT_TABLE_COLUMNS: TableColumnConfig[] = [

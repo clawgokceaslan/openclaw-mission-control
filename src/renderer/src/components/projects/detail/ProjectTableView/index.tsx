@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react'
-import { LuCheck, LuChevronDown, LuGripVertical, LuPlus } from 'react-icons/lu'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent } from 'react'
+import { LuCheck, LuChevronDown, LuFileText, LuGripVertical, LuPlay, LuPlus } from 'react-icons/lu'
 import type { Agent, CustomField, TaskEntity } from '@shared/types/entities'
 import { TagPill } from '@renderer/components/tags/TagPill'
 import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
 import { formatTaskDate, resolveProjectStatusColumn } from '@renderer/screens/projects/detail/status'
-import { type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
-import { TaskCodexStatus } from '@renderer/components/projects/detail/TaskCodexStatus'
+import { taskCodexActionChips, taskCodexPlanBadge, type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
 interface ProjectTableViewProps {
@@ -34,6 +33,28 @@ function StatusPill({ status, columns }: { status: TaskEntity['status']; columns
     <span className={styles.tableStatusPill} style={{ '--status-accent': column.accent } as CSSProperties}>
       <span className={styles.tableStatusPillDot} />
       <span className={styles.tableStatusPillLabel}>{column.title}</span>
+    </span>
+  )
+}
+
+function TaskCodexStrip({ task, onOpenTaskChat }: { task: TaskEntity; onOpenTaskChat: (taskId: string, conversationId: string) => void }) {
+  const planBadge = taskCodexPlanBadge(task)
+  const actions = taskCodexActionChips(task)
+  if (!planBadge && actions.length === 0) return null
+  const openChat = (event: MouseEvent<HTMLButtonElement>, conversationId: string) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onOpenTaskChat(task.id, conversationId)
+  }
+  return (
+    <span className={styles.taskCodexStrip}>
+      {planBadge ? <span className={`${styles.taskCodexStateBadge} ${planBadge.state === 'needs-clarification' ? styles.taskCodexNeedsInfo : styles.taskCodexPlanned}`}>{planBadge.label}</span> : null}
+      {actions.map((action) => (
+        <button key={action.source} type="button" className={`${styles.taskCodexActionChip} ${action.source === 'codex-plan' ? styles.taskCodexActionPlan : styles.taskCodexActionRun}`} onClick={(event) => openChat(event, action.conversationId)} title={`Open ${action.label} chat`}>
+          {action.source === 'codex-plan' ? <LuFileText size={12} /> : <LuPlay size={12} />}
+          {action.label}
+        </button>
+      ))}
     </span>
   )
 }
@@ -78,7 +99,7 @@ export function ProjectTableView({ tasks, columns, tableColumns, customFields, a
   const renderCell = (task: TaskEntity, tableColumn: ProjectTableViewProps['tableColumns'][number], index: number) => {
     const column = resolveProjectStatusColumn(task.status, columns)
     if (tableColumn.kind === 'index') return <span className={styles.tableIndexCell}>{index + 1}</span>
-    if (tableColumn.kind === 'name') return <span className={styles.tableNameCell}><span className={styles.tableTaskDot} style={{ background: column.accent }} /><span><b>{task.title}</b><TaskCodexStatus task={task} onOpenTaskChat={onOpenTaskChat} compact /></span></span>
+    if (tableColumn.kind === 'name') return <span className={styles.tableNameCell}><span className={styles.tableTaskDot} style={{ background: column.accent }} /><span><b>{task.title}</b><TaskCodexStrip task={task} onOpenTaskChat={onOpenTaskChat} /></span></span>
     if (tableColumn.kind === 'assignee') return <span className={styles.tableMutedCell}>{agentName(task)}</span>
     if (tableColumn.kind === 'status') {
       return (

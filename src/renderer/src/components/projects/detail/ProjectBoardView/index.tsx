@@ -1,12 +1,11 @@
-import { useRef, useState, type CSSProperties, type DragEvent, type PointerEvent } from 'react'
+import { useRef, useState, type CSSProperties, type DragEvent, type MouseEvent, type PointerEvent } from 'react'
 import { Card } from 'react-bootstrap'
-import { LuCalendarPlus, LuChevronDown, LuMessageSquare, LuPlus, LuUserPlus } from 'react-icons/lu'
+import { LuCalendarPlus, LuFileText, LuMessageSquare, LuPlay, LuPlus, LuUserPlus } from 'react-icons/lu'
 import type { Agent, Tag, TaskEntity } from '@shared/types/entities'
 import { TagPill } from '@renderer/components/tags/TagPill'
 import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
 import { formatTaskDate } from '@renderer/screens/projects/detail/status'
-import { type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
-import { TaskCodexStatus, taskCodexActivityClass, taskCodexActivityTone } from '@renderer/components/projects/detail/TaskCodexStatus'
+import { taskCodexActionChips, taskCodexPlanBadge, type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
 interface ProjectBoardViewProps {
@@ -36,12 +35,43 @@ function eventDropPosition(event: DragEvent<HTMLElement>): TaskDropPosition {
   return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 }
 
+function TaskCodexStrip({ task, onOpenTaskChat }: { task: TaskEntity; onOpenTaskChat: (taskId: string, conversationId: string) => void }) {
+  const planBadge = taskCodexPlanBadge(task)
+  const actions = taskCodexActionChips(task)
+  if (!planBadge && actions.length === 0) return null
+  const openChat = (event: MouseEvent<HTMLButtonElement>, conversationId: string) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onOpenTaskChat(task.id, conversationId)
+  }
+  return (
+    <div className={styles.taskCodexStrip}>
+      {planBadge ? (
+        <span className={`${styles.taskCodexStateBadge} ${planBadge.state === 'needs-clarification' ? styles.taskCodexNeedsInfo : styles.taskCodexPlanned}`}>
+          {planBadge.label}
+        </span>
+      ) : null}
+      {actions.map((action) => (
+        <button
+          key={action.source}
+          type="button"
+          className={`${styles.taskCodexActionChip} ${action.source === 'codex-plan' ? styles.taskCodexActionPlan : styles.taskCodexActionRun}`}
+          onClick={(event) => openChat(event, action.conversationId)}
+          title={`Open ${action.label} chat`}
+        >
+          {action.source === 'codex-plan' ? <LuFileText size={12} /> : <LuPlay size={12} />}
+          {action.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus, onReorder, onOpenTask, onOpenTaskChat, onOpenCreateTask }: ProjectBoardViewProps) {
   const agentName = (task: TaskEntity) => agents.find((agent) => agent.id === task.agentId)?.name ?? 'Unassigned'
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const panRef = useRef({ active: false, startX: 0, scrollLeft: 0 })
   const [dropTarget, setDropTarget] = useState<{ taskId: string; position: TaskDropPosition } | null>(null)
-  const [expandedSubtasks, setExpandedSubtasks] = useState<Set<string>>(() => new Set())
 
   const canStartPan = (event: PointerEvent<HTMLElement>) => {
     const target = event.target as HTMLElement
@@ -106,14 +136,9 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
             ) : null}
             <div className={styles.columnBody}>
               {rows.map((task) => (
-                (() => {
-                  const subtasks = task.subtasks ?? []
-                  const subtasksOpen = expandedSubtasks.has(task.id)
-                  const activityTone = taskCodexActivityTone(task)
-                  return (
                 <Card
                   key={task.id}
-                  className={`${styles.taskCard} ${activityTone ? `${styles.taskCardActive} ${taskCodexActivityClass(activityTone)}` : ''} ${dropTarget?.taskId === task.id ? dropTarget.position === 'before' ? styles.taskCardDropBefore : styles.taskCardDropAfter : ''}`}
+                  className={`${styles.taskCard} ${dropTarget?.taskId === task.id ? dropTarget.position === 'before' ? styles.taskCardDropBefore : styles.taskCardDropAfter : ''}`}
                   draggable
                   onDragStart={(event) => event.dataTransfer.setData('text/plain', task.id)}
                   onDragOver={(event) => {
@@ -142,51 +167,20 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
                     <div className={styles.taskTop}>
                       <h3>{task.title}</h3>
                     </div>
-                    <TaskCodexStatus task={task} onOpenTaskChat={onOpenTaskChat} />
+                    <TaskCodexStrip task={task} onOpenTaskChat={onOpenTaskChat} />
                     <div className={styles.projectTaskMeta}>
                       <span><LuUserPlus size={14} /> {agentName(task)}</span>
                       <span><LuCalendarPlus size={14} /> {formatTaskDate(task.updatedAt)}</span>
                     </div>
                     {renderTags(task.tags)}
                     <div className={styles.projectTaskFooter}>
-                      <button
-                        type="button"
-                        className={styles.subtaskToggle}
-                        aria-expanded={subtasksOpen}
-                        disabled={subtasks.length === 0}
-                        onClick={(event) => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                          if (subtasks.length === 0) return
-                          setExpandedSubtasks((current) => {
-                            const next = new Set(current)
-                            if (next.has(task.id)) next.delete(task.id)
-                            else next.add(task.id)
-                            return next
-                          })
-                        }}
-                      >
-                        <LuChevronDown className={subtasksOpen ? styles.subtaskChevronOpen : styles.subtaskChevronClosed} size={13} />
-                        Subtasks {subtasks.length}
-                      </button>
+                      <span>Subtasks {(task.subtasks ?? []).length}</span>
                       {(task.commentCount ?? task.comments?.length ?? 0) > 0 ? (
                         <span><LuMessageSquare size={13} /> {task.commentCount ?? task.comments?.length}</span>
                       ) : null}
                     </div>
-                    {subtasksOpen ? (
-                      <div className={styles.subtaskMiniList}>
-                        {subtasks.map((subtask) => (
-                          <div key={subtask.id} className={styles.subtaskMiniCard}>
-                            <strong>{subtask.title}</strong>
-                            <span>{subtask.status}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
                   </Card.Body>
                 </Card>
-                  )
-                })()
               ))}
             </div>
             <div className={styles.projectAddRow}>
