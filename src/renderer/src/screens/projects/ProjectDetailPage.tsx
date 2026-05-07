@@ -684,7 +684,7 @@ export function ProjectDetailPage() {
     }
     clearDescriptionAutosaveTimer()
     descriptionAutosaveTimerRef.current = window.setTimeout(() => {
-      void saveDescription()
+      void saveDescription({ finalize: false })
     }, DESCRIPTION_AUTOSAVE_DELAY_MS)
     return () => {
       clearDescriptionAutosaveTimer()
@@ -1574,15 +1574,18 @@ export function ProjectDetailPage() {
     void workspaceSaveProjectStatuses()
   }
 
-  const saveDescription = async () => {
+  const saveDescription = async (options: { finalize?: boolean } = {}) => {
     const task = selectedTaskRef.current
     const draft = descriptionDraftRef.current
     if (!task) return true
+    const shouldFinalize = options.finalize ?? true
     const taskId = task.id
     const normalizedDraft = draft
     clearDescriptionAutosaveTimer()
     if (normalizedDraft === (task.description ?? '')) {
-      setIsDescriptionEditing(false)
+      if (shouldFinalize) {
+        setIsDescriptionEditing(false)
+      }
       return true
     }
     if (descriptionAutosaveInFlightRef.current) {
@@ -1623,7 +1626,7 @@ export function ProjectDetailPage() {
     if (isOutOfDate) {
       if (descriptionAutosavePendingRef.current) {
         descriptionAutosavePendingRef.current = false
-        return saveDescription()
+        return saveDescription({ finalize: shouldFinalize })
       }
       return true
     }
@@ -1650,11 +1653,13 @@ export function ProjectDetailPage() {
     } as TaskEntity
     if (descriptionAutosavePendingRef.current) {
       descriptionAutosavePendingRef.current = false
-      return saveDescription()
+      return saveDescription({ finalize: shouldFinalize })
     }
-    await refresh()
-    if (selectedTaskRef.current?.id === taskId) {
-      setIsDescriptionEditing(false)
+    if (shouldFinalize) {
+      await refresh()
+      if (selectedTaskRef.current?.id === taskId) {
+        setIsDescriptionEditing(false)
+      }
     }
     return true
   }
