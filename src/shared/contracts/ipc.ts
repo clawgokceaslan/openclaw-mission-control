@@ -1,6 +1,7 @@
 export const IPC_CHANNELS = {
   app: {
     navigateFromCompanion: 'app:navigate-from-companion',
+    focusPlannerQuestion: 'app:focus-planner-question',
     rendererHealth: 'app:renderer-health',
     restart: 'app:restart',
     restartToDatabaseSettings: 'app:restart-to-database-settings'
@@ -37,6 +38,8 @@ export const IPC_CHANNELS = {
     setDefaultAddTaskProject: 'app-settings:set-default-add-task-project',
     getGatewayLanguage: 'app-settings:get-gateway-language',
     setGatewayLanguage: 'app-settings:set-gateway-language',
+    getPlannerQuestionAttention: 'app-settings:get-planner-question-attention',
+    setPlannerQuestionAttention: 'app-settings:set-planner-question-attention',
     getDatabaseLocation: 'app-settings:get-database-location',
     pickDatabaseFolder: 'app-settings:pick-database-folder',
     pickDatabaseFile: 'app-settings:pick-database-file',
@@ -649,7 +652,7 @@ export const SERVICE_MAP = {
   auth: ['login', 'logout', 'me', 'inviteValidate', 'updateProfile'],
   projects: ['list', 'get', 'create', 'update', 'moveWorkspace', 'exportWorkspace', 'remove'],
   workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
-  appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent', 'getDefaultAddTaskProject', 'setDefaultAddTaskProject', 'getGatewayLanguage', 'setGatewayLanguage', 'getDatabaseLocation', 'pickDatabaseFolder', 'pickDatabaseFile', 'moveDatabaseLocation', 'revealDatabaseLocation'],
+  appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent', 'getDefaultAddTaskProject', 'setDefaultAddTaskProject', 'getGatewayLanguage', 'setGatewayLanguage', 'getPlannerQuestionAttention', 'setPlannerQuestionAttention', 'getDatabaseLocation', 'pickDatabaseFolder', 'pickDatabaseFile', 'moveDatabaseLocation', 'revealDatabaseLocation'],
   statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
   tasks: ['list', 'listPlannedGateway', 'listRunningGateway', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runGateway', 'planWithGateway', 'gatewayChatSend', 'gatewayChatStop', 'gatewayChatResolve', 'plannerContext', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
   taskTemplates: ['list', 'create', 'update', 'remove', 'importJson'],
@@ -851,6 +854,20 @@ export const SERVICE_ROUTING: {
       action: 'setGatewayLanguage',
       method: 'setGatewayLanguage',
       channel: IPC_CHANNELS.appSettings.setGatewayLanguage,
+      requiresAuth: true
+    },
+    getPlannerQuestionAttention: {
+      domain: 'appSettings',
+      action: 'getPlannerQuestionAttention',
+      method: 'getPlannerQuestionAttention',
+      channel: IPC_CHANNELS.appSettings.getPlannerQuestionAttention,
+      requiresAuth: true
+    },
+    setPlannerQuestionAttention: {
+      domain: 'appSettings',
+      action: 'setPlannerQuestionAttention',
+      method: 'setPlannerQuestionAttention',
+      channel: IPC_CHANNELS.appSettings.setPlannerQuestionAttention,
       requiresAuth: true
     },
     getDatabaseLocation: {

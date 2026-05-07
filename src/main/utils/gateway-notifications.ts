@@ -160,6 +160,8 @@ export function buildGatewayNotificationOptions(
 }
 
 export function showGatewayNotification(input: GatewayNotificationInput, runtime = electronRuntime): void {
+  if (input.kind === 'question') return
+
   const Notification = runtime.Notification
   if (!Notification || !Notification.isSupported()) return
 

@@ -354,18 +354,72 @@ export function useProjectGatewayFlow({
       setGatewayRunFeedback({ kind: 'error', message: 'Task is not ready for Codex planning.' })
       return
     }
+
+    if (!resolvedTaskGatewayId) {
+      setGatewayRunFeedback({ kind: 'error', message: 'Configure a Codex gateway before planning this task.' })
+      setChatSettingsOpen(true)
+      setDetailTab('model')
+      return
+    }
+    if (!resolvedPlanModel) {
+      setGatewayRunFeedback({ kind: 'error', message: 'Choose a Codex plan model before planning this task.' })
+      setChatSettingsOpen(true)
+      setDetailTab('model')
+      return
+    }
+
     setGatewayRunFeedback(null)
+    setGatewayPlanLaunching(true)
     setIsChatPopupOpen(true)
     setIsStartingNewChat(false)
     setChatSettingsOpen(false)
-    setPlanChoiceOpen(true)
+    try {
+      const response = await invokeBridge<GatewayPlanResponse>(IPC_CHANNELS.tasks.planWithGateway, {
+        actorToken: token,
+        taskId: selectedTask.id,
+        projectId: project.id,
+        gatewayId: resolvedTaskGatewayId,
+        model: resolvedPlanModel,
+        language: gatewayLanguage,
+        reasoningEffort: planReasoningEffort,
+        clarificationMode: 'direct',
+        generalContext: project.generalContext ?? '',
+        generalPrompt: project.generalPrompt ?? '',
+        defaultOutput: project.defaultOutput ?? ''
+      })
+      if (!response.ok) {
+        setGatewayRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex planner' })
+        return
+      }
+      if (response.data?.conversationId || response.data?.runId) setSelectedChatConversationId(response.data.conversationId ?? response.data.runId ?? '')
+      setGatewayRunFeedback({
+        kind: 'success',
+        message: response.data.executionMode === 'exec'
+          ? 'Codex planner exec started. Chat will update as it runs.'
+          : `Codex planner launched. Runtime workspace: ${response.data.runtimeWorkspacePath}`
+      })
+      setError(null)
+    } catch (error) {
+      setGatewayRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Unable to launch Codex planner' })
+    } finally {
+      setGatewayPlanLaunching(false)
+    }
   }, [
     project,
     selectedTask,
+    resolvedTaskGatewayId,
+    resolvedPlanModel,
+    gatewayLanguage,
+    planReasoningEffort,
+    token,
     setGatewayRunFeedback,
+    setGatewayPlanLaunching,
     setIsChatPopupOpen,
     setIsStartingNewChat,
-    setChatSettingsOpen
+    setSelectedChatConversationId,
+    setError,
+    setChatSettingsOpen,
+    setDetailTab
   ])
 
   const closePlanChoice = useCallback(() => {

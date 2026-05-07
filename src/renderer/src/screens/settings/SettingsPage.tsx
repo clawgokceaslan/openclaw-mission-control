@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { LuArrowRight, LuBot, LuCheck, LuClipboard, LuCog, LuDatabase, LuFileSearch, LuFolderOpen, LuHardDrive, LuLanguages, LuRefreshCw, LuSlidersHorizontal, LuTriangleAlert, LuWaypoints } from 'react-icons/lu'
+import { LuArrowRight, LuBellOff, LuBot, LuCheck, LuClipboard, LuCog, LuDatabase, LuFileSearch, LuFolderOpen, LuHardDrive, LuLanguages, LuRefreshCw, LuSlidersHorizontal, LuTriangleAlert, LuWaypoints } from 'react-icons/lu'
 import { IPC_CHANNELS, type DatabaseLocationState, type PickDatabaseFileResponse, type PickDatabaseFolderResponse } from '@shared/contracts/ipc'
 import { GATEWAY_LANGUAGE_OPTIONS, DEFAULT_GATEWAY_LANGUAGE } from '@shared/utils/gateway-language'
+import { DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR, type PlannerQuestionAttentionBehavior } from '@shared/utils/planner-question-attention'
 import type { Agent } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { useAuth } from '@renderer/providers/auth/auth-state'
@@ -36,6 +37,9 @@ export function SettingsPage() {
   const [gatewayLanguage, setGatewayLanguage] = useState(DEFAULT_GATEWAY_LANGUAGE)
   const [gatewayLanguageSaving, setGatewayLanguageSaving] = useState(false)
   const [gatewayLanguageMessage, setGatewayLanguageMessage] = useState<string | null>(null)
+  const [plannerQuestionAttention, setPlannerQuestionAttention] = useState<PlannerQuestionAttentionBehavior>(DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR)
+  const [plannerQuestionAttentionSaving, setPlannerQuestionAttentionSaving] = useState(false)
+  const [plannerQuestionAttentionMessage, setPlannerQuestionAttentionMessage] = useState<string | null>(null)
   const [defaultAgentSaving, setDefaultAgentSaving] = useState(false)
   const [defaultAgentMessage, setDefaultAgentMessage] = useState<string | null>(null)
   const [databaseState, setDatabaseState] = useState<DatabaseLocationState>(databaseFallbackState)
@@ -59,6 +63,7 @@ export function SettingsPage() {
       setAgents([])
       setDefaultAgentId('')
       setGatewayLanguage(DEFAULT_GATEWAY_LANGUAGE)
+      setPlannerQuestionAttention(DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR)
       setDatabaseState(databaseFallbackState)
       setDatabaseFolder('')
       setSourceDatabasePath('')
@@ -72,12 +77,14 @@ export function SettingsPage() {
       loadList<Agent[]>(IPC_CHANNELS.agents.list, token),
       invokeBridge<{ agentId: string | null }>(IPC_CHANNELS.appSettings.getDefaultAgent, { actorToken: token }),
       invokeBridge<{ language: string }>(IPC_CHANNELS.appSettings.getGatewayLanguage, { actorToken: token }),
+      invokeBridge<{ behavior: PlannerQuestionAttentionBehavior }>(IPC_CHANNELS.appSettings.getPlannerQuestionAttention, { actorToken: token }),
       invokeBridge<DatabaseLocationState>(IPC_CHANNELS.appSettings.getDatabaseLocation, { actorToken: token })
-    ]).then(([agentResponse, defaultResponse, languageResponse, databaseResponse]) => {
+    ]).then(([agentResponse, defaultResponse, languageResponse, plannerQuestionAttentionResponse, databaseResponse]) => {
       if (cancelled) return
       setAgents(Array.isArray(agentResponse.data) ? agentResponse.data : [])
       setDefaultAgentId(defaultResponse.ok && defaultResponse.data?.agentId ? defaultResponse.data.agentId : '')
       setGatewayLanguage(languageResponse.ok && languageResponse.data?.language ? languageResponse.data.language : DEFAULT_GATEWAY_LANGUAGE)
+      setPlannerQuestionAttention(plannerQuestionAttentionResponse.ok && plannerQuestionAttentionResponse.data?.behavior ? plannerQuestionAttentionResponse.data.behavior : DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR)
       if (databaseResponse.ok && databaseResponse.data) {
         setDatabaseState(databaseResponse.data)
       } else {
@@ -114,6 +121,16 @@ export function SettingsPage() {
   const selectedGatewayLanguageOption = useMemo<AppSelectOption | null>(() => {
     return gatewayLanguageOptions.find((option) => option.value === gatewayLanguage) ?? gatewayLanguageOptions[0] ?? null
   }, [gatewayLanguage, gatewayLanguageOptions])
+
+  const plannerQuestionAttentionOptions = useMemo<AppSelectOption[]>(() => [
+    { value: 'focus-and-modal', label: 'Focus app and open modal' },
+    { value: 'modal', label: 'Open in-app modal only' },
+    { value: 'off', label: 'Do nothing automatically' }
+  ], [])
+
+  const selectedPlannerQuestionAttentionOption = useMemo<AppSelectOption | null>(() => {
+    return plannerQuestionAttentionOptions.find((option) => option.value === plannerQuestionAttention) ?? plannerQuestionAttentionOptions[0] ?? null
+  }, [plannerQuestionAttention, plannerQuestionAttentionOptions])
 
   const saveDefaultAgent = async (option: AppSelectOption | null) => {
     setDefaultAgentSaving(true)
@@ -154,6 +171,27 @@ export function SettingsPage() {
       setGatewayLanguageMessage(error instanceof Error ? error.message : 'Unable to update Codex language.')
     } finally {
       setGatewayLanguageSaving(false)
+    }
+  }
+
+  const savePlannerQuestionAttention = async (option: AppSelectOption | null) => {
+    setPlannerQuestionAttentionSaving(true)
+    setPlannerQuestionAttentionMessage(null)
+    try {
+      const response = await invokeBridge<{ behavior: PlannerQuestionAttentionBehavior }>(IPC_CHANNELS.appSettings.setPlannerQuestionAttention, {
+        actorToken: token,
+        behavior: option?.value ?? DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR
+      })
+      if (!response.ok) {
+        setPlannerQuestionAttentionMessage(response.error?.message ?? 'Unable to update planner question behavior.')
+        return
+      }
+      setPlannerQuestionAttention(response.data?.behavior ?? DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR)
+      setPlannerQuestionAttentionMessage('Planner question behavior updated.')
+    } catch (error) {
+      setPlannerQuestionAttentionMessage(error instanceof Error ? error.message : 'Unable to update planner question behavior.')
+    } finally {
+      setPlannerQuestionAttentionSaving(false)
     }
   }
 
@@ -404,7 +442,7 @@ export function SettingsPage() {
                 <span className={styles.panelIcon}><LuCog size={19} /></span>
                 <div>
                   <h2>General settings</h2>
-                  <p>Default task agent and Codex language.</p>
+                  <p>Default task agent, Codex language, and planner question attention.</p>
                 </div>
               </header>
               <div className={styles.surfaceSection}>
@@ -442,6 +480,25 @@ export function SettingsPage() {
                   <span>{gatewayLanguageSaving ? 'Saving...' : `${selectedGatewayLanguageOption?.label ?? 'Turkish'} will be used for Codex output.`}</span>
                 </div>
                 {gatewayLanguageMessage ? <p className={styles.settingMessage}>{gatewayLanguageMessage}</p> : null}
+              </div>
+
+              <div className={styles.surfaceSection}>
+                <h3><LuBellOff size={17} /> Planner question attention</h3>
+                <div className={styles.defaultAgentRow}>
+                  <AppSelect
+                    mode="single"
+                    value={selectedPlannerQuestionAttentionOption}
+                    options={plannerQuestionAttentionOptions}
+                    placeholder="Select planner question behavior"
+                    isDisabled={plannerQuestionAttentionSaving}
+                    onChange={(option) => {
+                      if (!Array.isArray(option)) void savePlannerQuestionAttention(option)
+                    }}
+                  />
+                  <span>{plannerQuestionAttentionSaving ? 'Saving...' : 'Planner questions never use system notifications.'}</span>
+                </div>
+                <p className={styles.settingMessage}>Controls only the in-app planner question modal and whether Open Mission Control is brought forward when a new question arrives.</p>
+                {plannerQuestionAttentionMessage ? <p className={styles.settingMessage}>{plannerQuestionAttentionMessage}</p> : null}
               </div>
             </div>
           ) : null}

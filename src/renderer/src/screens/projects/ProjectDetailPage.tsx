@@ -27,7 +27,7 @@ import { useProjectGatewayFlow } from './detail/hooks/useProjectGatewayFlow'
 import { useProjectSelection } from './detail/hooks/useProjectSelection'
 import { useProjectDerivedState } from './detail/hooks/useProjectDerivedState'
 import { useProjectWorkspaceSettings } from './detail/hooks/useProjectWorkspaceSettings'
-import { buildAgentMarkdown, buildSkillsMarkdown, buildTaskJson, buildTaskMarkdown, buildTaskToon, downloadMarkdownFile, downloadTaskZip, downloadTextFile } from './detail/taskExport'
+import { buildAgentMarkdown, buildSkillsMarkdown, buildTaskImportJson, buildTaskJson, buildTaskMarkdown, buildTaskToon, downloadMarkdownFile, downloadTaskZip, downloadTextFile } from './detail/taskExport'
 import { resolveProjectStatusColumn } from './detail/status'
 import { useProjectDetailDispatcher, useProjectDetailReducer } from './detail/state/projectDetailState'
 import {
@@ -45,7 +45,7 @@ import {
   codexPayloadOverride,
   createLocalId,
   customFieldValueToDraft,
-  latestTaskGatewayConversation,
+  latestActiveTaskGatewayConversation,
   nextStatusTopOrder,
   projectDefaultAgentId,
   projectDefaultSkillIds,
@@ -1362,30 +1362,30 @@ export function ProjectDetailPage() {
     }
   })
 
-  const openExistingSelectedTaskGatewayConversation = (phase: 'PLAN' | 'RUN') => {
-    if (!selectedTask) return false
-    const latestConversation = latestTaskGatewayConversation(selectedTask, phase)
-    if (!latestConversation) return false
-    openTaskChatConversation(selectedTask.id, latestConversation.conversationId)
-    return true
-  }
-
-  const hasExistingSelectedTaskPlanConversation = useMemo(() => {
-    return selectedTask ? Boolean(latestTaskGatewayConversation(selectedTask, 'PLAN')) : false
+  const activeSelectedTaskPlanConversation = useMemo(() => {
+    return selectedTask ? latestActiveTaskGatewayConversation(selectedTask, 'PLAN') : null
   }, [selectedTask])
 
-  const hasExistingSelectedTaskRunConversation = useMemo(() => {
-    return selectedTask ? Boolean(latestTaskGatewayConversation(selectedTask, 'RUN')) : false
+  const activeSelectedTaskRunConversation = useMemo(() => {
+    return selectedTask ? latestActiveTaskGatewayConversation(selectedTask, 'RUN') : null
   }, [selectedTask])
 
   const handleRunSelectedTaskWithCodex = () => {
-    if (openExistingSelectedTaskGatewayConversation('RUN')) return
     void runSelectedTaskWithCodex()
   }
 
   const handlePlanSelectedTaskWithCodex = () => {
-    if (openExistingSelectedTaskGatewayConversation('PLAN')) return
     void planSelectedTaskWithCodex()
+  }
+
+  const handleStopSelectedTaskPlan = () => {
+    if (!activeSelectedTaskPlanConversation?.conversationId) return
+    void stopGatewayChat(activeSelectedTaskPlanConversation.conversationId)
+  }
+
+  const handleStopSelectedTaskRun = () => {
+    if (!activeSelectedTaskRunConversation?.conversationId) return
+    void stopGatewayChat(activeSelectedTaskRunConversation.conversationId)
   }
 
   const { chatState, chatHandlers } = useProjectChatPopup({
@@ -3379,6 +3379,9 @@ export function ProjectDetailPage() {
             onDownloadTaskJson={() => {
               if (selectedTaskExportContext) downloadTextFile('Task.json', buildTaskJson(selectedTaskExportContext), 'application/json;charset=utf-8')
             }}
+            onExportTaskJson={() => {
+              if (selectedTaskExportContext) downloadTextFile(`${selectedTask.title || 'Task'}.json`, buildTaskImportJson(selectedTaskExportContext), 'application/json;charset=utf-8')
+            }}
             onDownloadTaskToon={() => {
               if (selectedTaskExportContext) downloadTextFile('Task.toon', buildTaskToon(selectedTaskExportContext), 'text/plain;charset=utf-8')
             }}
@@ -3386,10 +3389,15 @@ export function ProjectDetailPage() {
             onDownloadSkillsMarkdown={selectedTaskSkillsMarkdown.trim() ? () => downloadMarkdownFile('Skills.md', selectedTaskSkillsMarkdown) : undefined}
             onRunGateway={handleRunSelectedTaskWithCodex}
             isRunGatewayBusy={gatewayRunLaunching}
-            isRunGatewayDisabled={!hasExistingSelectedTaskRunConversation && !canRunSelectedTaskWithCodex}
+            isRunGatewayDisabled={!canRunSelectedTaskWithCodex}
+            onStopRunGateway={handleStopSelectedTaskRun}
+            isRunGatewayRunning={Boolean(activeSelectedTaskRunConversation)}
             onPlanWithGateway={handlePlanSelectedTaskWithCodex}
             isPlanWithGatewayBusy={gatewayPlanLaunching}
-            isPlanWithGatewayDisabled={!hasExistingSelectedTaskPlanConversation && !canPlanSelectedTaskWithCodex}
+            isPlanWithGatewayDisabled={!canPlanSelectedTaskWithCodex}
+            onStopPlanGateway={handleStopSelectedTaskPlan}
+            isPlanWithGatewayRunning={Boolean(activeSelectedTaskPlanConversation)}
+            isStopGatewayBusy={chatStopping}
             onImportJson={() => setIsTaskImportOpen(true)}
             scope={{
               project,

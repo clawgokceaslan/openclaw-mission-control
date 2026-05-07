@@ -4,10 +4,11 @@ import { useNavigate } from 'react-router-dom'
 import { LuArrowRight, LuMinus, LuSend, LuSparkles } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
+import { DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR, type PlannerQuestionAttentionBehavior } from '@shared/utils/planner-question-attention'
 import type { Project, TaskEntity } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
-import { formatPlannerClarificationAnswer } from '@renderer/screens/projects/detail/chat/chatUtils'
+import { formatPlannerClarificationAnswer, prunePlannerQuestionPathAnswers, visiblePlannerQuestionPath } from '@renderer/screens/projects/detail/chat/chatUtils'
 import type { TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 import {
   enqueuePlannerQuestion,
@@ -32,6 +33,10 @@ function nextSelectedOptionIds(current: Record<string, string>, questionId: stri
     return rest
   }
   return { ...current, [questionId]: optionId }
+}
+
+function isRecommendedOption(label: string, description?: string): boolean {
+  return /\b(recommended|önerilen|onerilen)\b/i.test(`${label} ${description ?? ''}`)
 }
 
 type PlannerQuestionContextValue = {
@@ -67,6 +72,7 @@ export function PlannerQuestionProvider({ children }: { children: ReactNode }) {
   const [queue, setQueue] = useState<PlannerQuestionQueueItem[]>([])
   const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [, setAttentionBehavior] = useState<PlannerQuestionAttentionBehavior>(DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR)
 
   const openQuestion = useCallback((questionId: string) => {
     setActiveQuestionId(questionId)
@@ -92,35 +98,56 @@ export function PlannerQuestionProvider({ children }: { children: ReactNode }) {
     setActiveQuestionId((current) => current === questionId ? null : current)
   }, [])
 
-  const enqueueAndOpen = useCallback((item: PlannerQuestionQueueItem) => {
-    setQueue((current) => {
-      const existed = current.some((queued) => queued.id === item.id)
-      const next = enqueuePlannerQuestion(current, item)
-      if (!existed) {
-        const first = next[0] ?? item
-        setActiveQuestionId((currentActive) => currentActive && next.some((queued) => queued.id === currentActive) ? currentActive : first.id)
-        setIsModalOpen(true)
-      }
-      return next
-    })
+  const loadAttentionBehavior = useCallback(async (): Promise<PlannerQuestionAttentionBehavior> => {
+    if (!token) return DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR
+    const response = await invokeBridge<{ behavior: PlannerQuestionAttentionBehavior }>(IPC_CHANNELS.appSettings.getPlannerQuestionAttention, { actorToken: token })
+    const behavior = response.ok && response.data?.behavior ? response.data.behavior : DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR
+    setAttentionBehavior(behavior)
+    return behavior
+  }, [token])
+
+  const applyAttentionBehavior = useCallback((behavior: PlannerQuestionAttentionBehavior, next: PlannerQuestionQueueItem[], item: PlannerQuestionQueueItem) => {
+    if (behavior === 'off') return
+    const first = next[0] ?? item
+    setActiveQuestionId((currentActive) => currentActive && next.some((queued) => queued.id === currentActive) ? currentActive : first.id)
+    setIsModalOpen(true)
+    if (behavior === 'focus-and-modal') {
+      void invokeBridge(IPC_CHANNELS.app.focusPlannerQuestion, {})
+    }
   }, [])
+
+  const enqueueAndOpen = useCallback((item: PlannerQuestionQueueItem) => {
+    void (async () => {
+      const behavior = await loadAttentionBehavior()
+      setQueue((current) => {
+        const existed = current.some((queued) => queued.id === item.id)
+        const next = enqueuePlannerQuestion(current, item)
+        if (!existed) {
+          applyAttentionBehavior(behavior, next, item)
+        }
+        return next
+      })
+    })()
+  }, [applyAttentionBehavior, loadAttentionBehavior])
 
   useEffect(() => {
     if (!token) {
       setQueue([])
       setActiveQuestionId(null)
       setIsModalOpen(false)
+      setAttentionBehavior(DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR)
       return
     }
     let cancelled = false
 
     const bootstrapQuestions = async () => {
+      const behavior = await loadAttentionBehavior()
       const response = await invokeBridge<TaskEntity[]>(IPC_CHANNELS.tasks.list, { actorToken: token })
       if (cancelled || !response.ok || !Array.isArray(response.data)) return
       const questions = unansweredPlannerQuestionsFromTasks(response.data)
       setQueue((current) => {
         const next = questions.reduce((items, item) => enqueuePlannerQuestion(items, item), current)
-        if (next.length > 0) {
+        if (next.length > 0 && behavior !== 'off') {
           setActiveQuestionId((currentActive) => currentActive && next.some((item) => item.id === currentActive) ? currentActive : next[0].id)
           setIsModalOpen((currentOpen) => currentOpen || current.length === 0)
         }
@@ -132,7 +159,7 @@ export function PlannerQuestionProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [token])
+  }, [loadAttentionBehavior, token])
 
   useEffect(() => {
     const onTaskActivity = (...args: unknown[]) => {
@@ -228,6 +255,10 @@ export function PlannerQuestionHost() {
   }, [active, token])
 
   const canSubmit = useMemo(() => Boolean(active && !submitting && !resolveError), [active, resolveError, submitting])
+  const visibleQuestions = useMemo(
+    () => active ? visiblePlannerQuestionPath(active.prompt.questions, selectedOptionIds) : [],
+    [active, selectedOptionIds]
+  )
 
   const openRelatedChat = () => {
     if (!active) return
@@ -243,10 +274,11 @@ export function PlannerQuestionHost() {
   const submitAnswer = async () => {
     if (!active || !resolved?.config || !canSubmit || resolveError) return
     setSubmitting(true)
+    const pruned = prunePlannerQuestionPathAnswers(active.prompt.questions, selectedOptionIds, notes)
     const answer = formatPlannerClarificationAnswer({
       prompt: active.prompt,
-      selectedOptionIds,
-      notes
+      selectedOptionIds: pruned.selectedOptionIds,
+      notes: pruned.notes
     })
     const response = await invokeBridge(IPC_CHANNELS.tasks.planWithGateway, {
       actorToken: token,
@@ -297,7 +329,7 @@ export function PlannerQuestionHost() {
 
         <div className={styles.questions}>
           {resolveError ? <div className={styles.error}>{resolveError}</div> : null}
-          {active.prompt.questions.map((question, questionIndex) => (
+          {visibleQuestions.map((question, questionIndex) => (
             <article key={question.id} className={styles.questionCard}>
               <div className={styles.questionTitle}>
                 <span>{questionIndex + 1}</span>
@@ -314,10 +346,19 @@ export function PlannerQuestionHost() {
                         type="checkbox"
                         name={`global-planner-question-${active.id}-${question.id}`}
                         checked={selectedOptionIds[question.id] === option.id}
-                        onChange={() => setSelectedOptionIds((current) => nextSelectedOptionIds(current, question.id, option.id))}
+                        onChange={() => {
+                          setSelectedOptionIds((current) => {
+                            const next = nextSelectedOptionIds(current, question.id, option.id)
+                            const pruned = prunePlannerQuestionPathAnswers(active.prompt.questions, next, notes)
+                            return pruned.selectedOptionIds
+                          })
+                        }}
                       />
                       <span>
-                        <b>{option.label}</b>
+                        <b>
+                          {option.label}
+                          {isRecommendedOption(option.label, option.description) ? <em className={styles.recommendedBadge}>Recommended</em> : null}
+                        </b>
                         {option.description ? <small>{option.description}</small> : null}
                       </span>
                     </label>

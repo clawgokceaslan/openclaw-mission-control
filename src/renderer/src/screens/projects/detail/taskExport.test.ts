@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskChecklistItem, TaskEntity, TaskSubtask } from '@shared/types/entities'
-import { buildProjectWorkspaceExportTaskPayload, buildTaskJson, buildTaskMarkdown, buildTaskToon, parseTaskToon } from './taskExport'
+import { buildProjectWorkspaceExportTaskPayload, buildTaskImportJson, buildTaskJson, buildTaskMarkdown, buildTaskToon, parseTaskToon } from './taskExport'
 
 function checklist(title: string): TaskChecklistItem {
   return { id: `check-${title}`, title, checked: false, createdAt: 1, updatedAt: 1 }
@@ -119,5 +119,36 @@ describe('buildTaskMarkdown', () => {
     expect(payload.taskFileName).toBe('Task.json')
     expect(payload.taskJson).toContain('"format": "open_mission_control_task"')
     expect(payload.taskToon).toContain('format: "open_mission_control_task"')
+  })
+
+  it('exports task JSON in the task import contract without runtime activity', () => {
+    const importJson = buildTaskImportJson({
+      task: {
+        ...task(),
+        tags: [{ id: 'tag-1', organizationId: 'org-1', name: 'frontend', color: '#fff', createdAt: 1, updatedAt: 1 }],
+        customFieldValues: { field_1: 'High' },
+        payload: {
+          agenticInputs: { acceptanceCriteria: 'Must import cleanly.' },
+          activityMessages: [{ id: 'activity-1', runId: 'run-1', source: 'gateway-run', role: 'system', status: 'running', body: 'debug', createdAt: 1 }],
+          debugSnapshot: { raw: true }
+        }
+      },
+      project: null,
+      projectGroup: null,
+      agents: [],
+      skills: [],
+      tags: [{ id: 'tag-1', organizationId: 'org-1', name: 'frontend', color: '#fff', createdAt: 1, updatedAt: 1 }],
+      customFields: [{ id: 'field_1', organizationId: 'org-1', name: 'Priority', type: 'text', createdAt: 1, updatedAt: 1 }],
+      projectStatuses: []
+    })
+
+    const parsed = JSON.parse(importJson)
+    expect(parsed.title).toBe('Planner task export')
+    expect(parsed.acceptanceCriteria).toBe('Must import cleanly.')
+    expect(parsed.tags).toEqual(['frontend'])
+    expect(parsed.customFields).toEqual([{ name: 'Priority', type: 'text', value: 'High' }])
+    expect(parsed.format).toBeUndefined()
+    expect(importJson).not.toContain('activityMessages')
+    expect(importJson).not.toContain('debugSnapshot')
   })
 })

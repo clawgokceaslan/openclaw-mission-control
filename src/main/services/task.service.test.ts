@@ -210,6 +210,41 @@ describe('gatewayChatPrompt', () => {
     expect(prompt.indexOf('Selected Codex language: English.')).toBeLessThan(prompt.indexOf('Current task context JSON:'))
   })
 
+  it('uses structured compact summary instead of raw activity history in task context', () => {
+    const rawTranscript = 'raw transcript should not be copied '.repeat(120)
+    const prompt = gatewayChatPrompt({
+      task: taskWithComments(),
+      message: 'Continue.',
+      transcript: [],
+      context: {
+        task: {
+          id: 'task-1',
+          payload: {
+            activityMessages: [
+              {
+                id: 'activity-1',
+                runId: 'run-1',
+                source: 'gateway-run',
+                role: 'assistant',
+                body: `${rawTranscript}\n\nNEXT_CHAT_HANDOFF\nschema: open_mission_control_next_chat_handoff\nversion: 1\ntask: task-1 | Prompt Priority Task | active\ngoal: compact the gateway context\ncompleted_work: added summary contract\ndecisions: keep currentTaskJson stable\nchanged_areas: src/main/services/task.service.ts\nverification: not_reported\nblockers: none_reported\nnext_steps: validate compact context`,
+                createdAt: 1
+              }
+            ]
+          }
+        },
+        currentTaskJson: { title: 'Prompt Priority Task', description: 'Task JSON description' }
+      },
+      mode: 'chat'
+    })
+
+    expect(prompt).toContain('"contextSummary"')
+    expect(prompt).toContain('"purpose"')
+    expect(prompt).toContain('added summary contract')
+    expect(prompt).toContain('src/main/services/task.service.ts')
+    expect(prompt).not.toContain(rawTranscript)
+    expect(prompt).not.toContain('activityMessages')
+  })
+
   it('routes project instructions strictly for chat and /plan chat modes', () => {
     const context = {
       project: {
@@ -334,11 +369,13 @@ describe('planner quality gate', () => {
 
   it('rejects missing root description, acceptance criteria, and subtasks', () => {
     const issues = validatePlannerTaskJsonQuality(plannedTask({
+      title: '',
       description: '',
       agenticInputs: {},
       subtasks: []
     }))
 
+    expect(issues).toContain('Task title is required for planner updates.')
     expect(issues).toContain('Task description is required for planner updates.')
     expect(issues).toContain('agenticInputs.acceptanceCriteria is required for planner updates.')
     expect(issues).toContain('At least one planned subtask is required.')
@@ -421,6 +458,7 @@ describe('planner quality gate', () => {
     expect(prompt).toContain('3-8 subtasks for typical tasks')
     expect(prompt).toContain('Non-negotiable planner rules')
     expect(prompt).toContain('Use task description for the general goal')
+    expect(prompt).toContain('currentTaskJson.title and currentTaskJson.description')
     expect(prompt).toContain('Use task comments for important flows')
     expect(prompt).toContain('Subtasks must be ordered')
     expect(prompt).toContain('Use the Title + Description subtask shape')
@@ -458,11 +496,16 @@ describe('planner quality gate', () => {
 
     expect(prompt).toContain('Clarification mode: ASK FIRST')
     expect(prompt).toContain('This run must pause for user clarification before updating the task')
+    expect(prompt).toContain('option.nextQuestion')
+    expect(prompt).toContain('Mark the recommended answer')
+    expect(prompt).toContain('3 question levels total')
     expect(prompt).toContain('node .omc/runs/run/omc-task-client.mjs ask .omc/runs/run/questions.json')
     expect(prompt).toContain('do not write planned-task.json, do not validate, do not update the task')
     expect(prompt).toContain('user input is not needed')
     expect(prompt).not.toContain('After the update succeeds, run: node .omc/runs/run/omc-task-client.mjs finish')
     expect(instructions).toContain('Clarification mode: ASK FIRST')
+    expect(instructions).toContain('option.nextQuestion')
+    expect(instructions).toContain('recommended answer')
     expect(instructions).toContain('run `node .omc/runs/run/omc-task-client.mjs ask .omc/runs/run/questions.json`')
     expect(instructions).toContain('do not write planned-task.json, do not validate, do not update the task')
     expect(instructions).toContain('user input is not needed')
@@ -474,6 +517,7 @@ describe('planner quality gate', () => {
     expect(guidance.planningPolicy.granularity).toBe('balanced')
     expect(guidance.planningPolicy.clarificationMode).toContain('ask-first')
     expect(guidance.planningPolicy.overrideProjectGuide).toContain('override')
+    expect(guidance.planningPolicy.comments).toContain('authorName "Planner"')
     expect(guidance.planningPolicy.subtaskCount).toContain('3-8 subtasks')
     expect(guidance.subtaskPolicy.join('\n')).toContain('cohesive implementation areas')
     expect(guidance.subtaskPolicy.join('\n')).toContain('Title + Description shape')
@@ -683,6 +727,70 @@ describe('planner question payload', () => {
       { id: 'chat', label: 'Chat only', description: 'Only chat surfaces.' },
       { id: 'option-2', label: 'All screens' }
     ])
+  })
+
+  it('accepts branching planner questions up to 3 levels', () => {
+    const response = normalizePlannerQuestionPayload({
+      summary: 'Need branch.',
+      questions: [
+        {
+          id: 'scope',
+          question: 'Which surface?',
+          options: [
+            {
+              id: 'chat',
+              label: 'Chat only (Recommended)',
+              nextQuestion: {
+                id: 'chat-depth',
+                question: 'Which chat depth?',
+                options: [
+                  {
+                    id: 'guided',
+                    label: 'Guided',
+                    nextQuestion: { id: 'acceptance', question: 'Which acceptance signal?' }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    })
+
+    expect(response.ok).toBe(true)
+    expect(response.data?.questions[0].options?.[0].nextQuestion?.options?.[0].nextQuestion?.question).toBe('Which acceptance signal?')
+  })
+
+  it('rejects planner question trees deeper than 3 levels', () => {
+    const response = normalizePlannerQuestionPayload({
+      summary: 'Too deep.',
+      questions: [
+        {
+          id: 'one',
+          question: 'One?',
+          options: [{ id: 'a', label: 'A', nextQuestion: { id: 'two', question: 'Two?', options: [{ id: 'b', label: 'B', nextQuestion: { id: 'three', question: 'Three?', options: [{ id: 'c', label: 'C', nextQuestion: { id: 'four', question: 'Four?' } }] } }] } }]
+        }
+      ]
+    })
+
+    expect(response.ok).toBe(false)
+    expect(response.error?.message).toContain('3 levels')
+  })
+
+  it('rejects planner question trees with repeated ids on the same branch', () => {
+    const response = normalizePlannerQuestionPayload({
+      summary: 'Loop.',
+      questions: [
+        {
+          id: 'scope',
+          question: 'Scope?',
+          options: [{ id: 'chat', label: 'Chat', nextQuestion: { id: 'scope', question: 'Scope again?' } }]
+        }
+      ]
+    })
+
+    expect(response.ok).toBe(false)
+    expect(response.error?.message).toContain('loops')
   })
 
   it('rejects empty multiple-choice options', () => {

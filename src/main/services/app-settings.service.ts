@@ -8,6 +8,11 @@ import { ProjectRepository } from '../../db/repositories/project-repo.js'
 import { getDatabaseLocationState, moveDatabaseToFolder } from '../../db/config.js'
 import { AuthService } from './auth.service.js'
 import { DEFAULT_GATEWAY_LANGUAGE, normalizeGatewayLanguage, type GatewayLanguage } from '../../shared/utils/gateway-language.js'
+import {
+  DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR,
+  normalizePlannerQuestionAttentionBehavior,
+  type PlannerQuestionAttentionBehavior
+} from '../../shared/utils/planner-question-attention.js'
 import { electronRuntime } from '../utils/electron-runtime.js'
 import type { DatabaseLocationState } from '../../shared/contracts/ipc.js'
 
@@ -15,6 +20,7 @@ const ACTIVE_GATEWAY_KEY = 'activeGatewayId'
 const DEFAULT_AGENT_KEY = 'defaultAgentId'
 const DEFAULT_ADD_TASK_PROJECT_KEY = 'defaultAddTaskProjectId'
 const GATEWAY_LANGUAGE_KEY = 'gatewayLanguage'
+const PLANNER_QUESTION_ATTENTION_KEY = 'plannerQuestionAttention'
 
 export class AppSettingsService {
   constructor(
@@ -123,6 +129,21 @@ export class AppSettingsService {
     return okResponse({ language })
   }
 
+  async getPlannerQuestionAttention(payload: { actorToken?: string }): Promise<ServiceResponse<{ behavior: PlannerQuestionAttentionBehavior }>> {
+    const actor = await this.auth.requireActor(payload?.actorToken)
+    const stored = await this.repo.get<string | null>(actor.user.organizationId, PLANNER_QUESTION_ATTENTION_KEY)
+    const behavior = normalizePlannerQuestionAttentionBehavior(stored)
+    if (stored && stored !== behavior) await this.repo.set(actor.user.organizationId, PLANNER_QUESTION_ATTENTION_KEY, behavior)
+    return okResponse({ behavior: stored ? behavior : DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR })
+  }
+
+  async setPlannerQuestionAttention(payload: { actorToken?: string; behavior?: string | null }): Promise<ServiceResponse<{ behavior: PlannerQuestionAttentionBehavior }>> {
+    const actor = await this.auth.requireActor(payload?.actorToken)
+    const behavior = normalizePlannerQuestionAttentionBehavior(payload?.behavior)
+    await this.repo.set(actor.user.organizationId, PLANNER_QUESTION_ATTENTION_KEY, behavior)
+    return okResponse({ behavior })
+  }
+
   async getDatabaseLocation(payload: { actorToken?: string }): Promise<ServiceResponse<DatabaseLocationState>> {
     await this.auth.requireActor(payload?.actorToken)
     return okResponse(getDatabaseLocationState())
@@ -209,4 +230,4 @@ export class AppSettingsService {
   }
 }
 
-export { ACTIVE_GATEWAY_KEY, DEFAULT_AGENT_KEY, DEFAULT_ADD_TASK_PROJECT_KEY, GATEWAY_LANGUAGE_KEY }
+export { ACTIVE_GATEWAY_KEY, DEFAULT_AGENT_KEY, DEFAULT_ADD_TASK_PROJECT_KEY, GATEWAY_LANGUAGE_KEY, PLANNER_QUESTION_ATTENTION_KEY }

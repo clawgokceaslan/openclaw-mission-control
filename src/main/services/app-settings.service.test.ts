@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AppSettingsService, GATEWAY_LANGUAGE_KEY, DEFAULT_ADD_TASK_PROJECT_KEY, DEFAULT_AGENT_KEY } from './app-settings.service.js'
+import { AppSettingsService, GATEWAY_LANGUAGE_KEY, DEFAULT_ADD_TASK_PROJECT_KEY, DEFAULT_AGENT_KEY, PLANNER_QUESTION_ATTENTION_KEY } from './app-settings.service.js'
 
 function serviceWithAgents(agents: Map<string, any>, store = new Map<string, unknown>(), projects = new Map<string, any>()) {
   const auth = {
@@ -99,5 +99,38 @@ describe('AppSettingsService Codex language', () => {
     expect(response.ok).toBe(true)
     expect(response.data?.language).toBe('en')
     expect(store.get(GATEWAY_LANGUAGE_KEY)).toBe('en')
+  })
+})
+
+describe('AppSettingsService planner question attention', () => {
+  it('defaults planner questions to focus the app and open the modal', async () => {
+    const service = serviceWithAgents(new Map())
+
+    const response = await service.getPlannerQuestionAttention({})
+
+    expect(response.ok).toBe(true)
+    expect(response.data?.behavior).toBe('focus-and-modal')
+  })
+
+  it('saves normalized planner question attention behavior', async () => {
+    const store = new Map<string, unknown>()
+    const service = serviceWithAgents(new Map(), store)
+
+    const response = await service.setPlannerQuestionAttention({ behavior: 'modal' })
+
+    expect(response.ok).toBe(true)
+    expect(response.data?.behavior).toBe('modal')
+    expect(store.get(PLANNER_QUESTION_ATTENTION_KEY)).toBe('modal')
+  })
+
+  it('falls back safely for unknown planner question attention behavior', async () => {
+    const store = new Map<string, unknown>([[PLANNER_QUESTION_ATTENTION_KEY, 'native-notification']])
+    const service = serviceWithAgents(new Map(), store)
+
+    const response = await service.getPlannerQuestionAttention({})
+
+    expect(response.ok).toBe(true)
+    expect(response.data?.behavior).toBe('focus-and-modal')
+    expect(store.get(PLANNER_QUESTION_ATTENTION_KEY)).toBe('focus-and-modal')
   })
 })

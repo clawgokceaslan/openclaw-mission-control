@@ -75,6 +75,7 @@ export type PlannerQuestionOption = {
   id: string
   label: string
   description?: string
+  nextQuestion?: PlannerQuestionItem
 }
 
 export type PlannerQuestionItem = {
@@ -245,7 +246,9 @@ function normalizePlannerQuestionOptions(value: unknown): PlannerQuestionOption[
     if (!label) return []
     const id = typeof record.id === 'string' && record.id.trim() ? record.id.trim() : `option-${index + 1}`
     const description = typeof record.description === 'string' && record.description.trim() ? record.description.trim() : undefined
-    return [{ id, label, description }]
+    const nextQuestions = normalizePlannerQuestions(record.nextQuestion === undefined ? [] : [record.nextQuestion])
+    const nextQuestion = nextQuestions[0]
+    return [{ id, label, description, ...(nextQuestion ? { nextQuestion } : {}) }]
   })
 }
 
@@ -291,9 +294,10 @@ export function formatPlannerClarificationAnswer(input: {
   selectedOptionIds: Record<string, string>
   notes: Record<string, string>
 }): string {
+  const questions = visiblePlannerQuestionPath(input.prompt.questions, input.selectedOptionIds)
   return [
     'Planner clarification answers:',
-    ...input.prompt.questions.flatMap((question, index) => {
+    ...questions.flatMap((question, index) => {
       const selectedOptionId = input.selectedOptionIds[question.id]
       const selectedOption = question.options.find((option) => option.id === selectedOptionId)
       const note = input.notes[question.id]?.trim()
@@ -304,6 +308,35 @@ export function formatPlannerClarificationAnswer(input: {
       return lines
     })
   ].join('\n')
+}
+
+export function visiblePlannerQuestionPath(
+  questions: PlannerQuestionItem[],
+  selectedOptionIds: Record<string, string>,
+  maxDepth = 3
+): PlannerQuestionItem[] {
+  const visible: PlannerQuestionItem[] = []
+  const appendBranch = (question: PlannerQuestionItem, depth: number, seen: Set<string>) => {
+    if (depth > maxDepth || seen.has(question.id)) return
+    visible.push(question)
+    const selectedOption = question.options.find((option) => option.id === selectedOptionIds[question.id])
+    if (!selectedOption?.nextQuestion) return
+    appendBranch(selectedOption.nextQuestion, depth + 1, new Set([...seen, question.id]))
+  }
+  questions.forEach((question) => appendBranch(question, 1, new Set()))
+  return visible
+}
+
+export function prunePlannerQuestionPathAnswers(
+  questions: PlannerQuestionItem[],
+  selectedOptionIds: Record<string, string>,
+  notes: Record<string, string>
+): { selectedOptionIds: Record<string, string>; notes: Record<string, string> } {
+  const visibleIds = new Set(visiblePlannerQuestionPath(questions, selectedOptionIds).map((question) => question.id))
+  return {
+    selectedOptionIds: Object.fromEntries(Object.entries(selectedOptionIds).filter(([id]) => visibleIds.has(id))),
+    notes: Object.fromEntries(Object.entries(notes).filter(([id]) => visibleIds.has(id)))
+  }
 }
 
 function parseDurationMs(value: unknown): number | undefined {
@@ -400,6 +433,17 @@ function latestNextChatHandoff(messages: TaskActivityMessage[]): string | null {
   return null
 }
 
+function contextSummaryFromHandoff(handoff: string | null): string {
+  if (!handoff) return ''
+  const fields = ['goal', 'completed_work', 'decisions', 'changed_areas', 'next_steps']
+  const rows = fields.flatMap((field) => {
+    const line = handoff.split(/\r?\n/).find((item) => item.startsWith(`${field}:`))
+    const value = line?.slice(field.length + 1).trim()
+    return value ? [`- ${field}: ${truncateText(value, 260)}`] : []
+  })
+  return rows.length > 0 ? `Structured summary:\n${rows.join('\n')}` : ''
+}
+
 export function buildLatestRunFollowUpContext(messages: TaskActivityMessage[]): string {
   const runMessages = messages.filter((message) => inferGatewayChatPhase(message) === 'RUN')
   const conversationId = buildConversationIdLatest(runMessages)
@@ -477,12 +521,15 @@ function contextEntryFromConversation(conversationId: string, messages: TaskActi
   const phase = inferGatewayChatPhase(phaseMessage)
   const result = describeRunResult(terminal?.metadata)
   const recent = ordered.slice(-CHAT_FOLLOW_UP_CONTEXT_RECENT_MESSAGES).map(messageShortLabel)
+  const handoff = latestNextChatHandoff(ordered)
+  const structuredSummary = contextSummaryFromHandoff(handoff)
   const body = [
     `${phaseContextTitle(phaseMessage)} for conversation ${conversationId}`,
     terminal ? `Status: ${terminal.body.trim() || status}` : `Status: ${status}`,
     result ? `Result: ${result}` : '',
+    structuredSummary,
     userMessages.length ? `Recent user direction:\n${userMessages.map((message) => `- ${truncateText(message.body.trim(), 280)}`).join('\n')}` : '',
-    assistant ? `Latest assistant output:\n${truncateText(nextChatHandoffFromText(assistant.body) ?? assistant.body.trim(), CHAT_FOLLOW_UP_FINAL_ASSISTANT_LENGTH)}` : '',
+    assistant && !structuredSummary ? `Latest assistant output:\n${truncateText(nextChatHandoffFromText(assistant.body) ?? assistant.body.trim(), CHAT_FOLLOW_UP_FINAL_ASSISTANT_LENGTH)}` : '',
     changesSummary ? `Reported changes: ${formatChangesSummary(changesSummary)}` : '',
     usage ? `Usage: ${formatUsageSummary(usage)}` : '',
     recent.length ? `Recent activity:\n${recent.map((row) => `- ${row}`).join('\n')}` : ''
@@ -542,7 +589,7 @@ function parseDurationMsFromSeconds(value: unknown): number | undefined {
 
 function formatThinkingSeconds(totalSeconds: number | undefined): string | undefined {
   if (!Number.isFinite(totalSeconds) || totalSeconds === undefined || totalSeconds <= 0) return undefined
-  return `Working for ${Math.max(1, Math.round(totalSeconds))} seconds`
+  return `${Math.max(1, Math.round(totalSeconds))} saniye çalıştı`
 }
 
 function formatDurationCompact(totalSeconds: number): string {
@@ -557,9 +604,9 @@ function formatDurationCompact(totalSeconds: number): string {
 
 export function formatGatewayWorkDuration(durationMs: number | undefined, isRunning = false): string {
   if (durationMs !== undefined && Number.isFinite(durationMs) && durationMs > 0) {
-    return `Worked for ${formatDurationCompact(durationMs / 1000)}`
+    return `${formatDurationCompact(durationMs / 1000)} çalıştı`
   }
-  return isRunning ? 'Working...' : 'Worked'
+  return isRunning ? 'Çalışıyor' : 'Çalıştı'
 }
 
 export function thinkingDurationLabel(message: TaskActivityMessage, now = Date.now()): string {
@@ -587,6 +634,82 @@ export function thinkingDurationLabel(message: TaskActivityMessage, now = Date.n
   const ended = message.status === 'running' ? now : (endedAt ?? message.updatedAt ?? message.createdAt)
   const durationMs = typeof started === 'number' && Number.isFinite(started) && typeof ended === 'number' && Number.isFinite(ended) ? Math.max(0, ended - started) : undefined
   return formatThinkingSeconds(durationMs !== undefined ? durationMs / 1000 : undefined) ?? ''
+}
+
+function isRawJsonText(value: string): boolean {
+  const trimmed = value.trim()
+  if (!trimmed || !/^[{[]/.test(trimmed)) return false
+  try {
+    const parsed = JSON.parse(trimmed)
+    return Boolean(parsed && typeof parsed === 'object')
+  } catch {
+    return false
+  }
+}
+
+function removeRawJsonFences(body: string): string {
+  return body.replace(/(^|\n)([^\S\r\n]*)(`{3,})([a-zA-Z0-9_-]*)[^\S\r\n]*\n([\s\S]*?)\n\2\3[^\S\r\n]*(?=\n|$)/g, (match, prefix: string, _indent: string, _fence: string, language: string, code: string) => {
+    const normalizedLanguage = language.trim().toLowerCase()
+    if ((normalizedLanguage === 'json' || normalizedLanguage === '') && isRawJsonText(code)) return prefix
+    return match
+  })
+}
+
+function removeDetailsJsonSections(body: string): string {
+  const lines = body.split(/\r?\n/)
+  const next: string[] = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (!/^details\s*:?\s*$/i.test(line.trim())) {
+      next.push(line)
+      continue
+    }
+    const section: string[] = []
+    let cursor = index + 1
+    while (cursor < lines.length && lines[cursor].trim()) {
+      section.push(lines[cursor])
+      cursor += 1
+    }
+    if (isRawJsonText(section.join('\n'))) {
+      index = cursor
+      continue
+    }
+    next.push(line)
+  }
+  return next.join('\n')
+}
+
+function removeStandaloneJsonBlocks(body: string): string {
+  const lines = body.split(/\r?\n/)
+  const next: string[] = []
+  for (let index = 0; index < lines.length;) {
+    if (!/^\s*[{[]/.test(lines[index])) {
+      next.push(lines[index])
+      index += 1
+      continue
+    }
+    let cursor = index
+    const candidate: string[] = []
+    while (cursor < lines.length) {
+      candidate.push(lines[cursor])
+      if (isRawJsonText(candidate.join('\n'))) break
+      cursor += 1
+    }
+    if (isRawJsonText(candidate.join('\n'))) {
+      index = cursor + 1
+      continue
+    }
+    next.push(lines[index])
+    index += 1
+  }
+  return next.join('\n')
+}
+
+export function stripRawJsonFromChatBody(body: string): string {
+  if (isRawJsonText(body)) return ''
+  return removeStandaloneJsonBlocks(removeDetailsJsonSections(removeRawJsonFences(body)))
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 function metadataGatewayBlock(message: TaskActivityMessage): string {
@@ -1017,15 +1140,25 @@ export function formatGatewayToolBody(body: string): string {
       ? `\n${event.output.trim().split(/\r?\n/).slice(-8).join('\n')}`
       : ''
     const exit = event.exitCode === undefined ? '' : ` (exit ${event.exitCode})`
-    return `${event.status}: ${event.command}${exit}${output}`
+    return `${formatGatewayActivityStatus(event.status)}: ${event.command}${exit}${output}`
   })
-  const messages = parsed.messages.map((event) => `${event.role}: ${event.text.trim()}`)
+  const messages = parsed.messages.map((event) => `${roleLabel(event.role)}: ${stripRawJsonFromChatBody(event.text) || 'Mesaj gizlendi'}`)
   const usage = formatUsageSummary(parsed.usage)
   return [
-    commands.length ? `Commands\n${commands.slice(-12).map((row) => `- ${row}`).join('\n')}` : '',
-    messages.length ? `Messages\n${messages.slice(-5).map((row) => `- ${row}`).join('\n')}` : '',
-    usage ? `Usage\n- ${usage}` : ''
-  ].filter(Boolean).join('\n\n') || 'Codex completed tool steps.'
+    commands.length ? `Komutlar\n${commands.slice(-12).map((row) => `- ${row}`).join('\n')}` : '',
+    messages.length ? `Mesajlar\n${messages.slice(-5).map((row) => `- ${row}`).join('\n')}` : '',
+    usage ? `Kullanım\n- ${usage}` : ''
+  ].filter(Boolean).join('\n\n') || 'Codex adımları tamamlandı.'
+}
+
+export function formatGatewayActivityStatus(status: string | undefined): string {
+  const normalized = status?.trim().toLowerCase()
+  if (normalized === 'queued' || normalized === 'pending') return 'Sırada'
+  if (normalized === 'running' || normalized === 'in_progress' || normalized === 'started') return 'Çalışıyor'
+  if (normalized === 'completed' || normalized === 'complete' || normalized === 'done' || normalized === 'success') return 'Tamamlandı'
+  if (normalized === 'failed' || normalized === 'error') return 'Başarısız'
+  if (normalized === 'cancelled' || normalized === 'canceled' || normalized === 'stopped') return 'Durduruldu'
+  return status?.trim() || 'Durum'
 }
 
 export function usageFromMetadata(metadata: Record<string, unknown> | undefined): GatewayUsageSummary | undefined {
@@ -1075,8 +1208,11 @@ export function formatChatTime(value: number): string {
 
 export function roleLabel(role: ChatMessageRole): string {
   if (role === 'assistant') return 'Codex'
-  if (role === 'user') return 'You'
-  if (role === 'thinking') return 'Thinking'
+  if (role === 'user') return 'Sen'
+  if (role === 'thinking') return 'Düşünüyor'
+  if (role === 'tool') return 'Araç'
+  if (role === 'system') return 'Sistem'
+  if (role === 'error') return 'Hata'
   return role
 }
 

@@ -8,6 +8,7 @@ import {
   buildLatestGeneratedFollowUpContext,
   codexChangesSummary,
   buildLatestRunFollowUpContext,
+  formatGatewayActivityStatus,
   formatGatewayWorkDuration,
   formatPlannerClarificationAnswer,
   groupCodexTranscriptMessages,
@@ -15,6 +16,7 @@ import {
   plannerQuestionPromptFromMessages,
   preserveScrollTopAfterPrepend,
   shouldLoadEarlierMessages,
+  stripRawJsonFromChatBody,
   thinkingDurationLabel,
   userMessageCount,
   visibleChatMessagesForLimit
@@ -281,7 +283,7 @@ describe('chat utils helpers', () => {
 
     const block = items[0].kind === 'work-block' ? items[0].block : null
     expect(block?.durationMs).toBe(72_000)
-    expect(formatGatewayWorkDuration(block?.durationMs, false)).toBe('Worked for 1m 12s')
+    expect(formatGatewayWorkDuration(block?.durationMs, false)).toBe('1m 12s çalıştı')
   })
 
   it('falls back to elapsed run timestamps when thinking duration is missing', () => {
@@ -291,7 +293,7 @@ describe('chat utils helpers', () => {
     ], 10_000)
 
     const block = items[0].kind === 'work-block' ? items[0].block : null
-    expect(formatGatewayWorkDuration(block?.durationMs, false)).toBe('Worked for 3s')
+    expect(formatGatewayWorkDuration(block?.durationMs, false)).toBe('3s çalıştı')
   })
 
   it('freezes a running work block when the matching run-complete row exists', () => {
@@ -368,7 +370,7 @@ describe('chat utils helpers', () => {
       metadata: { thinkingStartedAt: startedAt }
     })
 
-    expect(thinkingDurationLabel(thinking, startedAt + 5_500)).toBe('Working for 6 seconds')
+    expect(thinkingDurationLabel(thinking, startedAt + 5_500)).toBe('6 saniye çalıştı')
   })
 
   it('derives completed thinking duration from duration_sec metadata', () => {
@@ -381,7 +383,34 @@ describe('chat utils helpers', () => {
       metadata: { thinkingDurationSec: '5' }
     })
 
-    expect(thinkingDurationLabel(thinking)).toBe('Working for 5 seconds')
+    expect(thinkingDurationLabel(thinking)).toBe('5 saniye çalıştı')
+  })
+
+  it('hides details and raw JSON from chat display bodies', () => {
+    const body = [
+      'Run this task.',
+      '',
+      'Details',
+      '{',
+      '  "workspace": "/tmp/workspace",',
+      '  "taskId": "task-1"',
+      '}',
+      '',
+      '```json',
+      '{ "metadata": true }',
+      '```',
+      '',
+      'Keep this visible.'
+    ].join('\n')
+
+    expect(stripRawJsonFromChatBody(body)).toBe('Run this task.\n\nKeep this visible.')
+    expect(stripRawJsonFromChatBody('{ "raw": true }')).toBe('')
+  })
+
+  it('maps gateway activity statuses to short Turkish labels', () => {
+    expect(formatGatewayActivityStatus('running')).toBe('Çalışıyor')
+    expect(formatGatewayActivityStatus('completed')).toBe('Tamamlandı')
+    expect(formatGatewayActivityStatus('failed')).toBe('Başarısız')
   })
 
   it('builds latest run follow-up context for the most recent run conversation', () => {

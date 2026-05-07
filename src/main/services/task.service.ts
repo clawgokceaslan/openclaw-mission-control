@@ -135,6 +135,7 @@ export type PlannerQuestionOption = {
   id: string
   label: string
   description?: string
+  nextQuestion?: PlannerQuestionItem
 }
 
 export type PlannerQuestionItem = {
@@ -172,6 +173,14 @@ type RunningGatewayConversationType = 'plan' | 'run' | 'chat' | 'steer' | 'post-
 
 type RunningGatewayConversationSummary = RunningGatewayTaskRow & {
   latestActivityBody: string
+}
+
+type GatewayCompactContextSummary = {
+  purpose: string
+  completedWork: string[]
+  decisions: string[]
+  files: string[]
+  nextStep: string
 }
 
 const RUNNING_CODEX_ACTIVITY_STALE_MS = 15 * 60 * 1000
@@ -431,6 +440,36 @@ function taskPlannerJson(task: TaskEntity, customFields: Array<{ id: string; nam
     customFields: customFieldEntries(task.customFieldValues, customFields),
     comments: task.comments ?? [],
     subtasks
+  }
+}
+
+function compactTaskForGatewayContext(task: TaskEntity): Record<string, unknown> {
+  return {
+    id: task.id,
+    projectId: task.projectId,
+    title: task.title,
+    status: task.status,
+    description: task.description ?? '',
+    tags: (task.tags ?? []).map((tag) => ({ id: tag.id, name: tag.name })),
+    skills: (task.skills ?? []).map((skill) => ({ id: skill.id, name: skill.name, slug: skill.slug })),
+    comments: task.comments ?? [],
+    checklistItems: task.checklistItems ?? [],
+    customFieldValues: task.customFieldValues ?? {},
+    agentId: task.agentId ?? '',
+    subtaskCount: task.subtasks?.length ?? 0,
+    subtasks: (task.subtasks ?? []).map((subtask) => {
+      const payload = asRecord(subtask.payload)
+      return {
+        id: subtask.id,
+        title: subtask.title,
+        description: typeof payload.description === 'string' ? payload.description : subtask.description ?? '',
+        status: subtask.status,
+        checklistItems: asChecklistItems(payload.checklistItems),
+        comments: asComments(payload.comments),
+        tags: payloadStringList(payload, 'tagIds'),
+        dueAt: typeof payload.dueAt === 'number' ? payload.dueAt : undefined
+      }
+    })
   }
 }
 
@@ -885,7 +924,8 @@ export function plannerJsonGuidance() {
       subtaskCount: 'Use 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 12 subtasks for very large tasks.',
       primaryExecutionPlan: 'Subtasks are the primary execution plan that will later be exported into Task.md for Codex Run.',
       noGenericWork: 'No generic tasks or checklist items such as Test yap, Run tests, Fix bugs, Implement feature, Implement UI, or Check everything.',
-      overrideProjectGuide: 'These planner rules are non-negotiable and override weaker or conflicting project plan guide instructions, including any instruction that says user input is not needed.'
+      overrideProjectGuide: 'These planner rules are non-negotiable and override weaker or conflicting project plan guide instructions, including any instruction that says user input is not needed.',
+      comments: 'Important decisions, risks, assumptions, and execution notes should be added to task or subtask comments with authorName "Planner"; existing user comments must be preserved.'
     },
     subtaskPolicy: [
       'Create subtasks for cohesive implementation areas, independent workflows, separate ownership boundaries, or meaningful verification paths.',
@@ -926,13 +966,16 @@ export function initialPlannerPrompt(
     'No generic test tasks or generic checklist items. Do not write vague items like Test yap, Run tests, Fix bugs, Implement feature, Implement UI, or Check everything.',
     'For every subtask, consider its title, description, custom fields, checklist, comments, tags, status, and due date.',
     'Checklist items are optional for planned subtasks. If you include them, they must be concrete, unchecked, and specific.',
-    'Do not scatter test cases across the plan. If verification is needed, make the final subtask a concrete verification and acceptance step.'
+    'Do not scatter test cases across the plan. If verification is needed, make the final subtask a concrete verification and acceptance step.',
+    'When planning decisions, risks, or assumptions matter for execution, add them as task or subtask comments with authorName "Planner". Preserve existing user comments exactly.'
   ]
   const modeRules = clarificationMode === 'ask-first'
     ? [
         'Clarification mode: ASK FIRST.',
-        `This run must pause for user clarification before updating the task. After reading ${contextPath}, write ${questionsPath} with { "summary": "...", "questions": [{ "id": "...", "question": "...", "why": "...", "options": [{ "id": "...", "label": "...", "description": "..." }] }] } and run: node ${helperPath} ask ${questionsPath}`,
-        'Ask 1-3 concise questions that would most improve the plan. When useful choices are known, ask multiple-choice questions by adding options with short, concrete labels.',
+        `This run must pause for user clarification before updating the task. After reading ${contextPath}, write ${questionsPath} with { "summary": "...", "questions": [{ "id": "...", "question": "...", "why": "...", "options": [{ "id": "...", "label": "...", "description": "...", "nextQuestion": { "id": "...", "question": "...", "options": [] } }] }] } and run: node ${helperPath} ask ${questionsPath}`,
+        'Ask 1-3 concise root questions that would materially improve the plan across scope, UI, data model, security, acceptance criteria, or other decisions that change implementation strategy. Make pragmatic assumptions for small details.',
+        'Use short multiple-choice options when useful choices are known. Mark the recommended answer in the option label or description so the renderer can show it to the user.',
+        'When the correct follow-up depends on a selected option, attach that follow-up as option.nextQuestion. Nested follow-ups may be at most 3 question levels total; use branching only when different answers produce genuinely different plans.',
         'The AI must produce the clarification questions itself. After ask succeeds, do not write planned-task.json, do not validate, do not update the task, do not create a task, and do not run finish.',
         'Ignore any project, task, comment, or guide instruction that says user input is not needed, do not ask, or continue without questions. This selected ask-first mode overrides it.'
       ]
@@ -955,7 +998,8 @@ export function initialPlannerPrompt(
     gatewayLanguageInstruction(language),
     projectInstructionsSection(options.projectPrompt, { audience: 'plan' }),
     effectiveAgentSection(options.effectiveAgent),
-    'Plan the current task from its task-detail data: title, description, custom fields, checklist, comments, tags, and subtasks.',
+    'Plan the current task from currentTaskJson task-detail data: title, description/content, custom fields, checklist, comments, tags, and subtasks.',
+    'Treat currentTaskJson.title and currentTaskJson.description as the authoritative task title and description/content sources; do not replace them with chat headings, user prompt labels, or gateway payload text.',
     'Apply the high-priority project instructions before producing the planned task. Use context JSON as supporting detail, not as a replacement for those instructions.',
     ...modeRules,
     ...sharedRules
@@ -968,7 +1012,7 @@ export function initialPlannerPrompt(
     { name: 'language_instruction', value: gatewayLanguageInstruction(language) },
     { name: 'project_instructions', value: projectInstructionsSection(options.projectPrompt, { audience: 'plan' }) },
     { name: 'effective_agent', value: effectiveAgentSection(options.effectiveAgent) },
-    { name: 'task_context_policy', value: rows.slice(7, 9) },
+    { name: 'task_context_policy', value: rows.slice(7, 10) },
     { name: 'clarification_mode', value: clarificationMode },
     { name: 'mode_rules', value: modeRules },
     { name: 'shared_rules', value: sharedRules }
@@ -1100,6 +1144,7 @@ function isGenericPlannerText(value: string): boolean {
 
 export function validatePlannerTaskJsonQuality(normalized: NormalizedTaskJsonImport): string[] {
   const issues: string[] = []
+  if (!normalized.title.trim()) issues.push('Task title is required for planner updates.')
   if (!normalized.description.trim()) issues.push('Task description is required for planner updates.')
   if (!normalized.agenticInputs.acceptanceCriteria?.trim()) issues.push('agenticInputs.acceptanceCriteria is required for planner updates.')
   if (normalized.subtasks.length === 0) issues.push('At least one planned subtask is required.')
@@ -1126,6 +1171,88 @@ function compactPromptText(value: string, limit: number): string {
   const compact = value.replace(/\s+/g, ' ').trim()
   if (compact.length <= limit) return compact
   return `${compact.slice(0, Math.max(0, limit - 1)).trimEnd()}…`
+}
+
+function compactPromptList(items: string[], limit: number, fallback: string): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const item of items) {
+    const compact = compactPromptText(item, 220)
+    if (!compact) continue
+    const key = compact.toLocaleLowerCase('en')
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push(compact)
+    if (result.length >= limit) break
+  }
+  return result.length > 0 ? result : [fallback]
+}
+
+function latestHandoffBlock(messages: TaskActivityMessage[]): string {
+  for (const message of [...messages].sort((a, b) => activityTimeOf(b) - activityTimeOf(a))) {
+    if (message.role !== 'assistant' || !message.body.trim()) continue
+    const match = message.body.match(/(?:^|\n\n)(NEXT_CHAT_HANDOFF(?:_JSON)?\n[\s\S]*)/)
+    if (match?.[1]?.trim()) return match[1].trim()
+  }
+  return ''
+}
+
+function handoffValues(block: string, field: string): string[] {
+  if (!block.trim()) return []
+  const jsonPrefix = `${NEXT_CHAT_HANDOFF_MARKER}_JSON\n`
+  if (block.startsWith(jsonPrefix)) {
+    try {
+      const parsed = JSON.parse(block.slice(jsonPrefix.length)) as Record<string, unknown>
+      const value = parsed[field]
+      if (Array.isArray(value)) return value.flatMap((item) => typeof item === 'string' && item.trim() ? [item.trim()] : [])
+      return typeof value === 'string' && value.trim() ? [value.trim()] : []
+    } catch {
+      return []
+    }
+  }
+  const line = block.split(/\r?\n/).find((item) => item.startsWith(`${field}:`))
+  const value = line?.slice(field.length + 1).trim()
+  if (!value) return []
+  return value.split(';').map((item) => item.trim()).filter(Boolean)
+}
+
+function gatewayCompactContextSummary(task: TaskEntity, messages: TaskActivityMessage[]): GatewayCompactContextSummary {
+  const handoff = latestHandoffBlock(messages)
+  const completed = handoffValues(handoff, 'completed_work')
+  const decisions = handoffValues(handoff, 'decisions')
+  const files = handoffValues(handoff, 'changed_areas').filter((item) => item !== 'none_reported')
+  const nextSteps = handoffValues(handoff, 'next_steps').filter((item) => item !== 'none_reported')
+  const recentUserDirections = messages
+    .filter((message) => message.role === 'user' && message.body.trim())
+    .sort((a, b) => activityTimeOf(b) - activityTimeOf(a))
+    .slice(0, 3)
+    .map((message) => message.body)
+  const recentDecisions = messages
+    .filter((message) => {
+      const block = gatewayMetadataBlock(message.metadata)
+      return block === 'planner-question' || block === 'changes' || block === 'run-complete'
+    })
+    .sort((a, b) => activityTimeOf(b) - activityTimeOf(a))
+    .slice(0, 4)
+    .map((message) => message.body)
+
+  return {
+    purpose: compactPromptText(task.description ?? task.title, 360) || task.title,
+    completedWork: compactPromptList(completed, 5, 'not_reported'),
+    decisions: compactPromptList([...decisions, ...recentDecisions], 5, 'not_reported'),
+    files: compactPromptList(files, 8, 'none_reported'),
+    nextStep: compactPromptText(nextSteps[0] ?? recentUserDirections[0] ?? 'continue_from_current_task_context', 240)
+  }
+}
+
+function compactGatewayPromptContext(task: TaskEntity, context: unknown): Record<string, unknown> | undefined {
+  if (!context || typeof context !== 'object' || Array.isArray(context)) return undefined
+  const record = { ...(context as Record<string, unknown>) }
+  const messages = taskActivityMessagesFromPayload(asRecord(asRecord(record.task).payload))
+  const summary = asRecord(record.contextSummary)
+  record.contextSummary = Object.keys(summary).length > 0 ? summary : gatewayCompactContextSummary(task, messages)
+  record.task = compactTaskForGatewayContext(task)
+  return record
 }
 
 function compactFollowUpTaskMetadata(task: TaskEntity, context: unknown): Record<string, unknown> {
@@ -1188,7 +1315,9 @@ export function gatewayChatPrompt(input: {
   const language = typeof input.languages === 'object' ? input.languages.outputLanguage : input.language
   const instructionAudience: ProjectInstructionAudience = input.mode === 'plan' ? 'plan' : 'chat'
   const routedContext = routedProjectContextForPrompt(input.context, instructionAudience)
-  const promptContext = hasFollowUpContext ? compactFollowUpTaskMetadata(input.task, routedContext ?? input.context) : routedContext
+  const promptContext = hasFollowUpContext
+    ? compactFollowUpTaskMetadata(input.task, routedContext ?? input.context)
+    : compactGatewayPromptContext(input.task, routedContext)
   const userPromptLabel = input.mode === 'steer'
     ? 'User steer instruction'
     : input.mode === 'plan'
@@ -2362,42 +2491,61 @@ export function normalizePlannerQuestionPayload(value: unknown): ServiceResponse
   const summary = typeof record.summary === 'string' && record.summary.trim()
     ? record.summary.trim()
     : 'Planner needs clarification before updating this task.'
+  const normalizeQuestion = (raw: unknown, index: number, depth: number, path: Set<string>): ServiceResponse<PlannerQuestionItem | null> => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return okResponse(null)
+    if (depth > 3) return errorResponse(ErrorCodes.Validation, 'Planner question tree cannot exceed 3 levels')
+    const questionRecord = raw as Record<string, unknown>
+    const question = typeof questionRecord.question === 'string' ? questionRecord.question.trim() : ''
+    if (!question) return okResponse(null)
+    const rawId = typeof questionRecord.id === 'string' ? questionRecord.id.trim() : ''
+    const id = rawId || `question-${index + 1}`
+    if (path.has(id)) return errorResponse(ErrorCodes.Validation, 'Planner question tree cannot contain loops')
+    const nextPath = new Set(path)
+    nextPath.add(id)
+    const why = typeof questionRecord.why === 'string' && questionRecord.why.trim() ? questionRecord.why.trim() : undefined
+    let options: PlannerQuestionOption[] | undefined
+    if (questionRecord.options !== undefined) {
+      const rawOptions = questionRecord.options
+      if (!Array.isArray(rawOptions)) return errorResponse(ErrorCodes.Validation, 'Planner question options must be an array')
+      if (rawOptions.length === 0) return errorResponse(ErrorCodes.Validation, 'Planner question options must include at least one label')
+      options = []
+      for (const [optionIndex, rawOption] of rawOptions.entries()) {
+        if (typeof rawOption === 'string') {
+          const label = rawOption.trim()
+          if (label) options.push({ id: `option-${optionIndex + 1}`, label })
+          continue
+        }
+        if (!rawOption || typeof rawOption !== 'object' || Array.isArray(rawOption)) continue
+        const optionRecord = rawOption as Record<string, unknown>
+        const label = typeof optionRecord.label === 'string'
+          ? optionRecord.label.trim()
+          : typeof optionRecord.title === 'string'
+            ? optionRecord.title.trim()
+            : typeof optionRecord.value === 'string'
+              ? optionRecord.value.trim()
+              : ''
+        if (!label) continue
+        const optionId = typeof optionRecord.id === 'string' && optionRecord.id.trim() ? optionRecord.id.trim() : `option-${optionIndex + 1}`
+        const description = typeof optionRecord.description === 'string' && optionRecord.description.trim() ? optionRecord.description.trim() : undefined
+        let nextQuestion: PlannerQuestionItem | undefined
+        if (optionRecord.nextQuestion !== undefined) {
+          const normalizedNext = normalizeQuestion(optionRecord.nextQuestion, 1, depth + 1, nextPath)
+          if (!normalizedNext.ok) return normalizedNext
+          if (!normalizedNext.data) return errorResponse(ErrorCodes.Validation, 'Planner question option nextQuestion must include a question')
+          nextQuestion = normalizedNext.data
+        }
+        options.push({ id: optionId, label, description, ...(nextQuestion ? { nextQuestion } : {}) })
+      }
+      if (options.length === 0) return errorResponse(ErrorCodes.Validation, 'Planner question options must include at least one label')
+    }
+    return okResponse({ id, question, why, ...(options?.length ? { options } : {}) })
+  }
   const questions: PlannerQuestionItem[] = []
   if (Array.isArray(record.questions)) {
     for (const [index, raw] of record.questions.entries()) {
-      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue
-      const questionRecord = raw as Record<string, unknown>
-      const question = typeof questionRecord.question === 'string' ? questionRecord.question.trim() : ''
-      if (!question) continue
-      const rawId = typeof questionRecord.id === 'string' ? questionRecord.id.trim() : ''
-      const why = typeof questionRecord.why === 'string' && questionRecord.why.trim() ? questionRecord.why.trim() : undefined
-      let options: PlannerQuestionOption[] | undefined
-      if (questionRecord.options !== undefined) {
-        const rawOptions = questionRecord.options
-        if (!Array.isArray(rawOptions)) return errorResponse(ErrorCodes.Validation, 'Planner question options must be an array')
-        if (rawOptions.length === 0) return errorResponse(ErrorCodes.Validation, 'Planner question options must include at least one label')
-        options = rawOptions.flatMap((rawOption, optionIndex): PlannerQuestionOption[] => {
-          if (typeof rawOption === 'string') {
-            const label = rawOption.trim()
-            return label ? [{ id: `option-${optionIndex + 1}`, label }] : []
-          }
-          if (!rawOption || typeof rawOption !== 'object' || Array.isArray(rawOption)) return []
-          const optionRecord = rawOption as Record<string, unknown>
-          const label = typeof optionRecord.label === 'string'
-            ? optionRecord.label.trim()
-            : typeof optionRecord.title === 'string'
-              ? optionRecord.title.trim()
-              : typeof optionRecord.value === 'string'
-                ? optionRecord.value.trim()
-                : ''
-          if (!label) return []
-          const optionId = typeof optionRecord.id === 'string' && optionRecord.id.trim() ? optionRecord.id.trim() : `option-${optionIndex + 1}`
-          const description = typeof optionRecord.description === 'string' && optionRecord.description.trim() ? optionRecord.description.trim() : undefined
-          return [{ id: optionId, label, description }]
-        })
-        if (options.length === 0) return errorResponse(ErrorCodes.Validation, 'Planner question options must include at least one label')
-      }
-      questions.push({ id: rawId || `question-${index + 1}`, question, why, ...(options?.length ? { options } : {}) })
+      const normalized = normalizeQuestion(raw, index, 1, new Set())
+      if (!normalized.ok) return normalized
+      if (normalized.data) questions.push(normalized.data)
     }
   }
   if (questions.length === 0) return errorResponse(ErrorCodes.Validation, 'Planner ask requires at least one question')
@@ -2405,21 +2553,27 @@ export function normalizePlannerQuestionPayload(value: unknown): ServiceResponse
 }
 
 function plannerQuestionBody(payload: PlannerQuestionPayload): string {
+  const questionLines = (item: PlannerQuestionItem, indexLabel: string, indent = ''): string[] => {
+    const lines = [`${indent}${indexLabel}. ${item.question}`]
+    if (item.why) lines.push(`${indent}   Why: ${item.why}`)
+    if (item.options?.length) {
+      lines.push(`${indent}   Options:`)
+      item.options.forEach((option) => {
+        lines.push(`${indent}   - ${option.label}${option.description ? `: ${option.description}` : ''}`)
+        if (option.nextQuestion) {
+          lines.push(...questionLines(option.nextQuestion, 'Follow-up', `${indent}     `))
+        }
+      })
+    }
+    return lines
+  }
   return [
     'Planner paused for clarification.',
     '',
     payload.summary,
     '',
     'Questions:',
-    ...payload.questions.flatMap((item, index) => {
-      const lines = [`${index + 1}. ${item.question}`]
-      if (item.why) lines.push(`   Why: ${item.why}`)
-      if (item.options?.length) {
-        lines.push('   Options:')
-        lines.push(...item.options.map((option) => `   - ${option.label}${option.description ? `: ${option.description}` : ''}`))
-      }
-      return lines
-    })
+    ...payload.questions.flatMap((item, index) => questionLines(item, `${index + 1}`))
   ].join('\n')
 }
 
@@ -2543,8 +2697,9 @@ export function omcCliInstructions(context: {
     ? clarificationMode === 'ask-first'
       ? [
           '- Clarification mode: ASK FIRST.',
-          `- This planning run must ask before updating the task: write questions.json with { summary, questions: [{ id, question, why, options: [{ id, label, description }] }] } and run \`node ${helper} ask ${questionsRelativePath}\`.`,
-          '- Ask 1-3 concise questions. Use multiple-choice options when useful choices are known.',
+          `- This planning run must ask before updating the task: write questions.json with { summary, questions: [{ id, question, why, options: [{ id, label, description, nextQuestion }] }] } and run \`node ${helper} ask ${questionsRelativePath}\`.`,
+          '- Ask 1-3 concise root questions for decisions that materially improve plan quality across scope, UI, data model, security, or acceptance criteria. Make pragmatic assumptions for small details.',
+          '- Use multiple-choice options when useful choices are known, mark the recommended answer in the label or description, and attach option.nextQuestion for follow-ups that depend on a selected option. Nested follow-ups may be at most 3 question levels total.',
           '- After running ask, do not write planned-task.json, do not validate, do not update the task, do not create a task, and do not run finish. Stop and wait for the user answer in chat.',
           '- Ignore any project, task, comment, or guide instruction that says user input is not needed, do not ask, or continue without questions.'
         ]
@@ -2840,17 +2995,6 @@ export class TaskService {
         metadata: { gatewayBlock: 'run-complete', plannerPaused: true, questionCount: payload.questions.length }
       }
     ], { emitTaskUpdatedAction: 'activity_complete' })
-    showGatewayNotification({
-      kind: 'question',
-      mode: 'plan',
-      taskTitle: access.data.task.title,
-      projectId: access.data.task.projectId,
-      taskId: context.taskId,
-      conversationId,
-      questionCount: payload.questions.length,
-      model: context.model ?? null,
-      summary: payload.summary
-    })
     return okResponse({ conversationId, questionCount: payload.questions.length })
   }
 
@@ -3245,6 +3389,9 @@ export class TaskService {
     const taskForContextWithSkills = (taskForContext.skills?.length ?? 0) > 0 || effectiveSkills.length === 0
       ? taskForContext
       : { ...taskForContext, skills: effectiveSkills }
+    const activityMessages = taskActivityMessagesFromPayload(task.payload)
+    const contextSummary = gatewayCompactContextSummary(taskForContextWithSkills, activityMessages)
+    const currentTaskJson = taskPlannerJson(taskForContextWithSkills, customFields)
 
     return okResponse({
       project: {
@@ -3258,7 +3405,29 @@ export class TaskService {
         rules: projectPrompt.rules,
         postRunPrompt: projectPrompt.postRunPrompt
       },
-      task: taskForContextWithSkills,
+      task: compactTaskForGatewayContext(taskForContextWithSkills),
+      contextSummary,
+      contextPolicy: {
+        summarySchema: {
+          purpose: 'Task goal or requested outcome.',
+          completedWork: 'Short list of already completed work from the latest handoff.',
+          decisions: 'Short list of durable decisions, questions, and terminal outcomes.',
+          files: 'Short list of changed or relevant files.',
+          nextStep: 'Most useful next action.'
+        },
+        transcriptPolicy: 'Use contextSummary instead of raw activity or chat transcripts. Preserve currentTaskJson, comments, allowed, and jsonFormat for task updates.'
+      },
+      taskSourceValidation: {
+        title: {
+          source: 'currentTaskJson.title',
+          value: typeof currentTaskJson.title === 'string' ? currentTaskJson.title : taskForContextWithSkills.title
+        },
+        description: {
+          source: 'currentTaskJson.description',
+          aliases: ['description', 'content'],
+          value: typeof currentTaskJson.description === 'string' ? currentTaskJson.description : taskForContextWithSkills.description ?? ''
+        }
+      },
       effectiveAgent: effectiveTaskAgent ? {
         id: effectiveTaskAgent.id,
         name: effectiveTaskAgent.name,
@@ -3276,7 +3445,7 @@ export class TaskService {
         gateway: project.metrics?.gateway ?? {}
       },
       effectiveSkills: effectiveSkills.map((skill) => ({ id: skill.id, name: skill.name, slug: skill.slug })),
-      currentTaskJson: taskPlannerJson(taskForContextWithSkills, customFields),
+      currentTaskJson,
       allowed: {
         tags: tags.map((tag) => ({ id: tag.id, name: tag.name })),
         skills: skills.map((skill) => ({ id: skill.id, name: skill.name, slug: skill.slug })),
@@ -3315,6 +3484,16 @@ export class TaskService {
           commentCount: normalized.comments.length,
           subtaskCount: normalized.subtasks.length,
           warnings: normalized.warnings
+        },
+        sourceValidation: {
+          title: {
+            ok: Boolean(normalized.title.trim()),
+            source: 'planned-task.json title, copied from or intentionally updating currentTaskJson.title'
+          },
+          description: {
+            ok: Boolean(normalized.description.trim()),
+            source: 'planned-task.json description/content, copied from or intentionally updating currentTaskJson.description'
+          }
         }
       })
     } catch (error) {

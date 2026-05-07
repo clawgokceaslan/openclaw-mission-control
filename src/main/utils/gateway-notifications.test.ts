@@ -149,7 +149,7 @@ describe('codex notifications', () => {
     })
   })
 
-  it('shows question notifications for planner clarification', () => {
+  it('does not show native notifications for planner clarification questions', () => {
     const { instances, runtime } = createRuntime()
 
     showGatewayNotification({
@@ -160,12 +160,7 @@ describe('codex notifications', () => {
       summary: 'Scope needs confirmation'
     }, runtime)
 
-    expect(instances).toHaveLength(1)
-    expect(instances[0].options).toMatchObject({
-      title: 'Question · Plan · Task Alpha',
-      subtitle: 'Codex Plan needs input',
-      body: '3 questions need attention. Task: Task Alpha. Question summary: Scope needs confirmation. Click to open the plan conversation.'
-    })
+    expect(instances).toHaveLength(0)
   })
 
   it('shows the native notification even when the main window is visible and focused', () => {

@@ -15,12 +15,13 @@ import type { TaskActivityMessage } from '@renderer/screens/projects/detail/type
 import {
   formatChatTime,
   formatGatewayWorkDuration,
+  formatGatewayActivityStatus,
   formatGatewayToolBody,
   codexChangesSummary,
-  formatJsonMetadata,
   parseNumberMetadata,
   thinkingDurationLabel as resolveThinkingDurationLabel,
   roleLabel,
+  stripRawJsonFromChatBody,
   usageFromMetadata
 } from '@renderer/screens/projects/detail/chat/chatUtils'
 import type { CodexWorkBlock as CodexWorkBlockData, CodexWorkSummaryKind, CodexWorkSummaryRow } from '@renderer/screens/projects/detail/chat/chatUtils'
@@ -202,16 +203,6 @@ function renderMarkdownLite(body: string) {
   })
 }
 
-function compactMetadataPreview(metadata: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
-  if (!metadata) return undefined
-  const allowedKeys = ['gatewayBlock', 'commandStatus', 'exitCode', 'changesPath', 'truncated', 'unavailable', 'stopped']
-  const compact = Object.fromEntries(allowedKeys
-    .filter((key) => metadata[key] !== undefined)
-    .map((key) => [key, metadata[key]])
-  )
-  return Object.keys(compact).length > 0 ? compact : undefined
-}
-
 function shortenPath(value: string): string {
   if (value.length <= 58) return value
   return `${value.slice(0, 24)}...${value.slice(-28)}`
@@ -302,8 +293,8 @@ function renderChangesCard(message: TaskActivityMessage, pathEntries: Array<{ ke
   const fileSummary = fileCount === 1 ? '1 file' : `${fileCount} files`
   const blockSummary = totalBlocks === 1 ? '1 block' : `${totalBlocks} blocks`
 
-  if (!hasStructuredChanges && !metadata.unavailable) return renderMarkdownLite(message.body)
-  if (!changesSummary.canRenderCard) return renderMarkdownLite(message.body)
+  if (!hasStructuredChanges && !metadata.unavailable) return renderMarkdownLite(stripRawJsonFromChatBody(message.body))
+  if (!changesSummary.canRenderCard) return renderMarkdownLite(stripRawJsonFromChatBody(message.body))
 
   return (
     <div className={styles.codexChangesCard}>
@@ -370,9 +361,19 @@ function workSummaryIcon(kind: CodexWorkSummaryKind) {
 
 function workTextBody(message: TaskActivityMessage): string {
   if (message.role === 'thinking') {
-    return message.body.trim() || (message.status === 'running' ? 'Codex is working...' : '')
+    return stripRawJsonFromChatBody(message.body) || (message.status === 'running' ? 'Codex çalışıyor' : '')
   }
-  return message.body.trim()
+  return stripRawJsonFromChatBody(message.body)
+}
+
+function commandFallbackBody(message: TaskActivityMessage): string {
+  const command = typeof message.metadata?.command === 'string' ? message.metadata.command.trim() : ''
+  const status = formatGatewayActivityStatus(
+    typeof message.metadata?.commandStatus === 'string'
+      ? message.metadata.commandStatus
+      : message.status
+  )
+  return command ? `${status}: ${command}` : status
 }
 
 function renderWorkTextMessage(message: TaskActivityMessage) {
@@ -397,11 +398,13 @@ function renderWorkToolMessage(message: TaskActivityMessage) {
   }
 
   const toolTitle = gatewayBlock === 'log'
-    ? 'Log'
+    ? 'Kayıt'
     : gatewayBlock === 'command'
-      ? 'Command'
-      : 'Tool output'
-  const toolBody = message.role === 'tool' ? (gatewayBlock ? message.body : formatGatewayToolBody(message.body)) : message.body
+      ? 'Komut'
+      : 'Araç çıktısı'
+  const toolBody = message.role === 'tool'
+    ? (stripRawJsonFromChatBody(gatewayBlock ? message.body : formatGatewayToolBody(message.body)) || commandFallbackBody(message))
+    : stripRawJsonFromChatBody(message.body)
 
   return (
     <div key={message.id} className={styles.codexWorkCommandRaw}>
@@ -504,7 +507,7 @@ function renderCodexTranscriptMessage(params: {
     if (!changesSummary.canRenderCard) {
       return (
         <article className={`${styles.chatMessage} ${styles.codexTranscriptRow}`}>
-          {changesSummary.hasNoChanges ? <div className={styles.codexProgressLine}><LuCircleCheck size={14} /> No workspace changes detected.</div> : renderMarkdownLite(message.body)}
+          {changesSummary.hasNoChanges ? <div className={styles.codexProgressLine}><LuCircleCheck size={14} /> Çalışma alanında değişiklik yok.</div> : renderMarkdownLite(stripRawJsonFromChatBody(message.body))}
         </article>
       )
     }
@@ -555,31 +558,33 @@ export const GatewayChatMessageItem = memo(function GatewayChatMessageItem({ mes
   const gatewayBlock = gatewayMetadataBlock(message.metadata)
   const changesSummary = codexChangesSummary(message)
   const toolTitle = gatewayBlock === 'changes'
-    ? 'Changes'
+    ? 'Değişiklikler'
     : gatewayBlock === 'command'
-      ? 'Command'
+      ? 'Komut'
       : gatewayBlock === 'log'
-        ? 'Log'
+        ? 'Kayıt'
         : gatewayBlock === 'run-complete'
-          ? 'Run complete'
-        : 'Tool output'
+          ? 'Run tamamlandı'
+        : 'Araç çıktısı'
   const statusLabel = message.metadata?.runStatus === 'running' && gatewayBlock !== 'run-complete'
-    ? 'running'
+    ? formatGatewayActivityStatus('running')
     : message.status
+      ? formatGatewayActivityStatus(message.status)
+      : message.source
   const thinkingLabel = resolveThinkingDurationLabel(message, Date.now())
-  const thinkingText = message.body.trim() || (message.status === 'running'
-    ? 'Codex is working...'
+  const visibleMessageBody = useMemo(() => stripRawJsonFromChatBody(message.body), [message.body])
+  const thinkingText = visibleMessageBody || (message.status === 'running'
+    ? 'Codex çalışıyor'
     : '')
   const toolBody = useMemo(() => (
-    message.role === 'tool' ? (gatewayBlock ? message.body : formatGatewayToolBody(message.body)) : ''
-  ), [gatewayBlock, message.body, message.role])
+    message.role === 'tool'
+      ? (stripRawJsonFromChatBody(gatewayBlock ? message.body : formatGatewayToolBody(message.body)) || commandFallbackBody(message))
+      : ''
+  ), [gatewayBlock, message])
   const thinkingBody = useMemo(() => renderMarkdownLite(thinkingText), [thinkingText])
-  const messageBody = useMemo(() => renderMarkdownLite(message.body), [message.body])
+  const messageBody = useMemo(() => renderMarkdownLite(visibleMessageBody), [visibleMessageBody])
   const toolBodyRendered = useMemo(() => renderMarkdownLite(toolBody), [toolBody])
   const pathEntries = useMemo(() => metadataPathEntries(message.metadata), [message.metadata])
-  const metadataBody = useMemo(() => (
-    compactMetadataPreview(message.metadata) ? formatJsonMetadata(compactMetadataPreview(message.metadata) ?? {}) : ''
-  ), [message.metadata])
 
   if (message.role !== 'user') {
     return renderCodexTranscriptMessage({
@@ -607,7 +612,7 @@ export const GatewayChatMessageItem = memo(function GatewayChatMessageItem({ mes
           {message.role === 'error' ? <LuX size={14} /> : null}
         </span>
         <span className={styles.chatMessageKicker}>{roleLabel(message.role)}</span>
-        <span className={styles.chatMessageMeta}>{statusLabel ?? message.source} · {formatChatTime(message.createdAt)}</span>
+        <span className={styles.chatMessageMeta}>{statusLabel} · {formatChatTime(message.createdAt)}</span>
         {usage ? <span className={styles.chatMessageMeta}>{formatUsageSummary(usage)}</span> : null}
       </div>
       <div className={styles.chatMessageBody}>
@@ -615,9 +620,9 @@ export const GatewayChatMessageItem = memo(function GatewayChatMessageItem({ mes
           <div className={styles.chatThinkingBlock}>
             <span className={styles.chatThinkingLine}>
               {message.status === 'running' ? (
-                <>Working <span className={styles.thinkingDots}><i /><i /><i /></span></>
+                <>Çalışıyor <span className={styles.thinkingDots}><i /><i /><i /></span></>
               ) : (
-                <><LuCircleCheck size={15} /> {thinkingLabel || 'Working'}</>
+                <><LuCircleCheck size={15} /> {thinkingLabel || 'Çalıştı'}</>
               )}
             </span>
             {thinkingText ? <div className={styles.chatThinkingText}>{thinkingBody}</div> : null}
@@ -645,12 +650,6 @@ export const GatewayChatMessageItem = memo(function GatewayChatMessageItem({ mes
           messageBody
         ) : null}
       </div>
-      {metadataBody && message.role !== 'tool' ? (
-        <details className={styles.codexDetails}>
-          <summary>Details</summary>
-          <pre>{metadataBody}</pre>
-        </details>
-      ) : null}
       {message.body.trim() ? (
         <button
           type="button"

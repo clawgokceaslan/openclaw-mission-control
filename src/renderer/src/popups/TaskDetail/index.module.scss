@@ -174,9 +174,11 @@
 }
 
 .importButton,
+.exportButton,
 .downloadButton,
 .optionsButton,
 .planButton,
+.stopButton,
 .taskDetailOpenChatButton {
   border-color: color-mix(in srgb, var(--omc-border) 60%, transparent);
   background: transparent;
@@ -191,6 +193,15 @@
     border-color: var(--omc-border-strong);
     background: var(--omc-hover-bg);
     color: var(--omc-text-strong);
+  }
+}
+
+.stopButton {
+  color: var(--omc-danger);
+
+  &:hover:not(:disabled),
+  &:active:not(:disabled) {
+    color: var(--omc-danger);
   }
 }
 

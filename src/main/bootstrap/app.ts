@@ -148,6 +148,17 @@ function sendMainNavigation(path: string, state?: unknown): void {
   }
 }
 
+function focusMainWindow(): { focused: boolean } {
+  if (!BrowserWindow) return { focused: false }
+  const mainWindow = windowRef && !windowRef.isDestroyed() ? windowRef : createMainWindow()
+  windowRef = mainWindow
+
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+  return { focused: true }
+}
+
 function relaunchApp(openDatabaseSettings = false): void {
   if (!app) return
   const args = process.argv.slice(1).filter((arg) => arg !== OPEN_DATABASE_SETTINGS_ARG)
@@ -171,6 +182,10 @@ function registerCompanionIpcRoutes(): void {
     sendMainNavigation(path, request.state)
     companionWindowRef?.hide()
     return { ok: true, data: { path } }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.app.focusPlannerQuestion, () => {
+    return okResponse(focusMainWindow())
   })
 
   ipcMain.handle(IPC_CHANNELS.app.rendererHealth, (event, rawRequest) => {

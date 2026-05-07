@@ -417,6 +417,32 @@ export function latestTaskGatewayConversation(task: TaskEntity, requestedPhase: 
   return latest
 }
 
+export function latestActiveTaskGatewayConversation(task: TaskEntity, requestedPhase: TaskGatewayConversationSource, now = Date.now()): TaskGatewayConversationMatch | null {
+  let latest: TaskGatewayConversationMatch | null = null
+  const normalizedPhase = normalizeConversationSourcePhase(requestedPhase)
+  const terminalByConversation = new Map<string, number>()
+  for (const message of taskActivityMessages(task)) {
+    if (inferGatewayChatPhase(message) !== normalizedPhase) continue
+    if (!isTerminalActivityMessage(message)) continue
+    const conversationId = conversationIdOfActivity(message)
+    const at = activityMessageTime(message)
+    const current = terminalByConversation.get(conversationId)
+    if (current === undefined || current <= at) terminalByConversation.set(conversationId, at)
+  }
+  for (const message of taskActivityMessages(task)) {
+    if (inferGatewayChatPhase(message) !== normalizedPhase) continue
+    if (!isFreshActiveMessage(message, now)) continue
+    const conversationId = message.conversationId || message.runId
+    if (!conversationId) continue
+    const at = message.updatedAt ?? message.createdAt
+    const terminalAt = terminalByConversation.get(conversationId)
+    if (terminalAt !== undefined && terminalAt >= at) continue
+    if (latest && latest.at >= at) continue
+    latest = { source: message.source, phase: normalizedPhase, conversationId, at }
+  }
+  return latest
+}
+
 export function taskGatewayActionChips(task: TaskEntity): TaskGatewayActionChip[] {
   return (['PLAN', 'RUN', 'POST-RUNNING', 'FOLLOW UP'] as const).flatMap((phase) => {
     const latest = latestTaskGatewayConversation(task, phase)

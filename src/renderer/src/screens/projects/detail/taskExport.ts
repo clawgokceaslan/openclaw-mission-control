@@ -625,6 +625,46 @@ export function buildTaskJson(context: ExportContext, exportStatuses: Attachment
   return `${JSON.stringify(buildTaskJsonData(context, exportStatuses, subtaskExportStatuses), null, 2)}\n`
 }
 
+function customFieldImportValues(values: Record<string, unknown> | undefined, fields: CustomField[]) {
+  const normalizedValues = values && typeof values === 'object' && !Array.isArray(values) ? values : {}
+  return Object.entries(normalizedValues)
+    .filter(([, value]) => hasExportValue(value))
+    .map(([fieldId, value]) => {
+      const field = fields.find((item) => item.id === fieldId)
+      return {
+        name: field?.name ?? fieldId,
+        type: field?.type ?? 'text',
+        value
+      }
+    })
+}
+
+export function buildTaskImportJsonData(context: ExportContext) {
+  const { task } = context
+  return {
+    title: task.title,
+    description: task.description ?? '',
+    ...(acceptanceCriteriaMarkdown(task) ? { acceptanceCriteria: acceptanceCriteriaMarkdown(task) } : {}),
+    tags: (task.tags ?? []).map((tag) => tag.name || tag.id).filter(Boolean),
+    customFields: customFieldImportValues(task.customFieldValues, context.customFields),
+    checklist: task.checklistItems ?? [],
+    comments: task.comments ?? [],
+    subtasks: (task.subtasks ?? []).map((subtask) => ({
+      title: subtask.title,
+      description: getSubtaskDescription(subtask),
+      tags: getSubtaskTagIds(subtask).map((id) => context.tags.find((tag) => tag.id === id)?.name ?? id),
+      customFields: customFieldImportValues(getPayload(subtask).customFields as Record<string, unknown> | undefined, context.customFields),
+      checklist: getSubtaskChecklist(subtask),
+      comments: getSubtaskComments(subtask),
+      ...(typeof getPayload(subtask).dueAt === 'number' ? { dueAt: getPayload(subtask).dueAt } : {})
+    }))
+  }
+}
+
+export function buildTaskImportJson(context: ExportContext): string {
+  return `${JSON.stringify(buildTaskImportJsonData(context), null, 2)}\n`
+}
+
 export function buildTaskToon(context: ExportContext, exportStatuses: AttachmentExportStatus[] = [], subtaskExportStatuses: SubtaskExportStatusMap = {}): string {
   const data = buildTaskJsonData(context, exportStatuses, subtaskExportStatuses)
   return `${serializeToonRecord({

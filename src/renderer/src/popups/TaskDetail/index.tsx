@@ -1,11 +1,10 @@
 import { Component, CSSProperties, DragEvent, PointerEvent, ReactNode, useEffect, useRef, useState } from 'react'
 import { Stack } from 'react-bootstrap'
-import { LuBot, LuChevronDown, LuCopy, LuDownload, LuExternalLink, LuFileText, LuListChecks, LuMessageSquare, LuEllipsis, LuPaperclip, LuPencil, LuPlay, LuPlus, LuSettings2, LuSlidersHorizontal, LuSparkles, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
+import { LuBot, LuChevronDown, LuCopy, LuDownload, LuExternalLink, LuFileText, LuListChecks, LuMessageSquare, LuEllipsis, LuPaperclip, LuPencil, LuPlay, LuPlus, LuSettings2, LuSlidersHorizontal, LuSparkles, LuSquare, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
 import type { TaskComment } from '@shared/types/entities'
 import { GATEWAY_REASONING_EFFORT_OPTIONS, gatewayModelReasoningEfforts, gatewayModelSupportsReasoning, normalizeGatewayReasoningEffort } from '@shared/utils/gateway-language'
 import { AppSelect } from '@renderer/components/select/AppSelect'
 import { AttachmentTable } from '@renderer/components/attachments/AttachmentTable'
-import { useConfirmation } from '@renderer/components/confirmation'
 import { MarkdownDescriptionEditor } from '@renderer/components/markdown/MarkdownDescriptionEditor'
 import { AgentAssignmentPanel, SkillsAssignmentPanel } from '@renderer/components/projects/detail/AssignmentPanels'
 import { codexConfigOf, customFieldValueLabel, customFieldValueToDraft, readTaskGatewayOverride } from '@renderer/screens/projects/detail/projectDetailUtils'
@@ -92,15 +91,21 @@ interface TaskDetailPopupProps {
   onDownloadZip?: () => void
   onDownloadTaskMarkdown?: () => void
   onDownloadTaskJson?: () => void
+  onExportTaskJson?: () => void
   onDownloadTaskToon?: () => void
   onDownloadAgentMarkdown?: () => void
   onDownloadSkillsMarkdown?: () => void
   onRunGateway?: () => void
   isRunGatewayBusy?: boolean
   isRunGatewayDisabled?: boolean
+  onStopRunGateway?: () => void
+  isRunGatewayRunning?: boolean
   onPlanWithGateway?: () => void
   isPlanWithGatewayBusy?: boolean
   isPlanWithGatewayDisabled?: boolean
+  onStopPlanGateway?: () => void
+  isPlanWithGatewayRunning?: boolean
+  isStopGatewayBusy?: boolean
   onImportJson?: () => void
 }
 
@@ -442,15 +447,21 @@ export function TaskDetailPopup({
   onDownloadZip,
   onDownloadTaskMarkdown,
   onDownloadTaskJson,
+  onExportTaskJson,
   onDownloadTaskToon,
   onDownloadAgentMarkdown,
   onDownloadSkillsMarkdown,
   onRunGateway,
   isRunGatewayBusy = false,
   isRunGatewayDisabled = false,
+  onStopRunGateway,
+  isRunGatewayRunning = false,
   onPlanWithGateway,
   isPlanWithGatewayBusy = false,
   isPlanWithGatewayDisabled = false,
+  onStopPlanGateway,
+  isPlanWithGatewayRunning = false,
+  isStopGatewayBusy = false,
   onImportJson
 }: TaskDetailPopupProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -459,7 +470,6 @@ export function TaskDetailPopup({
   const menuRef = useRef<HTMLDivElement | null>(null)
   const downloadMenuRef = useRef<HTMLDivElement | null>(null)
   const dragDepthRef = useRef(0)
-  const confirm = useConfirmation()
   const hasDownloadActions = Boolean(onDownloadZip || onDownloadTaskMarkdown || onDownloadTaskJson || onDownloadTaskToon || onDownloadAgentMarkdown || onDownloadSkillsMarkdown)
 
   useEffect(() => lockModalInteractionRegion(), [])
@@ -479,19 +489,6 @@ export function TaskDetailPopup({
   const copyTaskId = () => { void navigator.clipboard?.writeText(taskId); setIsMenuOpen(false) }
   const copyTaskLink = () => { const url = new URL(window.location.href); url.searchParams.set('task', taskId); void navigator.clipboard?.writeText(url.toString()); setIsMenuOpen(false) }
   const runHeaderAction = (event: PointerEvent<HTMLButtonElement>, action: () => void) => { event.preventDefault(); event.stopPropagation(); action() }
-  const confirmRunGateway = async () => {
-    if (!onRunGateway || isRunGatewayBusy || isRunGatewayDisabled) return
-    setIsMenuOpen(false)
-    setIsDownloadMenuOpen(false)
-    const confirmed = await confirm({
-      title: 'Run this task?',
-      message: 'Codex will start executing this task with the current task context and selected run model.',
-      confirmLabel: 'Run',
-      cancelLabel: 'Cancel',
-      tone: 'primary'
-    })
-    if (confirmed) onRunGateway()
-  }
 
   const actions = (
     <>
@@ -501,6 +498,12 @@ export function TaskDetailPopup({
             <button type="button" className={`${styles.iconButton} ${styles.labeledActionButton} ${styles.importButton}`} onPointerDown={(event) => runHeaderAction(event, onImportJson)} aria-label="Import JSON">
               <LuUpload size={16} />
               <span className={styles.actionButtonLabel}>Import</span>
+            </button>
+          ) : null}
+          {onExportTaskJson ? (
+            <button type="button" className={`${styles.iconButton} ${styles.labeledActionButton} ${styles.exportButton}`} onPointerDown={(event) => runHeaderAction(event, onExportTaskJson)} aria-label="Export JSON">
+              <LuDownload size={16} />
+              <span className={styles.actionButtonLabel}>Export</span>
             </button>
           ) : null}
           {hasDownloadActions ? (
@@ -530,14 +533,26 @@ export function TaskDetailPopup({
             </div>
           ) : null}
           <div className={styles.primaryActions}>
+            {isPlanWithGatewayRunning && onStopPlanGateway ? (
+              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.stopButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isStopGatewayBusy) onStopPlanGateway() })} disabled={isStopGatewayBusy} aria-label="Stop Codex plan" title="Stop running Codex plan">
+                <LuSquare size={15} />
+                <span className={styles.primaryActionLabel}>Stop Plan</span>
+              </button>
+            ) : null}
             {onPlanWithGateway ? (
               <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.planButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isPlanWithGatewayBusy && !isPlanWithGatewayDisabled) onPlanWithGateway() })} disabled={isPlanWithGatewayBusy || isPlanWithGatewayDisabled} aria-label="Plan task with Codex" title={isPlanWithGatewayDisabled ? 'Configure Codex gateway and model before planning this task.' : 'Plan task with Codex'}>
                 <LuSparkles size={16} />
                 <span className={styles.primaryActionLabel}>Plan</span>
               </button>
             ) : null}
+            {isRunGatewayRunning && onStopRunGateway ? (
+              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.stopButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isStopGatewayBusy) onStopRunGateway() })} disabled={isStopGatewayBusy} aria-label="Stop Codex run" title="Stop running Codex run">
+                <LuSquare size={15} />
+                <span className={styles.primaryActionLabel}>Stop Run</span>
+              </button>
+            ) : null}
             {onRunGateway ? (
-              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.runButton}`} onPointerDown={(event) => runHeaderAction(event, () => { void confirmRunGateway() })} disabled={isRunGatewayBusy || isRunGatewayDisabled} aria-label="Run task with Codex" title={isRunGatewayDisabled ? 'Configure Codex gateway and model before running this task.' : 'Run task with Codex'}>
+              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.runButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isRunGatewayBusy && !isRunGatewayDisabled) onRunGateway() })} disabled={isRunGatewayBusy || isRunGatewayDisabled} aria-label="Run task with Codex" title={isRunGatewayDisabled ? 'Configure Codex gateway and model before running this task.' : 'Run task with Codex'}>
                 <LuPlay size={16} />
                 <span className={styles.primaryActionLabel}>Run</span>
               </button>
