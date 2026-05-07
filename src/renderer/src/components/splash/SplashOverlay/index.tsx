@@ -15,18 +15,42 @@ const codeRain = [
   'push({ branch: "main", clean: true })'
 ]
 
-const taskRain = [
-  'Review · App Splash Loader',
-  'Active · Renderer Overlay',
-  'Queued · Sync Context',
-  'Running · Build Check',
-  'Ready · Task Timeline',
-  'Review · Mission Log',
-  'Active · Agent Scope',
-  'Done · Push Commit'
+const taskTitles = [
+  'App Splash Loader',
+  'Renderer Overlay Polish',
+  'Gateway Context Sync',
+  'Mission Timeline Review',
+  'Task Detail Flow',
+  'Agent Runtime Check',
+  'Build Verification',
+  'Command Palette Sweep',
+  'Project Signal Cleanup',
+  'Review Handoff'
 ]
 
+const taskStatuses = ['Running', 'Review', 'Queued', 'Active', 'Ready', 'Done']
+const taskTags = ['renderer', 'electron', 'ux', 'build', 'gateway', 'planner']
+const taskOwners = ['Pilot', 'Agent', 'Control', 'Runtime', 'Review']
+const taskPoints = [2, 3, 5, 8, 13]
+const taskAccents = ['blue', 'green', 'violet', 'amber']
 const statusNodes = ['CONTEXT', 'TASKS', 'GATEWAY', 'AGENTS', 'BUILD', 'REVIEW']
+
+function pickRandom<T>(items: T[]): T {
+  return items[Math.floor(Math.random() * items.length)]
+}
+
+function buildTaskRain() {
+  return Array.from({ length: 12 }, (_, index) => ({
+    id: `${index}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    status: pickRandom(taskStatuses),
+    title: pickRandom(taskTitles),
+    tag: pickRandom(taskTags),
+    owner: pickRandom(taskOwners),
+    points: pickRandom(taskPoints),
+    accent: pickRandom(taskAccents),
+    progress: 32 + Math.floor(Math.random() * 62)
+  }))
+}
 
 interface SplashOverlayProps {
   ready: boolean
@@ -34,6 +58,7 @@ interface SplashOverlayProps {
 
 export function SplashOverlay({ ready }: SplashOverlayProps) {
   const motivation = useMemo(() => getBootMotivation(), [])
+  const taskRain = useMemo(() => buildTaskRain(), [])
   const [minimumElapsed, setMinimumElapsed] = useState(false)
   const [exiting, setExiting] = useState(false)
   const [visible, setVisible] = useState(true)
@@ -76,7 +101,26 @@ export function SplashOverlay({ ready }: SplashOverlayProps) {
         </div>
         <div className={styles.taskRain}>
           {taskRain.map((task, index) => (
-            <span key={task} style={{ '--task-index': index } as CSSProperties}>{task}</span>
+            <article
+              key={task.id}
+              className={styles.taskCard}
+              style={{
+                '--task-index': index,
+                '--task-progress': `${task.progress}%`
+              } as CSSProperties}
+              data-accent={task.accent}
+            >
+              <div className={styles.taskCardHeader}>
+                <span>{task.status}</span>
+                <small>{task.points}p</small>
+              </div>
+              <strong>{task.title}</strong>
+              <div className={styles.taskCardMeta}>
+                <span>{task.owner}</span>
+                <span>{task.tag}</span>
+              </div>
+              <div className={styles.taskCardProgress} />
+            </article>
           ))}
         </div>
         <div className={styles.signalGrid} />

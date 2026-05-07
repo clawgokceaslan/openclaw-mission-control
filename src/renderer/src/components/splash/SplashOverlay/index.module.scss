@@ -157,44 +157,131 @@
 
     .taskRain {
       position: absolute;
-      top: -22%;
+      top: -28%;
       right: clamp(12px, 3vw, 48px);
-      bottom: -18%;
-      width: min(30vw, 320px);
+      bottom: -24%;
+      width: min(32vw, 340px);
       pointer-events: none;
+      perspective: 900px;
 
-      span {
+      .taskCard {
         position: absolute;
-        top: -20%;
+        top: -24%;
         right: 0;
-        width: min(100%, 280px);
-        padding: 11px 14px 12px 34px;
-        border: 1px solid rgba(72, 205, 145, 0.16);
+        width: min(100%, 304px);
+        display: grid;
+        gap: 9px;
+        padding: 13px 14px 12px;
+        border: 1px solid rgba(236, 242, 255, 0.12);
         border-radius: 8px;
         background:
-          linear-gradient(135deg, rgba(72, 205, 145, 0.12), rgba(116, 154, 255, 0.06)),
-          rgba(8, 13, 20, 0.42);
-        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16);
-        color: rgba(210, 255, 232, 0.58);
-        font-size: clamp(0.68rem, 1.2vw, 0.82rem);
-        font-weight: 700;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        animation: taskStream calc(9s + (var(--task-index) * 0.72s)) cubic-bezier(0.45, 0, 0.55, 1) infinite;
-        animation-delay: calc(var(--task-index) * -0.88s);
+          linear-gradient(135deg, rgba(236, 242, 255, 0.07), transparent 64%),
+          rgba(8, 13, 20, 0.52);
+        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.2);
+        color: rgba(248, 251, 255, 0.76);
+        animation: taskStream calc(7.4s + (var(--task-index) * 0.46s)) cubic-bezier(0.42, 0, 0.24, 1) infinite;
+        animation-delay: calc(var(--task-index) * -0.74s);
+        transform-origin: 100% 0;
 
         &::before {
           content: '';
           position: absolute;
-          top: 50%;
-          left: 13px;
-          width: 8px;
-          aspect-ratio: 1;
-          border-radius: 50%;
-          background: rgba(72, 205, 145, 0.72);
-          transform: translateY(-50%);
-          box-shadow: 0 0 18px rgba(72, 205, 145, 0.34);
+          inset: -1px auto -1px -1px;
+          width: 3px;
+          border-radius: 8px 0 0 8px;
+          background: rgba(116, 154, 255, 0.78);
+          box-shadow: 0 0 22px rgba(116, 154, 255, 0.28);
+        }
+
+        &[data-accent='green'] {
+          &::before {
+            background: rgba(72, 205, 145, 0.78);
+            box-shadow: 0 0 22px rgba(72, 205, 145, 0.3);
+          }
+        }
+
+        &[data-accent='violet'] {
+          &::before {
+            background: rgba(166, 139, 255, 0.78);
+            box-shadow: 0 0 22px rgba(166, 139, 255, 0.28);
+          }
+        }
+
+        &[data-accent='amber'] {
+          &::before {
+            background: rgba(255, 189, 92, 0.78);
+            box-shadow: 0 0 22px rgba(255, 189, 92, 0.26);
+          }
+        }
+
+        .taskCardHeader,
+        .taskCardMeta {
+          min-width: 0;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+        }
+
+        .taskCardHeader {
+          span {
+            color: rgba(72, 205, 145, 0.82);
+            font-size: 0.62rem;
+            font-weight: 780;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+          }
+
+          small {
+            color: rgba(227, 238, 255, 0.34);
+            font-size: 0.66rem;
+            font-weight: 720;
+          }
+        }
+
+        strong {
+          min-width: 0;
+          color: rgba(248, 251, 255, 0.84);
+          font-size: clamp(0.76rem, 1.18vw, 0.92rem);
+          font-weight: 760;
+          letter-spacing: 0;
+          line-height: 1.25;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .taskCardMeta {
+          span {
+            min-width: 0;
+            color: rgba(227, 238, 255, 0.38);
+            font-size: 0.66rem;
+            font-weight: 650;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+
+            &:last-child {
+              text-align: right;
+            }
+          }
+        }
+
+        .taskCardProgress {
+          position: relative;
+          height: 3px;
+          overflow: hidden;
+          border-radius: 999px;
+          background: rgba(236, 242, 255, 0.08);
+
+          &::before {
+            content: '';
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: var(--task-progress);
+            border-radius: inherit;
+            background: linear-gradient(90deg, rgba(116, 154, 255, 0.82), rgba(72, 205, 145, 0.72));
+          }
         }
       }
     }
@@ -386,6 +473,11 @@
         right: 12px;
         width: 42vw;
         opacity: 0.74;
+
+        .taskCard {
+          width: min(100%, 240px);
+          padding: 10px 11px;
+        }
       }
     }
 
@@ -409,7 +501,7 @@
     .animationField .orbit,
     .animationField .codeRain span,
     .animationField .codeRain::before,
-    .animationField .taskRain span,
+    .animationField .taskRain .taskCard,
     .splashPanel,
     .splashPanel .brandStack .logoShell span,
     .splashPanel .loaderRow .spinner span {
@@ -474,17 +566,20 @@
 
 @keyframes taskStream {
   from {
-    transform: translate3d(4vw, -14vh, 0) scale(0.98);
+    transform: translate3d(22px, -18vh, 0) rotateX(10deg) scale(0.96);
     opacity: 0;
   }
 
-  14%,
-  74% {
-    opacity: 0.78;
+  10% {
+    opacity: 0.82;
+  }
+
+  72% {
+    opacity: 0.76;
   }
 
   to {
-    transform: translate3d(-1vw, 126vh, 0) scale(1);
+    transform: translate3d(-10px, 132vh, 0) rotateX(0deg) scale(1);
     opacity: 0;
   }
 }
