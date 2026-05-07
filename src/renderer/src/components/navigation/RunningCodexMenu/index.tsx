@@ -5,8 +5,8 @@ import { useAuth } from '@renderer/providers/auth/auth-state'
 import { useGlobalCodexChat } from '@renderer/providers/codex-global-chat'
 import { invokeBridge, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { formatRunningCodexActivitySummary, runningCodexConversationTypeLabel, runningCodexGroupLabel, runningCodexLiveStatusLabel } from '../runningCodexMenuUtils'
+import { codexHeaderRefreshModeFromTaskActivityArgs, codexHeaderRefreshModeFromTaskUpdatedArgs } from '../codexHeaderRefresh'
 import { useOutsidePointerDown } from '../useOutsidePointerDown'
-import { type TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 import styles from './index.module.scss'
 
 const PAGE_SIZE = 8
@@ -136,6 +136,19 @@ export function RunningCodexMenu() {
     }, 250)
   }, [loadPage, token])
 
+  const refreshFromSource = useCallback(() => {
+    if (!token) return
+    if (refreshTimerRef.current) {
+      window.clearTimeout(refreshTimerRef.current)
+      refreshTimerRef.current = null
+    }
+    if (openRef.current) {
+      void loadPage(pageRef.current)
+    } else {
+      void loadPage(1, { includeRows: false })
+    }
+  }, [loadPage, token])
+
   useEffect(() => {
     if (!open) return
     openRef.current = open
@@ -170,15 +183,15 @@ export function RunningCodexMenu() {
     if (!token) return
 
     const onTaskActivity = (...args: unknown[]) => {
-      const payload = (args[1] ?? args[0]) as { message?: TaskActivityMessage } | undefined
-      const source = payload?.message?.source
-      if (source === 'codex-plan' || source === 'codex-run' || source === 'codex-chat') {
-        scheduleSummaryRefresh()
-      }
+      const refreshMode = codexHeaderRefreshModeFromTaskActivityArgs(args)
+      if (refreshMode === 'immediate') refreshFromSource()
+      if (refreshMode === 'debounced') scheduleSummaryRefresh()
     }
 
-    const onTaskUpdated = () => {
-      scheduleSummaryRefresh()
+    const onTaskUpdated = (...args: unknown[]) => {
+      const refreshMode = codexHeaderRefreshModeFromTaskUpdatedArgs(args)
+      if (refreshMode === 'immediate') refreshFromSource()
+      if (refreshMode === 'debounced') scheduleSummaryRefresh()
     }
 
     subscribeToChannel(IPC_CHANNELS.events.taskActivity, onTaskActivity)
@@ -188,7 +201,7 @@ export function RunningCodexMenu() {
       unsubscribeFromChannel(IPC_CHANNELS.events.taskActivity, onTaskActivity)
       unsubscribeFromChannel(IPC_CHANNELS.events.taskUpdated, onTaskUpdated)
     }
-  }, [scheduleSummaryRefresh, token])
+  }, [refreshFromSource, scheduleSummaryRefresh, token])
 
   useEffect(() => {
     return () => {
