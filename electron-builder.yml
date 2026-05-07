@@ -9,9 +9,17 @@ files:
   - node_modules
   - docs/**
   - app-icon.png
+  - build/icons/app-icon.icns
 extraMetadata:
   main: dist/main/index.js
+extraResources:
+  - from: src/db/migrations
+    to: src/db/migrations
 asar: true
 publish: []
+afterPack: scripts/after-pack-ad-hoc-sign.cjs
 mac:
-  icon: app-icon.png
+  icon: icons/app-icon.icns
+  identity: null
+  target:
+    - dmg

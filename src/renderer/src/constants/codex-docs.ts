@@ -18,7 +18,7 @@ export const CODEX_DOCS: CodexDoc[] = [
     id: 'omc-runtime-operations',
     title: 'OMC Runtime Operations',
     category: 'OMC Runtime',
-    summary: 'Open Mission Control runtime dosya konumu, OMC görev akışı, CLI komutları ve dokümantasyon rehberinin tek bir kaynakta yönetimi.',
+    summary: 'Single source for Open Mission Control runtime file locations, OMC task flow, CLI commands, and documentation guidance.',
     sourceFiles: [
       'src/main/bootstrap/app.ts',
       'src/main/ipc/router.ts',
@@ -30,9 +30,9 @@ export const CODEX_DOCS: CodexDoc[] = [
       'src/renderer/src/constants/codex-docs.ts'
     ],
     terms: [
-      { term: 'Database folder', description: 'SQLite veritabanı dosyasının kopyalanacağı klasör.' },
-      { term: 'Pending restart', description: 'Geçişin uygulanabilmesi için uygulamanın yeniden başlatılmasını gerektiren durum.' },
-      { term: 'Runtime docs', description: 'Kod çalıştırma ve OMC CLI yürütme rehberlerinin Settings\'ten ayrılıp Documentation içinde okunabilir hale gelmesi.' }
+      { term: 'Database folder', description: 'Folder where the SQLite database file is written.' },
+      { term: 'Pending restart', description: 'State that requires an app restart before the location switch is applied.' },
+      { term: 'Runtime docs', description: 'Runtime and OMC CLI execution guidance shown in Documentation instead of Settings.' }
     ],
     markdown: `# OMC Runtime Operations
 
@@ -50,17 +50,20 @@ Open Mission Control now keeps runtime helper instructions in Documentation and 
 ## Database folder behavior
 
 - Database location is stored before fallback to \`userData/data\`.
-- Moving the database file is copy-and-restart:
-  - Current \`mission-control.sqlite\` is copied to the selected folder.
+- Moving the database file is snapshot-and-restart:
+  - Current \`mission-control.sqlite\` is written to the selected folder with a live SQLite snapshot when the app database is open.
+  - In development, \`data/mission-control.sqlite\` is detected as a source candidate when Electron points at a userData folder.
+  - If the configured source is missing, the user can select an existing SQLite database file manually.
   - New folder is persisted.
   - New path is used only on next app start.
 
 Allowed path checks include:
 
-- destination must be an existing folder;
-- destination must contain the expected file name \`mission-control.sqlite\` when copying;
+- destination is created when it does not exist;
+- destination must not already contain \`mission-control.sqlite\`;
 - existing non-file named \`mission-control.sqlite\` blocks move;
-- same-folder selections are rejected.
+- same-folder selections clear pending changes;
+- selecting the current pending folder is idempotent.
 
 ## Helpful OMC commands
 

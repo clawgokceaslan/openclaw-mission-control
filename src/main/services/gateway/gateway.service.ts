@@ -22,6 +22,7 @@ import { OpenClawGatewayClient, OpenClawGatewayRuntimeRegistry } from './rpc-cli
 import { createOpenClawDeviceIdentity } from './device-identity.js'
 import { OPENCLAW_METHODS, isKnownOpenClawMethod } from './method-catalog.js'
 import { ACTIVE_GATEWAY_KEY } from '../app-settings.service.js'
+import { codexProcessEnv, resolveCodexExecutable } from '../../utils/codex-cli-resolver.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -234,13 +235,15 @@ export class GatewayService {
     const codexPath = template.codexPath || gateway.endpoint || 'codex'
     const args = ['debug', 'models']
     try {
-      const { stdout } = await execFileAsync(codexPath, args, { timeout: 20_000, maxBuffer: 1024 * 1024 * 8 })
+      const resolved = await resolveCodexExecutable(codexPath)
+      const { stdout } = await execFileAsync(resolved.command, args, { timeout: 20_000, maxBuffer: 1024 * 1024 * 8, env: codexProcessEnv(resolved) })
       const models = normalizeCodexModels(stdout)
       if (models.length === 0) throw new Error('Codex CLI returned no models')
       const updated = await this.repo.update(gateway.id, {
-        endpoint: codexPath,
+        endpoint: resolved.command,
         template: {
           ...template,
+          codexPath: resolved.command,
           models,
           lastModelRefreshAt: Date.now(),
           lastModelRefreshError: undefined

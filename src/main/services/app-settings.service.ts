@@ -8,7 +8,6 @@ import { ProjectRepository } from '../../db/repositories/project-repo.js'
 import { getDatabaseLocationState, moveDatabaseToFolder } from '../../db/config.js'
 import { AuthService } from './auth.service.js'
 import { DEFAULT_CODEX_LANGUAGE, normalizeCodexLanguage, type CodexLanguage } from '../../shared/utils/codex-language.js'
-import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { electronRuntime } from '../utils/electron-runtime.js'
 import type { DatabaseLocationState } from '../../shared/contracts/ipc.js'
 
@@ -145,20 +144,43 @@ export class AppSettingsService {
     return okResponse({ folderPath: result.filePaths[0] })
   }
 
-  async moveDatabaseLocation(payload: { actorToken?: string; folderPath?: string | null }): Promise<ServiceResponse<DatabaseLocationState>> {
+  async pickDatabaseFile(payload: { actorToken?: string }): Promise<ServiceResponse<{ filePath: string } | null>> {
+    await this.auth.requireActor(payload?.actorToken)
+    const dialog = electronRuntime.dialog
+    if (!dialog) {
+      return errorResponse(ErrorCodes.Internal, 'Electron dialog runtime is unavailable')
+    }
+    const result = await dialog.showOpenDialog({
+      title: 'Select SQLite database file',
+      properties: ['openFile'],
+      filters: [
+        { name: 'SQLite database', extensions: ['sqlite', 'sqlite3', 'db'] },
+        { name: 'All files', extensions: ['*'] }
+      ]
+    })
+    if (result.canceled || !result.filePaths[0]) {
+      return okResponse(null)
+    }
+    return okResponse({ filePath: result.filePaths[0] })
+  }
+
+  async moveDatabaseLocation(payload: { actorToken?: string; folderPath?: string | null; sourceDbPath?: string | null }): Promise<ServiceResponse<DatabaseLocationState>> {
     await this.auth.requireActor(payload?.actorToken)
     const folderPath = payload?.folderPath?.trim() ?? ''
     if (!folderPath) return errorResponse(ErrorCodes.Validation, 'Destination folder is required')
     try {
-      const state = await moveDatabaseToFolder(folderPath)
+      const state = await moveDatabaseToFolder(folderPath, payload?.sourceDbPath)
       return okResponse(state)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to move database file'
       const lowered = message.toLowerCase()
       if (
         lowered.includes('destination folder') ||
+        lowered.includes('destination path') ||
         lowered.includes('same folder') ||
         lowered.includes('required') ||
+        lowered.includes('already contains') ||
+        lowered.includes('selected database file') ||
         lowered.includes('database file cannot be found')
       ) {
         return errorResponse(ErrorCodes.Validation, message)

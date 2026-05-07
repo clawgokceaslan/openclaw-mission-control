@@ -1,7 +1,9 @@
 export const IPC_CHANNELS = {
   app: {
     navigateFromCompanion: 'app:navigate-from-companion',
-    rendererHealth: 'app:renderer-health'
+    rendererHealth: 'app:renderer-health',
+    restart: 'app:restart',
+    restartToDatabaseSettings: 'app:restart-to-database-settings'
   },
   auth: {
     login: 'auth:login',
@@ -37,6 +39,7 @@ export const IPC_CHANNELS = {
     setCodexLanguage: 'app-settings:set-codex-language',
     getDatabaseLocation: 'app-settings:get-database-location',
     pickDatabaseFolder: 'app-settings:pick-database-folder',
+    pickDatabaseFile: 'app-settings:pick-database-file',
     moveDatabaseLocation: 'app-settings:move-database-location',
     revealDatabaseLocation: 'app-settings:reveal-database-location'
   },
@@ -584,8 +587,11 @@ export interface WorkspaceRequest {
 export interface DatabaseLocationState {
   currentFolderPath: string
   currentDbPath: string
+  currentDbExists: boolean
   pendingFolderPath: string | null
   pendingDbPath: string | null
+  pendingDbExists: boolean
+  recommendedSourceDbPath: string | null
   restartRequired: boolean
 }
 
@@ -597,9 +603,18 @@ export interface PickDatabaseFolderResponse {
   folderPath: string | null
 }
 
+export interface PickDatabaseFileRequest {
+  actorToken?: string
+}
+
+export interface PickDatabaseFileResponse {
+  filePath: string | null
+}
+
 export interface MoveDatabaseLocationRequest {
   actorToken?: string
   folderPath?: string | null
+  sourceDbPath?: string | null
 }
 
 export interface RevealDatabaseLocationRequest {
@@ -628,7 +643,7 @@ export const SERVICE_MAP = {
   auth: ['login', 'logout', 'me', 'inviteValidate', 'updateProfile'],
   projects: ['list', 'get', 'create', 'update', 'moveWorkspace', 'exportWorkspace', 'remove'],
   workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
-  appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent', 'getDefaultAddTaskProject', 'setDefaultAddTaskProject', 'getCodexLanguage', 'setCodexLanguage', 'getDatabaseLocation', 'pickDatabaseFolder', 'moveDatabaseLocation', 'revealDatabaseLocation'],
+  appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent', 'getDefaultAddTaskProject', 'setDefaultAddTaskProject', 'getCodexLanguage', 'setCodexLanguage', 'getDatabaseLocation', 'pickDatabaseFolder', 'pickDatabaseFile', 'moveDatabaseLocation', 'revealDatabaseLocation'],
   statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
   tasks: ['list', 'listPlannedCodex', 'listRunningCodex', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runCodex', 'planWithCodex', 'codexChatSend', 'codexChatStop', 'codexChatResolve', 'plannerContext', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
   taskTemplates: ['list', 'create', 'update', 'remove', 'importJson'],
@@ -844,6 +859,13 @@ export const SERVICE_ROUTING: {
       action: 'pickDatabaseFolder',
       method: 'pickDatabaseFolder',
       channel: IPC_CHANNELS.appSettings.pickDatabaseFolder,
+      requiresAuth: true
+    },
+    pickDatabaseFile: {
+      domain: 'appSettings',
+      action: 'pickDatabaseFile',
+      method: 'pickDatabaseFile',
+      channel: IPC_CHANNELS.appSettings.pickDatabaseFile,
       requiresAuth: true
     },
     moveDatabaseLocation: {

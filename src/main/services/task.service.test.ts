@@ -70,6 +70,40 @@ describe('codexChatPrompt', () => {
     expect(prompt.indexOf('Important task comments:')).toBeLessThan(prompt.indexOf('Current task context JSON:'))
   })
 
+  it('uses compact task metadata and capped transcript for follow-up context', () => {
+    const longBody = 'large transcript body '.repeat(80)
+    const prompt = codexChatPrompt({
+      task: taskWithComments(),
+      message: 'Continue from latest run.',
+      followUpContext: 'NEXT_CHAT_HANDOFF\ncompleted_work: compact handoff',
+      transcript: Array.from({ length: 12 }, (_, index) => ({
+        id: `m-${index}`,
+        runId: 'chat-1',
+        source: 'codex-chat' as const,
+        role: 'assistant' as const,
+        status: 'completed' as const,
+        body: `${index} ${longBody}`,
+        createdAt: index
+      })),
+      context: {
+        currentTaskJson: {
+          status: 'review',
+          huge: 'context '.repeat(1000)
+        },
+        project: { id: 'project-1', name: 'Mission Control' }
+      },
+      mode: 'chat'
+    })
+
+    expect(prompt).toContain('Latest run output context:\nNEXT_CHAT_HANDOFF')
+    expect(prompt).toContain('Follow-up task metadata JSON:')
+    expect(prompt).not.toContain('Current task context JSON:')
+    expect(prompt).toContain('"status": "review"')
+    expect(prompt).not.toContain('context context context context context context')
+    expect((prompt.match(/ASSISTANT:/g) ?? []).length).toBe(10)
+    expect(prompt).not.toContain(longBody)
+  })
+
   it('renders task and subtask comments in separate equal-weight sections', () => {
     const prompt = codexChatPrompt({
       task: taskWithComments(),

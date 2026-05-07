@@ -442,6 +442,37 @@ describe('chat utils helpers', () => {
     expect(context).toContain('Final run status')
   })
 
+  it('prefers compact next chat handoff in latest run follow-up context', () => {
+    const verbose = 'Full assistant explanation '.repeat(200)
+    const context = buildLatestRunFollowUpContext([
+      message({
+        id: 'run-assistant',
+        source: 'codex-run',
+        conversationId: 'run-handoff',
+        createdAt: 1,
+        role: 'assistant',
+        status: 'completed',
+        body: `${verbose}\n\nNEXT_CHAT_HANDOFF\nschema: open_mission_control_next_chat_handoff\nversion: 1\ntask: task-1 | Fix | active\ngoal: show status name\ncompleted_work: added resolver`
+      }),
+      message({
+        id: 'run-complete',
+        source: 'codex-run',
+        conversationId: 'run-handoff',
+        createdAt: 2,
+        role: 'system',
+        status: 'completed',
+        body: 'Run complete.',
+        metadata: { codexBlock: 'run-complete', code: 0 }
+      })
+    ])
+
+    expect(context).toContain('Latest handoff:')
+    expect(context).toContain('NEXT_CHAT_HANDOFF')
+    expect(context).toContain('completed_work: added resolver')
+    expect(context).not.toContain('Full assistant explanation Full assistant explanation Full assistant explanation')
+    expect(context.length).toBeLessThanOrEqual(1_600)
+  })
+
   it('returns empty follow-up context for tasks with no run messages', () => {
     expect(buildLatestRunFollowUpContext([message({ id: 'chat-only', source: 'codex-chat', createdAt: 1, body: 'hello' })])).toBe('')
   })

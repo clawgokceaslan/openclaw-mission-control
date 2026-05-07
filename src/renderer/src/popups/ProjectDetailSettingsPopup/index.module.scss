@@ -207,13 +207,21 @@
   display: grid;
   gap: 10px;
 
-  > div {
+  > button {
     border: 1px solid var(--omc-border-subtle);
-    border-radius: 12px;
+    border-radius: 8px;
     background: var(--omc-surface-muted);
     padding: 12px;
     display: grid;
     gap: 5px;
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+
+    &:hover {
+      border-color: var(--omc-border-strong);
+      background: var(--omc-surface);
+    }
   }
 
   span {

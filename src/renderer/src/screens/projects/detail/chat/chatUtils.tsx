@@ -96,10 +96,11 @@ export const CHAT_TOP_LAZY_LOAD_THRESHOLD = 96
 export const CHAT_COMPOSER_MIN_HEIGHT = 72
 export const CHAT_COMPOSER_MAX_HEIGHT = 270
 export const CHAT_RUNNING_ACTIVITY_STALE_MS = 15 * 60 * 1000
-const CHAT_FOLLOW_UP_CONTEXT_MAX_LENGTH = 2_800
-const CHAT_FOLLOW_UP_CONTEXT_RECENT_MESSAGES = 6
+const CHAT_FOLLOW_UP_CONTEXT_MAX_LENGTH = 1_600
+const CHAT_FOLLOW_UP_CONTEXT_RECENT_MESSAGES = 3
 const CHAT_CONTEXT_ENTRY_PREVIEW_LENGTH = 220
-const CHAT_CONTEXT_ENTRY_BODY_LENGTH = 2_400
+const CHAT_CONTEXT_ENTRY_BODY_LENGTH = 1_200
+const CHAT_FOLLOW_UP_FINAL_ASSISTANT_LENGTH = 360
 
 export const CHAT_RUNNING_STATUS_LABELS = ['queued', 'running', 'completed', 'failed'] as const
 
@@ -376,10 +377,26 @@ function buildConversationIdLatest(messages: TaskActivityMessage[]): string | nu
 }
 
 function messageShortLabel(message: TaskActivityMessage): string {
-  const summary = message.body.trim().replace(/\s+/g, ' ')
+  const handoff = message.role === 'assistant' ? nextChatHandoffFromText(message.body) : null
+  const summary = (handoff ?? message.body).trim().replace(/\s+/g, ' ')
   const role = message.role
   const source = message.source
   return `${source}/${role}: ${truncateText(summary, 220)}`
+}
+
+function nextChatHandoffFromText(value: string): string | null {
+  const match = value.match(/(?:^|\n\n)(NEXT_CHAT_HANDOFF(?:_JSON)?\n[\s\S]*)/)
+  const handoff = match?.[1]?.trim()
+  return handoff || null
+}
+
+function latestNextChatHandoff(messages: TaskActivityMessage[]): string | null {
+  for (const message of [...messages].reverse()) {
+    if (message.role !== 'assistant' || !message.body.trim()) continue
+    const handoff = nextChatHandoffFromText(message.body)
+    if (handoff) return handoff
+  }
+  return null
 }
 
 export function buildLatestRunFollowUpContext(messages: TaskActivityMessage[]): string {
@@ -402,15 +419,17 @@ export function buildLatestRunFollowUpContext(messages: TaskActivityMessage[]): 
   const usage = usageFromMetadata(finalAssistant?.metadata) ?? usageFromMetadata(reportedChanges?.metadata) ?? usageFromMetadata(runComplete?.metadata)
   const result = describeRunResult(runComplete?.metadata)
   const changesSummary = reportedChanges ? codexChangesSummary(reportedChanges) : null
+  const handoff = latestNextChatHandoff(conversationMessages)
   const recent = conversationMessages
     .slice(-CHAT_FOLLOW_UP_CONTEXT_RECENT_MESSAGES)
     .map(messageShortLabel)
 
   const lines = [
     `Latest run output context for conversation ${conversationId}:`,
+    handoff ? `Latest handoff:\n${handoff}` : null,
     runComplete ? `Final run status: ${truncateText(runComplete.body.trim() || 'completed', 520)}` : 'Latest run status: not yet completed.',
     result ? `Result: ${result}` : null,
-    finalAssistant ? `Final assistant message: ${truncateText(finalAssistant.body.trim(), 760)}` : null,
+    finalAssistant && !handoff ? `Final assistant message: ${truncateText(finalAssistant.body.trim(), CHAT_FOLLOW_UP_FINAL_ASSISTANT_LENGTH)}` : null,
     changesSummary ? `Reported changes: ${truncateText(formatChangesSummary(changesSummary), 260)}` : null,
     usage ? `Usage: ${formatUsageSummary(usage)}` : null,
     'Recent run activity:',
@@ -458,7 +477,7 @@ function contextEntryFromConversation(conversationId: string, messages: TaskActi
     terminal ? `Status: ${terminal.body.trim() || status}` : `Status: ${status}`,
     result ? `Result: ${result}` : '',
     userMessages.length ? `Recent user direction:\n${userMessages.map((message) => `- ${truncateText(message.body.trim(), 280)}`).join('\n')}` : '',
-    assistant ? `Latest assistant output:\n${truncateText(assistant.body.trim(), 780)}` : '',
+    assistant ? `Latest assistant output:\n${truncateText(nextChatHandoffFromText(assistant.body) ?? assistant.body.trim(), CHAT_FOLLOW_UP_FINAL_ASSISTANT_LENGTH)}` : '',
     changesSummary ? `Reported changes: ${formatChangesSummary(changesSummary)}` : '',
     usage ? `Usage: ${formatUsageSummary(usage)}` : '',
     recent.length ? `Recent activity:\n${recent.map((row) => `- ${row}`).join('\n')}` : ''

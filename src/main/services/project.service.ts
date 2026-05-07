@@ -122,8 +122,8 @@ export class ProjectService {
     const gatewayModels = Array.isArray(gatewayTemplate.models) ? gatewayTemplate.models : []
     const planModelRecord = gatewayModels.find((model) => model && typeof model === 'object' && !Array.isArray(model) && (model as { id?: unknown }).id === planModel)
     const runModelRecord = gatewayModels.find((model) => model && typeof model === 'object' && !Array.isArray(model) && (model as { id?: unknown }).id === runModel)
-    const planReasoningEffort = planModelRecord && codexModelSupportsReasoning(planModelRecord) ? normalizeCodexReasoningValue(codex.planReasoningEffort) : null
-    const runReasoningEffort = runModelRecord && codexModelSupportsReasoning(runModelRecord) ? normalizeCodexReasoningValue(codex.runReasoningEffort) : null
+    const planReasoningEffort = (!planModelRecord || codexModelSupportsReasoning(planModelRecord)) ? normalizeCodexReasoningValue(codex.planReasoningEffort) : null
+    const runReasoningEffort = (!runModelRecord || codexModelSupportsReasoning(runModelRecord)) ? normalizeCodexReasoningValue(codex.runReasoningEffort) : null
     const promptShape = normalizeCodexPromptShape(codex.promptShape)
     return okResponse({
       gatewayId,

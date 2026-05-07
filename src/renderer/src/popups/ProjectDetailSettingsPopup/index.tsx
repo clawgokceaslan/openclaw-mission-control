@@ -81,7 +81,7 @@ export interface ProjectDetailSettingsPopupProps {
     onSetCodexRuntimeWorkspaceId: (value: string) => void
     onSetCodexModelError: (value: string | null) => void
     codexSaving: boolean
-    onSaveProjectCodexSettings: (draft?: { gatewayId: string; runtimeWorkspaceId: string; planModel: string; runModel: string; language: string; promptShape: ProjectCodexSettings['promptShape']; planReasoningEffort: string; runReasoningEffort: string }) => ProjectCodexSettings | void | Promise<ProjectCodexSettings | void>
+    onSaveProjectCodexSettings: (draft?: { gatewayId?: string; runtimeWorkspaceId?: string; planModel?: string; runModel?: string; language?: string; promptShape?: ProjectCodexSettings['promptShape']; planReasoningEffort?: string; runReasoningEffort?: string }) => ProjectCodexSettings | void | Promise<ProjectCodexSettings | void>
     onRefreshCodexGatewayModels?: (gatewayId: string) => Promise<void> | void
     agents?: Agent[]
     skills?: Skill[]
@@ -175,6 +175,11 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
     if (!open) setHydratedProjectId(null)
   }, [open])
 
+  useEffect(() => {
+    if (!open) return
+    setPromptShapeDraft(normalizeCodexPromptShape(scope.codexPromptShape))
+  }, [open, scope.codexPromptShape])
+
   const localGatewayOptions = useMemo(() => scope.codexGatewayOptions, [scope.codexGatewayOptions])
   const localWorkspaceOptions = useMemo(() => scope.workspaceOptions ?? (scope.workspaces ?? []).map((workspace) => ({ label: workspace.name, value: workspace.id })), [scope.workspaceOptions, scope.workspaces])
   const localSelectedGateway = useMemo(() => (scope.gateways ?? []).find((gateway) => gateway.id === gatewayIdDraft) ?? null, [scope.gateways, gatewayIdDraft])
@@ -227,7 +232,12 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
     setCodexSaveMessage(null)
     setCodexSaveError(null)
     try {
-      const saved = await s.onSaveProjectCodexSettings({ gatewayId: gatewayIdDraft, runtimeWorkspaceId: runtimeWorkspaceIdDraft, planModel: planModelDraft, runModel: runModelDraft, language: languageDraft, promptShape: promptShapeDraft, planReasoningEffort: planSupportsReasoning ? planReasoningDraft : '', runReasoningEffort: runSupportsReasoning ? runReasoningDraft : '' })
+      const codexDraft = activeTab === 'promptShape'
+        ? { promptShape: promptShapeDraft }
+        : activeTab === 'language'
+          ? { language: languageDraft }
+          : { gatewayId: gatewayIdDraft, runtimeWorkspaceId: runtimeWorkspaceIdDraft, planModel: planModelDraft, runModel: runModelDraft, language: languageDraft, promptShape: promptShapeDraft, planReasoningEffort: planSupportsReasoning ? planReasoningDraft : '', runReasoningEffort: runSupportsReasoning ? runReasoningDraft : '' }
+      const saved = await s.onSaveProjectCodexSettings(codexDraft)
       if (saved && typeof saved === 'object') {
         setGatewayIdDraft(saved.gatewayId ?? '')
         setRuntimeWorkspaceIdDraft(saved.runtimeWorkspaceId ?? '')
@@ -311,7 +321,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                 className={`${styles.tab} ${activeTab === tab ? styles.tabActive : ''}`}
                 onClick={() => handleTabChange(tab)}
               >
-                {tab === 'projectGroup' ? 'Project group' : tab === 'models' ? 'Models' : tab === 'language' ? 'Language' : tab === 'promptShape' ? 'Prompt shape' : tab === 'workspace' ? 'Workspace' : tab === 'agents' ? 'Agents' : tab === 'skills' ? 'Skills' : 'Statuses'}
+                {tab === 'projectGroup' ? 'Project group' : tab === 'models' ? 'Models' : tab === 'language' ? 'Language' : tab === 'promptShape' ? 'Prompt format' : tab === 'workspace' ? 'Workspace' : tab === 'agents' ? 'Agents' : tab === 'skills' ? 'Skills' : 'Statuses'}
               </button>
             ))}
           </div>
@@ -628,17 +638,17 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
             <div className={styles.settingsPanel}>
               <div className={styles.settingsPanelHeader}>
                 <div>
-                  <h4>Prompt shape</h4>
+                  <h4>Prompt format</h4>
                   <p>Choose how Codex prompts are serialized for planning, running, chat, and post-run work.</p>
                 </div>
               </div>
               <div className={styles.settingsFormGrid}>
                 <label>
-                  <span>Project prompt shape</span>
+                  <span>Project prompt format</span>
                   <AppSelect
                     value={selectedPromptShapeOption}
                     options={promptShapeOptions}
-                    placeholder="Select prompt shape"
+                    placeholder="Select prompt format"
                     onChange={(option) => {
                       setPromptShapeDraft(normalizeCodexPromptShape(option?.value))
                       setCodexSaveMessage(null)
@@ -648,18 +658,26 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                 </label>
               </div>
               <div className={styles.promptShapeGrid}>
-                <div className={promptShapeDraft === 'markdown' ? styles.promptShapeActive : ''}>
-                  <strong>Markdown</strong>
-                  <span>Current prompt format for legacy compatibility.</span>
-                </div>
-                <div className={promptShapeDraft === 'json' ? styles.promptShapeActive : ''}>
-                  <strong>JSON</strong>
-                  <span>Structured sections serialized as valid JSON.</span>
-                </div>
-                <div className={promptShapeDraft === 'toon' ? styles.promptShapeActive : ''}>
-                  <strong>Toon</strong>
-                  <span>Named fields in a compact token-conscious shape.</span>
-                </div>
+                {[
+                  { value: 'markdown', label: 'Markdown', description: 'Current prompt format for legacy compatibility.' },
+                  { value: 'json', label: 'JSON', description: 'Structured sections serialized as valid JSON.' },
+                  { value: 'toon', label: 'Toon', description: 'Named fields in a compact token-conscious format.' }
+                ].map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={promptShapeDraft === option.value ? styles.promptShapeActive : ''}
+                    onClick={() => {
+                      setPromptShapeDraft(normalizeCodexPromptShape(option.value))
+                      setCodexSaveMessage(null)
+                      setCodexSaveError(null)
+                    }}
+                    aria-pressed={promptShapeDraft === option.value}
+                  >
+                    <strong>{option.label}</strong>
+                    <span>{option.description}</span>
+                  </button>
+                ))}
               </div>
               {codexSaveFeedback}
             </div>
@@ -821,7 +839,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                 onClick={() => void handleSaveCodexSettings()}
                 disabled={s.codexSaving}
               >
-                {s.codexSaving ? 'Saving...' : 'Save prompt shape'}
+                {s.codexSaving ? 'Saving...' : 'Save prompt format'}
               </button>
             </>
           ) : activeTab === 'agents' ? (

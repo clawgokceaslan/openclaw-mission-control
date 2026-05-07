@@ -18,7 +18,7 @@ export default defineConfig({
       }
     },
     build: {
-      outDir: '../dist/renderer'
+      outDir: 'dist/renderer'
     }
   }
 })

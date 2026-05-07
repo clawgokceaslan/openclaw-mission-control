@@ -196,6 +196,138 @@
   font-weight: 850;
 }
 
+.databasePanel {
+  gap: 18px;
+}
+
+.databaseHero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+
+  h2 {
+    margin: 0;
+    color: var(--omc-text-strong);
+    font-size: 1.35rem;
+  }
+
+  p {
+    margin: 5px 0 0;
+    color: var(--omc-text-muted);
+  }
+}
+
+.statusPillOk,
+.statusPillWarn {
+  border-radius: 999px;
+  padding: 7px 10px;
+  font-size: 0.76rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.statusPillOk {
+  border: 1px solid var(--omc-success-border, #85c79d);
+  background: var(--omc-success-bg, #eefaf2);
+  color: var(--omc-success-strong, #277044);
+}
+
+.statusPillWarn {
+  border: 1px solid var(--omc-warning-border, #e0bd67);
+  background: var(--omc-warning-bg, #fff8e6);
+  color: var(--omc-warning-strong, #8a6413);
+}
+
+.databaseOverview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.databasePathBlock,
+.pathInput {
+  min-width: 0;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 8px;
+  background: var(--omc-surface-muted);
+  padding: 11px 12px;
+  display: grid;
+  gap: 5px;
+
+  small,
+  b {
+    color: var(--omc-text-muted);
+    font-size: 0.74rem;
+    font-weight: 850;
+    text-transform: uppercase;
+  }
+
+  strong,
+  span {
+    min-width: 0;
+    color: var(--omc-text-strong);
+    overflow-wrap: anywhere;
+  }
+
+  span {
+    color: var(--omc-text-muted);
+    font-size: 0.85rem;
+  }
+}
+
+.databaseWarning {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--omc-warning-border, #e0bd67);
+  border-radius: 8px;
+  background: var(--omc-warning-bg, #fff8e6);
+  color: var(--omc-warning-strong, #8a6413);
+  padding: 10px 12px;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.databaseTransfer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+
+  section {
+    min-width: 0;
+    display: grid;
+    gap: 10px;
+  }
+
+  h3 {
+    margin: 0;
+    color: var(--omc-text-strong);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.98rem;
+  }
+}
+
+.transferArrow {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--omc-border-subtle);
+  background: var(--omc-surface-muted);
+  color: var(--omc-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.databaseFooter {
+  display: grid;
+  gap: 8px;
+}
+
 .databaseRow {
   display: grid;
   grid-template-columns: minmax(240px, 1fr) auto auto;
@@ -259,6 +391,12 @@
   color: var(--omc-text-strong);
 }
 
+.primaryButton {
+  border: 1px solid var(--omc-accent, var(--omc-info-border));
+  background: var(--omc-accent, var(--omc-active-bg));
+  color: var(--omc-accent-contrast, var(--omc-text-strong));
+}
+
 @media (max-width: 980px) {
   .layout {
     grid-template-columns: 1fr;
@@ -267,5 +405,16 @@
   .databaseRow,
   .defaultAgentRow {
     grid-template-columns: 1fr;
+  }
+
+  .databaseHero,
+  .databaseOverview,
+  .databaseTransfer {
+    grid-template-columns: 1fr;
+  }
+
+  .transferArrow {
+    transform: rotate(90deg);
+    justify-self: center;
   }
 }

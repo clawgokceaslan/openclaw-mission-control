@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { LuBot, LuCheck, LuClipboard, LuCog, LuFolderOpen, LuHardDrive, LuLanguages, LuRefreshCw, LuSlidersHorizontal, LuWaypoints } from 'react-icons/lu'
-import { IPC_CHANNELS, type DatabaseLocationState, type PickDatabaseFolderResponse } from '@shared/contracts/ipc'
+import { LuArrowRight, LuBot, LuCheck, LuClipboard, LuCog, LuDatabase, LuFileSearch, LuFolderOpen, LuHardDrive, LuLanguages, LuRefreshCw, LuSlidersHorizontal, LuTriangleAlert, LuWaypoints } from 'react-icons/lu'
+import { IPC_CHANNELS, type DatabaseLocationState, type PickDatabaseFileResponse, type PickDatabaseFolderResponse } from '@shared/contracts/ipc'
 import { CODEX_LANGUAGE_OPTIONS, DEFAULT_CODEX_LANGUAGE } from '@shared/utils/codex-language'
 import type { Agent } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
@@ -17,8 +17,11 @@ type SettingsSection = 'general' | 'workspaces' | 'gateways' | 'database'
 const databaseFallbackState: DatabaseLocationState = {
   currentFolderPath: '',
   currentDbPath: '',
+  currentDbExists: false,
   pendingFolderPath: null,
   pendingDbPath: null,
+  pendingDbExists: false,
+  recommendedSourceDbPath: null,
   restartRequired: false
 }
 
@@ -37,6 +40,7 @@ export function SettingsPage() {
   const [defaultAgentMessage, setDefaultAgentMessage] = useState<string | null>(null)
   const [databaseState, setDatabaseState] = useState<DatabaseLocationState>(databaseFallbackState)
   const [databaseFolder, setDatabaseFolder] = useState('')
+  const [sourceDatabasePath, setSourceDatabasePath] = useState('')
   const [databaseMoving, setDatabaseMoving] = useState(false)
   const [databaseMessage, setDatabaseMessage] = useState<string | null>(null)
   const [databaseCopied, setDatabaseCopied] = useState(false)
@@ -70,7 +74,7 @@ export function SettingsPage() {
         setDatabaseState(databaseResponse.data)
       }
     }).catch(() => {
-      if (!cancelled) setDefaultAgentMessage('Ayarlar yüklenirken hata oluştu.')
+      if (!cancelled) setDefaultAgentMessage('Unable to load settings.')
     })
     return () => {
       cancelled = true
@@ -79,7 +83,7 @@ export function SettingsPage() {
 
   const agentOptions = useMemo<AppSelectOption[]>(() => {
     return [...agents]
-      .sort((a, b) => a.name.localeCompare(b.name, 'tr'))
+      .sort((a, b) => a.name.localeCompare(b.name, 'en'))
       .map((agent) => ({ value: agent.id, label: agent.name }))
   }, [agents])
 
@@ -90,7 +94,7 @@ export function SettingsPage() {
   const codexLanguageOptions = useMemo<AppSelectOption[]>(() => (
     CODEX_LANGUAGE_OPTIONS.map((option) => ({
       value: option.value,
-      label: option.value === 'tr' ? 'Türkçe' : option.label
+      label: option.label
     }))
   ), [])
 
@@ -107,13 +111,13 @@ export function SettingsPage() {
         agentId: option?.value ?? null
       })
       if (!response.ok) {
-        setDefaultAgentMessage(response.error?.message ?? 'Varsayılan görev ajanı güncellenemedi.')
+        setDefaultAgentMessage(response.error?.message ?? 'Unable to update the default task agent.')
         return
       }
       setDefaultAgentId(response.data?.agentId ?? '')
-      setDefaultAgentMessage(option ? 'Varsayılan görev ajanı güncellendi.' : 'Varsayılan görev ajanı temizlendi.')
+      setDefaultAgentMessage(option ? 'Default task agent updated.' : 'Default task agent cleared.')
     } catch (error) {
-      setDefaultAgentMessage(error instanceof Error ? error.message : 'Varsayılan görev ajanı güncellenemedi.')
+      setDefaultAgentMessage(error instanceof Error ? error.message : 'Unable to update the default task agent.')
     } finally {
       setDefaultAgentSaving(false)
     }
@@ -128,13 +132,13 @@ export function SettingsPage() {
         language: option?.value ?? DEFAULT_CODEX_LANGUAGE
       })
       if (!response.ok) {
-        setCodexLanguageMessage(response.error?.message ?? 'Codex dili güncellenemedi.')
+        setCodexLanguageMessage(response.error?.message ?? 'Unable to update Codex language.')
         return
       }
       setCodexLanguage(response.data?.language ?? DEFAULT_CODEX_LANGUAGE)
-      setCodexLanguageMessage('Codex dili güncellendi.')
+      setCodexLanguageMessage('Codex language updated.')
     } catch (error) {
-      setCodexLanguageMessage(error instanceof Error ? error.message : 'Codex dili güncellenemedi.')
+      setCodexLanguageMessage(error instanceof Error ? error.message : 'Unable to update Codex language.')
     } finally {
       setCodexLanguageSaving(false)
     }
@@ -145,23 +149,48 @@ export function SettingsPage() {
     try {
       const response = await invokeBridge<PickDatabaseFolderResponse>(IPC_CHANNELS.appSettings.pickDatabaseFolder, { actorToken: token })
       if (!response.ok) {
-        setDatabaseMessage(response.error?.message ?? 'Veri klasörü seçilemedi.')
+        setDatabaseMessage(response.error?.message ?? 'Unable to select a database folder.')
         return
       }
       if (!response.data?.folderPath) {
-        setDatabaseMessage('Veri klasörü seçimi iptal edildi.')
+        setDatabaseMessage('Database folder selection cancelled.')
         return
       }
       setDatabaseFolder(response.data.folderPath)
-      setDatabaseMessage(`Secilen klasör: ${response.data.folderPath}`)
+      setDatabaseMessage(`Selected folder: ${response.data.folderPath}`)
     } catch (error) {
-      setDatabaseMessage(error instanceof Error ? error.message : 'Veri klasörü seçilemedi.')
+      setDatabaseMessage(error instanceof Error ? error.message : 'Unable to select a database folder.')
     }
+  }
+
+  const pickSourceDatabaseFile = async () => {
+    setDatabaseMessage(null)
+    try {
+      const response = await invokeBridge<PickDatabaseFileResponse>(IPC_CHANNELS.appSettings.pickDatabaseFile, { actorToken: token })
+      if (!response.ok) {
+        setDatabaseMessage(response.error?.message ?? 'Unable to select a source database file.')
+        return
+      }
+      if (!response.data?.filePath) {
+        setDatabaseMessage('Source database selection cancelled.')
+        return
+      }
+      setSourceDatabasePath(response.data.filePath)
+      setDatabaseMessage(`Source database selected: ${response.data.filePath}`)
+    } catch (error) {
+      setDatabaseMessage(error instanceof Error ? error.message : 'Unable to select a source database file.')
+    }
+  }
+
+  const useRecommendedSourceDatabase = () => {
+    if (!databaseState.recommendedSourceDbPath) return
+    setSourceDatabasePath(databaseState.recommendedSourceDbPath)
+    setDatabaseMessage(`Source database selected: ${databaseState.recommendedSourceDbPath}`)
   }
 
   const applyDatabaseMove = async () => {
     if (!databaseFolder) {
-      setDatabaseMessage('Önce veritabanı klasörü seçilmeli.')
+      setDatabaseMessage('Select a database folder first.')
       return
     }
     setDatabaseMoving(true)
@@ -169,22 +198,29 @@ export function SettingsPage() {
     try {
       const response = await invokeBridge<DatabaseLocationState>(IPC_CHANNELS.appSettings.moveDatabaseLocation, {
         actorToken: token,
-        folderPath: databaseFolder
+        folderPath: databaseFolder,
+        sourceDbPath: sourceDatabasePath || databaseState.recommendedSourceDbPath || null
       })
       if (!response.ok) {
-        setDatabaseMessage(response.error?.message ?? 'Veritabanı klasörü taşınamadı.')
+        setDatabaseMessage(response.error?.message ?? 'Unable to move the database folder.')
         return
       }
       setDatabaseState(response.data ?? databaseState)
       if (response.data?.restartRequired) {
-        setDatabaseMessage('Veritabanı yeni klasöre kopyalandı. Yeni klasörün aktif olması için uygulama yeniden başlatılmalı.')
+        setDatabaseMessage('Database moved. Restarting the app...')
+        const restartResponse = await invokeBridge<{ restarting: boolean }>(IPC_CHANNELS.app.restartToDatabaseSettings, {})
+        if (!restartResponse.ok) {
+          setDatabaseMessage(restartResponse.error?.message ?? 'Database moved, but the app could not restart automatically.')
+          setDatabaseMoving(false)
+        }
+        return
       } else {
-        setDatabaseMessage('Veritabanı konumu zaten bu klasörde.'
-        )
+        setDatabaseMessage('Database is already using this folder.')
       }
       setDatabaseFolder('')
+      setSourceDatabasePath('')
     } catch (error) {
-      setDatabaseMessage(error instanceof Error ? error.message : 'Veritabanı klasörü taşınamadı.')
+      setDatabaseMessage(error instanceof Error ? error.message : 'Unable to move the database folder.')
     } finally {
       setDatabaseMoving(false)
     }
@@ -194,33 +230,33 @@ export function SettingsPage() {
     setDatabaseMessage(null)
     const response = await invokeBridge<DatabaseLocationState>(IPC_CHANNELS.appSettings.getDatabaseLocation, { actorToken: token })
     if (!response.ok) {
-      setDatabaseMessage(response.error?.message ?? 'Veritabanı konumu yenilenemedi.')
+      setDatabaseMessage(response.error?.message ?? 'Unable to refresh database location.')
       return
     }
     setDatabaseState(response.data ?? databaseFallbackState)
-    setDatabaseMessage('Veritabanı konumu yenilendi.')
+    setDatabaseMessage('Database location refreshed.')
   }
 
   const copyDatabasePath = async () => {
     const value = databaseState.currentDbPath || databaseState.currentFolderPath
     if (!value) {
-      setDatabaseMessage('Kopyalanacak veritabanı yolu bulunamadı.')
+      setDatabaseMessage('No database path is available to copy.')
       return
     }
     try {
       await navigator.clipboard?.writeText(value)
       setDatabaseCopied(true)
-      setDatabaseMessage('Veritabanı yolu kopyalandı.')
+      setDatabaseMessage('Database path copied.')
       window.setTimeout(() => setDatabaseCopied(false), 1600)
     } catch {
-      setDatabaseMessage('Veritabanı yolu kopyalanamadı.')
+      setDatabaseMessage('Unable to copy database path.')
     }
   }
 
   const revealDatabasePath = async () => {
     const value = databaseState.currentDbPath || databaseState.currentFolderPath
     if (!value) {
-      setDatabaseMessage('Açılacak veritabanı yolu bulunamadı.')
+      setDatabaseMessage('No database path is available to open.')
       return
     }
     const response = await invokeBridge<{ revealed: boolean }>(IPC_CHANNELS.appSettings.revealDatabaseLocation, {
@@ -228,10 +264,10 @@ export function SettingsPage() {
       path: value
     })
     if (!response.ok) {
-      setDatabaseMessage(response.error?.message ?? 'Veritabanı klasörü açılamadı.')
+      setDatabaseMessage(response.error?.message ?? 'Unable to open database folder.')
       return
     }
-    setDatabaseMessage('Veritabanı klasörü açıldı.')
+    setDatabaseMessage('Database folder opened.')
   }
 
   const selectSection = (section: SettingsSection) => {
@@ -250,25 +286,33 @@ export function SettingsPage() {
   }
 
   const sections = [
-    { id: 'general' as SettingsSection, label: 'Genel', icon: LuSlidersHorizontal },
+    { id: 'general' as SettingsSection, label: 'General', icon: LuSlidersHorizontal },
     { id: 'workspaces' as SettingsSection, label: 'Workspaces', icon: LuFolderOpen },
     { id: 'gateways' as SettingsSection, label: 'Gateways', icon: LuWaypoints },
-    { id: 'database' as SettingsSection, label: 'Veritabanı', icon: LuHardDrive }
+    { id: 'database' as SettingsSection, label: 'Database', icon: LuHardDrive }
   ]
 
   const hasPendingRestart = databaseState.restartRequired
+  const sourcePath = sourceDatabasePath || databaseState.recommendedSourceDbPath || databaseState.currentDbPath
+  const sourceStatus = sourceDatabasePath
+    ? 'Manual source'
+    : databaseState.recommendedSourceDbPath
+      ? 'Detected development data file'
+      : databaseState.currentDbExists
+        ? 'Active database'
+        : 'Missing source'
 
   return (
     <section className={styles.page}>
       <header className={styles.header}>
         <div>
-          <h1>Ayarlar</h1>
-          <p>Uygulama davranışını genel olarak yönetin.</p>
+          <h1>Settings</h1>
+          <p>Manage application behavior and runtime defaults.</p>
         </div>
       </header>
 
       <div className={styles.layout}>
-        <nav className={styles.tabBar} aria-label="Ayar bölümleri">
+        <nav className={styles.tabBar} aria-label="Settings sections">
           {sections.map((section) => {
             const Icon = section.icon
             const isActive = activeSection === section.id
@@ -292,43 +336,43 @@ export function SettingsPage() {
               <header className={styles.panelHeader}>
                 <span className={styles.panelIcon}><LuCog size={19} /></span>
                 <div>
-                  <h2>Genel ayarlar</h2>
-                  <p>Varsayılan görev ajanı ve Codex dili.</p>
+                  <h2>General settings</h2>
+                  <p>Default task agent and Codex language.</p>
                 </div>
               </header>
               <div className={styles.surfaceSection}>
-                <h3><LuBot size={17} /> Varsayılan görev ajanı</h3>
+                <h3><LuBot size={17} /> Default task agent</h3>
                 <div className={styles.defaultAgentRow}>
                   <AppSelect
                     mode="single"
                     value={selectedDefaultAgentOption}
                     options={agentOptions}
-                    placeholder={agents.length > 0 ? 'Varsayılan ajan seçin' : 'Kullanılabilir ajan yok'}
+                    placeholder={agents.length > 0 ? 'Select a default agent' : 'No agents available'}
                     isClearable
                     isDisabled={defaultAgentSaving || agents.length === 0}
                     onChange={(option) => {
                       if (!Array.isArray(option)) void saveDefaultAgent(option)
                     }}
                   />
-                  <span>{defaultAgentSaving ? 'Kaydediliyor...' : selectedDefaultAgentOption ? `${selectedDefaultAgentOption.label} yeni görevlerde varsayılan olur.` : 'Varsayılan ajan atanmadı.'}</span>
+                  <span>{defaultAgentSaving ? 'Saving...' : selectedDefaultAgentOption ? `${selectedDefaultAgentOption.label} will be used for new tasks.` : 'No default agent assigned.'}</span>
                 </div>
                 {defaultAgentMessage ? <p className={styles.settingMessage}>{defaultAgentMessage}</p> : null}
               </div>
 
               <div className={styles.surfaceSection}>
-                <h3><LuLanguages size={17} /> Codex dili</h3>
+                <h3><LuLanguages size={17} /> Codex language</h3>
                 <div className={styles.defaultAgentRow}>
                   <AppSelect
                     mode="single"
                     value={selectedCodexLanguageOption}
                     options={codexLanguageOptions}
-                    placeholder="Codex dili seçin"
+                    placeholder="Select Codex language"
                     isDisabled={codexLanguageSaving}
                     onChange={(option) => {
                       if (!Array.isArray(option)) void saveCodexLanguage(option)
                     }}
                   />
-                  <span>{codexLanguageSaving ? 'Kaydediliyor...' : `${selectedCodexLanguageOption?.label ?? 'Türkçe'} Codex çıktılarında kullanılacak.`}</span>
+                  <span>{codexLanguageSaving ? 'Saving...' : `${selectedCodexLanguageOption?.label ?? 'Turkish'} will be used for Codex output.`}</span>
                 </div>
                 {codexLanguageMessage ? <p className={styles.settingMessage}>{codexLanguageMessage}</p> : null}
               </div>
@@ -352,70 +396,95 @@ export function SettingsPage() {
           ) : null}
 
           {activeSection === 'database' ? (
-            <div className={styles.panel}>
-              <header className={styles.panelHeader}>
+            <div className={`${styles.panel} ${styles.databasePanel}`}>
+              <header className={styles.databaseHero}>
                 <span className={styles.panelIcon}><LuHardDrive size={19} /></span>
                 <div>
-                  <h2>SQLite veritabanı klasörü</h2>
-                  <p>Veritabanı dosyasının bulunduğu klasörü kopyala ve yeniden başlatma gerektiren değişimi uygula.</p>
+                  <h2>Database</h2>
+                  <p>Move the SQLite database to a folder that will be activated after restart.</p>
                 </div>
+                <span className={databaseState.currentDbExists ? styles.statusPillOk : styles.statusPillWarn}>
+                  {databaseState.currentDbExists ? 'Current file found' : 'Current file missing'}
+                </span>
               </header>
 
-              <div className={styles.surfaceSection}>
-                <h3>Mevcut durum</h3>
-                <div className={styles.infoList}>
-                  <label>
-                    <small>Mevcut klasör</small>
-                    <span>{databaseState.currentFolderPath || 'Bilinmiyor'}</span>
-                  </label>
-                  <label>
-                    <small>Mevcut veritabanı dosyası</small>
-                    <span>{databaseState.currentDbPath || 'Henüz hazır değil'}</span>
-                  </label>
-                  {databaseState.pendingFolderPath ? (
-                    <label>
-                      <small>Bekleyen klasör</small>
-                      <span>{databaseState.pendingFolderPath}</span>
-                    </label>
-                  ) : null}
-                  {databaseState.pendingDbPath ? (
-                    <label>
-                      <small>Bekleyen dosya</small>
-                      <span>{databaseState.pendingDbPath}</span>
-                    </label>
-                  ) : null}
+              <div className={styles.databaseOverview}>
+                <div className={styles.databasePathBlock}>
+                  <small>Current location</small>
+                  <strong>{databaseState.currentFolderPath || 'Unknown'}</strong>
+                  <span>{databaseState.currentDbPath || 'No database path available'}</span>
                 </div>
-
-                <p className={hasPendingRestart ? styles.restartNotice : undefined}>
-                  {hasPendingRestart
-                    ? 'Yeni klasöre geçmek için uygulamayı yeniden başlatmanız gerekiyor.'
-                    : 'Veritabanı dosyası aktif klasöre bağlı çalışır.'}
-                </p>
-                <div className={styles.databaseActions}>
-                  <button type="button" className={styles.secondaryButton} onClick={() => void copyDatabasePath()} disabled={!databaseState.currentDbPath && !databaseState.currentFolderPath}>
-                    {databaseCopied ? <LuCheck size={15} /> : <LuClipboard size={15} />}
-                    {databaseCopied ? 'Kopyalandı' : 'Yolu kopyala'}
-                  </button>
-                  <button type="button" className={styles.secondaryButton} onClick={() => void revealDatabasePath()} disabled={!databaseState.currentDbPath && !databaseState.currentFolderPath}>
-                    <LuFolderOpen size={15} />
-                    Klasörde aç
-                  </button>
-                  <button type="button" className={styles.secondaryButton} onClick={() => void refreshDatabaseLocation()}>
-                    <LuRefreshCw size={15} />
-                    Yenile
-                  </button>
+                <div className={styles.databasePathBlock}>
+                  <small>Pending location</small>
+                  <strong>{databaseState.pendingFolderPath || 'None'}</strong>
+                  <span>{databaseState.pendingDbPath || 'No pending database file'}</span>
                 </div>
               </div>
 
-              <div className={styles.surfaceSection}>
-                <h3>Yeni klasör seçin</h3>
-                <div className={styles.databaseRow}>
-                  <span>{databaseFolder || 'Klasör seçilmedi.'}</span>
-                  <button type="button" onClick={pickDatabaseFolder} disabled={databaseMoving}>
-                    Klasör seç
+              {!databaseState.currentDbExists ? (
+                <div className={styles.databaseWarning} role="status">
+                  <LuTriangleAlert size={17} />
+                  <span>The configured database file was not found. Select the existing SQLite file before moving it.</span>
+                </div>
+              ) : null}
+
+              <div className={styles.databaseTransfer}>
+                <section>
+                  <h3><LuDatabase size={16} /> Source</h3>
+                  <div className={styles.pathInput}>
+                    <span>{sourcePath || 'No source selected'}</span>
+                    <b>{sourceStatus}</b>
+                  </div>
+                  <div className={styles.databaseActions}>
+                    <button type="button" className={styles.secondaryButton} onClick={() => void pickSourceDatabaseFile()} disabled={databaseMoving}>
+                      <LuFileSearch size={15} />
+                      Select database file
+                    </button>
+                    {databaseState.recommendedSourceDbPath ? (
+                      <button type="button" className={styles.secondaryButton} onClick={useRecommendedSourceDatabase} disabled={databaseMoving}>
+                        Use detected data file
+                      </button>
+                    ) : null}
+                  </div>
+                </section>
+
+                <span className={styles.transferArrow}><LuArrowRight size={18} /></span>
+
+                <section>
+                  <h3><LuFolderOpen size={16} /> Destination</h3>
+                  <div className={styles.pathInput}>
+                    <span>{databaseFolder || 'No destination folder selected'}</span>
+                    <b>{databaseFolder ? 'Ready' : 'Required'}</b>
+                  </div>
+                  <div className={styles.databaseActions}>
+                    <button type="button" className={styles.secondaryButton} onClick={pickDatabaseFolder} disabled={databaseMoving}>
+                      <LuFolderOpen size={15} />
+                      Select folder
+                    </button>
+                    <button type="button" className={styles.primaryButton} onClick={applyDatabaseMove} disabled={databaseMoving || !databaseFolder || (!databaseState.currentDbExists && !sourceDatabasePath && !databaseState.recommendedSourceDbPath)}>
+                      {databaseMoving ? 'Moving...' : 'Move database'}
+                    </button>
+                  </div>
+                </section>
+              </div>
+
+              {hasPendingRestart ? (
+                <p className={styles.restartNotice}>Restart the app to switch to the pending database location.</p>
+              ) : null}
+
+              <div className={styles.databaseFooter}>
+                <div className={styles.databaseActions}>
+                  <button type="button" className={styles.secondaryButton} onClick={() => void copyDatabasePath()} disabled={!databaseState.currentDbPath && !databaseState.currentFolderPath}>
+                    {databaseCopied ? <LuCheck size={15} /> : <LuClipboard size={15} />}
+                    {databaseCopied ? 'Copied' : 'Copy current path'}
                   </button>
-                  <button type="button" className={styles.secondaryButton} onClick={applyDatabaseMove} disabled={databaseMoving || !databaseFolder}>
-                    {databaseMoving ? 'Taşınıyor...' : 'Klasörü uygula (yeniden başlatma gerektirir)'}
+                  <button type="button" className={styles.secondaryButton} onClick={() => void revealDatabasePath()} disabled={!databaseState.currentDbPath && !databaseState.currentFolderPath}>
+                    <LuFolderOpen size={15} />
+                    Show current folder
+                  </button>
+                  <button type="button" className={styles.secondaryButton} onClick={() => void refreshDatabaseLocation()}>
+                    <LuRefreshCw size={15} />
+                    Refresh
                   </button>
                 </div>
                 {databaseMessage ? <p className={styles.settingMessage}>{databaseMessage}</p> : null}

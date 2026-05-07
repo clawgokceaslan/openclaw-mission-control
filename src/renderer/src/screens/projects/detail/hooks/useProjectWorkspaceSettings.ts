@@ -120,7 +120,7 @@ interface UseProjectWorkspaceSettingsResult {
     createWorkspaceFromDraft: () => Promise<Workspace | null>
     updateProjectWorkspace: (workspaceId: string | null) => Promise<void>
     saveProjectDefaultsSettings: (draft: { defaultAgentId: string | null; defaultSkillIds: string[] }) => Promise<Project>
-    saveProjectCodexSettings: (draft?: { gatewayId: string; runtimeWorkspaceId: string; planModel: string; runModel: string; language?: string; promptShape?: ProjectCodexSettings['promptShape']; planReasoningEffort?: string; runReasoningEffort?: string }) => Promise<ProjectCodexSettings>
+    saveProjectCodexSettings: (draft?: { gatewayId?: string; runtimeWorkspaceId?: string; planModel?: string; runModel?: string; language?: string; promptShape?: ProjectCodexSettings['promptShape']; planReasoningEffort?: string; runReasoningEffort?: string }) => Promise<ProjectCodexSettings>
     updateProjectGroupMembership: (nextGroupId: string | null) => Promise<void>
     saveSelectedProjectGroup: () => Promise<void>
     syncProjectWorkspace: () => Promise<void>
@@ -349,7 +349,7 @@ export function useProjectWorkspaceSettings({
     return response.data
   }
 
-  const saveProjectCodexSettings = async (draft?: { gatewayId: string; runtimeWorkspaceId: string; planModel: string; runModel: string; language?: string; promptShape?: ProjectCodexSettings['promptShape']; planReasoningEffort?: string; runReasoningEffort?: string }): Promise<ProjectCodexSettings> => {
+  const saveProjectCodexSettings = async (draft?: { gatewayId?: string; runtimeWorkspaceId?: string; planModel?: string; runModel?: string; language?: string; promptShape?: ProjectCodexSettings['promptShape']; planReasoningEffort?: string; runReasoningEffort?: string }): Promise<ProjectCodexSettings> => {
     if (!project) throw new Error('Project is not loaded')
     const nextGatewayId = draft?.gatewayId ?? codexGatewayId
     const nextRuntimeWorkspaceId = draft?.runtimeWorkspaceId ?? codexRuntimeWorkspaceId

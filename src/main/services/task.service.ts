@@ -52,6 +52,7 @@ import { TaskJsonImportNormalizer } from './task-json-import.js'
 import type { NormalizedTaskJsonImport } from './task-json-import.js'
 import { safeConsole } from '../utils/safe-output.js'
 import { showCodexNotification } from '../utils/codex-notifications.js'
+import { codexProcessEnv, isCodexCliNotFoundError, resolveCodexExecutable } from '../utils/codex-cli-resolver.js'
 import { formatUsageSummary, parseCodexEvents, type CodexNormalizedEvent, type CodexUsageSummary } from '../../shared/utils/codex-events.js'
 import { codexLanguageDisplayName, normalizeCodexLanguage, normalizeCodexReasoningEffort, type CodexLanguagePair } from '../../shared/utils/codex-language.js'
 import { normalizeCodexPromptShape, type CodexPromptShape } from '../../shared/utils/codex-prompt-shape.js'
@@ -788,6 +789,19 @@ function codexCliConfig(value: unknown): { codexPath: string; executionMode: Cod
   }
 }
 
+async function codexLaunchConfig(value: unknown): Promise<{ codexPath: string; configuredCodexPath: string; executionMode: CodexExecutionMode; attemptedCodexPaths: string[]; codexEnvPath: string; codexEnv: NodeJS.ProcessEnv }> {
+  const config = codexCliConfig(value)
+  const resolved = await resolveCodexExecutable(config.codexPath)
+  return {
+    codexPath: resolved.command,
+    configuredCodexPath: config.codexPath,
+    executionMode: config.executionMode,
+    attemptedCodexPaths: resolved.attempted,
+    codexEnvPath: resolved.envPath,
+    codexEnv: codexProcessEnv(resolved)
+  }
+}
+
 function taskActivityMessagesFromPayload(payload: unknown): TaskActivityMessage[] {
   const source = asPayload(payload).activityMessages
   if (!Array.isArray(source)) return []
@@ -1110,6 +1124,32 @@ export function validatePlannerTaskJsonQuality(normalized: NormalizedTaskJsonImp
   return issues
 }
 
+function compactPromptText(value: string, limit: number): string {
+  const compact = value.replace(/\s+/g, ' ').trim()
+  if (compact.length <= limit) return compact
+  return `${compact.slice(0, Math.max(0, limit - 1)).trimEnd()}…`
+}
+
+function compactFollowUpTaskMetadata(task: TaskEntity, context: unknown): Record<string, unknown> {
+  const record = asRecord(context)
+  const project = asRecord(record.project)
+  const currentTask = asRecord(record.currentTaskJson ?? record.task)
+  const status = typeof currentTask.status === 'string' ? currentTask.status : task.status
+  return {
+    task: {
+      id: task.id,
+      title: task.title,
+      status,
+      description: compactPromptText(task.description ?? '', 500)
+    },
+    project: {
+      id: typeof project.id === 'string' ? project.id : task.projectId,
+      name: typeof project.name === 'string' ? project.name : undefined
+    },
+    contextKeys: Object.keys(record).slice(0, 12)
+  }
+}
+
 export function codexChatPrompt(input: {
   task: TaskEntity
   message: string
@@ -1122,9 +1162,15 @@ export function codexChatPrompt(input: {
   languages?: CodexLanguagePair
   promptShape?: CodexPromptShape
 }): string {
+  const hasFollowUpContext = Boolean(input.followUpContext?.trim())
   const transcriptRows = input.transcript
-    .slice(-24)
-    .map((item) => ({ role: item.role, body: item.body, source: item.source, createdAt: item.createdAt }))
+    .slice(hasFollowUpContext ? -10 : -24)
+    .map((item) => ({
+      role: item.role,
+      body: hasFollowUpContext ? compactPromptText(item.body, 500) : item.body,
+      source: item.source,
+      createdAt: item.createdAt
+    }))
   const transcript = transcriptRows
     .map((item) => `${item.role.toUpperCase()}: ${item.body}`)
     .join('\n\n')
@@ -1144,6 +1190,7 @@ export function codexChatPrompt(input: {
   const language = typeof input.languages === 'object' ? input.languages.outputLanguage : input.language
   const instructionAudience: ProjectInstructionAudience = input.mode === 'plan' ? 'plan' : 'chat'
   const routedContext = routedProjectContextForPrompt(input.context, instructionAudience)
+  const promptContext = hasFollowUpContext ? compactFollowUpTaskMetadata(input.task, routedContext ?? input.context) : routedContext
   const userPromptLabel = input.mode === 'steer'
     ? 'User steer instruction'
     : input.mode === 'plan'
@@ -1166,7 +1213,7 @@ export function codexChatPrompt(input: {
     `Task id: ${input.task.id}`,
     `Task title: ${input.task.title}`,
     input.task.description ? `Task description:\n${input.task.description}` : '',
-    routedContext ? `Current task context JSON:\n${JSON.stringify(routedContext, null, 2)}` : '',
+    promptContext ? `${hasFollowUpContext ? 'Follow-up task metadata JSON' : 'Current task context JSON'}:\n${JSON.stringify(promptContext, null, 2)}` : '',
     transcript ? `Recent chat transcript:\n${transcript}` : '',
     attachments,
     'Respond with concrete next steps or implementation notes. If you make changes, summarize files and checks.',
@@ -1183,7 +1230,7 @@ export function codexChatPrompt(input: {
     { name: 'effective_agent', value: effectiveAgentSection(effectiveAgent) },
     { name: 'important_task_comments', value: importantComments },
     { name: 'task', value: { id: input.task.id, title: input.task.title, description: input.task.description ?? '' } },
-    { name: 'current_task_context', value: routedContext },
+    { name: hasFollowUpContext ? 'follow_up_task_metadata' : 'current_task_context', value: promptContext },
     { name: 'recent_chat_transcript', value: transcriptRows },
     { name: 'attachments', value: input.attachments ?? [] },
     { name: 'response_policy', value: ['Respond with concrete next steps or implementation notes. If you make changes, summarize files and checks.', 'Do not use MCP in this flow.'] }
@@ -3408,9 +3455,9 @@ export class TaskService {
         await writeTaskSnapshotToExportWorkspace(exportWorkspacePath, payload)
       }
 
-      const { codexPath, executionMode } = codexCliConfig(gateway.template)
       const model = payload.model.trim()
       const taskId = access.data.task.id
+      const { codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, codexEnv, executionMode } = await codexLaunchConfig(gateway.template)
       const wrapperPath = join(runFolderPath, 'run-codex.sh')
       const finishFilePath = join(runFolderPath, 'codex-finished.signal')
       const runTerminalTitle = terminalTitle(`OMC Codex ${access.data.task.id}`)
@@ -3507,6 +3554,7 @@ export class TaskService {
       const execCommand = [shellQuote(codexPath), ...execArgs.map(shellQuote)].join(' ')
       const loginShellCommand = [
         'set -e',
+        `export PATH=${shellQuote(codexEnvPath)}`,
         `cd ${shellQuote(runtimeWorkspacePath)}`,
         'echo "Open Mission Control Codex run"',
         `echo "Runtime workspace: ${runtimeWorkspacePath.replace(/"/g, '\\"')}"`,
@@ -3525,6 +3573,7 @@ export class TaskService {
         `TERMINAL_TITLE=${shellQuote(runTerminalTitle)}`,
         `RUNTIME_WORKSPACE=${shellQuote(runtimeWorkspacePath)}`,
         `HELPER_PATH=${shellQuote(helperRelativePath)}`,
+        `export PATH=${shellQuote(codexEnvPath)}`,
         'cleanup() {',
         '  local status=$?',
         '  local finish_payload="$RUN_DIR/finish-status.json"',
@@ -3547,6 +3596,9 @@ export class TaskService {
         gatewayId: gateway.id,
         model,
         codexPath,
+        configuredCodexPath,
+        attemptedCodexPaths,
+        codexEnvPath,
         runFolderPath,
         runId,
         workspacePath: runtimeWorkspacePath,
@@ -3583,7 +3635,7 @@ export class TaskService {
             role: 'system',
             status: 'running',
             body: `Started Codex exec run with ${model}.`,
-            metadata: { gatewayId: gateway.id, model, language, reasoningEffort, effectiveAgent, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath }
+            metadata: { gatewayId: gateway.id, model, language, reasoningEffort, effectiveAgent, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath }
           },
           {
             runId,
@@ -3605,9 +3657,10 @@ export class TaskService {
         const executionStartedAt = Date.now()
         const child = spawn(codexPath, execArgs, {
           cwd: runtimeWorkspacePath,
-          env: process.env,
+          env: codexEnv,
           stdio: ['ignore', 'pipe', 'pipe']
         })
+        let spawnFailed = false
         const streamer = createCodexActivityStreamer({
           taskId,
           runId,
@@ -3712,7 +3765,7 @@ export class TaskService {
             }
             const postChild = spawn(codexPath, postArgs, {
               cwd: runtimeWorkspacePath,
-              env: process.env,
+              env: codexEnv,
               stdio: ['ignore', 'pipe', 'pipe']
             })
             postChild.stdout.setEncoding('utf8')
@@ -3798,19 +3851,26 @@ export class TaskService {
           })
         }
         child.on('error', (error) => {
+          spawnFailed = true
           void this.appendTaskActivityMessage(taskId, {
             runId,
             source: 'codex-run',
             role: 'error',
             status: 'failed',
             body: error.message,
-            metadata: { command: execCommand }
-          })
+            metadata: { codexBlock: 'run-complete', command: execCommand, codexPath, configuredCodexPath, attemptedCodexPaths }
+          }, { emitTaskUpdatedAction: 'activity_complete' })
           notifyRunCompletion('failed', 1)
           void bridge?.close()
+          if (workspaceRunPathForCleanup) {
+            setTimeout(() => {
+              void rm(workspaceRunPathForCleanup ?? '', { recursive: true, force: true })
+            }, 2_000).unref?.()
+          }
         })
         child.on('close', (code, signal) => {
           void (async () => {
+            if (spawnFailed) return
             await streamer.flush()
             const finalMessageRaw = await readFile(execFinalMessagePath, 'utf8').catch(() => '')
             const eventRaw = await readFile(execEventsPath, 'utf8').catch(() => '')
@@ -3908,7 +3968,7 @@ export class TaskService {
           role: 'system',
           status: 'running',
           body: `Started Codex terminal run with ${model}.`,
-          metadata: { gatewayId: gateway.id, model, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath }
+          metadata: { gatewayId: gateway.id, model, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath }
         },
         {
           runId,
@@ -3962,7 +4022,19 @@ export class TaskService {
         await rm(runFolderPath, { recursive: true, force: true })
         if (workspaceRunPathForCleanup) await rm(workspaceRunPathForCleanup, { recursive: true, force: true })
       }
-      return errorResponse(ErrorCodes.Internal, error instanceof Error ? error.message : 'Unable to launch Codex terminal')
+      const message = error instanceof Error ? error.message : 'Unable to launch Codex terminal'
+      if (isCodexCliNotFoundError(error)) {
+        await this.appendTaskActivityMessage(access.data.task.id, {
+          runId: plannerRunId(access.data.task.id),
+          source: 'codex-run',
+          role: 'error',
+          status: 'failed',
+          body: message,
+          metadata: { codexBlock: 'run-complete', configuredCodexPath: error.original, attemptedCodexPaths: error.attempted }
+        }, { emitTaskUpdatedAction: 'activity_complete' })
+        return errorResponse(ErrorCodes.Validation, message)
+      }
+      return errorResponse(ErrorCodes.Internal, message)
     }
   }
 
@@ -4160,7 +4232,7 @@ export class TaskService {
       const clarificationMessage = payload.clarificationMessage?.trim() ?? ''
       const clarificationMode = clarificationMessage ? 'direct' : normalizePlannerClarificationMode(payload.clarificationMode)
       const model = payload.model.trim()
-      const { codexPath, executionMode } = codexCliConfig(gateway.template)
+      const { codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, codexEnv, executionMode } = await codexLaunchConfig(gateway.template)
       const helperRelativePath = plannerRunRelativePath(runId, 'omc-task-client.mjs')
       const sessionRelativePath = plannerRunRelativePath(runId, 'session.json')
       const contextRelativePath = plannerRunRelativePath(runId, 'context.json')
@@ -4270,6 +4342,7 @@ export class TaskService {
         `TERMINAL_TITLE=${shellQuote(runTerminalTitle)}`,
         `RUNTIME_WORKSPACE=${shellQuote(runtimeWorkspacePath)}`,
         `HELPER_PATH=${shellQuote(helperRelativePath)}`,
+        `export PATH=${shellQuote(codexEnvPath)}`,
         'cleanup() {',
         '  local status=$?',
         '  local finish_payload="$RUN_DIR/finish-status.json"',
@@ -4340,7 +4413,7 @@ export class TaskService {
             role: 'system',
             status: 'running',
             body: `Started Codex exec planner with ${model}.`,
-            metadata: { gatewayId: gateway.id, model, language, reasoningEffort, clarificationMode, effectiveAgent, executionMode, runtimeWorkspacePath, runFolderPath }
+            metadata: { gatewayId: gateway.id, model, language, reasoningEffort, clarificationMode, effectiveAgent, executionMode, runtimeWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath }
           },
           {
             runId,
@@ -4364,9 +4437,10 @@ export class TaskService {
         const executionStartedAt = Date.now()
         const child = spawn(codexPath, execArgs, {
           cwd: runtimeWorkspacePath,
-          env: process.env,
+          env: codexEnv,
           stdio: ['ignore', 'pipe', 'pipe']
         })
+        let spawnFailed = false
         const streamer = createCodexActivityStreamer({
           taskId,
           runId,
@@ -4394,6 +4468,7 @@ export class TaskService {
           })
         }
         child.on('error', (error) => {
+          spawnFailed = true
           void this.appendTaskActivityMessage(taskId, {
             runId,
             conversationId,
@@ -4401,13 +4476,19 @@ export class TaskService {
             role: 'error',
             status: 'failed',
             body: error.message,
-            metadata: { command: execCommand }
-          })
+            metadata: { codexBlock: 'run-complete', command: execCommand, codexPath, configuredCodexPath, attemptedCodexPaths }
+          }, { emitTaskUpdatedAction: 'activity_complete' })
           notifyPlanCompletion('failed', 1)
           void bridge?.close()
+          if (workspaceRunPathForCleanup) {
+            setTimeout(() => {
+              void rm(workspaceRunPathForCleanup ?? '', { recursive: true, force: true })
+            }, 2_000).unref?.()
+          }
         })
         child.on('close', (code, signal) => {
           void (async () => {
+            if (spawnFailed) return
             await streamer.flush()
             if (this.pausedPlannerRunIds.delete(runId)) {
               await bridge?.close()
@@ -4510,7 +4591,7 @@ export class TaskService {
           role: 'system',
           status: 'running',
           body: `Started Codex terminal planner with ${model}.`,
-          metadata: { gatewayId: gateway.id, model, clarificationMode, executionMode, runtimeWorkspacePath, runFolderPath }
+          metadata: { gatewayId: gateway.id, model, clarificationMode, executionMode, runtimeWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath }
         },
         {
           runId,
@@ -4565,7 +4646,20 @@ export class TaskService {
         await rm(runFolderPath, { recursive: true, force: true })
         if (workspaceRunPathForCleanup) await rm(workspaceRunPathForCleanup, { recursive: true, force: true })
       }
-      return errorResponse(ErrorCodes.Internal, error instanceof Error ? error.message : 'Unable to launch Codex task planner')
+      const message = error instanceof Error ? error.message : 'Unable to launch Codex task planner'
+      if (isCodexCliNotFoundError(error)) {
+        await this.appendTaskActivityMessage(access.data.task.id, {
+          runId: plannerRunId(access.data.task.id),
+          conversationId: payload.conversationId?.trim() || plannerRunId(access.data.task.id),
+          source: 'codex-plan',
+          role: 'error',
+          status: 'failed',
+          body: message,
+          metadata: { codexBlock: 'run-complete', configuredCodexPath: error.original, attemptedCodexPaths: error.attempted }
+        }, { emitTaskUpdatedAction: 'activity_complete' })
+        return errorResponse(ErrorCodes.Validation, message)
+      }
+      return errorResponse(ErrorCodes.Internal, message)
     }
   }
 
@@ -4609,7 +4703,27 @@ export class TaskService {
     const context = payload.includeTaskContext === false
       ? undefined
       : (await this.plannerContext({ actorToken: payload.actorToken, projectId: project.id, taskId })).data
-    const { codexPath, executionMode } = codexCliConfig(gateway.template)
+    const activitySource: TaskActivityMessage['source'] = mode === 'plan' ? 'codex-plan' : 'codex-chat'
+    let launchConfig: Awaited<ReturnType<typeof codexLaunchConfig>>
+    try {
+      launchConfig = await codexLaunchConfig(gateway.template)
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : 'Unable to launch Codex chat'
+      if (isCodexCliNotFoundError(error)) {
+        await this.appendTaskActivityMessage(taskId, {
+          runId,
+          conversationId,
+          source: activitySource,
+          role: 'error',
+          status: 'failed',
+          body: messageText,
+          metadata: { codexBlock: 'run-complete', configuredCodexPath: error.original, attemptedCodexPaths: error.attempted }
+        }, { emitTaskUpdatedAction: 'activity_complete' })
+        return errorResponse(ErrorCodes.Validation, messageText)
+      }
+      return errorResponse(ErrorCodes.Internal, messageText)
+    }
+    const { codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, codexEnv, executionMode } = launchConfig
     const model = payload.model.trim()
     const runtimeWorkspacePath = runtimeWorkspace.rootPath
     const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-codex-chat-'))
@@ -4639,7 +4753,6 @@ export class TaskService {
       language,
       promptShape
     })
-    const activitySource: TaskActivityMessage['source'] = mode === 'plan' ? 'codex-plan' : 'codex-chat'
     const execArgs = [
       'exec',
       '--json',
@@ -4674,7 +4787,7 @@ export class TaskService {
         body: mode === 'plan'
           ? executionMode === 'exec' ? 'Codex is revising the plan...' : 'Opening Codex terminal to revise the plan...'
           : executionMode === 'exec' ? 'Codex is thinking...' : 'Opening Codex terminal...',
-        metadata: { executionMode, runtimeWorkspacePath }
+        metadata: { executionMode, runtimeWorkspacePath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath }
       }
     ])
 
@@ -4691,7 +4804,7 @@ export class TaskService {
         '-c', shellQuote(codexTrustedProjectConfig(runtimeWorkspacePath)),
         shellQuote(prompt)
       ].join(' ')
-      await writeFile(wrapperPath, ['#!/bin/zsh', 'set -e', `cd ${shellQuote(runtimeWorkspacePath)}`, codexCommand].join('\n'), 'utf8')
+      await writeFile(wrapperPath, ['#!/bin/zsh', 'set -e', `export PATH=${shellQuote(codexEnvPath)}`, `cd ${shellQuote(runtimeWorkspacePath)}`, codexCommand].join('\n'), 'utf8')
       await chmod(wrapperPath, 0o700)
       const terminalCommand = `/bin/zsh ${shellQuote(wrapperPath)}`
       await execFileAsync('osascript', [
@@ -4713,7 +4826,8 @@ export class TaskService {
     }
 
     const executionStartedAt = Date.now()
-    const child = spawn(codexPath, execArgs, { cwd: runtimeWorkspacePath, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(codexPath, execArgs, { cwd: runtimeWorkspacePath, env: codexEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+    let spawnFailed = false
     const activeRun: ActiveCodexChatRun = { child, taskId, conversationId, runId }
     this.activeCodexChatRuns.set(runId, activeRun)
     const streamer = createCodexActivityStreamer({
@@ -4743,6 +4857,8 @@ export class TaskService {
       })
     }
     child.on('error', (error) => {
+      spawnFailed = true
+      this.activeCodexChatRuns.delete(runId)
       void this.appendTaskActivityMessage(taskId, {
         runId,
         conversationId,
@@ -4750,13 +4866,14 @@ export class TaskService {
         role: 'error',
         status: 'failed',
         body: error.message,
-        metadata: { command: execCommand }
-      })
+        metadata: { codexBlock: 'run-complete', command: execCommand, codexPath, configuredCodexPath, attemptedCodexPaths }
+      }, { emitTaskUpdatedAction: 'activity_complete' })
       notifyChatCompletion('failed', 1)
     })
     child.on('close', (code, signal) => {
       void (async () => {
         this.activeCodexChatRuns.delete(runId)
+        if (spawnFailed) return
         await streamer.flush()
         if (activeRun.stopRequested) {
           await this.appendTaskActivityMessages(taskId, [
