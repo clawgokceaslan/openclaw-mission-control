@@ -11,6 +11,7 @@ import {
   formatGatewayActivityStatus,
   formatGatewayWorkDuration,
   formatPlannerClarificationAnswer,
+  firstPlannerQuestionOptionAnswers,
   groupCodexTranscriptMessages,
   hasNoChangesMessage,
   plannerQuestionPromptFromMessages,
@@ -126,7 +127,7 @@ describe('planner question helpers', () => {
     expect(prompt).toBeNull()
   })
 
-  it('formats selected options and free text as planner clarification', () => {
+  it('formats selected options and free text as one planner clarification answer', () => {
     const prompt = plannerQuestionPromptFromMessages([
       message({
         id: 'question-1',
@@ -151,11 +152,11 @@ describe('planner question helpers', () => {
     })
 
     expect(answer).toContain('Question: Scope?')
-    expect(answer).toContain('Selected option: Chat only')
+    expect(answer).toContain('Answer: Chat only')
     expect(answer).toContain('Answer: Keep current design language.')
   })
 
-  it('keeps selected options and typed notes as separate planner clarification signals', () => {
+  it('appends typed notes below the selected option answer', () => {
     const prompt = plannerQuestionPromptFromMessages([
       message({
         id: 'question-1',
@@ -178,8 +179,8 @@ describe('planner question helpers', () => {
       notes: { scope: 'Also keep the popup blocking.' }
     })
 
-    expect(answer).toContain('Selected option: Chat only - Stay in chat surfaces.')
-    expect(answer).toContain('Additional context: Also keep the popup blocking.')
+    expect(answer).toContain('Answer: Chat only - Stay in chat surfaces.')
+    expect(answer).toContain('Extra answer: Also keep the popup blocking.')
   })
 
   it('walks branching planner questions from the selected option path', () => {
@@ -223,9 +224,71 @@ describe('planner question helpers', () => {
 
     expect(answer).toContain('Question: Scope?')
     expect(answer).toContain('Question: Which chat depth?')
-    expect(answer).toContain('Selected option: Guided')
+    expect(answer).toContain('Answer: Guided')
     expect(answer).not.toContain('Which app depth?')
     expect(answer).not.toContain('Do not include stale branch.')
+  })
+
+  it('builds first-option answers for every available planner question path', () => {
+    const prompt = plannerQuestionPromptFromMessages([
+      message({
+        id: 'question-1',
+        source: 'gateway-plan',
+        role: 'assistant',
+        createdAt: 10,
+        metadata: {
+          gatewayBlock: 'planner-question',
+          questions: [
+            {
+              id: 'scope',
+              question: 'Scope?',
+              options: [
+                {
+                  id: 'chat',
+                  label: 'Chat',
+                  nextQuestion: {
+                    id: 'depth',
+                    question: 'Depth?',
+                    options: [{ id: 'guided', label: 'Guided' }]
+                  }
+                }
+              ]
+            },
+            {
+              id: 'speed',
+              question: 'Speed?',
+              options: [{ id: 'fast', label: 'Fast' }]
+            }
+          ]
+        }
+      })
+    ])!
+
+    expect(firstPlannerQuestionOptionAnswers(prompt.questions)).toEqual({
+      scope: 'chat',
+      depth: 'guided',
+      speed: 'fast'
+    })
+  })
+
+  it('does not build first-option answers when any planner question has no option', () => {
+    const prompt = plannerQuestionPromptFromMessages([
+      message({
+        id: 'question-1',
+        source: 'gateway-plan',
+        role: 'assistant',
+        createdAt: 10,
+        metadata: {
+          gatewayBlock: 'planner-question',
+          questions: [
+            { id: 'scope', question: 'Scope?', options: [{ id: 'chat', label: 'Chat' }] },
+            { id: 'note', question: 'Anything else?' }
+          ]
+        }
+      })
+    ])!
+
+    expect(firstPlannerQuestionOptionAnswers(prompt.questions)).toBeNull()
   })
 
   it('prunes answers outside the currently selected planner branch', () => {

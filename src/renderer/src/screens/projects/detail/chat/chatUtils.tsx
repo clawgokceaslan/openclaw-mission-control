@@ -302,12 +302,31 @@ export function formatPlannerClarificationAnswer(input: {
       const selectedOption = question.options.find((option) => option.id === selectedOptionId)
       const note = input.notes[question.id]?.trim()
       const lines = [`${index + 1}. Question: ${question.question}`]
-      if (selectedOption) lines.push(`Selected option: ${selectedOption.label}${selectedOption.description ? ` - ${selectedOption.description}` : ''}`)
-      if (note) lines.push(selectedOption ? `Additional context: ${note}` : `Answer: ${note}`)
+      const selectedAnswer = selectedOption ? `${selectedOption.label}${selectedOption.description ? ` - ${selectedOption.description}` : ''}` : ''
+      if (selectedAnswer || note) {
+        lines.push(`Answer: ${selectedAnswer || note}`)
+        if (selectedAnswer && note) lines.push(`Extra answer: ${note}`)
+      }
       if (!selectedOption && !note) lines.push('No explicit answer provided; use your best judgment from the task context.')
       return lines
     })
   ].join('\n')
+}
+
+export function firstPlannerQuestionOptionAnswers(questions: PlannerQuestionItem[], maxDepth = 3): Record<string, string> | null {
+  const selectedOptionIds: Record<string, string> = {}
+
+  const appendFirstOption = (question: PlannerQuestionItem, depth: number, seen: Set<string>): boolean => {
+    if (depth > maxDepth || seen.has(question.id)) return true
+    const firstOption = question.options[0]
+    if (!firstOption) return false
+    selectedOptionIds[question.id] = firstOption.id
+    if (!firstOption.nextQuestion) return true
+    return appendFirstOption(firstOption.nextQuestion, depth + 1, new Set([...seen, question.id]))
+  }
+
+  const allQuestionsHaveFirstOption = questions.every((question) => appendFirstOption(question, 1, new Set()))
+  return allQuestionsHaveFirstOption ? selectedOptionIds : null
 }
 
 export function visiblePlannerQuestionPath(

@@ -1,14 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
-import { LuArrowRight, LuMinus, LuSend, LuSparkles } from 'react-icons/lu'
+import { LuArrowRight, LuMinus, LuSend, LuSkipForward, LuSparkles } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR, type PlannerQuestionAttentionBehavior } from '@shared/utils/planner-question-attention'
 import type { Project, TaskEntity } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
-import { formatPlannerClarificationAnswer, prunePlannerQuestionPathAnswers, visiblePlannerQuestionPath } from '@renderer/screens/projects/detail/chat/chatUtils'
+import { firstPlannerQuestionOptionAnswers, formatPlannerClarificationAnswer, prunePlannerQuestionPathAnswers, visiblePlannerQuestionPath } from '@renderer/screens/projects/detail/chat/chatUtils'
 import type { TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 import {
   enqueuePlannerQuestion,
@@ -259,6 +259,10 @@ export function PlannerQuestionHost() {
     () => active ? visiblePlannerQuestionPath(active.prompt.questions, selectedOptionIds) : [],
     [active, selectedOptionIds]
   )
+  const firstOptionAnswerIds = useMemo(
+    () => active ? firstPlannerQuestionOptionAnswers(active.prompt.questions) : null,
+    [active]
+  )
 
   const openRelatedChat = () => {
     if (!active) return
@@ -271,10 +275,12 @@ export function PlannerQuestionHost() {
     })
   }
 
-  const submitAnswer = async () => {
+  const submitAnswer = async (answerSelection?: { selectedOptionIds: Record<string, string>; notes: Record<string, string> }) => {
     if (!active || !resolved?.config || !canSubmit || resolveError) return
     setSubmitting(true)
-    const pruned = prunePlannerQuestionPathAnswers(active.prompt.questions, selectedOptionIds, notes)
+    const rawSelectedOptionIds = answerSelection?.selectedOptionIds ?? selectedOptionIds
+    const rawNotes = answerSelection?.notes ?? notes
+    const pruned = prunePlannerQuestionPathAnswers(active.prompt.questions, rawSelectedOptionIds, rawNotes)
     const answer = formatPlannerClarificationAnswer({
       prompt: active.prompt,
       selectedOptionIds: pruned.selectedOptionIds,
@@ -299,11 +305,18 @@ export function PlannerQuestionHost() {
     removeQuestion(active.id)
   }
 
+  const skipWithFirstOptions = async () => {
+    if (!firstOptionAnswerIds) return
+    setSelectedOptionIds(firstOptionAnswerIds)
+    await submitAnswer({ selectedOptionIds: firstOptionAnswerIds, notes: {} })
+  }
+
   if (!active || !isModalOpen) return null
 
   const displayTaskTitle = resolved?.task?.title || active.taskTitle
   const displayProjectName = resolved?.project?.name || active.projectId
   const queueLabel = queue.length > 1 ? `Question ${1} of ${queue.length}` : 'Planner question'
+  const showSkipButton = Boolean(firstOptionAnswerIds)
 
   const modal = (
     <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Planner clarification questions">
@@ -312,8 +325,8 @@ export function PlannerQuestionHost() {
           <span className={styles.icon}><LuSparkles size={20} /></span>
           <div>
             <small>{queueLabel}</small>
-            <h2>Codex needs input before planning</h2>
-            <p>{displayProjectName} / {displayTaskTitle}</p>
+            <h2>{displayTaskTitle}</h2>
+            <p>Project: {displayProjectName}</p>
           </div>
           <button type="button" className={styles.minimizeButton} onClick={closeQuestionModal} aria-label="Minimize planner questions">
             <LuMinus size={18} />
@@ -340,7 +353,7 @@ export function PlannerQuestionHost() {
               </div>
               {question.options.length > 0 ? (
                 <div className={styles.options}>
-                  {question.options.map((option) => (
+                  {question.options.map((option, optionIndex) => (
                     <label key={option.id} className={selectedOptionIds[question.id] === option.id ? styles.optionSelected : ''}>
                       <input
                         type="checkbox"
@@ -357,7 +370,7 @@ export function PlannerQuestionHost() {
                       <span>
                         <b>
                           {option.label}
-                          {isRecommendedOption(option.label, option.description) ? <em className={styles.recommendedBadge}>Recommended</em> : null}
+                          {optionIndex === 0 || isRecommendedOption(option.label, option.description) ? <em className={styles.recommendedBadge}>Recommended</em> : null}
                         </b>
                         {option.description ? <small>{option.description}</small> : null}
                       </span>
@@ -379,9 +392,16 @@ export function PlannerQuestionHost() {
 
         <footer className={styles.footer}>
           <span>{queue.length > 1 ? `${queue.length - 1} more planner question batch${queue.length - 1 === 1 ? '' : 'es'} waiting.` : 'You can leave choices blank and Codex will decide.'}</span>
-          <button type="button" onClick={() => void submitAnswer()} disabled={!canSubmit || submitting || Boolean(resolveError)}>
-            {submitting ? 'Sending...' : <><LuSend size={15} /> Send answer</>}
-          </button>
+          <div className={styles.footerActions}>
+            {showSkipButton ? (
+              <button type="button" className={styles.skipButton} onClick={() => void skipWithFirstOptions()} disabled={!canSubmit || submitting || Boolean(resolveError)}>
+                <LuSkipForward size={15} /> Skip with first answers
+              </button>
+            ) : null}
+            <button type="button" className={styles.sendButton} onClick={() => void submitAnswer()} disabled={!canSubmit || submitting || Boolean(resolveError)}>
+              {submitting ? 'Sending...' : <><LuSend size={15} /> Send answer</>}
+            </button>
+          </div>
         </footer>
       </section>
     </div>
