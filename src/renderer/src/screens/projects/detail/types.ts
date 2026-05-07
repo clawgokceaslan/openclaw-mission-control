@@ -6,20 +6,9 @@ export type DetailViewMode = 'task' | 'subtask'
 export type DetailTab = 'subtasks' | 'customFields' | 'checklist' | 'attachments' | 'details' | 'agent' | 'skills' | 'model'
 export type ProjectPromptTab = 'context' | 'prompt' | 'planGuide' | 'output' | 'rules' | 'postRun'
 export type ProjectSettingsTab = 'statuses' | 'workspace' | 'projectGroup' | 'agents' | 'skills' | 'models' | 'language' | 'promptShape' | 'codex'
-export type ProjectViewMode = 'list' | 'table' | 'board'
 export type TextDraftRow = { id: string; title: string }
 export type CustomFieldDraftRow = { id: string; field: AppSelectOption | null; value: string }
 export type DataFormatRole = OutputFormat['formatRole']
-export type TableColumnKind = 'index' | 'name' | 'assignee' | 'status' | 'due' | 'tags' | 'subtasks' | 'priority' | 'custom'
-export type TableColumnConfig = {
-  id: string
-  kind: TableColumnKind
-  label: string
-  width: number
-  required?: boolean
-  customFieldId?: string
-}
-export type ProjectTableViewConfig = { columns?: TableColumnConfig[]; columnWidths?: Record<string, number> }
 export type CodexModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }
 
 export type TaskHistoryItem = {

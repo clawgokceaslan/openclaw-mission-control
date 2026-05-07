@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskEntity } from '@shared/types/entities'
-import type { ProjectStatusColumn } from './status'
-import { latestTaskCodexConversation, orderTasksByStatusGroups, projectCodexSettings, reorderTasksForDrop, taskCodexActionChips, taskCodexActiveTone, taskCodexPlanBadge, taskCodexSurfaceStatuses } from './projectDetailUtils'
+import { latestTaskCodexConversation, projectCodexSettings, reorderTasksForDrop, taskCodexActionChips, taskCodexActiveTone, taskCodexPlanBadge, taskCodexSurfaceStatuses } from './projectDetailUtils'
 
 function task(id: string, status: string, order: number): TaskEntity {
   return {
@@ -15,19 +14,11 @@ function task(id: string, status: string, order: number): TaskEntity {
   }
 }
 
-const columns: ProjectStatusColumn[] = [
-  { key: 'todo', title: 'Todo', status: 'todo', accent: '#999999', category: 'not_started' },
-  { key: 'doing', title: 'Doing', status: 'doing', accent: '#3366ff', category: 'active' },
-  { key: 'done', title: 'Done', status: 'done', accent: '#22aa66', category: 'done' }
-]
-
 describe('project task ordering', () => {
   it('reorders inside a status group before a target task', () => {
     const source = [task('a', 'todo', 0), task('b', 'todo', 1), task('c', 'todo', 2)]
     const result = reorderTasksForDrop(source, 'c', 'todo', 'a', 'before')
-    const ordered = orderTasksByStatusGroups(result.tasks, columns)
 
-    expect(ordered.map((item) => item.id)).toEqual(['c', 'a', 'b'])
     expect(result.updates.map((update) => [update.task.id, update.status, update.order])).toEqual([
       ['c', 'todo', 0],
       ['a', 'todo', 1],
@@ -44,31 +35,13 @@ describe('project task ordering', () => {
     ]
     const result = reorderTasksForDrop(source, 'b', 'doing', 'c', 'after')
     const byId = new Map(result.tasks.map((item) => [item.id, item]))
-    const ordered = orderTasksByStatusGroups(result.tasks, columns)
 
     expect(byId.get('b')?.status).toBe('doing')
-    expect(ordered.map((item) => item.id)).toEqual(['a', 'c', 'b', 'd'])
     expect(result.updates.map((update) => [update.task.id, update.status, update.order])).toEqual([
       ['c', 'doing', 0],
       ['b', 'doing', 1],
       ['d', 'doing', 2],
       ['a', 'todo', 0]
-    ])
-  })
-
-  it('orders table rows by status group before per-group order', () => {
-    const source = [
-      task('done-0', 'done', 0),
-      task('todo-1', 'todo', 1),
-      task('doing-0', 'doing', 0),
-      task('todo-0', 'todo', 0)
-    ]
-
-    expect(orderTasksByStatusGroups(source, columns).map((item) => item.id)).toEqual([
-      'todo-0',
-      'todo-1',
-      'doing-0',
-      'done-0'
     ])
   })
 })
@@ -110,7 +83,14 @@ describe('task Codex card metadata', () => {
     expect(taskCodexPlanBadge({
       ...task('needs-info', 'todo', 0),
       payload: { codexPlanState: { state: 'needs-clarification', conversationId: 'plan-2' } }
-    })).toEqual({ state: 'needs-clarification', label: 'Plan için bilgi gerekiyor', conversationId: 'plan-2' })
+    })).toEqual({ state: 'needs-clarification', label: 'Needs Input', conversationId: 'plan-2' })
+  })
+
+  it('shows not planned when no plan metadata or plan conversation exists', () => {
+    expect(taskCodexSurfaceStatuses(task('no-plan', 'todo', 0)).map((status) => [status.label, status.tone, status.active])).toEqual([
+      ['Not Planned', 'neutral', undefined]
+    ])
+    expect(taskCodexActiveTone(task('no-plan', 'todo', 0))).toBeNull()
   })
 
   it('builds card surface statuses for planned, running, post-running and follow-up states', () => {
@@ -128,13 +108,34 @@ describe('task Codex card metadata', () => {
 
     expect(result.map((status) => [status.label, status.tone, status.active, status.iconOnly])).toEqual([
       ['Planned', 'planned', undefined, true],
-      ['Running', 'running', true, undefined],
-      ['Follow Up', 'follow-up', undefined, undefined]
+      ['Working', 'working', true, undefined],
+      ['Followed Up', 'completed', undefined, undefined]
     ])
     expect(taskCodexActiveTone({
       ...task('active-run', 'todo', 0),
       payload: { activityMessages: [{ id: 'run', runId: 'run-1', source: 'codex-run', role: 'system', status: 'running', body: 'run', createdAt: 9_500 }] }
-    }, now)).toBe('running')
+    }, now)).toBe('working')
+  })
+
+  it('uses completed status labels for finished run, post-run and follow-up phases', () => {
+    const result = taskCodexSurfaceStatuses({
+      ...task('completed-phases', 'todo', 0),
+      payload: {
+        codexPlanState: { state: 'planned', conversationId: 'plan-1' },
+        activityMessages: [
+          { id: 'run', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'system', phase: 'RUN', status: 'completed', body: 'run', createdAt: 1, updatedAt: 1 },
+          { id: 'post', runId: 'post-1', conversationId: 'post-1', source: 'codex-run', role: 'system', phase: 'POST-RUNNING', status: 'completed', body: 'post', createdAt: 2, updatedAt: 2 },
+          { id: 'follow', runId: 'follow-1', conversationId: 'follow-1', source: 'codex-chat', role: 'assistant', phase: 'FOLLOW UP', status: 'completed', body: 'follow', createdAt: 3, updatedAt: 3 }
+        ]
+      }
+    }, 10_000)
+
+    expect(result.map((status) => [status.statusKey, status.label, status.tone])).toEqual([
+      ['planned', 'Planned', 'planned'],
+      ['work-completed', 'Work Completed', 'completed'],
+      ['post-run-completed', 'Post Run Completed', 'completed'],
+      ['followed-up', 'Followed Up', 'completed']
+    ])
   })
 
   it('does not mark completed chats as active for card border animation', () => {
@@ -155,6 +156,150 @@ describe('task Codex card metadata', () => {
     expect(taskCodexActiveTone(completedTask, now)).toBeNull()
   })
 
+  it('keeps task card animation active while replanning an already planned task', () => {
+    const now = 10_000
+    const result = taskCodexSurfaceStatuses({
+      ...task('replanning', 'todo', 0),
+      payload: {
+        codexPlanState: { state: 'planned', conversationId: 'old-plan' },
+        activityMessages: [
+          { id: 'plan-active', runId: 'plan-active', conversationId: 'plan-active', source: 'codex-plan', role: 'thinking', status: 'running', body: 'planning', createdAt: 9_000, updatedAt: 9_500 }
+        ]
+      }
+    }, now)
+
+    expect(result[0]).toMatchObject({ label: 'Planning', tone: 'planning', active: true, conversationId: 'plan-active' })
+    expect(taskCodexActiveTone({
+      ...task('replanning', 'todo', 0),
+      payload: {
+        codexPlanState: { state: 'planned', conversationId: 'old-plan' },
+        activityMessages: [
+          { id: 'plan-active', runId: 'plan-active', conversationId: 'plan-active', source: 'codex-plan', role: 'thinking', status: 'running', body: 'planning', createdAt: 9_000, updatedAt: 9_500 }
+        ]
+      }
+    }, now)).toBe('planning')
+  })
+
+  it('moves Planning to Planned when a terminal plan message is newer than the active message', () => {
+    const now = 10_000
+    const planTransitionTask = {
+      ...task('plan-transition', 'todo', 0),
+      payload: {
+        codexPlanState: { state: 'planned', conversationId: 'plan-1' },
+        activityMessages: [
+          { id: 'plan-running', runId: 'plan-1', conversationId: 'plan-1', source: 'codex-plan', role: 'thinking', status: 'running', body: 'planning', createdAt: 9_000, updatedAt: 9_500 },
+          { id: 'plan-complete', runId: 'plan-1', conversationId: 'plan-1', source: 'codex-plan', role: 'system', status: 'completed', body: 'planned', createdAt: 9_600, updatedAt: 9_600, metadata: { codexBlock: 'run-complete' } }
+        ]
+      }
+    } satisfies TaskEntity
+
+    expect(taskCodexSurfaceStatuses(planTransitionTask, now).map((status) => [status.statusKey, status.label, status.active])).toEqual([
+      ['planned', 'Planned', undefined]
+    ])
+    expect(taskCodexActiveTone(planTransitionTask, now)).toBeNull()
+  })
+
+  it('keeps Planning active when a new replanning message is newer than the previous terminal message', () => {
+    const now = 10_000
+    const result = taskCodexSurfaceStatuses({
+      ...task('plan-restarted', 'todo', 0),
+      payload: {
+        codexPlanState: { state: 'planned', conversationId: 'old-plan' },
+        activityMessages: [
+          { id: 'old-complete', runId: 'old-plan', conversationId: 'old-plan', source: 'codex-plan', role: 'system', status: 'completed', body: 'planned', createdAt: 8_500, updatedAt: 8_500, metadata: { codexBlock: 'run-complete' } },
+          { id: 'new-running', runId: 'new-plan', conversationId: 'new-plan', source: 'codex-plan', role: 'thinking', status: 'running', body: 'planning again', createdAt: 9_000, updatedAt: 9_500 }
+        ]
+      }
+    }, now)
+
+    expect(result[0]).toMatchObject({ statusKey: 'planning', label: 'Planning', active: true, conversationId: 'new-plan' })
+    expect(taskCodexActiveTone({
+      ...task('plan-restarted', 'todo', 0),
+      payload: {
+        codexPlanState: { state: 'planned', conversationId: 'old-plan' },
+        activityMessages: [
+          { id: 'old-complete', runId: 'old-plan', conversationId: 'old-plan', source: 'codex-plan', role: 'system', status: 'completed', body: 'planned', createdAt: 8_500, updatedAt: 8_500, metadata: { codexBlock: 'run-complete' } },
+          { id: 'new-running', runId: 'new-plan', conversationId: 'new-plan', source: 'codex-plan', role: 'thinking', status: 'running', body: 'planning again', createdAt: 9_000, updatedAt: 9_500 }
+        ]
+      }
+    }, now)).toBe('planning')
+  })
+
+  it('moves active run, post-run and follow-up statuses to completed when terminal messages are newer', () => {
+    const now = 10_000
+    const result = taskCodexSurfaceStatuses({
+      ...task('phase-transitions', 'todo', 0),
+      payload: {
+        activityMessages: [
+          { id: 'run-active', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'thinking', phase: 'RUN', status: 'running', body: 'working', createdAt: 9_000, updatedAt: 9_100 },
+          { id: 'run-done', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'system', phase: 'RUN', status: 'completed', body: 'done', createdAt: 9_200, updatedAt: 9_200, metadata: { codexBlock: 'run-complete' } },
+          { id: 'post-active', runId: 'post-1', conversationId: 'post-1', source: 'codex-run', role: 'thinking', phase: 'POST-RUNNING', status: 'running', body: 'post', createdAt: 9_300, updatedAt: 9_400 },
+          { id: 'post-done', runId: 'post-1', conversationId: 'post-1', source: 'codex-run', role: 'system', phase: 'POST-RUNNING', status: 'completed', body: 'post done', createdAt: 9_500, updatedAt: 9_500, metadata: { codexBlock: 'run-complete' } },
+          { id: 'follow-active', runId: 'follow-1', conversationId: 'follow-1', source: 'codex-chat', role: 'thinking', phase: 'FOLLOW UP', status: 'running', body: 'follow', createdAt: 9_600, updatedAt: 9_700 },
+          { id: 'follow-done', runId: 'follow-1', conversationId: 'follow-1', source: 'codex-chat', role: 'system', phase: 'FOLLOW UP', status: 'completed', body: 'follow done', createdAt: 9_800, updatedAt: 9_800, metadata: { codexBlock: 'run-complete' } }
+        ]
+      }
+    }, now)
+
+    expect(result.map((status) => [status.statusKey, status.label, status.active])).toEqual([
+      ['not-planned', 'Not Planned', undefined],
+      ['work-completed', 'Work Completed', undefined],
+      ['post-run-completed', 'Post Run Completed', undefined],
+      ['followed-up', 'Followed Up', undefined]
+    ])
+    expect(taskCodexActiveTone({
+      ...task('phase-transitions', 'todo', 0),
+      payload: {
+        activityMessages: [
+          { id: 'run-active', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'thinking', phase: 'RUN', status: 'running', body: 'working', createdAt: 9_000, updatedAt: 9_100 },
+          { id: 'run-done', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'system', phase: 'RUN', status: 'completed', body: 'done', createdAt: 9_200, updatedAt: 9_200, metadata: { codexBlock: 'run-complete' } },
+          { id: 'post-active', runId: 'post-1', conversationId: 'post-1', source: 'codex-run', role: 'thinking', phase: 'POST-RUNNING', status: 'running', body: 'post', createdAt: 9_300, updatedAt: 9_400 },
+          { id: 'post-done', runId: 'post-1', conversationId: 'post-1', source: 'codex-run', role: 'system', phase: 'POST-RUNNING', status: 'completed', body: 'post done', createdAt: 9_500, updatedAt: 9_500, metadata: { codexBlock: 'run-complete' } },
+          { id: 'follow-active', runId: 'follow-1', conversationId: 'follow-1', source: 'codex-chat', role: 'thinking', phase: 'FOLLOW UP', status: 'running', body: 'follow', createdAt: 9_600, updatedAt: 9_700 },
+          { id: 'follow-done', runId: 'follow-1', conversationId: 'follow-1', source: 'codex-chat', role: 'system', phase: 'FOLLOW UP', status: 'completed', body: 'follow done', createdAt: 9_800, updatedAt: 9_800, metadata: { codexBlock: 'run-complete' } }
+        ]
+      }
+    }, now)).toBeNull()
+  })
+
+  it('prefers active follow-up messages when a completed user message has the same timestamp', () => {
+    const now = 10_000
+    const activeTask = {
+      ...task('follow-up-running', 'todo', 0),
+      payload: {
+        activityMessages: [
+          { id: 'chat-user', runId: 'chat-1', conversationId: 'chat-1', source: 'codex-chat', role: 'user', status: 'completed', body: 'follow up', createdAt: 9_000, updatedAt: 9_500 },
+          { id: 'chat-thinking', runId: 'chat-1', conversationId: 'chat-1', source: 'codex-chat', role: 'thinking', status: 'running', body: 'thinking', createdAt: 9_000, updatedAt: 9_500 }
+        ]
+      }
+    } satisfies TaskEntity
+
+    expect(taskCodexSurfaceStatuses(activeTask, now).find((status) => status.statusKey === 'following-up')).toMatchObject({
+      label: 'Following Up',
+      tone: 'following-up',
+      active: true
+    })
+    expect(taskCodexActiveTone(activeTask, now)).toBe('following-up')
+  })
+
+  it('shows failed status without enabling active card borders', () => {
+    const failedTask = {
+      ...task('failed-run', 'todo', 0),
+      payload: {
+        activityMessages: [
+          { id: 'run-active', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'thinking', phase: 'RUN', status: 'running', body: 'working', createdAt: 9_000, updatedAt: 9_100 },
+          { id: 'run-failed', runId: 'run-1', conversationId: 'run-1', source: 'codex-run', role: 'error', phase: 'RUN', status: 'failed', body: 'failed', createdAt: 9_000, updatedAt: 9_500 }
+        ]
+      }
+    } satisfies TaskEntity
+
+    expect(taskCodexSurfaceStatuses(failedTask, 10_000).map((status) => [status.statusKey, status.label, status.active])).toEqual([
+      ['not-planned', 'Not Planned', undefined],
+      ['failed', 'Failed', undefined]
+    ])
+    expect(taskCodexActiveTone(failedTask, 10_000)).toBeNull()
+  })
+
   it('returns latest phase action chips', () => {
     const result = taskCodexActionChips({
       ...task('with-actions', 'todo', 0),
@@ -168,8 +313,8 @@ describe('task Codex card metadata', () => {
     })
 
     expect(result.map((chip) => [chip.label, chip.conversationId, chip.status])).toEqual([
-      ['PLAN', 'plan-new', 'completed'],
-      ['RUN', 'run-new', 'running']
+      ['Plan', 'plan-new', 'completed'],
+      ['Run', 'run-new', 'running']
     ])
   })
 

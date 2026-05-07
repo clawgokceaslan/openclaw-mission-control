@@ -1,6 +1,7 @@
 import { ReactNode } from 'react'
 import type { AppSelectOption } from '@renderer/components/select/AppSelect'
-import type { DataFormatRole, ProjectPromptTab, TableColumnConfig } from '@renderer/screens/projects/detail/types'
+import type { DataFormatRole, ProjectPromptTab } from '@renderer/screens/projects/detail/types'
+import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
 import type { Agent, CustomField, Project, Tag, TaskEntity, TaskSubtask, TaskTemplate } from '@shared/types/entities'
 import { AddSubtaskPopup } from '@renderer/popups/AddSubtask'
 import { ChecklistPopup } from '@renderer/popups/Checklist'
@@ -22,7 +23,7 @@ export interface TaskModalsProps {
     tags: Tag[]
     agents: Agent[]
     templates: TaskTemplate[]
-    statusColumns: TableColumnConfig[]
+    statusColumns: ProjectStatusColumn[]
     defaultStatus: TaskSubtask['status']
     initialTitle: string
     initialTemplateId: string | null
@@ -61,12 +62,6 @@ export interface TaskModalsProps {
     agentId?: string | null
     dueAt?: number
   }>) => void
-
-  isTableColumnPickerOpen?: boolean
-  availableTableColumns?: TableColumnConfig[]
-  selectedTableColumns?: TableColumnConfig[]
-  onCloseTableColumnPicker?: () => void
-  onTableColumnsSave?: (next: TableColumnConfig[]) => void | Promise<void>
 
   isProjectPromptSettingsOpen?: boolean
   projectPromptTab?: ProjectPromptTab
@@ -184,44 +179,6 @@ export function TaskModals(props: TaskModalsProps) {
           onCreate={(input) => props.onAddSubtaskCreate?.(input)}
           onCreateMany={(inputs) => props.onAddSubtasksCreate?.(inputs)}
         />
-      ) : null}
-
-      {props.isTableColumnPickerOpen ? (
-        <>
-          <div className={styles.nestedCreateBackdrop} onClick={props.onCloseTableColumnPicker} />
-          <section className={styles.nestedCreateDialog} role="dialog" aria-modal="true" aria-label="Choose table columns">
-            <header>
-              <h4>Table columns</h4>
-              <button type="button" onClick={props.onCloseTableColumnPicker} aria-label="Close column picker">×</button>
-            </header>
-            <div className={styles.columnPickerBody}>
-              <p className={styles.columnPickerHint}>Choose up to 12 columns. Name and Status stay visible.</p>
-              {(props.availableTableColumns ?? []).map((column) => {
-                const selected = (props.selectedTableColumns ?? []).some((item) => item.id === column.id)
-                const disabled = column.required || (!selected && (props.selectedTableColumns ?? []).length >= 12)
-                return (
-                  <label key={column.id} className={`${styles.columnPickerRow} ${selected ? styles.columnPickerRowActive : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={selected}
-                      disabled={disabled}
-                      onChange={(event) => {
-                        if (column.required) return
-                        if (!props.onTableColumnsSave) return
-                        const next = event.target.checked
-                          ? [...(props.selectedTableColumns ?? []), column].slice(0, 12)
-                          : (props.selectedTableColumns ?? []).filter((item) => item.id !== column.id || item.required)
-                        void props.onTableColumnsSave(next)
-                      }}
-                    />
-                    <span>{column.label}</span>
-                    {column.kind === 'custom' ? <small>Custom field</small> : <small>Built-in</small>}
-                  </label>
-                )
-              })}
-            </div>
-          </section>
-        </>
       ) : null}
 
       {props.isProjectPromptSettingsOpen ? (

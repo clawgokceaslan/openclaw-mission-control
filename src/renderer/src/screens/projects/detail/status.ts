@@ -9,8 +9,6 @@ export type ProjectStatusColumn = {
   category: ProjectStatus['category']
 }
 
-export type ProjectViewMode = 'list' | 'table' | 'board'
-
 export const PROJECT_STATUS_COLUMNS: ProjectStatusColumn[] = [
   { key: 'pending', title: 'Not started', status: 'pending', accent: '#8a99b4', category: 'not_started' },
   { key: 'running', title: 'Active', status: 'running', accent: '#2f80ed', category: 'active' },

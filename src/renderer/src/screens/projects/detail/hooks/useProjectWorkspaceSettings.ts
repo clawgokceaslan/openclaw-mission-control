@@ -6,13 +6,11 @@ import { invokeBridge } from '@renderer/utils/api'
 import {
   codexConfigOf,
   createLocalId,
-  getTableViewConfig,
   projectCodexSettings,
   projectWorkspaceFolder
 } from '../projectDetailUtils'
 import { buildProjectWorkspaceExportTaskPayload } from '../taskExport'
 import type { ProjectDetailStateBindings } from '../state/projectDetailState'
-import type { ProjectTableViewConfig, TableColumnConfig } from '../types'
 
 interface UseProjectWorkspaceSettingsContext {
   token?: string | null
@@ -22,7 +20,6 @@ interface UseProjectWorkspaceSettingsContext {
   gateways: Gateway[]
   projectStatuses: ProjectStatus[]
   defaultStatus: ProjectStatus['status']
-  tableColumns: TableColumnConfig[]
   tags: Tag[]
   skills: Skill[]
   agents: Agent[]
@@ -127,9 +124,6 @@ interface UseProjectWorkspaceSettingsResult {
     openStatusEditor: () => void
     openProjectPromptSettings: () => void
     saveProjectPromptSettings: () => Promise<void>
-    saveProjectTableView: (nextConfig: ProjectTableViewConfig) => Promise<void>
-    setTableColumns: (columns: TableColumnConfig[]) => Promise<void>
-    setTableColumnWidth: (columnId: string, width: number) => Promise<void>
     updateStatusDraft: (id: string, patch: Partial<ProjectStatus>) => void
     addActiveStatus: () => void
     removeStatusDraft: (status: ProjectStatus) => void
@@ -147,7 +141,6 @@ export function useProjectWorkspaceSettings({
   gateways,
   projectStatuses,
   defaultStatus,
-  tableColumns,
   tags,
   skills,
   agents,
@@ -543,40 +536,6 @@ export function useProjectWorkspaceSettings({
     setIsProjectPromptSettingsOpen(false)
   }
 
-  const saveProjectTableView = async (nextConfig: ProjectTableViewConfig) => {
-    if (!project) return
-    const response = await invokeBridge<Project>(IPC_CHANNELS.projects.update, {
-      actorToken: token,
-      id: project.id,
-      metrics: {
-        ...(project.metrics ?? {}),
-        tableView: nextConfig
-      }
-    })
-    if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Unable to save table view settings')
-      return
-    }
-    setProject(response.data)
-  }
-
-  const setTableColumns = async (columns: TableColumnConfig[]) => {
-    const current = getTableViewConfig(project)
-    await saveProjectTableView({ ...current, columns: columns.slice(0, 12) })
-  }
-
-  const setTableColumnWidth = async (columnId: string, width: number) => {
-    const current = getTableViewConfig(project)
-    await saveProjectTableView({
-      ...current,
-      columns: tableColumns.map((column) => (column.id === columnId ? { ...column, width } : column)),
-      columnWidths: {
-        ...(current.columnWidths ?? {}),
-        [columnId]: Math.max(80, Math.min(520, Math.round(width)))
-      }
-    })
-  }
-
   const updateStatusDraft = (id: string, patch: Partial<ProjectStatus>) => {
     setStatusDrafts((current) => current.map((item) => item.id === id ? { ...item, ...patch, updatedAt: Date.now() } : item))
   }
@@ -738,9 +697,6 @@ export function useProjectWorkspaceSettings({
       openStatusEditor,
       openProjectPromptSettings,
       saveProjectPromptSettings,
-      saveProjectTableView,
-      setTableColumns,
-      setTableColumnWidth,
       updateStatusDraft,
       addActiveStatus,
       removeStatusDraft,

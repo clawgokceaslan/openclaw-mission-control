@@ -48,7 +48,7 @@ function buildRunningSections(rows: RunningCodexTaskRow[]): RunningSection[] {
 
   const sections: RunningSection[] = [
     { key: 'planning', title: 'Planning', rows: sectionMap.get('planning')! },
-    { key: 'running', title: 'Running', rows: sectionMap.get('running')! },
+    { key: 'running', title: 'Working', rows: sectionMap.get('running')! },
     { key: 'postRunning', title: 'Post Running', rows: sectionMap.get('postRunning')! }
   ]
   return sections.filter((section) => section.rows.length > 0)
@@ -101,7 +101,7 @@ export function RunningCodexMenu() {
     setError(null)
     if (!response.ok || !response.data) {
       if (includeRows && openRef.current) {
-        setError(response.error?.message ?? 'Unable to load running Codex conversations')
+        setError(response.error?.message ?? 'Unable to load active Codex conversations')
       }
       return
     }
@@ -226,7 +226,7 @@ export function RunningCodexMenu() {
     })
     setOpeningConversationId(null)
     if (!opened) {
-      setError('Unable to open the selected running conversation.')
+      setError('Unable to open the selected active conversation.')
     }
   }
 
@@ -236,8 +236,8 @@ export function RunningCodexMenu() {
         type="button"
         className={`${styles.runningCodexButton} ${runningTotal === 0 ? styles.runningCodexButtonIdle : ''}`}
         onClick={() => setOpen((current) => !current)}
-        aria-label={runningTotal > 0 ? `${runningTotal} running Codex conversation${runningTotal === 1 ? '' : 's'}` : 'No running Codex conversations'}
-        title="Running Codex chats"
+        aria-label={runningTotal > 0 ? `${runningTotal} active Codex conversation${runningTotal === 1 ? '' : 's'}` : 'No active Codex conversations'}
+        title="Active Codex chats"
       >
         <LuMessageSquare size={16} />
         {runningTotal > 0 ? <span>{runningTotal > 99 ? '99+' : runningTotal}</span> : null}
@@ -246,14 +246,14 @@ export function RunningCodexMenu() {
         <div className={styles.runningCodexPanel}>
           <header>
             <div>
-              <strong>Running</strong>
-              <span>{runningTotal > 0 ? `${runningTotal} live Codex conversation${runningTotal === 1 ? '' : 's'}` : 'No running conversations'}</span>
+              <strong>Active Codex</strong>
+              <span>{runningTotal > 0 ? `${runningTotal} live Codex conversation${runningTotal === 1 ? '' : 's'}` : 'No active conversations'}</span>
             </div>
-            <button type="button" onClick={() => loadPage(page)} disabled={loading} aria-label="Refresh running conversations">
+            <button type="button" onClick={() => loadPage(page)} disabled={loading} aria-label="Refresh active conversations">
               <LuRefreshCw size={14} />
             </button>
           </header>
-          <div className={styles.runningCodexTabs} role="tablist" aria-label="Running Codex groups">
+          <div className={styles.runningCodexTabs} role="tablist" aria-label="Active Codex groups">
             {RUNNING_GROUP_KEYS.map((group) => (
               <button
                 key={group}
@@ -277,7 +277,7 @@ export function RunningCodexMenu() {
             ))}
           </div>
           {loading && !hasRows ? (
-            <div className={styles.runningCodexState}>Loading running conversations...</div>
+            <div className={styles.runningCodexState}>Loading active conversations...</div>
           ) : error ? (
             <div className={`${styles.runningCodexState} ${styles.runningCodexError}`}>{error}</div>
           ) : hasRows ? (
@@ -317,16 +317,16 @@ export function RunningCodexMenu() {
           ) : (
             <div className={styles.runningCodexEmpty}>
               <LuMessageSquare size={18} />
-              <strong>No running conversations</strong>
-              <span>Queued and running Codex plan, run, chat, steer, and post-run conversations will appear here.</span>
+              <strong>No active conversations</strong>
+              <span>Queued and active Codex plan, run, chat, steer, and post-run conversations will appear here.</span>
             </div>
           )}
           <footer>
-            <button type="button" onClick={() => loadPage(Math.max(1, page - 1))} disabled={loading || page <= 1} aria-label="Previous running conversations page">
+            <button type="button" onClick={() => loadPage(Math.max(1, page - 1))} disabled={loading || page <= 1} aria-label="Previous active conversations page">
               <LuChevronLeft size={14} />
             </button>
             <span>Page {page} of {totalPages}</span>
-            <button type="button" onClick={() => loadPage(Math.min(totalPages, page + 1))} disabled={loading || page >= totalPages} aria-label="Next running conversations page">
+            <button type="button" onClick={() => loadPage(Math.min(totalPages, page + 1))} disabled={loading || page >= totalPages} aria-label="Next active conversations page">
               <LuChevronRight size={14} />
             </button>
           </footer>

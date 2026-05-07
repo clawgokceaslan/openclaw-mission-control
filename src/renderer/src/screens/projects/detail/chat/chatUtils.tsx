@@ -1,5 +1,5 @@
 import { formatUsageSummary, parseCodexEvents, type CodexUsageSummary } from '@shared/utils/codex-events'
-import { inferCodexChatPhase } from '@shared/utils/codex-chat-phase'
+import { codexChatPhaseActionLabel, inferCodexChatPhase } from '@shared/utils/codex-chat-phase'
 import type { TaskComment, TaskEntity } from '@shared/types/entities'
 import type {
   ChatConversationSummary,
@@ -868,7 +868,7 @@ export function buildChatConversationSummaries(messages: TaskActivityMessage[], 
     const at = messageTimeOf(message)
     const current = grouped.get(id)
     const phase = inferCodexChatPhase(message)
-    const nextTitle = phase
+    const nextTitle = codexChatPhaseActionLabel(phase)
     const messageModel = typeof message.metadata?.model === 'string' ? message.metadata.model : undefined
     const nextStatus = message.status ?? 'event'
     const terminalStatus = isRunCompleteMessage(message)

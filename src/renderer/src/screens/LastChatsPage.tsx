@@ -2,6 +2,7 @@ import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } fro
 import { LuRefreshCw } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { DEFAULT_CODEX_LANGUAGE } from '@shared/utils/codex-language'
+import { codexChatLifecycleStatusKey, codexLifecycleStatusMeta } from '@shared/utils/codex-chat-phase'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { createSerializedAsyncRunner } from '@renderer/utils/serializedAsync'
@@ -38,6 +39,7 @@ type ConversationRow = {
   status: ConversationStatus
   at: number
   source: TaskActivityMessage['source']
+  phase: ChatConversationSummary['phase']
   count: number
   model?: string
   latestBody: string
@@ -78,7 +80,7 @@ type GroupConfig = {
 }
 
 const GROUPS: GroupConfig[] = [
-  { key: 'ongoing', title: 'Running' },
+  { key: 'ongoing', title: 'Working' },
   { key: 'successful', title: 'Completed' },
   { key: 'failed', title: 'Failed' },
   { key: 'other', title: 'Other' }
@@ -98,19 +100,17 @@ function resolveStatusRow(status: ConversationStatus): ConversationGroupKey {
   return 'other'
 }
 
-function statusBadgeClass(status: ConversationStatus) {
-  if (status === 'running' || status === 'queued') return projectStyles.chatStatus_running
-  if (status === 'completed') return projectStyles.chatStatus_completed
-  if (status === 'failed') return projectStyles.chatStatus_failed
-  return ''
+function conversationLifecycleMeta(conversation: ConversationRow) {
+  const active = conversation.status === 'running' || conversation.status === 'queued'
+  return codexLifecycleStatusMeta(codexChatLifecycleStatusKey(conversation.phase, conversation.status, active))
 }
 
-function statusLabel(status: ConversationStatus): string {
-  if (status === 'running') return 'RUNNING'
-  if (status === 'queued') return 'QUEUED'
-  if (status === 'completed') return 'COMPLETED'
-  if (status === 'failed') return 'FAILED'
-  return 'EVENT'
+function statusBadgeClass(conversation: ConversationRow) {
+  return projectStyles[`chatStatus_${conversationLifecycleMeta(conversation).tone}`] ?? ''
+}
+
+function statusLabel(conversation: ConversationRow): string {
+  return conversationLifecycleMeta(conversation).label
 }
 
 function sourceLabel(source: TaskActivityMessage['source']): string {
@@ -147,13 +147,13 @@ function displayedStatusLabel(conversation: ConversationRow, manualResolution: C
   if (manualResolution === 'stopped') return 'STOPPED'
   if (manualResolution === 'completed') return 'COMPLETED'
   if (manualResolution === 'failed') return 'FAILED'
-  return statusLabel(conversation.status)
+  return statusLabel(conversation)
 }
 
 function displayedStatusBadgeClass(conversation: ConversationRow, manualResolution: CodexResolveResolution | null): string {
   if (manualResolution === 'failed') return projectStyles.chatStatus_failed
   if (manualResolution === 'completed' || manualResolution === 'stopped') return projectStyles.chatStatus_completed
-  return statusBadgeClass(conversation.status)
+  return statusBadgeClass(conversation)
 }
 
 function shortText(value: string, max: number) {
@@ -315,6 +315,7 @@ export function LastChatsPage() {
           status: summary?.status ?? last?.status ?? 'event',
           at: latestAt,
           source: summary?.source ?? last?.source ?? 'codex-chat',
+          phase: summary?.phase ?? 'FOLLOW UP',
           count: summary?.count ?? 0,
           model: summary?.model ?? (typeof last?.metadata?.model === 'string' ? last.metadata.model : undefined),
           latestBody,
@@ -662,7 +663,7 @@ export function LastChatsPage() {
     if (!selectedTask || !conversationId) return
     setChatStopping(true)
     setStoppingConversationIds((current) => new Set(current).add(conversationId))
-    setChatFeedback({ state: 'running', title: 'Stopping chat', message: 'Asking Codex to stop the active run.' })
+    setChatFeedback({ state: 'running', title: 'Stopping chat', message: 'Asking Codex to stop the active chat.' })
     try {
       const response = await invokeBridge<CodexStopResponse>(IPC_CHANNELS.tasks.codexChatStop, {
         actorToken: token,
@@ -675,7 +676,7 @@ export function LastChatsPage() {
       }
       if (!response.data?.stopped) {
         setLocalSettledConversationIds((current) => new Set(current).add(conversationId))
-        setChatFeedback({ state: 'error', title: 'Action needs attention', message: 'No running Codex chat was found to stop.' })
+        setChatFeedback({ state: 'error', title: 'Action needs attention', message: 'No active Codex chat was found to stop.' })
         return
       }
       setLocalSettledConversationIds((current) => new Set(current).add(conversationId))
@@ -892,11 +893,15 @@ export function LastChatsPage() {
                       const selectedResolutionOption = resolutionOptionOf(currentResolution)
                       const isResolving = isResolvingConversation(conversation)
                       const currentStatusBadgeClass = displayedStatusBadgeClass(conversation, manualResolution)
+                      const isActiveStatusTone = currentStatusBadgeClass === projectStyles.chatStatus_working
+                        || currentStatusBadgeClass === projectStyles.chatStatus_planning
+                        || currentStatusBadgeClass === projectStyles.chatStatus_post-running
+                        || currentStatusBadgeClass === projectStyles.chatStatus_following-up
                       const resolveSelectClassName = [
                         styles.resolveSelect,
                         currentStatusBadgeClass === projectStyles.chatStatus_completed ? styles.resolveSelectCompleted : '',
                         currentStatusBadgeClass === projectStyles.chatStatus_failed ? styles.resolveSelectFailed : '',
-                        currentStatusBadgeClass === projectStyles.chatStatus_running ? styles.resolveSelectRunning : ''
+                        isActiveStatusTone ? styles.resolveSelectRunning : ''
                       ].filter(Boolean).join(' ')
                       return (
                         <div

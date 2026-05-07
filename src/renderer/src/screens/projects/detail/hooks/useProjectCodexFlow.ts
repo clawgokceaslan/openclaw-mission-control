@@ -585,7 +585,7 @@ export function useProjectCodexFlow({
         return { conversationId, stopped: 0, notFound: false }
       }
       if (!response.data?.stopped) {
-        setCodexRunFeedback({ kind: 'error', message: 'No running Codex chat was found to stop.' })
+        setCodexRunFeedback({ kind: 'error', message: 'No active Codex chat was found to stop.' })
         return { conversationId, stopped: 0, notFound: true }
       }
       return { conversationId, stopped: response.data.stopped, notFound: false }
@@ -667,11 +667,11 @@ export function useProjectCodexFlow({
   const chatOperationFeedback: ChatOperationFeedbackData | null = codexPlanLaunching
     ? { state: 'running', title: 'Planning with Codex', message: `Launching ${chatPlanModel || resolvedPlanModel || 'the selected model'} with the current task context.` }
     : codexRunLaunching
-      ? { state: 'running', title: 'Running task with Codex', message: `Preparing the task workspace for ${chatRunModel || chatModel || resolvedRunModel || 'the selected model'}.` }
+      ? { state: 'running', title: 'Working with Codex', message: `Preparing the task workspace for ${chatRunModel || chatModel || resolvedRunModel || 'the selected model'}.` }
       : chatSending
         ? { state: 'running', title: 'Sending message', message: `Starting ${chatRunModel || chatModel || 'the selected model'} for this chat thread.` }
         : chatStopping
-          ? { state: 'running', title: 'Stopping chat', message: 'Asking Codex to stop the active run.' }
+          ? { state: 'running', title: 'Stopping chat', message: 'Asking Codex to stop the active chat.' }
           : codexRunFeedback
             ? {
                 state: codexRunFeedback.kind,

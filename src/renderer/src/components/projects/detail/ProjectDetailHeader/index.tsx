@@ -1,6 +1,5 @@
 import { LuMessageSquare, LuPlus, LuRefreshCw, LuSettings2, LuSignal } from 'react-icons/lu'
 import type { Project } from '@shared/types/entities'
-import type { ProjectViewMode } from '@renderer/screens/projects/detail/status'
 import { ProjectViewBar } from '../ProjectViewBar'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
@@ -8,7 +7,6 @@ interface ProjectDetailHeaderProps {
   project: Project
   taskTitle: string
   busy: boolean
-  viewMode: ProjectViewMode
   onTaskTitleChange: (value: string) => void
   onQuickCreate: () => void
   onOpenCreateTask: () => void
@@ -17,7 +15,7 @@ interface ProjectDetailHeaderProps {
   onOpenStatusSettings: () => void
   onSyncProject: () => void
   syncDisabled?: boolean
-  onViewModeChange: (mode: ProjectViewMode) => void
+  onBoardSelect: () => void
   recentChatsActive?: boolean
   recentChatsCount?: number
   onRecentChatsSelect?: () => void
@@ -27,7 +25,6 @@ export function ProjectDetailHeader({
   project,
   taskTitle,
   busy,
-  viewMode,
   onTaskTitleChange,
   onQuickCreate,
   onOpenCreateTask,
@@ -36,7 +33,7 @@ export function ProjectDetailHeader({
   onOpenStatusSettings,
   onSyncProject,
   syncDisabled,
-  onViewModeChange,
+  onBoardSelect,
   recentChatsActive,
   recentChatsCount,
   onRecentChatsSelect
@@ -78,8 +75,7 @@ export function ProjectDetailHeader({
         </div>
       </div>
       <ProjectViewBar
-        viewMode={viewMode}
-        onViewModeChange={onViewModeChange}
+        onBoardSelect={onBoardSelect}
         recentChatsActive={recentChatsActive}
         recentChatsCount={recentChatsCount}
         onRecentChatsSelect={onRecentChatsSelect}

@@ -1,15 +1,22 @@
 import type {
   CodexCliGatewayConfig,
-  CustomField,
   Project,
   ProjectCodexSettings,
   TaskEntity,
   Workspace
 } from '@shared/types/entities'
-import type { ProjectTableViewConfig, TableColumnConfig, TaskActivityMessage } from './types'
+import type { TaskActivityMessage } from './types'
 import type { ProjectStatusColumn } from './status'
 import { normalizeCodexLanguage, normalizeCodexReasoningEffort } from '@shared/utils/codex-language'
-import { inferCodexChatPhase, type CodexChatPhase } from '@shared/utils/codex-chat-phase'
+import {
+  codexChatLifecycleStatusKey,
+  codexChatPhaseActionLabel,
+  codexLifecycleStatusMeta,
+  inferCodexChatPhase,
+  type CodexChatPhase,
+  type CodexLifecycleStatusKey,
+  type CodexLifecycleTone
+} from '@shared/utils/codex-chat-phase'
 import { normalizeCodexPromptShape } from '@shared/utils/codex-prompt-shape'
 
 export function projectCodexSettings(project: Project | null): ProjectCodexSettings {
@@ -149,13 +156,13 @@ export function withTaskMeta(task: TaskEntity): TaskEntity {
 
 export type TaskCodexPlanBadge = {
   state: 'planned' | 'needs-clarification'
-  label: 'Planned' | 'Plan için bilgi gerekiyor'
+  label: 'Planned' | 'Needs Input'
   conversationId?: string
 }
 
 export type TaskCodexActionChip = {
   phase: CodexChatPhase
-  label: CodexChatPhase
+  label: string
   conversationId: string
   status: TaskActivityMessage['status'] | 'event'
   at: number
@@ -172,8 +179,9 @@ export type TaskCodexConversationMatch = {
 
 export type TaskCodexSurfaceStatus = {
   key: string
-  label: 'Planned' | 'Plan için bilgi gerekiyor' | 'Planning' | 'Run' | 'Running' | 'Post Running' | 'Follow Up'
-  tone: 'planned' | 'needs-info' | 'planning' | 'run' | 'running' | 'post-running' | 'follow-up'
+  statusKey: CodexLifecycleStatusKey
+  label: string
+  tone: CodexLifecycleTone
   conversationId?: string
   iconOnly?: boolean
   active?: boolean
@@ -210,19 +218,22 @@ export function taskCodexPlanBadge(task: TaskEntity): TaskCodexPlanBadge | null 
   if (record.state === 'needs-clarification') {
     return {
       state: 'needs-clarification',
-      label: 'Plan için bilgi gerekiyor',
+      label: 'Needs Input',
       conversationId: typeof record.conversationId === 'string' ? record.conversationId : undefined
     }
   }
   return null
 }
 
+function activityMessageTime(message: TaskActivityMessage): number {
+  return message.updatedAt ?? message.createdAt
+}
+
 function latestActivityMessageByPhase(task: TaskEntity, phase: CodexChatPhase): TaskActivityMessage | null {
   let latest: TaskActivityMessage | null = null
   for (const message of taskActivityMessages(task)) {
     if (inferCodexChatPhase(message) !== phase) continue
-    const at = message.updatedAt ?? message.createdAt
-    if (!latest || (latest.updatedAt ?? latest.createdAt) < at) latest = message
+    if (!latest || activityMessageTime(latest) <= activityMessageTime(message)) latest = message
   }
   return latest
 }
@@ -232,77 +243,118 @@ function isFreshActiveMessage(message: TaskActivityMessage, now: number): boolea
   return now - (message.updatedAt ?? message.createdAt) <= 15 * 60 * 1000
 }
 
+function isTerminalActivityMessage(message: TaskActivityMessage): boolean {
+  const metadata = message.metadata && typeof message.metadata === 'object' && !Array.isArray(message.metadata)
+    ? message.metadata as Record<string, unknown>
+    : {}
+  const codexBlock = typeof metadata.codexBlock === 'string' ? metadata.codexBlock : undefined
+  const runStatus = typeof metadata.runStatus === 'string' ? metadata.runStatus : undefined
+  if (codexBlock && ['command', 'log', 'changes'].includes(codexBlock)) return false
+  return codexBlock === 'run-complete'
+    || metadata.stopped === true
+    || message.role === 'error'
+    || message.status === 'failed'
+    || runStatus === 'completed'
+    || runStatus === 'failed'
+}
+
 function conversationIdOfActivity(message: TaskActivityMessage): string {
   return message.conversationId || message.runId
+}
+
+function surfaceStatus(
+  key: string,
+  statusKey: CodexLifecycleStatusKey,
+  conversationId?: string,
+  active?: boolean,
+  iconOnly?: boolean
+): TaskCodexSurfaceStatus {
+  const meta = codexLifecycleStatusMeta(statusKey)
+  return {
+    key,
+    statusKey,
+    label: meta.label,
+    tone: meta.tone,
+    conversationId,
+    active: active && meta.active ? true : undefined,
+    iconOnly
+  }
+}
+
+function phaseSurfaceStatus(phase: CodexChatPhase, message: TaskActivityMessage, active: boolean): TaskCodexSurfaceStatus {
+  const statusKey = codexChatLifecycleStatusKey(phase, message.status ?? 'event', active)
+  return surfaceStatus(`${phase}:${statusKey}`, statusKey, conversationIdOfActivity(message), active)
+}
+
+function latestFreshActiveMessageByPhase(task: TaskEntity, phase: CodexChatPhase, now: number): TaskActivityMessage | null {
+  let latest: TaskActivityMessage | null = null
+  for (const message of taskActivityMessages(task)) {
+    if (inferCodexChatPhase(message) !== phase) continue
+    if (!isFreshActiveMessage(message, now)) continue
+    if (!latest || activityMessageTime(latest) <= activityMessageTime(message)) latest = message
+  }
+  return latest
+}
+
+function latestTerminalMessageByPhase(task: TaskEntity, phase: CodexChatPhase): TaskActivityMessage | null {
+  let latest: TaskActivityMessage | null = null
+  for (const message of taskActivityMessages(task)) {
+    if (inferCodexChatPhase(message) !== phase) continue
+    if (!isTerminalActivityMessage(message)) continue
+    if (!latest || activityMessageTime(latest) <= activityMessageTime(message)) latest = message
+  }
+  return latest
+}
+
+function activeMessageAfterTerminal(task: TaskEntity, phase: CodexChatPhase, now: number, terminal: TaskActivityMessage | null): TaskActivityMessage | null {
+  const active = latestFreshActiveMessageByPhase(task, phase, now)
+  if (!active) return null
+  if (terminal && activityMessageTime(terminal) >= activityMessageTime(active)) return null
+  return active
 }
 
 export function taskCodexSurfaceStatuses(task: TaskEntity, now = Date.now()): TaskCodexSurfaceStatus[] {
   const statuses: TaskCodexSurfaceStatus[] = []
   const planBadge = taskCodexPlanBadge(task)
-
-  if (planBadge?.state === 'planned') {
-    statuses.push({
-      key: 'planned',
-      label: 'Planned',
-      tone: 'planned',
-      conversationId: planBadge.conversationId,
-      iconOnly: true
-    })
-  } else if (planBadge?.state === 'needs-clarification') {
-    statuses.push({
-      key: 'needs-info',
-      label: 'Plan için bilgi gerekiyor',
-      tone: 'needs-info',
-      conversationId: planBadge.conversationId
-    })
-  }
-
+  const terminalPlan = latestTerminalMessageByPhase(task, 'PLAN')
+  const activePlan = activeMessageAfterTerminal(task, 'PLAN', now, terminalPlan)
   const latestPlan = latestActivityMessageByPhase(task, 'PLAN')
-  if (latestPlan && planBadge?.state !== 'needs-clarification' && planBadge?.state !== 'planned') {
-    const active = isFreshActiveMessage(latestPlan, now)
-    statuses.push({
-      key: 'planning',
-      label: 'Planning',
-      tone: 'planning',
-      conversationId: conversationIdOfActivity(latestPlan),
-      active: active || undefined
-    })
+
+  if (activePlan) {
+    statuses.push(phaseSurfaceStatus('PLAN', activePlan, true))
+  } else if (terminalPlan?.status === 'failed' || terminalPlan?.role === 'error' || terminalPlan?.metadata?.runStatus === 'failed') {
+    statuses.push(phaseSurfaceStatus('PLAN', terminalPlan, false))
+  } else if (planBadge?.state === 'planned') {
+    statuses.push(surfaceStatus('PLAN:planned', 'planned', planBadge.conversationId, false, true))
+  } else if (planBadge?.state === 'needs-clarification') {
+    statuses.push(surfaceStatus('PLAN:needs-input', 'needs-input', planBadge.conversationId))
+  } else if (terminalPlan) {
+    statuses.push(phaseSurfaceStatus('PLAN', terminalPlan, false))
+  } else if (latestPlan) {
+    statuses.push(phaseSurfaceStatus('PLAN', latestPlan, false))
+  } else {
+    statuses.push(surfaceStatus('PLAN:not-planned', 'not-planned'))
   }
 
   const latestRun = latestActivityMessageByPhase(task, 'RUN')
   if (latestRun) {
-    const running = isFreshActiveMessage(latestRun, now)
-    statuses.push({
-      key: running ? 'running' : 'run',
-      label: running ? 'Running' : 'Run',
-      tone: running ? 'running' : 'run',
-      conversationId: conversationIdOfActivity(latestRun),
-      active: running || undefined
-    })
+    const terminalRun = latestTerminalMessageByPhase(task, 'RUN')
+    const activeRun = activeMessageAfterTerminal(task, 'RUN', now, terminalRun)
+    statuses.push(phaseSurfaceStatus('RUN', activeRun ?? terminalRun ?? latestRun, Boolean(activeRun)))
   }
 
   const latestPostRunning = latestActivityMessageByPhase(task, 'POST-RUNNING')
   if (latestPostRunning) {
-    const active = isFreshActiveMessage(latestPostRunning, now)
-    statuses.push({
-      key: 'post-running',
-      label: 'Post Running',
-      tone: 'post-running',
-      conversationId: conversationIdOfActivity(latestPostRunning),
-      active: active || undefined
-    })
+    const terminalPostRunning = latestTerminalMessageByPhase(task, 'POST-RUNNING')
+    const activePostRunning = activeMessageAfterTerminal(task, 'POST-RUNNING', now, terminalPostRunning)
+    statuses.push(phaseSurfaceStatus('POST-RUNNING', activePostRunning ?? terminalPostRunning ?? latestPostRunning, Boolean(activePostRunning)))
   }
 
   const latestFollowUp = latestActivityMessageByPhase(task, 'FOLLOW UP')
   if (latestFollowUp) {
-    const active = isFreshActiveMessage(latestFollowUp, now)
-    statuses.push({
-      key: 'follow-up',
-      label: 'Follow Up',
-      tone: 'follow-up',
-      conversationId: conversationIdOfActivity(latestFollowUp),
-      active: active || undefined
-    })
+    const terminalFollowUp = latestTerminalMessageByPhase(task, 'FOLLOW UP')
+    const activeFollowUp = activeMessageAfterTerminal(task, 'FOLLOW UP', now, terminalFollowUp)
+    statuses.push(phaseSurfaceStatus('FOLLOW UP', activeFollowUp ?? terminalFollowUp ?? latestFollowUp, Boolean(activeFollowUp)))
   }
 
   return statuses
@@ -343,23 +395,13 @@ export function taskCodexActionChips(task: TaskEntity): TaskCodexActionChip[] {
       .find((item) => (item.updatedAt ?? item.createdAt) === latest.at)
     return [{
       phase,
-      label: phase,
+      label: codexChatPhaseActionLabel(phase),
       conversationId: latest.conversationId,
       status: message?.status ?? 'event',
       at: latest.at
     }]
   })
 }
-
-export const DEFAULT_TABLE_COLUMNS: TableColumnConfig[] = [
-  { id: 'index', kind: 'index', label: '#', width: 42, required: true },
-  { id: 'name', kind: 'name', label: 'Name', width: 300, required: true },
-  { id: 'assignee', kind: 'assignee', label: 'Assignee', width: 170 },
-  { id: 'status', kind: 'status', label: 'Status', width: 180, required: true },
-  { id: 'due', kind: 'due', label: 'Due date', width: 150 },
-  { id: 'tags', kind: 'tags', label: 'Tags', width: 190 },
-  { id: 'subtasks', kind: 'subtasks', label: 'Subtasks', width: 110 }
-]
 
 export function getStatusOrder(task: TaskEntity, status: string) {
   const value = task.payload?.statusOrder
@@ -380,44 +422,6 @@ export function statusOrderPayload(task: TaskEntity, status: string, order: numb
   }
 }
 
-export function getTableViewConfig(project: Project | null): ProjectTableViewConfig {
-  const value = project?.metrics?.tableView
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
-  return value as ProjectTableViewConfig
-}
-
-export function normalizeTableColumns(project: Project | null, customFields: CustomField[]): TableColumnConfig[] {
-  const config = getTableViewConfig(project)
-  const customFieldIds = new Set(customFields.map((field) => field.id))
-  const incoming = Array.isArray(config.columns) ? config.columns : DEFAULT_TABLE_COLUMNS
-  const byId = new Map(DEFAULT_TABLE_COLUMNS.map((column) => [column.id, column]))
-  const normalized = incoming
-    .filter((column) => column && typeof column.id === 'string')
-    .filter((column) => column.kind !== 'custom' || (column.customFieldId && customFieldIds.has(column.customFieldId)))
-    .slice(0, 12)
-    .map((column) => {
-      const base = byId.get(column.id)
-      if (base) return { ...base, width: config.columnWidths?.[base.id] ?? column.width ?? base.width }
-      const field = customFields.find((item) => item.id === column.customFieldId)
-      return {
-        id: column.id,
-        kind: 'custom' as const,
-        label: field?.name ?? column.label,
-        customFieldId: column.customFieldId,
-        width: config.columnWidths?.[column.id] ?? column.width ?? 180
-      }
-    })
-  for (const required of DEFAULT_TABLE_COLUMNS.filter((column) => column.required)) {
-    if (!normalized.some((column) => column.id === required.id)) normalized.unshift(required)
-  }
-  return normalized.slice(0, 12)
-}
-
-export function getLegacyTableOrder(task: TaskEntity) {
-  const value = task.payload?.tableOrder
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
 export type TaskDropPosition = 'before' | 'after'
 
 export type ReorderedTaskUpdate = {
@@ -436,34 +440,9 @@ export function orderedTasksForStatus(rows: TaskEntity[]): TaskEntity[] {
     .map((task, index) => ({
       task,
       index,
-      order: getStatusOrder(task, task.status) ?? getLegacyTableOrder(task) ?? newestFirstIndex.get(task.id) ?? index
+      order: getStatusOrder(task, task.status) ?? newestFirstIndex.get(task.id) ?? index
     }))
     .sort((a, b) => a.order - b.order || a.index - b.index)
-    .map((item) => item.task)
-}
-
-export function orderTasksByStatusGroups(tasks: TaskEntity[], statusColumns: ProjectStatusColumn[]): TaskEntity[] {
-  const statusIndex = new Map(statusColumns.map((column, index) => [column.status, index]))
-  return [...tasks]
-    .map((task, index) => ({
-      task,
-      index,
-      statusIndex: statusIndex.get(task.status) ?? statusColumns.length,
-      order: getStatusOrder(task, task.status),
-      legacyOrder: getLegacyTableOrder(task),
-      newest: getTaskNewestTime(task)
-    }))
-    .sort((a, b) => {
-      if (a.statusIndex !== b.statusIndex) return a.statusIndex - b.statusIndex
-      if (a.order !== null && b.order !== null) return a.order - b.order
-      if (a.order !== null) return -1
-      if (b.order !== null) return 1
-      if (a.legacyOrder !== null && b.legacyOrder !== null) return a.legacyOrder - b.legacyOrder
-      if (a.legacyOrder !== null) return -1
-      if (b.legacyOrder !== null) return 1
-      if (a.newest !== b.newest) return b.newest - a.newest
-      return a.index - b.index
-    })
     .map((item) => item.task)
 }
 

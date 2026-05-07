@@ -2,21 +2,21 @@ import type { RunningCodexConversationType, RunningCodexGroupKey } from '@shared
 
 export function runningCodexConversationTypeLabel(type: RunningCodexConversationType | string): string {
   if (type === 'plan') return 'Planning'
-  if (type === 'run') return 'Run'
-  if (type === 'steer') return 'Running'
+  if (type === 'run') return 'Working'
+  if (type === 'steer') return 'Following Up'
   if (type === 'post-run') return 'Post Running'
-  if (type === 'chat') return 'Running'
-  return 'Running'
+  if (type === 'chat') return 'Following Up'
+  return 'Working'
 }
 
 export function runningCodexLiveStatusLabel(status: 'queued' | 'running'): string {
-  return status === 'queued' ? 'Queued' : 'Running'
+  return status === 'queued' ? 'Queued' : 'Working'
 }
 
 export function runningCodexGroupLabel(group: RunningCodexGroupKey): string {
   if (group === 'planning') return 'Planning'
   if (group === 'postRunning') return 'Post Running'
-  if (group === 'running') return 'Running'
+  if (group === 'running') return 'Working'
   return 'All'
 }
 

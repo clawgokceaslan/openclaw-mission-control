@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
 import type { Project, TaskEntity, TaskSubtask, Tag, ProjectStatus } from '@shared/types/entities'
-import type { ChatConversationSummary, DetailTab, DetailViewMode, TableColumnConfig, TaskActivityMessage } from '../types'
+import type { ChatConversationSummary, DetailTab, DetailViewMode, TaskActivityMessage } from '../types'
 import { columnsFromProjectStatuses } from '../status'
-import { normalizeTableColumns, orderedTasksForStatus, orderTasksByStatusGroups } from '../projectDetailUtils'
+import { orderedTasksForStatus } from '../projectDetailUtils'
 import { PROJECT_STATUS_COLUMNS } from '../status'
 import { buildChatConversationSummaries, activityMessagesFromTask } from '../chat/chatUtils'
 
@@ -13,7 +13,6 @@ export interface ProjectDerivedStateInput {
   projectStatuses: ProjectStatus[]
   selectedTaskId: string | null
   selectedSubtaskId: string | null
-  customFields: { id: string; name?: string }[]
   detailTab?: DetailTab
   detailViewMode?: DetailViewMode
   selectedChatConversationId?: string
@@ -28,9 +27,7 @@ export interface ProjectDerivedState {
   statusColumns: ReturnType<typeof columnsFromProjectStatuses>
   defaultStatus: ProjectStatus['status']
   completedStatusIds: Set<ProjectStatus['status']>
-  tableTasks: TaskEntity[]
   tasksByStatus: Record<string, TaskEntity[]>
-  tableColumns: TableColumnConfig[]
   chatConversations: ChatConversationSummary[]
   chatConversationsSummary: ChatConversationSummary[]
   chatActivityMessages: TaskActivityMessage[]
@@ -47,7 +44,6 @@ export function useProjectDerivedState({
   projectStatuses,
   selectedTaskId,
   selectedSubtaskId,
-  customFields,
   detailTab = 'subtasks',
   detailViewMode = 'task',
   selectedChatConversationId,
@@ -108,10 +104,6 @@ export function useProjectDerivedState({
     return grouped
   }, [defaultStatus, hydratedTasks, statusColumns])
 
-  const tableTasks = useMemo(() => {
-    return orderTasksByStatusGroups(hydratedTasks, statusColumns)
-  }, [hydratedTasks, statusColumns])
-
   const chatActivityMessages = useMemo(() => {
     if (!selectedTask) return []
     return activityMessagesFromTask(selectedTask)
@@ -137,11 +129,6 @@ export function useProjectDerivedState({
     return chatConversations.find((conversation) => conversation.id === selectedChatConversationId) ?? null
   }, [chatConversations, isStartingNewChat, selectedChatConversationId])
 
-  const tableColumns = useMemo<TableColumnConfig[]>(() => {
-    if (!project) return []
-    return normalizeTableColumns(project, customFields as Array<{ id: string; name?: string }>)
-  }, [project, customFields])
-
   return {
     tasks,
     hydratedTasks,
@@ -150,9 +137,7 @@ export function useProjectDerivedState({
     statusColumns,
     defaultStatus,
     completedStatusIds,
-    tableTasks,
     tasksByStatus,
-    tableColumns,
     chatConversations,
     chatConversationsSummary: chatConversations,
     chatActivityMessages,

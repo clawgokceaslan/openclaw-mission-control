@@ -7,7 +7,7 @@ import {
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS, type AppNavigateState } from '@shared/contracts/ipc'
 import { CODEX_REASONING_EFFORT_OPTIONS, DEFAULT_CODEX_LANGUAGE, codexModelReasoningEfforts, codexModelSupportsReasoning } from '@shared/utils/codex-language'
-import { inferCodexChatPhase, type CodexChatPhase } from '@shared/utils/codex-chat-phase'
+import { codexChatLifecycleStatusKey, codexChatPhaseActionLabel, codexLifecycleStatusMeta, inferCodexChatPhase, type CodexChatPhase } from '@shared/utils/codex-chat-phase'
 import { invokeBridge } from '@renderer/utils/api'
 import { clearRendererDiagnosticContext, setRendererDiagnosticContext } from '@renderer/utils/rendererResilience'
 import { Agent, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, CustomField } from '@shared/types/entities'
@@ -41,12 +41,10 @@ import {
   userMessageCount
 } from './detail/chat/chatUtils'
 import {
-  DEFAULT_TABLE_COLUMNS,
   codexConfigOf,
   codexPayloadOverride,
   createLocalId,
   customFieldValueToDraft,
-  getTableViewConfig,
   latestTaskCodexConversation,
   orderedTasksForStatus,
   projectDefaultAgentId,
@@ -81,9 +79,6 @@ import type {
   DetailViewMode,
   ProjectPromptTab,
   ProjectSettingsTab,
-  ProjectTableViewConfig,
-  ProjectViewMode,
-  TableColumnConfig,
   TaskHistoryItem,
   TaskActivityMessage,
   TextDraftRow,
@@ -113,12 +108,9 @@ type ProjectRecentChatRow = {
   preview: string
 }
 
-function projectRecentChatStatusLabel(status: ProjectRecentChatRow['status']): string {
-  if (status === 'running') return 'İşlemde'
-  if (status === 'queued') return 'Sırada'
-  if (status === 'completed') return 'Başarılı'
-  if (status === 'failed') return 'Başarısız'
-  return 'Event'
+function projectRecentChatStatusMeta(row: ProjectRecentChatRow) {
+  const active = row.status === 'running' || row.status === 'queued'
+  return codexLifecycleStatusMeta(codexChatLifecycleStatusKey(row.phase, row.status, active))
 }
 
 function projectRecentChatPreview(value: string, max = 118): string {
@@ -187,16 +179,8 @@ export function ProjectDetailPage() {
     setProjectStatuses,
     statusTemplates,
     setStatusTemplates,
-    viewMode,
-    setViewMode,
     taskTitle,
     setTaskTitle,
-    listCreateStatus,
-    setListCreateStatus,
-    listCreateTitle,
-    setListCreateTitle,
-    tableCreateActive,
-    setTableCreateActive,
     isCreateTaskOpen,
     setIsCreateTaskOpen,
     isStatusEditorOpen,
@@ -321,8 +305,6 @@ export function ProjectDetailPage() {
     setCreateTaskInitialTitle,
     createTaskInitialTemplateId,
     setCreateTaskInitialTemplateId,
-    collapsedStatuses,
-    setCollapsedStatuses,
     error,
     setError,
     busy,
@@ -426,9 +408,7 @@ export function ProjectDetailPage() {
     detailRatio,
     setDetailRatio,
     isResizingSplit,
-    setIsResizingSplit,
-    isTableColumnPickerOpen,
-    setIsTableColumnPickerOpen
+    setIsResizingSplit
   } = projectDetailState
 
   const modalBodyRef = useRef<HTMLDivElement | null>(null)
@@ -594,9 +574,7 @@ export function ProjectDetailPage() {
     statusColumns,
     defaultStatus,
     completedStatusIds,
-    tableTasks,
     tasksByStatus,
-    tableColumns,
     chatActivityMessages,
     chatConversations: derivedChatConversations,
     selectedChatSummary: derivedSelectedChatSummary
@@ -607,7 +585,6 @@ export function ProjectDetailPage() {
     projectStatuses,
     selectedTaskId,
     selectedSubtaskId,
-    customFields: customFields as Array<{ id: string; name?: string }>,
     detailTab,
     detailViewMode,
     selectedChatConversationId,
@@ -625,7 +602,6 @@ export function ProjectDetailPage() {
       taskCount: tasks.length,
       selectedTaskId: selectedTaskId ?? null,
       selectedSubtaskId: selectedSubtaskId ?? null,
-      viewMode,
       detailViewMode,
       detailTab,
       chatPopupOpen: isChatPopupOpen,
@@ -639,7 +615,6 @@ export function ProjectDetailPage() {
     tasks.length,
     selectedTaskId,
     selectedSubtaskId,
-    viewMode,
     detailViewMode,
     detailTab,
     isChatPopupOpen,
@@ -675,9 +650,6 @@ export function ProjectDetailPage() {
       openStatusEditor: workspaceOpenStatusEditor,
       openProjectPromptSettings: workspaceOpenProjectPromptSettings,
       saveProjectPromptSettings: workspaceSaveProjectPromptSettings,
-      saveProjectTableView: workspaceSaveProjectTableView,
-      setTableColumns: workspaceSetTableColumns,
-      setTableColumnWidth: workspaceSetTableColumnWidth,
       updateStatusDraft: workspaceUpdateStatusDraft,
       addActiveStatus: workspaceAddActiveStatus,
       removeStatusDraft: workspaceRemoveStatusDraft,
@@ -694,7 +666,6 @@ export function ProjectDetailPage() {
     projectStatuses,
     statusTemplates,
     defaultStatus,
-    tableColumns,
     tags,
     skills,
     agents,
@@ -1062,19 +1033,6 @@ export function ProjectDetailPage() {
     return () => document.removeEventListener('pointerdown', closeOnOutsidePointer)
   }, [subtaskStatusMenu])
 
-  const availableTableColumns = useMemo<TableColumnConfig[]>(() => {
-    const customColumns = customFields
-      .slice()
-      .sort((a, b) => a.name.localeCompare(b.name, 'tr'))
-      .map((field) => ({
-        id: `custom:${field.id}`,
-        kind: 'custom' as const,
-        label: field.name,
-        width: 190,
-        customFieldId: field.id
-      }))
-    return [...DEFAULT_TABLE_COLUMNS, ...customColumns]
-  }, [customFields])
   const projectAgentRows = useMemo(() => {
     const rows = new Map<string, { agent: Agent; count: number }>()
     const addAgent = (agentId?: string | null) => {
@@ -1346,11 +1304,6 @@ export function ProjectDetailPage() {
     setPendingChatOpen(null)
   }, [pendingChatOpen, selectedTask?.id])
 
-  const selectProjectViewMode = (mode: ProjectViewMode) => {
-    setIsRecentChatsView(false)
-    setViewMode(mode)
-  }
-
   const { canRunSelectedTaskWithCodex, canPlanSelectedTaskWithCodex, canSendChat, chatOperationFeedback, planChoiceOpen, refreshCodexGatewayModels, runSelectedTaskWithCodex, planSelectedTaskWithCodex, confirmPlanWithCodex, closePlanChoice, sendCodexChatMessage, sendPlannerClarification, stopCodexChat, addChatAttachments, applySlashCommand } = useProjectCodexFlow({
     token,
     project,
@@ -1537,25 +1490,7 @@ export function ProjectDetailPage() {
     }
   }
 
-  const updateTaskStatus = async (taskId: string, status: TaskEntity['status']) => {
-    const sourceTask = tasks.find((task) => task.id === taskId)
-    if (!sourceTask) return
-    const result = reorderTasksForDrop(tasks, taskId, status)
-    const movedTask = result.tasks.find((task) => task.id === taskId)
-    const response = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
-      actorToken: token,
-      id: taskId,
-      status,
-      payload: movedTask?.payload ?? sourceTask.payload ?? {}
-    })
-    if (!response.ok) {
-      setError(response.error?.message ?? 'Unable to move task')
-      return
-    }
-    await refresh()
-  }
-
-  const reorderTableTasks = async (sourceTaskId: string, targetTaskId: string, position: TaskDropPosition) => {
+  const reorderBoardTasks = async (sourceTaskId: string, targetTaskId: string, position: TaskDropPosition) => {
     if (sourceTaskId === targetTaskId) return
     const targetTask = tasks.find((task) => task.id === targetTaskId)
     if (!targetTask) return
@@ -1650,13 +1585,40 @@ export function ProjectDetailPage() {
     }
   }
 
-  const toggleStatusGroup = (status: TaskEntity['status']) => {
-    setCollapsedStatuses((prev) => (
-      prev.includes(status) ? prev.filter((item) => item !== status) : [...prev, status]
-    ))
-  }
-
   const resolveColumnByStatus = (status: TaskEntity['status']) => resolveProjectStatusColumn(status, statusColumns)
+
+  const updateTaskStatus = async (taskId: string, nextStatus: TaskEntity['status']) => {
+    const task = tasks.find((item) => item.id === taskId)
+    if (!task || task.status === nextStatus) return
+    const currentPayload = task.payload && typeof task.payload === 'object' && !Array.isArray(task.payload)
+      ? task.payload as Record<string, unknown>
+      : {}
+    const currentStatusOrder = currentPayload.statusOrder && typeof currentPayload.statusOrder === 'object' && !Array.isArray(currentPayload.statusOrder)
+      ? currentPayload.statusOrder as Record<string, unknown>
+      : {}
+    const nextPayload = {
+      ...currentPayload,
+      statusOrder: {
+        ...currentStatusOrder,
+        [nextStatus]: orderedTasksForStatus(tasks.filter((item) => item.status === nextStatus)).length
+      }
+    }
+    setTasks((current) => current.map((item) => (
+      item.id === taskId ? { ...item, status: nextStatus, payload: nextPayload } : item
+    )))
+    const response = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
+      actorToken: token,
+      id: taskId,
+      status: nextStatus,
+      payload: nextPayload
+    })
+    if (!response.ok) {
+      setError(response.error?.message ?? 'Unable to update task status')
+      await refresh()
+      return
+    }
+    await refresh()
+  }
 
   const openStatusEditor = () => {
     setProjectSettingsTab('statuses')
@@ -1669,18 +1631,6 @@ export function ProjectDetailPage() {
 
   const saveProjectPromptSettings = async () => {
     await workspaceSaveProjectPromptSettings()
-  }
-
-  const saveProjectTableView = (nextConfig: ProjectTableViewConfig) => {
-    void workspaceSaveProjectTableView(nextConfig)
-  }
-
-  const setTableColumns = (columns: TableColumnConfig[]) => {
-    void workspaceSetTableColumns(columns)
-  }
-
-  const setTableColumnWidth = (columnId: string, width: number) => {
-    void workspaceSetTableColumnWidth(columnId, width)
   }
 
   const updateStatusDraft = (id: string, patch: Partial<ProjectStatus>) => {
@@ -3218,7 +3168,6 @@ export function ProjectDetailPage() {
         project={project}
         taskTitle={taskTitle}
         busy={busy}
-        viewMode={viewMode}
         onTaskTitleChange={setTaskTitle}
         onQuickCreate={() => void handleQuickCreate()}
         onOpenCreateTask={() => openCreateTask(defaultStatus)}
@@ -3227,7 +3176,7 @@ export function ProjectDetailPage() {
         onOpenStatusSettings={openStatusEditor}
         onSyncProject={() => void syncProjectWorkspace()}
         syncDisabled={projectSyncing}
-        onViewModeChange={selectProjectViewMode}
+        onBoardSelect={() => setIsRecentChatsView(false)}
         recentChatsActive={isRecentChatsView}
         recentChatsCount={projectRecentChats.length}
         onRecentChatsSelect={() => setIsRecentChatsView(true)}
@@ -3280,8 +3229,8 @@ export function ProjectDetailPage() {
               {projectRecentChats.map((row) => (
                 <button type="button" key={row.id} className={styles.projectRecentChatRow} onClick={() => openRecentChat(row)}>
                   <span className={styles.projectRecentChatBadges}>
-                    <b className={styles.projectRecentChatSourceBadge}>{row.phase}</b>
-                    <b className={`${styles.chatStatusBadge} ${styles[`chatStatus_${row.status}`] ?? ''}`}>{projectRecentChatStatusLabel(row.status)}</b>
+                    <b className={styles.projectRecentChatSourceBadge}>{codexChatPhaseActionLabel(row.phase)}</b>
+                    <b className={`${styles.chatStatusBadge} ${styles[`chatStatus_${projectRecentChatStatusMeta(row).tone}`] ?? ''}`}>{projectRecentChatStatusMeta(row).label}</b>
                   </span>
                   <span className={styles.projectRecentChatTask}>{row.taskTitle}</span>
                   <span className={styles.projectRecentChatMeta}>{formatChatTime(row.at)} · {row.count} mesaj{row.model ? ` · ${row.model}` : ''}</span>
@@ -3295,26 +3244,16 @@ export function ProjectDetailPage() {
         </section>
       ) : (
         <ActiveProjectView
-          viewMode={viewMode}
           statusColumns={statusColumns}
           tasksByStatus={tasksByStatus}
           agents={agents}
           onDropStatus={(event, status) => {
             void onDropColumn(event, status)
           }}
-          onReorder={(sourceTaskId, targetTaskId, position) => void reorderTableTasks(sourceTaskId, targetTaskId, position)}
+          onReorder={(sourceTaskId, targetTaskId, position) => void reorderBoardTasks(sourceTaskId, targetTaskId, position)}
           onOpenTask={navigateToTaskDetail}
           onOpenSubtask={navigateToSubtaskDetail}
-          onOpenTaskChat={openTaskChatConversation}
           onOpenCreateTask={openCreateTask}
-          onStatusChange={(taskId, status) => void updateTaskStatus(taskId, status)}
-          onToggleStatus={toggleStatusGroup}
-          onOpenColumnPicker={() => setIsTableColumnPickerOpen(true)}
-          onColumnWidthChange={(columnId, width) => void setTableColumnWidth(columnId, width)}
-          collapsedStatuses={collapsedStatuses}
-          tableTasks={tableTasks}
-          tableColumns={tableColumns}
-          customFields={customFields}
         />
       )}
 
@@ -3343,11 +3282,6 @@ export function ProjectDetailPage() {
         onAddSubtaskClose={() => setIsAddSubtaskOpen(false)}
         onAddSubtaskCreate={(input) => void createSubtask(input)}
         onAddSubtasksCreate={(inputs) => void createSubtasks(inputs)}
-        isTableColumnPickerOpen={isTableColumnPickerOpen}
-        availableTableColumns={availableTableColumns}
-        selectedTableColumns={tableColumns}
-        onCloseTableColumnPicker={() => setIsTableColumnPickerOpen(false)}
-        onTableColumnsSave={(columns) => void setTableColumns(columns)}
         isProjectPromptSettingsOpen={isProjectPromptSettingsOpen}
         projectPromptTab={projectPromptTab}
         projectPromptContext={projectPromptContext}

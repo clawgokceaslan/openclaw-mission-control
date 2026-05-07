@@ -4,16 +4,16 @@ import { formatRunningCodexActivitySummary, runningCodexConversationTypeLabel, r
 describe('running Codex menu helpers', () => {
   it('labels conversation types and live states clearly', () => {
     expect(runningCodexConversationTypeLabel('plan')).toBe('Planning')
-    expect(runningCodexConversationTypeLabel('run')).toBe('Run')
-    expect(runningCodexConversationTypeLabel('chat')).toBe('Running')
-    expect(runningCodexConversationTypeLabel('steer')).toBe('Running')
+    expect(runningCodexConversationTypeLabel('run')).toBe('Working')
+    expect(runningCodexConversationTypeLabel('chat')).toBe('Following Up')
+    expect(runningCodexConversationTypeLabel('steer')).toBe('Following Up')
     expect(runningCodexConversationTypeLabel('post-run')).toBe('Post Running')
-    expect(runningCodexConversationTypeLabel('mystery')).toBe('Running')
+    expect(runningCodexConversationTypeLabel('mystery')).toBe('Working')
     expect(runningCodexLiveStatusLabel('queued')).toBe('Queued')
-    expect(runningCodexLiveStatusLabel('running')).toBe('Running')
+    expect(runningCodexLiveStatusLabel('running')).toBe('Working')
     expect(runningCodexGroupLabel('all')).toBe('All')
     expect(runningCodexGroupLabel('planning')).toBe('Planning')
-    expect(runningCodexGroupLabel('running')).toBe('Running')
+    expect(runningCodexGroupLabel('running')).toBe('Working')
     expect(runningCodexGroupLabel('postRunning')).toBe('Post Running')
   })
 

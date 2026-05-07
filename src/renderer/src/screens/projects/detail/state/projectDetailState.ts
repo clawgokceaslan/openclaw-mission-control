@@ -21,7 +21,6 @@ export interface ProjectDetailDataState {
 }
 
 export interface ProjectDetailSelectionState {
-  viewMode: 'board' | 'list' | 'table'
   selectedTaskId: string | null
   selectedSubtaskId: string | null
   detailTab: DetailTab
@@ -62,13 +61,8 @@ export interface ProjectDetailUiState {
   isTitleEditing: boolean
   titleDraft: string
   taskTitle: string
-  listCreateStatus: TaskEntity['status'] | null
-  listCreateTitle: string
-  tableCreateActive: boolean
-  collapsedStatuses: TaskEntity['status'][]
   isResizingSplit: boolean
   detailRatio: number
-  isTableColumnPickerOpen: boolean
 }
 
 export interface ProjectDetailFormsState {
@@ -256,7 +250,6 @@ export const PROJECT_DETAIL_INITIAL_STATE: ProjectDetailState = {
     statusTemplates: []
   },
   selection: {
-    viewMode: 'board',
     selectedTaskId: null,
     selectedSubtaskId: null,
     detailTab: 'subtasks',
@@ -296,13 +289,8 @@ export const PROJECT_DETAIL_INITIAL_STATE: ProjectDetailState = {
     isTitleEditing: false,
     titleDraft: '',
     taskTitle: '',
-    listCreateStatus: null,
-    listCreateTitle: '',
-    tableCreateActive: false,
-    collapsedStatuses: [],
     isResizingSplit: false,
-    detailRatio: 0.7,
-    isTableColumnPickerOpen: false
+    detailRatio: 0.7
   },
   forms: {
     statusDrafts: [],
@@ -402,7 +390,6 @@ const PROJECT_DETAIL_FIELD_TO_PATH = {
   workspaces: ['data', 'workspaces'],
   projectStatuses: ['data', 'projectStatuses'],
   statusTemplates: ['data', 'statusTemplates'],
-  viewMode: ['selection', 'viewMode'],
   selectedTaskId: ['selection', 'selectedTaskId'],
   selectedSubtaskId: ['selection', 'selectedSubtaskId'],
   detailTab: ['selection', 'detailTab'],
@@ -440,13 +427,8 @@ const PROJECT_DETAIL_FIELD_TO_PATH = {
   isTitleEditing: ['ui', 'isTitleEditing'],
   titleDraft: ['ui', 'titleDraft'],
   taskTitle: ['ui', 'taskTitle'],
-  listCreateStatus: ['ui', 'listCreateStatus'],
-  listCreateTitle: ['ui', 'listCreateTitle'],
-  tableCreateActive: ['ui', 'tableCreateActive'],
-  collapsedStatuses: ['ui', 'collapsedStatuses'],
   isResizingSplit: ['ui', 'isResizingSplit'],
   detailRatio: ['ui', 'detailRatio'],
-  isTableColumnPickerOpen: ['ui', 'isTableColumnPickerOpen'],
   statusDrafts: ['forms', 'statusDrafts'],
   statusMapping: ['forms', 'statusMapping'],
   createTaskStatus: ['forms', 'createTaskStatus'],
