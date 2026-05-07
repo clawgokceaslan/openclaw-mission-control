@@ -101,13 +101,15 @@
 
   .controls {
     display: grid;
-    grid-template-columns: minmax(180px, 260px) minmax(220px, 1fr) auto;
-    gap: 12px;
-    align-items: end;
+    grid-template-columns: minmax(260px, 0.9fr) minmax(260px, 1.35fr) minmax(132px, auto);
+    gap: 10px;
+    align-items: stretch;
+    padding: 10px;
 
     label {
       display: grid;
       gap: 6px;
+      min-width: 0;
 
       span {
         color: var(--omc-text-muted);
@@ -119,7 +121,7 @@
       select,
       input {
         width: 100%;
-        min-height: 40px;
+        min-height: 42px;
         border: 1px solid var(--omc-input-border);
         border-radius: 8px;
         background: var(--omc-surface);
@@ -130,48 +132,106 @@
     }
 
     .scopeSummary {
+      min-width: 0;
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 8px;
+      background: var(--omc-surface-muted);
+      padding: 10px;
       display: grid;
-      gap: 4px;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+
+      .scopeIcon {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        background: var(--omc-surface);
+        color: var(--omc-primary);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .scopeCopy {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+
+        span {
+          color: var(--omc-text-muted);
+          font-size: 0.72rem;
+          font-weight: 850;
+          text-transform: uppercase;
+        }
+
+        strong {
+          color: var(--omc-text-strong);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        small {
+          color: var(--omc-text-muted);
+          font-size: 0.78rem;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+      }
+
+      button {
+        min-height: 34px;
+        border: 1px solid var(--omc-input-border);
+        border-radius: 8px;
+        background: var(--omc-surface);
+        color: var(--omc-text-strong);
+        padding: 0 12px;
+        font-size: 0.82rem;
+        font-weight: 850;
+      }
+    }
+
+    .searchBox {
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 8px;
+      background: var(--omc-surface-muted);
+      padding: 10px;
+
+      input {
+        background: var(--omc-surface);
+      }
+    }
+
+    .controlStat {
+      min-width: 132px;
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 8px;
+      background: var(--omc-surface-muted);
+      color: var(--omc-text-muted);
+      padding: 10px 12px;
+      display: grid;
+      align-content: center;
+      justify-items: end;
+      gap: 2px;
 
       span {
-        color: var(--omc-text-muted);
-        font-size: 0.78rem;
-        font-weight: 800;
+        font-size: 0.72rem;
+        font-weight: 850;
         text-transform: uppercase;
       }
 
       strong {
         color: var(--omc-text-strong);
+        font-size: 1.75rem;
+        line-height: 1;
+      }
+
+      small {
+        color: var(--omc-text-muted);
+        font-size: 0.78rem;
         white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      button {
-        width: fit-content;
-        border: none;
-        background: transparent;
-        color: var(--omc-primary);
-        padding: 0;
-        font-size: 0.82rem;
-        font-weight: 800;
-      }
-    }
-
-    .controlStat {
-      min-height: 40px;
-      border: 1px solid var(--omc-border-subtle);
-      border-radius: 8px;
-      background: var(--omc-surface-muted);
-      color: var(--omc-text-muted);
-      padding: 0 12px;
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      font-size: 0.86rem;
-
-      strong {
-        color: var(--omc-text-strong);
       }
     }
   }

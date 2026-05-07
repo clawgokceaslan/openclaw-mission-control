@@ -342,15 +342,23 @@ export function AutoPlansPage() {
 
       <section className={styles.controls}>
         <div className={styles.scopeSummary}>
-          <span>Current project</span>
-          <strong>{currentProject?.name ?? 'No project selected'}</strong>
-          <button type="button" onClick={() => setProjectPickerOpen(true)}>Choose another project</button>
+          <div className={styles.scopeIcon}><LuListFilter size={18} /></div>
+          <div className={styles.scopeCopy}>
+            <span>Current project</span>
+            <strong>{currentProject?.name ?? 'No project selected'}</strong>
+            <small>Default results stay scoped here.</small>
+          </div>
+          <button type="button" onClick={() => setProjectPickerOpen(true)}>Switch</button>
         </div>
-        <label>
+        <label className={styles.searchBox}>
           <span>Search tasks</span>
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Title, description, or project" />
         </label>
-        <div className={styles.controlStat}><LuListFilter size={16} /><strong>{filteredTasks.length}</strong><span>not-planned tasks</span></div>
+        <div className={styles.controlStat}>
+          <span>Eligible</span>
+          <strong>{filteredTasks.length}</strong>
+          <small>not-planned tasks</small>
+        </div>
       </section>
 
       <section className={styles.stepperShell} aria-label="Auto Plan progress">
