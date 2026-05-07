@@ -4,6 +4,8 @@ export const APP_ROUTES = {
   PROFILE: '/profile',
   DASHBOARD: '/dashboard',
   DASHBOARD_DETAIL: '/dashboard/detail',
+  AUTO_RUN: '/auto-run',
+  AUTO_PLANS: '/auto-plans',
   PROJECTS: '/projects',
   PROJECTS_NEW: '/projects/new',
   PROJECT_DETAIL: '/projects/:projectId',

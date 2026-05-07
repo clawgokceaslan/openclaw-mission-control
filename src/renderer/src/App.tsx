@@ -17,6 +17,8 @@ import { ProfileSetupPage } from '@renderer/screens/ProfileSetupPage'
 import { ProjectsPage } from '@renderer/screens/projects/ProjectsPage'
 import { ProjectNewPage } from '@renderer/screens/projects/ProjectNewPage'
 import { ProjectDetailPage } from '@renderer/screens/projects/ProjectDetailPage'
+import { AutoRunPage } from '@renderer/screens/automation/AutoRunPage'
+import { AutoPlansPage } from '@renderer/screens/automation/AutoPlansPage'
 import { AgentsPage } from '@renderer/screens/agents/AgentsPage'
 import { AgentNewPage } from '@renderer/screens/agents/AgentNewPage'
 import { SettingsPage } from '@renderer/screens/settings/SettingsPage'
@@ -64,6 +66,8 @@ const SIGNED_IN_ROUTES: RouteConfig[] = [
   { path: APP_ROUTES.DASHBOARD_DETAIL, element: <DetailedDashboardPage /> },
   { path: APP_ROUTES.PROFILE, element: <ProfilePage /> },
   { path: APP_ROUTES.PROJECTS, element: <ProjectsPage /> },
+  { path: APP_ROUTES.AUTO_RUN, element: <AutoRunPage /> },
+  { path: APP_ROUTES.AUTO_PLANS, element: <AutoPlansPage /> },
   { path: APP_ROUTES.PROJECTS_NEW, element: <ProjectNewPage /> },
   { path: APP_ROUTES.PROJECT_DETAIL, element: <ProjectDetailPage /> },
   { path: APP_ROUTES.PROJECT_TASK_DETAIL, element: <ProjectDetailPage /> },

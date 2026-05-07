@@ -1,0 +1,387 @@
+.page {
+  display: grid;
+  gap: 18px;
+  align-content: start;
+
+  .header {
+    margin: -22px -30px 0;
+    padding: 28px 30px;
+    border-bottom: 1px solid var(--omc-border);
+    background: linear-gradient(135deg, var(--omc-surface) 0%, var(--omc-hover-bg) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+
+    h1 {
+      margin: 0;
+      color: var(--omc-text-strong);
+      font-size: 1.75rem;
+      font-weight: 850;
+    }
+
+    p {
+      margin: 6px 0 0;
+      color: var(--omc-text-muted);
+      font-size: 0.98rem;
+    }
+
+    button {
+      min-height: 40px;
+      border: 1px solid var(--omc-input-border);
+      border-radius: 8px;
+      background: var(--omc-surface);
+      color: var(--omc-text-strong);
+      padding: 0 16px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 800;
+    }
+  }
+
+  .notice {
+    border: 1px solid var(--omc-danger-border);
+    border-radius: 8px;
+    background: var(--omc-danger-bg);
+    color: var(--omc-danger-strong);
+    padding: 10px 12px;
+    font-weight: 700;
+  }
+
+  .controls {
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 8px;
+    background: var(--omc-surface);
+    padding: 14px;
+    display: grid;
+    grid-template-columns: minmax(180px, 260px) minmax(220px, 1fr) auto;
+    gap: 12px;
+    align-items: end;
+
+    label {
+      display: grid;
+      gap: 6px;
+
+      span {
+        color: var(--omc-text-muted);
+        font-size: 0.78rem;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      select,
+      input {
+        width: 100%;
+        min-height: 40px;
+        border: 1px solid var(--omc-input-border);
+        border-radius: 8px;
+        background: var(--omc-surface);
+        color: var(--omc-text);
+        padding: 0 11px;
+        outline: none;
+      }
+    }
+
+    .controlStat {
+      min-height: 40px;
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 8px;
+      background: var(--omc-surface-muted);
+      color: var(--omc-text-muted);
+      padding: 0 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 0.86rem;
+
+      strong {
+        color: var(--omc-text-strong);
+      }
+    }
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(280px, 390px) minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+
+    .selector,
+    .workbench {
+      min-width: 0;
+    }
+
+    .selector {
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 8px;
+      background: var(--omc-surface);
+      overflow: hidden;
+
+      header {
+        border-bottom: 1px solid var(--omc-border-subtle);
+        padding: 14px;
+        display: grid;
+        gap: 4px;
+
+        strong {
+          color: var(--omc-text-strong);
+          font-size: 0.98rem;
+        }
+
+        span {
+          color: var(--omc-text-muted);
+          font-size: 0.82rem;
+          line-height: 1.35;
+        }
+      }
+
+      .taskList {
+        max-height: calc(100vh - 305px);
+        overflow: auto;
+        padding: 10px;
+        display: grid;
+        gap: 8px;
+      }
+    }
+
+    .workbench {
+      display: grid;
+      gap: 12px;
+
+      .tabs {
+        border: 1px solid var(--omc-border-subtle);
+        border-radius: 8px;
+        background: var(--omc-surface);
+        padding: 5px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 5px;
+
+        button {
+          min-height: 38px;
+          border: none;
+          border-radius: 6px;
+          background: transparent;
+          color: var(--omc-text-muted);
+          font-weight: 800;
+        }
+
+        .tabActive {
+          background: var(--omc-primary);
+          color: var(--omc-inverse-text);
+        }
+      }
+
+      .panel {
+        border: 1px solid var(--omc-border-subtle);
+        border-radius: 8px;
+        background: var(--omc-surface);
+        overflow: hidden;
+
+        > header {
+          min-height: 64px;
+          border-bottom: 1px solid var(--omc-border-subtle);
+          padding: 12px 14px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+
+          div {
+            display: grid;
+            gap: 3px;
+
+            strong {
+              color: var(--omc-text-strong);
+            }
+
+            span {
+              color: var(--omc-text-muted);
+              font-size: 0.84rem;
+            }
+          }
+
+          .panelActions {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+
+            button {
+              min-height: 36px;
+              border: 1px solid var(--omc-input-border);
+              border-radius: 8px;
+              background: var(--omc-surface);
+              color: var(--omc-text-strong);
+              padding: 0 12px;
+              display: inline-flex;
+              align-items: center;
+              gap: 7px;
+              font-weight: 800;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  .taskCard,
+  .queueRow {
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 8px;
+    background: var(--omc-surface);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .taskCard {
+    padding: 10px;
+
+    .taskCardBody {
+      min-width: 0;
+      display: grid;
+      gap: 3px;
+
+      span {
+        color: var(--omc-primary);
+        font-size: 0.76rem;
+        font-weight: 850;
+      }
+
+      strong {
+        color: var(--omc-text-strong);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      small {
+        color: var(--omc-text-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+    }
+  }
+
+  .taskCardMuted {
+    opacity: 0.58;
+  }
+
+  .queueList {
+    padding: 10px;
+    display: grid;
+    gap: 8px;
+  }
+
+  .queueRow {
+    min-height: 62px;
+    padding: 9px 10px;
+
+    .queueIndex {
+      min-width: 48px;
+      border-radius: 6px;
+      background: var(--omc-surface-muted);
+      color: var(--omc-text-muted);
+      padding: 5px 7px;
+      text-align: center;
+      font-size: 0.72rem;
+      font-weight: 850;
+    }
+
+    div {
+      min-width: 0;
+      flex: 1;
+      display: grid;
+      gap: 3px;
+
+      strong {
+        color: var(--omc-text-strong);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      span {
+        color: var(--omc-text-muted);
+        font-size: 0.84rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+    }
+  }
+
+  .state_waiting {
+    border-left: 4px solid var(--omc-border-strong);
+  }
+
+  .state_running {
+    border-left: 4px solid var(--omc-primary);
+  }
+
+  .state_completed {
+    border-left: 4px solid var(--omc-success-strong);
+  }
+
+  .state_failed {
+    border-left: 4px solid var(--omc-danger-strong);
+  }
+
+  .state_stopped {
+    border-left: 4px solid var(--omc-warning-strong);
+  }
+
+  .cardActions {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    button {
+      width: 32px;
+      height: 32px;
+      border: 1px solid var(--omc-input-border);
+      border-radius: 8px;
+      background: var(--omc-surface);
+      color: var(--omc-text-muted);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.45;
+      }
+    }
+  }
+
+  .emptyState {
+    border: 1px dashed var(--omc-border-strong);
+    border-radius: 8px;
+    background: var(--omc-surface-muted);
+    color: var(--omc-text-muted);
+    padding: 18px;
+    text-align: center;
+    font-weight: 700;
+  }
+}
+
+@media (max-width: 980px) {
+  .page {
+    .controls,
+    .layout {
+      grid-template-columns: 1fr;
+    }
+
+    .layout {
+      .selector {
+        .taskList {
+          max-height: none;
+        }
+      }
+    }
+  }
+}
