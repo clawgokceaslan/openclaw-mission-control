@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskEntity } from '@shared/types/entities'
 import type { ProjectStatusColumn } from './status'
-import { latestTaskCodexConversation, orderTasksByStatusGroups, reorderTasksForDrop, taskCodexActionChips, taskCodexPlanBadge } from './projectDetailUtils'
+import { latestTaskCodexConversation, orderTasksByStatusGroups, projectCodexSettings, reorderTasksForDrop, taskCodexActionChips, taskCodexPlanBadge } from './projectDetailUtils'
 
 function task(id: string, status: string, order: number): TaskEntity {
   return {
@@ -70,6 +70,33 @@ describe('project task ordering', () => {
       'doing-0',
       'done-0'
     ])
+  })
+})
+
+describe('project Codex settings', () => {
+  it('defaults missing and invalid prompt shape values to Markdown', () => {
+    expect(projectCodexSettings(null).promptShape).toBe('markdown')
+    expect(projectCodexSettings({
+      id: 'project-1',
+      organizationId: 'org-1',
+      name: 'Project',
+      archived: false,
+      metrics: { codex: { promptShape: 'xml' } },
+      createdAt: 1,
+      updatedAt: 1
+    }).promptShape).toBe('markdown')
+  })
+
+  it('reads saved prompt shape values', () => {
+    expect(projectCodexSettings({
+      id: 'project-1',
+      organizationId: 'org-1',
+      name: 'Project',
+      archived: false,
+      metrics: { codex: { promptShape: 'toon' } },
+      createdAt: 1,
+      updatedAt: 1
+    }).promptShape).toBe('toon')
   })
 })
 

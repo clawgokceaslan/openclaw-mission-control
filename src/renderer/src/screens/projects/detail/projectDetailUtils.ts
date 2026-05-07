@@ -13,7 +13,7 @@ import { normalizeCodexPromptShape } from '@shared/utils/codex-prompt-shape'
 
 export function projectCodexSettings(project: Project | null): ProjectCodexSettings {
   const value = project?.metrics?.codex
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { promptShape: 'markdown' }
   const record = value as Record<string, unknown>
   const legacyLanguage = typeof record.outputLanguage === 'string'
     ? record.outputLanguage
