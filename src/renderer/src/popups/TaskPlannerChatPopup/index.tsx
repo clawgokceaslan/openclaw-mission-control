@@ -32,8 +32,9 @@ import {
   LuWandSparkles,
   LuX
 } from 'react-icons/lu'
-import { IPC_CHANNELS } from '@shared/contracts/ipc'
-import type { Project, TaskEntity, TaskJsonImportResult } from '@shared/types/entities'
+import { IPC_CHANNELS, type TaskPlannerAiFillResult } from '@shared/contracts/ipc'
+import { GATEWAY_REASONING_EFFORT_OPTIONS, gatewayModelReasoningEfforts, normalizeGatewayReasoningEffort } from '@shared/utils/gateway-language'
+import type { CodexCliModel, Gateway, Project, TaskEntity, TaskJsonImportResult } from '@shared/types/entities'
 import { invokeBridge } from '@renderer/utils/api'
 import styles from './index.module.scss'
 
@@ -41,6 +42,7 @@ type PlannerStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12
 type PlannerIntent = 'project' | 'product' | 'research' | 'delivery'
 type PlannerDepth = 'fast' | 'balanced' | 'deep'
 type PlannerTextKey = Exclude<keyof PlannerForm, 'intent' | 'depth'>
+type PlannerAiMode = 'step' | 'all' | 'drafts'
 
 export type TaskPlannerDraft = {
   id: string
@@ -89,6 +91,7 @@ interface TaskPlannerChatPopupProps {
   open: boolean
   actorToken: string | null
   project: Project
+  gateways?: Gateway[]
   sourceTask?: TaskEntity | null
   defaultStatus?: string
   onClose: () => void
@@ -150,6 +153,8 @@ const FIELD_LABELS: Record<PlannerTextKey, string> = {
   exclusions: 'Kapsam dışı',
   pmNotes: 'PM notları'
 }
+
+const ALL_TEXT_FIELDS = Object.keys(FIELD_LABELS) as PlannerTextKey[]
 
 const STEP_FIELDS: Record<PlannerStep, PlannerTextKey[]> = {
   1: ['outcome', 'pmNotes'],
@@ -272,6 +277,35 @@ function uniqueItems(items: string[]) {
 function taskCountForDepth(depth: PlannerDepth, signalCount: number) {
   const base = depth === 'fast' ? 4 : depth === 'deep' ? 7 : 6
   return clamp(Math.max(base, signalCount + 2), depth === 'fast' ? 3 : 5, depth === 'deep' ? 8 : 6)
+}
+
+function recordOf(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function projectGatewayValue(project: Project, key: string): string {
+  const gateway = recordOf(project.metrics?.gateway)
+  const value = gateway[key]
+  return typeof value === 'string' ? value : ''
+}
+
+function codexModelsOf(gateway?: Gateway | null): CodexCliModel[] {
+  const template = recordOf(gateway?.template)
+  return Array.isArray(template.models) ? template.models.filter((item): item is CodexCliModel => Boolean(item && typeof item === 'object' && 'id' in item)) : []
+}
+
+function highestReasoningEffort(model?: CodexCliModel | null) {
+  const available = gatewayModelReasoningEfforts(model)
+  const options = available.length > 0 ? available : GATEWAY_REASONING_EFFORT_OPTIONS.map((option) => option.value)
+  return (['xhigh', 'high', 'medium', 'low', 'minimal'] as const).find((value) => options.includes(value)) ?? normalizeGatewayReasoningEffort(options[0])
+}
+
+function reasoningOptionsForModel(model?: CodexCliModel | null) {
+  const available = gatewayModelReasoningEfforts(model)
+  const allowed = available.length > 0 ? available : GATEWAY_REASONING_EFFORT_OPTIONS.map((option) => option.value)
+  return GATEWAY_REASONING_EFFORT_OPTIONS
+    .filter((option) => allowed.includes(option.value))
+    .map((option) => ({ value: option.value, label: option.label }))
 }
 
 function defaultAudience(project: Project, form: PlannerForm) {
@@ -591,15 +625,26 @@ function safePlannerStep(value: unknown): PlannerStep {
   return clamp(typeof value === 'number' ? value : Number(value), 1, 12) as PlannerStep
 }
 
-export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, defaultStatus, onClose, onCreated }: TaskPlannerChatPopupProps) {
+export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [], sourceTask, defaultStatus, onClose, onCreated }: TaskPlannerChatPopupProps) {
   const [step, setStep] = useState<PlannerStep>(1)
   const [form, setForm] = useState<PlannerForm>(() => initialPlannerForm(project, sourceTask))
   const [answers, setAnswers] = useState<string[]>([])
+  const [aiQuestions, setAiQuestions] = useState<string[]>([])
   const [drafts, setDrafts] = useState<TaskPlannerDraft[]>([])
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
+  const [aiBusy, setAiBusy] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [aiIntro, setAiIntro] = useState('')
+  const [aiGatewayId, setAiGatewayId] = useState(() => projectGatewayValue(project, 'gatewayId'))
+  const [aiModel, setAiModel] = useState(() => projectGatewayValue(project, 'planModel') || projectGatewayValue(project, 'defaultModel') || projectGatewayValue(project, 'runModel'))
+  const [aiReasoningEffort, setAiReasoningEffort] = useState('xhigh')
   const draftStorageKey = useMemo(() => `omc-task-planner:${project.id}:${sourceTask?.id ?? 'new'}`, [project.id, sourceTask?.id])
+  const selectedAiGateway = useMemo(() => gateways.find((gateway) => gateway.id === aiGatewayId) ?? gateways[0] ?? null, [aiGatewayId, gateways])
+  const aiModelOptions = useMemo(() => codexModelsOf(selectedAiGateway), [selectedAiGateway])
+  const selectedAiModelRecord = useMemo(() => aiModelOptions.find((model) => model.id === aiModel) ?? null, [aiModel, aiModelOptions])
+  const aiReasoningOptions = useMemo(() => reasoningOptionsForModel(selectedAiModelRecord), [selectedAiModelRecord])
+  const aiReady = Boolean(actorToken && project.id && selectedAiGateway?.id && aiModel.trim())
 
   useEffect(() => {
     if (!open) return
@@ -607,22 +652,47 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
     try {
       const saved = typeof localStorage === 'undefined' ? null : localStorage.getItem(draftStorageKey)
       if (saved) {
-        const parsed = JSON.parse(saved) as { step?: PlannerStep; form?: Partial<PlannerForm>; answers?: string[]; drafts?: TaskPlannerDraft[] }
+        const parsed = JSON.parse(saved) as {
+          step?: PlannerStep
+          form?: Partial<PlannerForm>
+          answers?: string[]
+          aiQuestions?: string[]
+          drafts?: TaskPlannerDraft[]
+          aiIntro?: string
+          aiGatewayId?: string
+          aiModel?: string
+          aiReasoningEffort?: string
+        }
         setStep(safePlannerStep(parsed.step ?? 1))
         setForm({ ...initialForm, ...(parsed.form ?? {}) })
         setAnswers(Array.isArray(parsed.answers) ? parsed.answers.filter((item) => typeof item === 'string') : [])
+        setAiQuestions(Array.isArray(parsed.aiQuestions) ? parsed.aiQuestions.filter((item) => typeof item === 'string') : [])
         setDrafts(Array.isArray(parsed.drafts) ? parsed.drafts : [])
+        setAiIntro(typeof parsed.aiIntro === 'string' ? parsed.aiIntro : '')
+        setAiGatewayId(typeof parsed.aiGatewayId === 'string' ? parsed.aiGatewayId : projectGatewayValue(project, 'gatewayId'))
+        setAiModel(typeof parsed.aiModel === 'string' ? parsed.aiModel : projectGatewayValue(project, 'planModel') || projectGatewayValue(project, 'defaultModel') || projectGatewayValue(project, 'runModel'))
+        setAiReasoningEffort(normalizeGatewayReasoningEffort(parsed.aiReasoningEffort || 'xhigh'))
       } else {
         setStep(1)
         setForm(initialForm)
         setAnswers([])
+        setAiQuestions([])
         setDrafts([])
+        setAiIntro('')
+        setAiGatewayId(projectGatewayValue(project, 'gatewayId'))
+        setAiModel(projectGatewayValue(project, 'planModel') || projectGatewayValue(project, 'defaultModel') || projectGatewayValue(project, 'runModel'))
+        setAiReasoningEffort('xhigh')
       }
     } catch {
       setStep(1)
       setForm(initialForm)
       setAnswers([])
+      setAiQuestions([])
       setDrafts([])
+      setAiIntro('')
+      setAiGatewayId(projectGatewayValue(project, 'gatewayId'))
+      setAiModel(projectGatewayValue(project, 'planModel') || projectGatewayValue(project, 'defaultModel') || projectGatewayValue(project, 'runModel'))
+      setAiReasoningEffort('xhigh')
     }
     setMessage('')
     setError('')
@@ -630,12 +700,36 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
 
   useEffect(() => {
     if (!open || typeof localStorage === 'undefined') return
-    localStorage.setItem(draftStorageKey, JSON.stringify({ step, form, answers, drafts }))
-  }, [answers, draftStorageKey, drafts, form, open, step])
+    localStorage.setItem(draftStorageKey, JSON.stringify({ step, form, answers, aiQuestions, drafts, aiIntro, aiGatewayId, aiModel, aiReasoningEffort }))
+  }, [aiGatewayId, aiIntro, aiModel, aiQuestions, aiReasoningEffort, answers, draftStorageKey, drafts, form, open, step])
+
+  useEffect(() => {
+    if (!open || gateways.length === 0) return
+    const projectGatewayId = projectGatewayValue(project, 'gatewayId')
+    setAiGatewayId((current) => current || projectGatewayId || gateways[0]?.id || '')
+  }, [gateways, open, project])
+
+  useEffect(() => {
+    if (!open || !selectedAiGateway) return
+    const models = codexModelsOf(selectedAiGateway)
+    const projectModel = projectGatewayValue(project, 'planModel') || projectGatewayValue(project, 'defaultModel') || projectGatewayValue(project, 'runModel')
+    setAiModel((current) => {
+      if (current && models.some((model) => model.id === current)) return current
+      if (projectModel && models.some((model) => model.id === projectModel)) return projectModel
+      return models[0]?.id ?? current
+    })
+  }, [open, project, selectedAiGateway])
+
+  useEffect(() => {
+    if (!open) return
+    const next = highestReasoningEffort(selectedAiModelRecord)
+    setAiReasoningEffort((current) => aiReasoningOptions.some((option) => option.value === current) ? current : next)
+  }, [aiReasoningOptions, open, selectedAiModelRecord])
 
   const sortedDrafts = useMemo(() => drafts.slice().sort((a, b) => a.order - b.order), [drafts])
   const report = useMemo(() => analyzePlan(form, answers, sortedDrafts.length), [answers, form, sortedDrafts.length])
-  const questions = useMemo(() => buildDynamicQuestions(form, report), [form, report])
+  const generatedQuestions = useMemo(() => buildDynamicQuestions(form, report), [form, report])
+  const questions = aiQuestions.length > 0 ? aiQuestions : generatedQuestions
   const currentGuide = STEPS.find((item) => item.value === step) ?? STEPS[0]
   const currentCoach = STEP_COACH[step]
   const StepIcon = STEP_ICONS[step]
@@ -651,6 +745,66 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
   const updateForm = <K extends keyof PlannerForm>(key: K, value: PlannerForm[K]) => {
     setForm((current) => ({ ...current, [key]: value }))
     setError('')
+  }
+
+  const applyAiResult = (result?: TaskPlannerAiFillResult, nextStep?: PlannerStep) => {
+    if (!result) return
+    if (result.form && Object.keys(result.form).length > 0) {
+      setForm((current) => ({ ...current, ...result.form }))
+    }
+    if (Array.isArray(result.questions) && result.questions.length > 0) {
+      setAiQuestions(result.questions)
+    }
+    if (Array.isArray(result.drafts) && result.drafts.length > 0) {
+      setDrafts(result.drafts.map((draft, index) => ({
+        id: createDraftId(),
+        order: draft.order ?? index + 1,
+        phase: draft.phase?.trim() || phaseTemplates(form.intent)[index % phaseTemplates(form.intent).length] || 'Plan',
+        title: draft.title?.trim() || `Task ${index + 1}`,
+        description: draft.description?.trim() || '## Amaç\n\n## Kabul Sinyali\n- ',
+        confidence: typeof draft.confidence === 'number' ? clamp(draft.confidence, 1, 100) : 86,
+        rationale: draft.rationale?.trim() || 'AI tarafından kaynak bağlam ve PM intro üzerinden üretildi.',
+        risk: draft.risk?.trim() || 'Bağımlılık ve kabul sinyali önizlemede kontrol edilmeli.'
+      })))
+    }
+    if (nextStep) setStep(nextStep)
+  }
+
+  const fillWithAi = async (mode: PlannerAiMode, targetFields: PlannerTextKey[] = STEP_FIELDS[step], nextStep?: PlannerStep) => {
+    if (!aiReady || !selectedAiGateway?.id || !aiModel.trim()) {
+      setError('AI doldurma için gateway ve model seçilmeli.')
+      return
+    }
+    const busyKey = mode === 'step' && targetFields.length === 1 ? `field:${targetFields[0]}` : mode
+    setAiBusy(busyKey)
+    setError('')
+    try {
+      const response = await invokeBridge<TaskPlannerAiFillResult>(IPC_CHANNELS.tasks.plannerAiFill, {
+        actorToken,
+        projectId: project.id,
+        ...(sourceTask?.id ? { taskId: sourceTask.id } : {}),
+        gatewayId: selectedAiGateway.id,
+        model: aiModel,
+        reasoningEffort: aiReasoningEffort,
+        language: projectGatewayValue(project, 'language') || projectGatewayValue(project, 'outputLanguage') || projectGatewayValue(project, 'inputLanguage'),
+        mode,
+        step,
+        intro: aiIntro,
+        targetFields,
+        form,
+        answers,
+        suggestedTaskCount: report.suggestedTaskCount
+      })
+      if (!response.ok) {
+        setError(response.error?.message ?? 'AI doldurma tamamlanamadı.')
+        return
+      }
+      applyAiResult(response.data, nextStep)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'AI doldurma tamamlanamadı.')
+    } finally {
+      setAiBusy(null)
+    }
   }
 
   const applySmartDefaults = () => {
@@ -672,6 +826,11 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
     }
     setStep((current) => Math.min(12, current + 1) as PlannerStep)
     setError('')
+  }
+
+  const advanceWithAi = () => {
+    const nextStep = (step === 11 ? 12 : Math.min(12, step + 1)) as PlannerStep
+    void fillWithAi(step === 11 ? 'drafts' : 'step', step === 11 ? ALL_TEXT_FIELDS : STEP_FIELDS[step], nextStep)
   }
 
   const synthesizeDrafts = (nextStep: PlannerStep = 12, formOverride = form, answersOverride = answers) => {
@@ -724,7 +883,8 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
 
   const goNext = () => {
     if (step === 11 && sortedDrafts.length === 0) {
-      synthesizeDrafts(12)
+      if (aiReady) void fillWithAi('drafts', ALL_TEXT_FIELDS, 12)
+      else synthesizeDrafts(12)
       return
     }
     setStep((current) => Math.min(12, current + 1) as PlannerStep)
@@ -756,10 +916,15 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
   }
 
   const renderTextArea = (key: PlannerTextKey, label: string, placeholder: string, rows = 4) => (
-    <label className={styles.field}>
-      <span>{label}</span>
+    <div className={styles.field}>
+      <div className={styles.fieldHeader}>
+        <span>{label}</span>
+        <button type="button" onClick={() => void fillWithAi('step', [key])} disabled={!aiReady || Boolean(aiBusy)} title={`${label} alanını AI ile doldur`}>
+          <LuWandSparkles size={14} /> {aiBusy === `field:${key}` ? 'Dolduruluyor' : 'AI'}
+        </button>
+      </div>
       <textarea rows={rows} value={form[key]} onChange={(event) => updateForm(key, event.target.value)} placeholder={placeholder} />
-    </label>
+    </div>
   )
 
   const modal = (
@@ -775,6 +940,7 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
             <span><LuRoute size={14} /> {activePhase.title}</span>
             <span><LuGauge size={14} /> %{report.score}</span>
             <span><LuLayers size={14} /> {sortedDrafts.length || report.suggestedTaskCount} task</span>
+            <span><LuWandSparkles size={14} /> {aiModel || 'AI model'}/{aiReasoningEffort}</span>
             <span><LuSave size={14} /> Otomatik kayıt</span>
           </div>
           <button type="button" className={styles.iconButton} onClick={onClose} aria-label="Kapat" title="Kapat"><LuX size={16} /></button>
@@ -836,6 +1002,44 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
                       <span>{option.count}</span>
                     </button>
                   ))}
+                </div>
+                <div className={styles.aiSetup}>
+                  <div className={styles.aiIntroBox}>
+                    <div className={styles.aiIntroHeader}>
+                      <strong><LuBrainCircuit size={15} /> AI çalışma introsu</strong>
+                      <button type="button" onClick={() => void fillWithAi('all', ALL_TEXT_FIELDS)} disabled={!aiReady || Boolean(aiBusy)}>
+                        <LuWandSparkles size={15} /> {aiBusy === 'all' ? 'Çalışıyor' : 'Tüm planı AI ile doldur'}
+                      </button>
+                    </div>
+                    <textarea
+                      value={aiIntro}
+                      onChange={(event) => setAiIntro(event.target.value)}
+                      placeholder="İlk yönlendirmeyi buraya yaz: hedef, kısıt, öncelik, istemediğin kapsam, taskların nasıl bölünmesini istediğin..."
+                    />
+                  </div>
+                  <div className={styles.aiSettingsGrid}>
+                    <label>
+                      <span>Gateway</span>
+                      <select value={selectedAiGateway?.id ?? aiGatewayId} onChange={(event) => setAiGatewayId(event.target.value)} disabled={gateways.length === 0 || Boolean(aiBusy)}>
+                        {gateways.length === 0 ? <option value="">Gateway yok</option> : null}
+                        {gateways.map((gateway) => <option key={gateway.id} value={gateway.id}>{gateway.name}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Model</span>
+                      <select value={aiModel} onChange={(event) => setAiModel(event.target.value)} disabled={aiModelOptions.length === 0 || Boolean(aiBusy)}>
+                        {aiModelOptions.length === 0 && aiModel ? <option value={aiModel}>{aiModel}</option> : null}
+                        {aiModelOptions.length === 0 && !aiModel ? <option value="">Model yok</option> : null}
+                        {aiModelOptions.map((model) => <option key={model.id} value={model.id}>{model.label || model.id}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Reasoning</span>
+                      <select value={aiReasoningEffort} onChange={(event) => setAiReasoningEffort(normalizeGatewayReasoningEffort(event.target.value))} disabled={aiReasoningOptions.length === 0 || Boolean(aiBusy)}>
+                        {aiReasoningOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </label>
+                  </div>
                 </div>
               </div>
             ) : null}
@@ -931,7 +1135,8 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
                     <p>Başlık, açıklama, sıra, faz ve risk alanlarını düzenleyip tek aksiyonla oluştur.</p>
                   </div>
                   <div className={styles.previewActions}>
-                    <button type="button" onClick={() => synthesizeDrafts(12)}><LuRefreshCw size={15} /> Yeniden üret</button>
+                    <button type="button" onClick={() => void fillWithAi('drafts', ALL_TEXT_FIELDS, 12)} disabled={!aiReady || Boolean(aiBusy)}><LuWandSparkles size={15} /> {aiBusy === 'drafts' ? 'AI çalışıyor' : 'AI ile yenile'}</button>
+                    <button type="button" onClick={() => synthesizeDrafts(12)}><LuRefreshCw size={15} /> Şablonla yenile</button>
                     <button type="button" onClick={addDraft}><LuPlus size={15} /> Taslak</button>
                   </div>
                 </div>
@@ -977,14 +1182,18 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
               <h4><StepIcon size={15} /> {currentCoach.title}</h4>
               <p>{currentCoach.principle}</p>
               <small>{currentCoach.output}</small>
-              <button type="button" onClick={applyStepSuggestion}><LuLightbulb size={15} /> Bu adımı öneriyle doldur</button>
-              <button type="button" onClick={advanceWithSuggestion}><LuArrowRight size={15} /> Öneriyle ilerle</button>
+              <button type="button" onClick={() => void fillWithAi('step', STEP_FIELDS[step])} disabled={!aiReady || Boolean(aiBusy)}><LuWandSparkles size={15} /> {aiBusy === 'step' ? 'AI çalışıyor' : 'Bu adımı AI ile doldur'}</button>
+              <button type="button" onClick={advanceWithAi} disabled={!aiReady || Boolean(aiBusy)}><LuArrowRight size={15} /> AI ile ilerle</button>
+              <button type="button" onClick={applyStepSuggestion}><LuLightbulb size={15} /> Hızlı şablon</button>
+              <button type="button" onClick={advanceWithSuggestion}><LuArrowRight size={15} /> Şablonla ilerle</button>
             </div>
             <div className={styles.assistPanel}>
               <h4><LuBrainCircuit size={15} /> Akıl katmanı</h4>
               <p>{report.nextBestAction}</p>
-              <button type="button" onClick={applySmartDefaults}><LuWandSparkles size={15} /> Boşlukları doldur</button>
-              <button type="button" onClick={() => synthesizeDrafts(12)}><LuClipboardCheck size={15} /> Direkt taslak üret</button>
+              <button type="button" onClick={() => void fillWithAi('all', ALL_TEXT_FIELDS)} disabled={!aiReady || Boolean(aiBusy)}><LuWandSparkles size={15} /> {aiBusy === 'all' ? 'AI dolduruyor' : 'Tüm boşlukları AI ile doldur'}</button>
+              <button type="button" onClick={() => void fillWithAi('drafts', ALL_TEXT_FIELDS, 12)} disabled={!aiReady || Boolean(aiBusy)}><LuClipboardCheck size={15} /> {aiBusy === 'drafts' ? 'Taslak üretiyor' : 'AI ile task taslakları üret'}</button>
+              <button type="button" onClick={applySmartDefaults}><LuLightbulb size={15} /> Şablon boşlukları doldur</button>
+              <button type="button" onClick={() => synthesizeDrafts(12)}><LuClipboardCheck size={15} /> Şablon taslak üret</button>
             </div>
             <div className={styles.signalPanel}>
               <h4><LuBookOpen size={15} /> Bu adımda eksik</h4>
@@ -1010,16 +1219,16 @@ export function TaskPlannerChatPopup({ open, actorToken, project, sourceTask, de
         {error ? <p className={styles.error}>{error}</p> : null}
 
         <footer className={styles.footer}>
-          <button type="button" onClick={() => setStep((current) => Math.max(1, current - 1) as PlannerStep)} disabled={step === 1 || busy}><LuArrowLeft size={15} /> Geri</button>
+          <button type="button" onClick={() => setStep((current) => Math.max(1, current - 1) as PlannerStep)} disabled={step === 1 || busy || Boolean(aiBusy)}><LuArrowLeft size={15} /> Geri</button>
           <div className={styles.footerCenter}>
             <span>{sourceTask ? 'Kaynak task korunur; yeni tasklar ayrı oluşturulur.' : 'Yeni tasklar proje merkezinde ayrı kayıtlar olarak açılır.'}</span>
           </div>
           {step < 12 ? (
-            <button type="button" className={styles.primaryButton} onClick={goNext} disabled={busy}>
-              İleri <LuArrowRight size={15} />
+            <button type="button" className={styles.primaryButton} onClick={goNext} disabled={busy || Boolean(aiBusy)}>
+              {aiBusy ? 'AI çalışıyor' : 'İleri'} <LuArrowRight size={15} />
             </button>
           ) : (
-            <button type="button" className={styles.primaryButton} onClick={() => void createTasks()} disabled={busy || !canCreate}>
+            <button type="button" className={styles.primaryButton} onClick={() => void createTasks()} disabled={busy || Boolean(aiBusy) || !canCreate}>
               <LuCheck size={15} /> {busy ? 'Oluşturuluyor' : 'Taskları oluştur'}
             </button>
           )}

@@ -3360,6 +3360,8 @@ export function ProjectDetailPage() {
         open={isTaskPlannerOpen}
         actorToken={token}
         project={project}
+        gateways={gateways}
+        sourceTask={selectedTask}
         defaultStatus={defaultStatus}
         onClose={() => setIsTaskPlannerOpen(false)}
         onCreated={(createdTasks) => {
@@ -3377,6 +3379,7 @@ export function ProjectDetailPage() {
             taskId={selectedTask.id}
             onClose={closeSelectedTaskDetail}
             onOpenChat={() => setIsChatPopupOpen(true)}
+            onOpenTaskPlanner={() => setIsTaskPlannerOpen(true)}
             onEditTitle={() => {
               setDetailViewMode('task')
               setSelectedSubtaskId(null)

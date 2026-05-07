@@ -80,6 +80,7 @@ export const IPC_CHANNELS = {
     gatewayChatStop: 'tasks:gateway-chat:stop',
     gatewayChatResolve: 'tasks:gateway-chat:resolve',
     plannerContext: 'tasks:planner-context',
+    plannerAiFill: 'tasks:planner-ai-fill',
     plannerValidateJson: 'tasks:planner-validate-json',
     plannerCreateFromJson: 'tasks:planner-create-from-json',
     plannerUpdateFromJson: 'tasks:planner-update-from-json',
@@ -314,6 +315,45 @@ export interface TaskPlannerJsonRequest {
   projectId?: string
   taskId?: string
   json?: unknown
+}
+
+export interface TaskPlannerAiFillRequest {
+  actorToken?: string
+  projectId?: string
+  taskId?: string
+  gatewayId?: string
+  model?: string
+  reasoningEffort?: string
+  language?: string
+  mode?: 'step' | 'all' | 'drafts'
+  step?: number
+  intro?: string
+  targetFields?: string[]
+  form?: Record<string, unknown>
+  answers?: string[]
+  suggestedTaskCount?: number
+}
+
+export interface TaskPlannerAiDraft {
+  order?: number
+  phase?: string
+  title?: string
+  description?: string
+  confidence?: number
+  rationale?: string
+  risk?: string
+}
+
+export interface TaskPlannerAiFillResult {
+  form?: Record<string, string>
+  questions?: string[]
+  drafts?: TaskPlannerAiDraft[]
+  diagnostics?: {
+    gatewayId: string
+    model: string
+    reasoningEffort: string
+    durationMs: number
+  }
 }
 
 export interface ImportTaskTemplateJsonRequest {
@@ -654,7 +694,7 @@ export const SERVICE_MAP = {
   workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
   appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent', 'getDefaultAddTaskProject', 'setDefaultAddTaskProject', 'getGatewayLanguage', 'setGatewayLanguage', 'getPlannerQuestionAttention', 'setPlannerQuestionAttention', 'getDatabaseLocation', 'pickDatabaseFolder', 'pickDatabaseFile', 'moveDatabaseLocation', 'revealDatabaseLocation'],
   statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
-  tasks: ['list', 'listPlannedGateway', 'listRunningGateway', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runGateway', 'planWithGateway', 'gatewayChatSend', 'gatewayChatStop', 'gatewayChatResolve', 'plannerContext', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
+  tasks: ['list', 'listPlannedGateway', 'listRunningGateway', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runGateway', 'planWithGateway', 'gatewayChatSend', 'gatewayChatStop', 'gatewayChatResolve', 'plannerContext', 'plannerAiFill', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
   taskTemplates: ['list', 'create', 'update', 'remove', 'importJson'],
   projectInstructionTemplates: ['list', 'create', 'update', 'remove'],
   attachments: ['upload'],
@@ -1124,6 +1164,13 @@ export const SERVICE_ROUTING: {
       action: 'plannerContext',
       method: 'plannerContext',
       channel: IPC_CHANNELS.tasks.plannerContext,
+      requiresAuth: true
+    },
+    plannerAiFill: {
+      domain: 'tasks',
+      action: 'plannerAiFill',
+      method: 'plannerAiFill',
+      channel: IPC_CHANNELS.tasks.plannerAiFill,
       requiresAuth: true
     },
     plannerValidateJson: {

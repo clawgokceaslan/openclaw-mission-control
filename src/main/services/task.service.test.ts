@@ -9,7 +9,7 @@ import { promisify } from 'node:util'
 import type { ProjectStatus, TaskChecklistItem, TaskEntity } from '../../shared/types/entities.js'
 import type { NormalizedTaskJsonImport, NormalizedImportedSubtask } from './task-json-import.js'
 import { TaskJsonImportNormalizer } from './task-json-import.js'
-import { appendGatewayNextChatHandoff, gatewayChatPrompt, gatewayOutputChanges, gatewayWorkspaceChanges, initialGatewayPrompt, initialPlannerPrompt, normalizePlannerQuestionPayload, omcCliInstructions, plannerJsonGuidance, postRunContinuationPrompt, shouldStartPostRunPrompt, summarizeRunningConversation, TaskService, validatePlannerTaskJsonQuality, writeTaskSnapshotToExportWorkspace } from './task.service.js'
+import { appendGatewayNextChatHandoff, gatewayChatPrompt, gatewayOutputChanges, gatewayWorkspaceChanges, initialGatewayPrompt, initialPlannerPrompt, normalizePlannerQuestionPayload, normalizeTaskPlannerAiFillResult, omcCliInstructions, plannerJsonGuidance, postRunContinuationPrompt, shouldStartPostRunPrompt, summarizeRunningConversation, taskPlannerAiFillPrompt, TaskService, validatePlannerTaskJsonQuality, writeTaskSnapshotToExportWorkspace } from './task.service.js'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 
 const execFileAsync = promisify(execFile)
@@ -652,6 +652,62 @@ describe('planner quality gate', () => {
     const parsed = JSON.parse(prompt)
     expect(parsed.family).toBe('post_run')
     expect(parsed.sections.find((section: { name: string }) => section.name === 'post_run_prompt').value).toBe('Clean up generated artifacts.')
+  })
+})
+
+describe('task planner AI fill', () => {
+  it('builds a JSON-only prompt scoped to target fields and source task context', () => {
+    const prompt = taskPlannerAiFillPrompt({
+      project: { id: 'project-1', name: 'OMC', description: 'Planning product.' },
+      sourceTask: taskWithComments(),
+      form: { outcome: 'Split a large task', problem: 'Too broad' },
+      answers: ['Keep source task open.'],
+      intro: 'Use AI to fill planner fields quickly.',
+      targetFields: ['outcome', 'northStar'],
+      mode: 'step',
+      step: 2,
+      suggestedTaskCount: 5,
+      language: 'tr'
+    })
+
+    expect(prompt).toContain('Return only valid JSON')
+    expect(prompt).toContain('"targetFields": [')
+    expect(prompt).toContain('"outcome"')
+    expect(prompt).toContain('"northStar"')
+    expect(prompt).toContain('Use AI to fill planner fields quickly.')
+    expect(prompt).toContain('Prompt Priority Task')
+    expect(prompt).toContain('Do not call tools')
+  })
+
+  it('normalizes AI fill JSON and rejects fields outside the requested page', () => {
+    const response = normalizeTaskPlannerAiFillResult(`\`\`\`json
+{
+  "form": {
+    "outcome": "A stronger outcome",
+    "metrics": "Should be ignored for this step",
+    "unknown": "ignored"
+  },
+  "questions": ["Which user owns the first decision?"],
+  "drafts": [
+    {
+      "order": 1,
+      "phase": "Discovery",
+      "title": "Clarify the product boundary",
+      "description": "## Amaç\\nDefine the boundary.",
+      "confidence": 91
+    }
+  ]
+}
+\`\`\``, ['outcome'])
+
+    expect(response.ok).toBe(true)
+    expect(response.data?.form).toEqual({ outcome: 'A stronger outcome' })
+    expect(response.data?.questions).toEqual(['Which user owns the first decision?'])
+    expect(response.data?.drafts?.[0]).toMatchObject({
+      order: 1,
+      title: 'Clarify the product boundary',
+      confidence: 91
+    })
   })
 })
 

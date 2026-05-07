@@ -419,6 +419,70 @@
               background: var(--omc-active-bg);
             }
           }
+
+          .aiSetup {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 320px;
+            gap: 10px;
+
+            .aiIntroBox,
+            .aiSettingsGrid {
+              display: grid;
+              gap: 10px;
+              padding: 12px;
+              border: 1px solid var(--omc-border-subtle);
+              border-radius: 10px;
+              background: var(--omc-surface);
+            }
+
+            .aiIntroBox {
+              .aiIntroHeader {
+                min-width: 0;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+
+                strong {
+                  min-width: 0;
+                  display: inline-flex;
+                  align-items: center;
+                  gap: 7px;
+                  overflow: hidden;
+                  color: var(--omc-text-strong);
+                  font-size: 0.82rem;
+                  font-weight: 900;
+                  text-overflow: ellipsis;
+                  white-space: nowrap;
+
+                  svg {
+                    color: var(--omc-primary);
+                  }
+                }
+              }
+
+              textarea {
+                min-height: 132px;
+                resize: vertical;
+              }
+            }
+
+            .aiSettingsGrid {
+              align-content: start;
+
+              label {
+                display: grid;
+                gap: 6px;
+
+                span {
+                  color: var(--omc-text-soft);
+                  font-size: 0.68rem;
+                  font-weight: 900;
+                  text-transform: uppercase;
+                }
+              }
+            }
+          }
         }
 
         .formStep {
@@ -439,6 +503,27 @@
               color: var(--omc-text-strong);
               font-size: 0.78rem;
               font-weight: 900;
+            }
+
+            .fieldHeader {
+              min-width: 0;
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 10px;
+
+              span {
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+              }
+
+              button {
+                min-height: 28px;
+                padding: 0 8px;
+                font-size: 0.72rem;
+              }
             }
 
             textarea {
@@ -771,6 +856,7 @@
     }
 
     input,
+    select,
     textarea {
       width: 100%;
       border: 1px solid var(--omc-input-border);
@@ -792,9 +878,15 @@
       }
     }
 
-    input {
+    input,
+    select {
       height: 36px;
       padding: 0 10px;
+    }
+
+    select {
+      appearance: none;
+      cursor: pointer;
     }
 
     textarea {
@@ -923,7 +1015,8 @@
         .stage {
           .intentStep {
             .intentGrid,
-            .depthRow {
+            .depthRow,
+            .aiSetup {
               grid-template-columns: 1fr;
             }
           }

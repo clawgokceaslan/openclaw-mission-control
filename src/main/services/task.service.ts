@@ -31,6 +31,8 @@ import type {
   SetTaskTagsRequest,
   RunningGatewayTaskRow,
   RunningGatewayTasksResponse,
+  TaskPlannerAiFillRequest,
+  TaskPlannerAiFillResult,
   TaskPlannerContextRequest,
   TaskPlannerJsonRequest,
   UpdateTaskSubtaskRequest,
@@ -94,6 +96,30 @@ type PlannerJsonItem = {
   index: number
   fromArray: boolean
 }
+
+const TASK_PLANNER_AI_FIELDS = [
+  'outcome',
+  'northStar',
+  'problem',
+  'audience',
+  'jobToBeDone',
+  'evidence',
+  'opportunity',
+  'hypotheses',
+  'successSignals',
+  'moscow',
+  'prioritization',
+  'storyMap',
+  'deliveryPlan',
+  'metrics',
+  'risks',
+  'constraints',
+  'exclusions',
+  'pmNotes'
+] as const
+
+const TASK_PLANNER_AI_FIELD_SET = new Set<string>(TASK_PLANNER_AI_FIELDS)
+const TASK_PLANNER_AI_TIMEOUT_MS = 120_000
 
 function parsePlannerJsonPayload(value: unknown): unknown {
   if (typeof value !== 'string') return value
@@ -974,6 +1000,210 @@ export function plannerJsonGuidance() {
     },
     genericTextRejectList: PLANNER_GENERIC_TEXT_REJECT_LIST
   }
+}
+
+function normalizeTaskPlannerAiMode(value: unknown): NonNullable<TaskPlannerAiFillRequest['mode']> {
+  return value === 'all' || value === 'drafts' ? value : 'step'
+}
+
+function normalizeTaskPlannerAiFields(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  const fields: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string') continue
+    const key = item.trim()
+    if (!TASK_PLANNER_AI_FIELD_SET.has(key) || seen.has(key)) continue
+    seen.add(key)
+    fields.push(key)
+  }
+  return fields
+}
+
+function normalizeTaskPlannerAiForm(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const form: Record<string, string> = {}
+  for (const key of TASK_PLANNER_AI_FIELDS) {
+    const raw = (value as Record<string, unknown>)[key]
+    if (typeof raw === 'string') form[key] = raw
+    else if (typeof raw === 'number' || typeof raw === 'boolean') form[key] = String(raw)
+  }
+  return form
+}
+
+function normalizeTaskPlannerAiAnswers(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(-8)
+}
+
+function compactAiText(value: unknown, limit: number): string {
+  if (typeof value !== 'string') return ''
+  const compact = value.replace(/\s+/g, ' ').trim()
+  if (compact.length <= limit) return compact
+  return `${compact.slice(0, Math.max(0, limit - 1)).trimEnd()}…`
+}
+
+function compactTaskPlannerAiTask(task?: TaskEntity | null): Record<string, unknown> | null {
+  if (!task) return null
+  return {
+    id: task.id,
+    title: task.title,
+    description: compactAiText(task.description ?? '', 1800),
+    tags: (task.tags ?? []).map((tag) => tag.name || tag.id).slice(0, 12),
+    checklist: (task.checklistItems ?? []).map((item) => item.title).slice(0, 12),
+    comments: (task.comments ?? []).slice(-6).map((comment) => ({
+      authorName: comment.authorName,
+      body: compactAiText(comment.body, 500)
+    })),
+    subtasks: (task.subtasks ?? []).slice(0, 12).map((subtask) => ({
+      title: subtask.title,
+      description: compactAiText(asPayload(subtask.payload).description ?? subtask.description ?? '', 500)
+    }))
+  }
+}
+
+export function taskPlannerAiFillPrompt(input: {
+  project: { id: string; name: string; description?: string; generalContext?: string; generalPrompt?: string; defaultOutput?: string; metrics?: Record<string, unknown> | null }
+  sourceTask?: TaskEntity | null
+  form: Record<string, string>
+  answers: string[]
+  intro: string
+  targetFields: string[]
+  mode: NonNullable<TaskPlannerAiFillRequest['mode']>
+  step?: number
+  suggestedTaskCount?: number
+  language?: string
+}): string {
+  const projectPrompt = projectPromptSnapshot(input.project)
+  const targetFields = input.targetFields.length > 0 ? input.targetFields : [...TASK_PLANNER_AI_FIELDS]
+  const outputShape = {
+    form: Object.fromEntries(targetFields.map((field) => [field, 'string'])),
+    questions: ['short PM clarification question'],
+    drafts: input.mode === 'drafts'
+      ? [{
+          order: 1,
+          phase: 'Discovery',
+          title: 'Action-oriented task title',
+          description: 'Markdown task description with Amaç, Bağlam, Beklenen İş, Kabul Sinyali, Kısıtlar, Risk',
+          confidence: 84,
+          rationale: 'Why this task boundary is correct',
+          risk: 'Main risk or dependency'
+        }]
+      : []
+  }
+  const context = {
+    mode: input.mode,
+    step: input.step ?? null,
+    targetFields,
+    suggestedTaskCount: input.suggestedTaskCount ?? null,
+    firstUserIntro: compactAiText(input.intro, 2200),
+    project: {
+      id: input.project.id,
+      name: input.project.name,
+      description: compactAiText(input.project.description ?? '', 1200)
+    },
+    sourceTask: compactTaskPlannerAiTask(input.sourceTask),
+    currentForm: input.form,
+    pmAnswers: input.answers,
+    projectInstructions: projectInstructionsSection(projectPrompt, { audience: 'plan' })
+  }
+  const rows = [
+    'You are the fast AI fill engine for Open Mission Control TaskPlannerChatPopup.',
+    gatewayLanguageInstruction(input.language),
+    'Return only valid JSON. Do not wrap it in Markdown. Do not explain the answer.',
+    'Do not call tools, inspect files, mutate tasks, create tasks, or update the source task. The renderer will only use your JSON to fill editable fields.',
+    'Act as a senior product manager. Use outcome over output, JTBD, Opportunity Solution Tree, MoSCoW, RICE/Kano, story mapping, HEART metrics, and pre-mortem only where they improve the field.',
+    'The firstUserIntro is the highest-priority thinking brief. Treat sourceTask and project as supporting context.',
+    'Optimize for speed: fill only targetFields for step/all modes; for drafts mode also produce concise but execution-ready task drafts.',
+    'Preserve good existing field content, but complete weak or empty content. Use concrete project/task language instead of generic methodology descriptions.',
+    input.mode === 'drafts'
+      ? `Produce ${input.suggestedTaskCount ?? 5} independent task drafts. Each draft must be a separate same-project task, not a subtask.`
+      : 'Do not produce drafts unless mode is drafts.',
+    'Return JSON with this shape:',
+    JSON.stringify(outputShape, null, 2),
+    'Input context JSON:',
+    JSON.stringify(context, null, 2)
+  ]
+  return rows.join('\n\n')
+}
+
+function parseJsonFromAssistantText(raw: string): unknown {
+  const text = raw.trim()
+  if (!text) throw new Error('AI response is empty.')
+  try {
+    return JSON.parse(text)
+  } catch { }
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  if (fenced?.[1]) {
+    try {
+      return JSON.parse(fenced[1].trim())
+    } catch { }
+  }
+  const first = text.indexOf('{')
+  const last = text.lastIndexOf('}')
+  if (first >= 0 && last > first) return JSON.parse(text.slice(first, last + 1))
+  throw new Error('AI response did not contain valid JSON.')
+}
+
+export function normalizeTaskPlannerAiFillResult(value: unknown, targetFields: string[] = []): ServiceResponse<Omit<TaskPlannerAiFillResult, 'diagnostics'>> {
+  let parsed = value
+  try {
+    parsed = typeof value === 'string' ? parseJsonFromAssistantText(value) : value
+  } catch (error) {
+    return errorResponse(ErrorCodes.Validation, error instanceof Error ? error.message : 'Invalid AI response JSON')
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return errorResponse(ErrorCodes.Validation, 'AI response must be a JSON object.')
+  }
+  const record = parsed as Record<string, unknown>
+  const targetSet = new Set(targetFields.filter((field) => TASK_PLANNER_AI_FIELD_SET.has(field)))
+  const allowAnyField = targetSet.size === 0
+  const formRecord = record.form && typeof record.form === 'object' && !Array.isArray(record.form)
+    ? record.form as Record<string, unknown>
+    : {}
+  const form: Record<string, string> = {}
+  for (const [key, raw] of Object.entries(formRecord)) {
+    if (!TASK_PLANNER_AI_FIELD_SET.has(key)) continue
+    if (!allowAnyField && !targetSet.has(key)) continue
+    if (typeof raw === 'string' && raw.trim()) form[key] = raw.trim()
+    else if ((typeof raw === 'number' || typeof raw === 'boolean') && String(raw).trim()) form[key] = String(raw).trim()
+  }
+
+  const questions = Array.isArray(record.questions)
+    ? record.questions
+      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      .map((item) => item.trim())
+      .slice(0, 6)
+    : []
+  const drafts = Array.isArray(record.drafts)
+    ? record.drafts.flatMap((raw, index) => {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
+        const draft = raw as Record<string, unknown>
+        const title = typeof draft.title === 'string' ? draft.title.trim() : ''
+        const description = typeof draft.description === 'string' ? draft.description.trim() : ''
+        if (!title || !description) return []
+        const order = typeof draft.order === 'number' && Number.isFinite(draft.order) ? Math.max(1, Math.floor(draft.order)) : index + 1
+        const confidence = typeof draft.confidence === 'number' && Number.isFinite(draft.confidence) ? Math.max(1, Math.min(100, Math.round(draft.confidence))) : undefined
+        return [{
+          order,
+          title,
+          description,
+          phase: typeof draft.phase === 'string' && draft.phase.trim() ? draft.phase.trim() : undefined,
+          confidence,
+          rationale: typeof draft.rationale === 'string' && draft.rationale.trim() ? draft.rationale.trim() : undefined,
+          risk: typeof draft.risk === 'string' && draft.risk.trim() ? draft.risk.trim() : undefined
+        }]
+      })
+    : []
+  return okResponse({
+    ...(Object.keys(form).length > 0 ? { form } : {}),
+    ...(questions.length > 0 ? { questions } : {}),
+    ...(drafts.length > 0 ? { drafts } : {})
+  })
 }
 
 export function initialPlannerPrompt(
@@ -3089,6 +3319,14 @@ export class TaskService {
     return okResponse({ actorOrgId: actor.user.organizationId, task })
   }
 
+  private async ensureProjectAccess(actorToken: string | undefined, projectId: string): Promise<ServiceResponse<{ actorOrgId: string }>> {
+    const actor = await this.auth.requireActor(actorToken)
+    const project = await this.projects.get(projectId)
+    if (!project) return errorResponse(ErrorCodes.NotFound, 'Project not found')
+    if (project.organizationId !== actor.user.organizationId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
+    return okResponse({ actorOrgId: actor.user.organizationId })
+  }
+
   private async normalizeAgentId(actorOrgId: string, agentId: unknown): Promise<ServiceResponse<string | null>> {
     if (agentId === null || agentId === undefined || agentId === '') return okResponse(null)
     if (typeof agentId !== 'string') return errorResponse(ErrorCodes.Validation, 'Agent id is invalid')
@@ -3492,6 +3730,147 @@ export class TaskService {
         ...plannerJsonGuidance()
       }
     })
+  }
+
+  async plannerAiFill(payload: TaskPlannerAiFillRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<TaskPlannerAiFillResult>> {
+    if (!payload?.projectId) return errorResponse(ErrorCodes.Validation, 'Project id required')
+    if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex gateway is required')
+    if (!payload.model?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex model is required')
+
+    const mode = normalizeTaskPlannerAiMode(payload.mode)
+    const requestedFields = normalizeTaskPlannerAiFields(payload.targetFields)
+    const targetFields = requestedFields.length > 0 || mode === 'step'
+      ? requestedFields
+      : [...TASK_PLANNER_AI_FIELDS]
+    const projectAccess = payload.taskId?.trim()
+      ? await this.ensureTaskAccess(payload.actorToken, payload.taskId.trim())
+      : await this.ensureProjectAccess(payload.actorToken, payload.projectId)
+    if (!projectAccess.ok || !projectAccess.data) return projectAccess as ServiceResponse<TaskPlannerAiFillResult>
+
+    const project = await this.projects.get(payload.projectId)
+    if (!project) return errorResponse(ErrorCodes.NotFound, 'Project not found')
+    if (project.organizationId !== projectAccess.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
+
+    let sourceTask: TaskEntity | null = null
+    if ('task' in projectAccess.data) {
+      if (projectAccess.data.task.projectId !== project.id) return errorResponse(ErrorCodes.Validation, 'Project id does not match task')
+      const [enrichedTask] = await this.enrichTasks([projectAccess.data.task])
+      sourceTask = enrichedTask
+    }
+
+    const gateway = await this.gateways.get(payload.gatewayId.trim())
+    if (!gateway || gateway.organizationId !== projectAccess.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Codex gateway is invalid')
+    const runtimeWorkspaceId = projectGatewayRuntimeWorkspaceId(project)
+    if (!runtimeWorkspaceId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is required')
+    const runtimeWorkspace = await this.workspaces.get(runtimeWorkspaceId)
+    if (!runtimeWorkspace || runtimeWorkspace.organizationId !== projectAccess.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
+
+    let launchConfig: Awaited<ReturnType<typeof codexLaunchConfig>>
+    try {
+      launchConfig = await codexLaunchConfig(gateway.template)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to launch Codex AI fill'
+      return errorResponse(ErrorCodes.Validation, message)
+    }
+
+    const startedAt = Date.now()
+    const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-planner-ai-fill-'))
+    const finalMessagePath = join(runFolderPath, 'final-message.json')
+    const model = payload.model.trim()
+    const reasoningEffort = normalizeGatewayReasoningEffort(payload.reasoningEffort || 'xhigh')
+    const language = await resolveGatewayLanguageSetting(this.appSettings, projectAccess.data.actorOrgId, project, payload)
+    const suggestedTaskCount = Math.max(3, Math.min(8, Math.floor(Number(payload.suggestedTaskCount ?? 5))))
+    const prompt = taskPlannerAiFillPrompt({
+      project,
+      sourceTask,
+      form: normalizeTaskPlannerAiForm(payload.form),
+      answers: normalizeTaskPlannerAiAnswers(payload.answers),
+      intro: typeof payload.intro === 'string' ? payload.intro : '',
+      targetFields,
+      mode,
+      step: typeof payload.step === 'number' && Number.isFinite(payload.step) ? payload.step : undefined,
+      suggestedTaskCount,
+      language
+    })
+    const args = [
+      'exec',
+      '--json',
+      '--output-last-message',
+      finalMessagePath,
+      '--cd',
+      runtimeWorkspace.rootPath,
+      '--model',
+      model,
+      '-c',
+      codexReasoningConfigArg(reasoningEffort),
+      '--skip-git-repo-check',
+      '--dangerously-bypass-approvals-and-sandbox',
+      '--color',
+      'never',
+      prompt
+    ]
+
+    try {
+      await mkdir(runtimeWorkspace.rootPath, { recursive: true })
+      const finalText = await new Promise<string>((resolve, reject) => {
+        const child = spawn(launchConfig.codexPath, args, {
+          cwd: runtimeWorkspace.rootPath,
+          env: launchConfig.codexEnv,
+          stdio: ['ignore', 'pipe', 'pipe']
+        })
+        let stdout = ''
+        let stderr = ''
+        let settled = false
+        const timeout = setTimeout(() => {
+          if (settled) return
+          settled = true
+          child.kill('SIGTERM')
+          reject(new Error('AI fill timed out.'))
+        }, TASK_PLANNER_AI_TIMEOUT_MS)
+        timeout.unref?.()
+        child.stdout.setEncoding('utf8')
+        child.stderr.setEncoding('utf8')
+        child.stdout.on('data', (chunk: string) => {
+          stdout += chunk
+        })
+        child.stderr.on('data', (chunk: string) => {
+          stderr += chunk
+        })
+        child.on('error', (error) => {
+          if (settled) return
+          settled = true
+          clearTimeout(timeout)
+          reject(error)
+        })
+        child.on('close', async (code) => {
+          if (settled) return
+          settled = true
+          clearTimeout(timeout)
+          if (code !== 0) {
+            reject(new Error(stderr.trim() || `AI fill failed with code ${code ?? 'unknown'}.`))
+            return
+          }
+          const final = await readFile(finalMessagePath, 'utf8').catch(() => '')
+          resolve(final.trim() || stdout.trim())
+        })
+      })
+      const normalized = normalizeTaskPlannerAiFillResult(finalText, mode === 'drafts' ? [] : targetFields)
+      if (!normalized.ok) return normalized as ServiceResponse<TaskPlannerAiFillResult>
+      return okResponse({
+        ...(normalized.data ?? {}),
+        diagnostics: {
+          gatewayId: gateway.id,
+          model,
+          reasoningEffort,
+          durationMs: Date.now() - startedAt
+        }
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'AI fill failed.'
+      return errorResponse(ErrorCodes.Internal, message)
+    } finally {
+      await rm(runFolderPath, { recursive: true, force: true }).catch(() => undefined)
+    }
   }
 
   async plannerValidateJson(payload: TaskPlannerJsonRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<Record<string, unknown>>> {
