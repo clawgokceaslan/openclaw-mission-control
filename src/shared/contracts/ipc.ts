@@ -391,6 +391,8 @@ export interface ProjectExportAttachmentInput {
 export interface ProjectExportTaskInput {
   taskId: string
   taskMarkdown?: string
+  taskJson?: string
+  taskToon?: string
   agentMarkdown?: string
   skillsMarkdown?: string
   attachments?: ProjectExportAttachmentInput[]
@@ -503,6 +505,8 @@ export interface ExportTaskSnapshotRequest {
   taskId?: string
   projectId?: string
   taskMarkdown?: string
+  taskJson?: string
+  taskToon?: string
   agentMarkdown?: string
   skillsMarkdown?: string
   attachments?: ProjectExportAttachmentInput[]
@@ -515,6 +519,8 @@ export interface RunTaskGatewayRequest {
   zipName?: string
   zipBytes?: ArrayBuffer | Uint8Array | number[]
   taskMarkdown?: string
+  taskJson?: string
+  taskToon?: string
   agentMarkdown?: string
   skillsMarkdown?: string
   attachments?: ProjectExportAttachmentInput[]

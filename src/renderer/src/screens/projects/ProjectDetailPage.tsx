@@ -27,7 +27,7 @@ import { useProjectGatewayFlow } from './detail/hooks/useProjectGatewayFlow'
 import { useProjectSelection } from './detail/hooks/useProjectSelection'
 import { useProjectDerivedState } from './detail/hooks/useProjectDerivedState'
 import { useProjectWorkspaceSettings } from './detail/hooks/useProjectWorkspaceSettings'
-import { buildAgentMarkdown, buildSkillsMarkdown, buildTaskMarkdown, downloadMarkdownFile, downloadTaskZip } from './detail/taskExport'
+import { buildAgentMarkdown, buildSkillsMarkdown, buildTaskJson, buildTaskMarkdown, buildTaskToon, downloadMarkdownFile, downloadTaskZip, downloadTextFile } from './detail/taskExport'
 import { resolveProjectStatusColumn } from './detail/status'
 import { useProjectDetailDispatcher, useProjectDetailReducer } from './detail/state/projectDetailState'
 import {
@@ -3375,6 +3375,12 @@ export function ProjectDetailPage() {
             }}
             onDownloadTaskMarkdown={() => {
               if (selectedTaskExportContext) downloadMarkdownFile('Task.md', buildTaskMarkdown(selectedTaskExportContext))
+            }}
+            onDownloadTaskJson={() => {
+              if (selectedTaskExportContext) downloadTextFile('Task.json', buildTaskJson(selectedTaskExportContext), 'application/json;charset=utf-8')
+            }}
+            onDownloadTaskToon={() => {
+              if (selectedTaskExportContext) downloadTextFile('Task.toon', buildTaskToon(selectedTaskExportContext), 'text/plain;charset=utf-8')
             }}
             onDownloadAgentMarkdown={selectedTaskAgentMarkdown.trim() ? () => downloadMarkdownFile('Agents.md', selectedTaskAgentMarkdown) : undefined}
             onDownloadSkillsMarkdown={selectedTaskSkillsMarkdown.trim() ? () => downloadMarkdownFile('Skills.md', selectedTaskSkillsMarkdown) : undefined}

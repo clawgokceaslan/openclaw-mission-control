@@ -91,6 +91,8 @@ interface TaskDetailPopupProps {
   onFilesDrop?: (files: File[]) => void
   onDownloadZip?: () => void
   onDownloadTaskMarkdown?: () => void
+  onDownloadTaskJson?: () => void
+  onDownloadTaskToon?: () => void
   onDownloadAgentMarkdown?: () => void
   onDownloadSkillsMarkdown?: () => void
   onRunGateway?: () => void
@@ -439,6 +441,8 @@ export function TaskDetailPopup({
   onFilesDrop,
   onDownloadZip,
   onDownloadTaskMarkdown,
+  onDownloadTaskJson,
+  onDownloadTaskToon,
   onDownloadAgentMarkdown,
   onDownloadSkillsMarkdown,
   onRunGateway,
@@ -456,7 +460,7 @@ export function TaskDetailPopup({
   const downloadMenuRef = useRef<HTMLDivElement | null>(null)
   const dragDepthRef = useRef(0)
   const confirm = useConfirmation()
-  const hasDownloadActions = Boolean(onDownloadZip || onDownloadTaskMarkdown || onDownloadAgentMarkdown || onDownloadSkillsMarkdown)
+  const hasDownloadActions = Boolean(onDownloadZip || onDownloadTaskMarkdown || onDownloadTaskJson || onDownloadTaskToon || onDownloadAgentMarkdown || onDownloadSkillsMarkdown)
 
   useEffect(() => lockModalInteractionRegion(), [])
 
@@ -517,6 +521,8 @@ export function TaskDetailPopup({
                 <div className={styles.menu} role="menu">
                   {onDownloadZip ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadZip() }}><LuDownload size={15} /> Download ZIP</button> : null}
                   {onDownloadTaskMarkdown ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadTaskMarkdown() }}><LuFileText size={15} /> Download Task.md</button> : null}
+                  {onDownloadTaskJson ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadTaskJson() }}><LuFileText size={15} /> Download Task.json</button> : null}
+                  {onDownloadTaskToon ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadTaskToon() }}><LuFileText size={15} /> Download Task.toon</button> : null}
                   {onDownloadAgentMarkdown ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadAgentMarkdown() }}><LuFileText size={15} /> Download Agents.md</button> : null}
                   {onDownloadSkillsMarkdown ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadSkillsMarkdown() }}><LuFileText size={15} /> Download Skills.md</button> : null}
                 </div>

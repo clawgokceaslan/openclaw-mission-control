@@ -1,5 +1,7 @@
 import { strToU8, zipSync } from 'fflate'
 import type { Agent, CustomField, Project, ProjectGroup, ProjectStatus, Skill, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskSubtask } from '@shared/types/entities'
+import { normalizeGatewayPromptShape, type GatewayPromptShape } from '@shared/utils/gateway-prompt-shape'
+import { parseToonRecord, serializeToonRecord, stringifyCompactJson } from '@shared/utils/toon'
 
 type ExportContext = {
   task: TaskEntity
@@ -29,12 +31,17 @@ type SubtaskExportStatusMap = Record<string, AttachmentExportStatus[]>
 export type ProjectWorkspaceExportTaskPayload = {
   taskId: string
   taskMarkdown: string
+  taskJson: string
+  taskToon: string
+  taskFileName: 'Task.md' | 'Task.json' | 'Task.toon'
+  taskFileContent: string
   agentMarkdown: string
   skillsMarkdown: string
   attachments: Array<TaskAttachment & { ownerId: string; exportName: string }>
 }
 
 const SECTION_SEPARATOR = '\n\n-----\n\n'
+const TASK_FORMAT_VERSION = 1
 
 function safeName(value: string, fallback = 'item'): string {
   const normalized = value
@@ -115,6 +122,138 @@ function getProjectPostRunPrompt(project?: Project | null): string {
   const metrics = project?.metrics && typeof project.metrics === 'object' && !Array.isArray(project.metrics) ? project.metrics : {}
   const value = (metrics as Record<string, unknown>).projectPostRunPrompt
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function contextPromptShape(context: ExportContext): GatewayPromptShape {
+  const gateway = context.project?.metrics?.gateway
+  const value = gateway && typeof gateway === 'object' && !Array.isArray(gateway)
+    ? (gateway as Record<string, unknown>).promptShape
+    : undefined
+  return normalizeGatewayPromptShape(value)
+}
+
+function agentReferencePayload(agentId: string | undefined | null, agents: Agent[], source: string) {
+  if (!agentId) return null
+  const agent = agents.find((item) => item.id === agentId)
+  const details = agent ? `Agents.md#${anchorFor('agent', agent.id)}` : 'missing metadata'
+  return {
+    source,
+    id: agent?.id ?? agentId,
+    name: agent?.name ?? agentId,
+    title: agent?.title ?? '',
+    description: agent ? agentDescription(agent) : 'missing metadata',
+    promptRef: agent && agentPrompt(agent) ? details : '',
+    details
+  }
+}
+
+function skillReferencePayload(skillId: string, skills: Skill[], source: string) {
+  const skill = skills.find((item) => item.id === skillId)
+  return {
+    source,
+    id: skill?.id ?? skillId,
+    name: skill?.name ?? skillId,
+    details: skill ? `Skills.md#${anchorFor('skill', skill.id)}` : 'missing metadata'
+  }
+}
+
+function buildTaskFormatContract(context: ExportContext, exportStatuses: AttachmentExportStatus[] = [], subtaskExportStatuses: SubtaskExportStatusMap = {}) {
+  const { task } = context
+  const subtasks = task.subtasks ?? []
+  const taskAttachments = getTaskAttachments(task)
+  const subtaskAttachments = subtasks.flatMap(getSubtaskAttachments)
+  const defaultSkillIds = Array.isArray(context.project?.metrics?.defaultSkillIds) ? context.project.metrics.defaultSkillIds.filter((item): item is string => typeof item === 'string') : []
+  const taskTagIds = (task.tags ?? []).map((tag) => tag.id)
+  const agentReferences = [
+    agentReferencePayload(task.agentId, context.agents, 'Task'),
+    ...subtasks.map((subtask, index) => agentReferencePayload(getSubtaskAgentId(subtask), context.agents, subtaskLabel(subtask, index)))
+  ].filter((item): item is NonNullable<typeof item> => Boolean(item))
+  const skillReferences = [
+    ...(task.skills ?? []).map((skill) => skillReferencePayload(skill.id, context.skills, 'Task')),
+    ...subtasks.flatMap((subtask, index) => getSubtaskSkillIds(subtask).map((skillId) => skillReferencePayload(skillId, context.skills, subtaskLabel(subtask, index))))
+  ]
+
+  return {
+    format: 'open_mission_control_task',
+    version: TASK_FORMAT_VERSION,
+    shape: contextPromptShape(context),
+    metadata: {
+      files: {
+        markdown: 'Task.md',
+        json: 'Task.json',
+        toon: 'Task.toon',
+        agents: 'Agents.md',
+        skills: 'Skills.md',
+        attachments: 'attachments/'
+      },
+      generatedFor: 'Codex and Claude CLI task context',
+      agentSkillPolicy: 'Task files include short summaries and refs only. Full prompts/instructions are lazy-loaded from Agents.md and Skills.md.'
+    },
+    project: {
+      id: task.projectId,
+      name: context.project?.name ?? task.projectId,
+      group: context.projectGroup ? { id: context.projectGroup.id, name: context.projectGroup.name, description: context.projectGroup.description ?? '' } : null,
+      description: context.project?.description ?? '',
+      language: context.gatewayLanguage ?? '',
+      defaultAgentId: typeof context.project?.metrics?.defaultAgentId === 'string' ? context.project.metrics.defaultAgentId : '',
+      defaultSkillIds,
+      gateway: context.project?.metrics?.gateway ?? {},
+      instructions: {
+        generalContext: context.project?.generalContext ?? '',
+        generalPrompt: context.project?.generalPrompt ?? '',
+        planGuide: getProjectPlanGuide(context.project),
+        defaultOutput: context.project?.defaultOutput ?? '',
+        rules: getProjectRules(context.project),
+        postRunPrompt: getProjectPostRunPrompt(context.project)
+      }
+    },
+    task: {
+      id: task.id,
+      title: task.title,
+      status: humanizeStatus(task.status, context.projectStatuses),
+      description: task.description ?? '',
+      acceptanceCriteria: acceptanceCriteriaMarkdown(task),
+      tags: taskTagIds.map((id) => context.tags.find((tag) => tag.id === id)?.name ?? id),
+      customFields: task.customFieldValues ?? {},
+      checklist: task.checklistItems ?? [],
+      comments: task.comments ?? [],
+      attachments: taskAttachments.map((attachment) => {
+        const status = exportStatuses.find((item) => item.ownerId === task.id && item.url === attachment.url)
+        return { ...attachment, exportStatus: status?.status ?? 'linked', exportPath: status ? `${status.path}/${status.name}` : attachment.url }
+      }),
+      counts: {
+        subtasks: subtasks.length,
+        attachments: taskAttachments.length + subtaskAttachments.length
+      }
+    },
+    references: {
+      agents: agentReferences,
+      skills: skillReferences
+    },
+    subtasks: subtasks.map((subtask, index) => {
+      const statusAction = subtaskStatusAction(subtask, context.projectStatuses)
+      return {
+        number: index + 1,
+        id: subtask.id,
+        title: subtask.title,
+        status: statusAction.label,
+        aiAction: statusAction.action,
+        description: getSubtaskDescription(subtask),
+        tags: getSubtaskTagIds(subtask).map((id) => context.tags.find((tag) => tag.id === id)?.name ?? id),
+        customFields: getPayload(subtask).customFields ?? {},
+        checklist: getSubtaskChecklist(subtask),
+        comments: getSubtaskComments(subtask),
+        agentRef: agentReferencePayload(getSubtaskAgentId(subtask), context.agents, subtaskLabel(subtask, index)),
+        skillRefs: getSubtaskSkillIds(subtask).map((skillId) => skillReferencePayload(skillId, context.skills, subtaskLabel(subtask, index))),
+        attachments: getSubtaskAttachments(subtask).map((attachment) => {
+          const status = (subtaskExportStatuses[subtask.id] ?? []).find((item) => item.url === attachment.url)
+          return { ...attachment, exportStatus: status?.status ?? 'linked', exportPath: status ? `${status.path}/${status.name}` : attachment.url }
+        }),
+        createdAt: subtask.createdAt,
+        updatedAt: subtask.updatedAt
+      }
+    })
+  }
 }
 
 function acceptanceCriteriaMarkdown(task: TaskEntity): string {
@@ -478,6 +617,39 @@ export function buildTaskMarkdown(context: ExportContext, exportStatuses: Attach
   return `${sections.join(SECTION_SEPARATOR)}\n`
 }
 
+export function buildTaskJsonData(context: ExportContext, exportStatuses: AttachmentExportStatus[] = [], subtaskExportStatuses: SubtaskExportStatusMap = {}) {
+  return buildTaskFormatContract(context, exportStatuses, subtaskExportStatuses)
+}
+
+export function buildTaskJson(context: ExportContext, exportStatuses: AttachmentExportStatus[] = [], subtaskExportStatuses: SubtaskExportStatusMap = {}): string {
+  return `${JSON.stringify(buildTaskJsonData(context, exportStatuses, subtaskExportStatuses), null, 2)}\n`
+}
+
+export function buildTaskToon(context: ExportContext, exportStatuses: AttachmentExportStatus[] = [], subtaskExportStatuses: SubtaskExportStatusMap = {}): string {
+  const data = buildTaskJsonData(context, exportStatuses, subtaskExportStatuses)
+  return `${serializeToonRecord({
+    format: 'open_mission_control_task',
+    shape: 'toon',
+    version: TASK_FORMAT_VERSION,
+    data: stringifyCompactJson(data)
+  })}\n`
+}
+
+export function parseTaskToon(value: string) {
+  const parsed = parseToonRecord(value)
+  if (parsed.format !== 'open_mission_control_task') throw new Error('Invalid Task.toon format.')
+  if (parsed.shape !== 'toon') throw new Error('Invalid Task.toon shape.')
+  const data = typeof parsed.data === 'string' ? JSON.parse(parsed.data) : parsed.data
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Invalid Task.toon data.')
+  return data
+}
+
+function taskFileForShape(shape: GatewayPromptShape, taskMarkdown: string, taskJson: string, taskToon: string): { taskFileName: ProjectWorkspaceExportTaskPayload['taskFileName']; taskFileContent: string } {
+  if (shape === 'json') return { taskFileName: 'Task.json', taskFileContent: taskJson }
+  if (shape === 'toon') return { taskFileName: 'Task.toon', taskFileContent: taskToon }
+  return { taskFileName: 'Task.md', taskFileContent: taskMarkdown }
+}
+
 export function buildAgentMarkdown(context: ExportContext): string {
   const refs = new Map<string, { agent: Agent; sources: string[] }>()
   const add = (agentId: string | undefined | null, source: string) => {
@@ -570,6 +742,10 @@ export function downloadMarkdownFile(name: string, content: string): void {
   downloadBlob(name, new Blob([content], { type: 'text/markdown;charset=utf-8' }))
 }
 
+export function downloadTextFile(name: string, content: string, type = 'text/plain;charset=utf-8'): void {
+  downloadBlob(name, new Blob([content], { type }))
+}
+
 async function readFileUrl(url: string): Promise<Uint8Array | null> {
   if (!url.startsWith('file://')) return null
   const req = (globalThis as { require?: (name: string) => unknown }).require
@@ -626,13 +802,15 @@ async function addAttachmentFiles(zip: ZipInput, basePath: string, attachments: 
 
 export function buildWorkspaceSnapshotPayload(context: ExportContext) {
   const taskMarkdown = buildTaskMarkdown(context)
+  const taskJson = buildTaskJson(context)
+  const taskToon = buildTaskToon(context)
   const agentMarkdown = buildAgentMarkdown(context)
   const skillsMarkdown = buildSkillsMarkdown(context)
   const attachments = [
     ...getTaskAttachments(context.task).map((attachment) => ({ ...attachment, ownerId: context.task.id })),
     ...(context.task.subtasks ?? []).flatMap((subtask) => getSubtaskAttachments(subtask).map((attachment) => ({ ...attachment, ownerId: subtask.id })))
   ]
-  return { taskMarkdown, agentMarkdown, skillsMarkdown, attachments }
+  return { taskMarkdown, taskJson, taskToon, agentMarkdown, skillsMarkdown, attachments }
 }
 
 export function buildProjectWorkspaceExportTaskPayload(context: ExportContext): ProjectWorkspaceExportTaskPayload {
@@ -666,6 +844,15 @@ export function buildProjectWorkspaceExportTaskPayload(context: ExportContext): 
     ...taskExportStatuses,
     ...Object.values(subtaskExportStatuses).flat()
   ], subtaskExportStatuses)
+  const taskJson = buildTaskJson(context, [
+    ...taskExportStatuses,
+    ...Object.values(subtaskExportStatuses).flat()
+  ], subtaskExportStatuses)
+  const taskToon = buildTaskToon(context, [
+    ...taskExportStatuses,
+    ...Object.values(subtaskExportStatuses).flat()
+  ], subtaskExportStatuses)
+  const taskFile = taskFileForShape(contextPromptShape(context), taskMarkdown, taskJson, taskToon)
   const agentMarkdown = buildAgentMarkdown(context)
   const skillsMarkdown = buildSkillsMarkdown(context)
   const attachments = [
@@ -678,7 +865,7 @@ export function buildProjectWorkspaceExportTaskPayload(context: ExportContext): 
       return attachment ? { ...attachment, ownerId: subtask.id, exportName: status.name } : null
     }))
   ]
-  return { taskId: context.task.id, taskMarkdown, agentMarkdown, skillsMarkdown, attachments: attachments.filter((attachment): attachment is TaskAttachment & { ownerId: string; exportName: string } => Boolean(attachment)) }
+  return { taskId: context.task.id, taskMarkdown, taskJson, taskToon, ...taskFile, agentMarkdown, skillsMarkdown, attachments: attachments.filter((attachment): attachment is TaskAttachment & { ownerId: string; exportName: string } => Boolean(attachment)) }
 }
 
 export async function buildTaskZipArchive(context: ExportContext): Promise<{ fileName: string; archive: Uint8Array }> {
@@ -695,9 +882,13 @@ export async function buildTaskZipArchive(context: ExportContext): Promise<{ fil
   const agentMarkdown = buildAgentMarkdown(context)
   const skillsMarkdown = buildSkillsMarkdown(context)
   const taskMarkdown = buildTaskMarkdown(context, exportStatuses, subtaskExportStatuses)
+  const taskJson = buildTaskJson(context, exportStatuses, subtaskExportStatuses)
+  const taskToon = buildTaskToon(context, exportStatuses, subtaskExportStatuses)
   if (agentMarkdown.trim()) zip['Agents.md'] = strToU8(agentMarkdown)
   if (skillsMarkdown.trim()) zip['Skills.md'] = strToU8(skillsMarkdown)
   if (taskMarkdown.trim()) zip['Task.md'] = strToU8(taskMarkdown)
+  if (taskJson.trim()) zip['Task.json'] = strToU8(taskJson)
+  if (taskToon.trim()) zip['Task.toon'] = strToU8(taskToon)
   const archive = zipSync(zip)
   return { fileName: `${safeName(context.task.title, 'task')}.zip`, archive }
 }

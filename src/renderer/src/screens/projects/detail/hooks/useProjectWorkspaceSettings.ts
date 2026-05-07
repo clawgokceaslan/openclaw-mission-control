@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
+import { normalizeGatewayPromptShape } from '@shared/utils/gateway-prompt-shape'
 import { AppSelectOption } from '@renderer/components/select/AppSelect'
 import type { Gateway, Project, ProjectGatewaySettings, ProjectGroup, ProjectStatus, StatusTemplate, Workspace, Tag, Skill, Agent, CustomField, TaskEntity } from '@shared/types/entities'
 import { invokeBridge } from '@renderer/utils/api'
@@ -351,7 +352,7 @@ export function useProjectWorkspaceSettings({
     const nextRunModel = draft?.runModel ?? gatewayDefaultRunModel
     const savedGateway = projectGatewaySettings(project)
     const nextLanguage = draft?.language ?? savedGateway.language ?? null
-    const nextPromptShape = draft?.promptShape ?? savedGateway.promptShape ?? 'markdown'
+    const nextPromptShape = normalizeGatewayPromptShape(draft?.promptShape ?? savedGateway.promptShape ?? 'markdown')
     const nextPlanReasoningEffort = draft?.planReasoningEffort ?? savedGateway.planReasoningEffort ?? null
     const nextRunReasoningEffort = draft?.runReasoningEffort ?? savedGateway.runReasoningEffort ?? null
 

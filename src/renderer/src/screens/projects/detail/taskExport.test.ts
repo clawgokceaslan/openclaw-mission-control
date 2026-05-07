@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskChecklistItem, TaskEntity, TaskSubtask } from '@shared/types/entities'
-import { buildTaskMarkdown } from './taskExport'
+import { buildProjectWorkspaceExportTaskPayload, buildTaskJson, buildTaskMarkdown, buildTaskToon, parseTaskToon } from './taskExport'
 
 function checklist(title: string): TaskChecklistItem {
   return { id: `check-${title}`, title, checked: false, createdAt: 1, updatedAt: 1 }
@@ -63,5 +63,61 @@ describe('buildTaskMarkdown', () => {
     expect(markdown).toContain('Optional checklist: 2')
     expect(markdown).not.toContain('complete each subtask checklist before moving on')
     expect(markdown.indexOf('### Checklist')).toBeLessThan(markdown.indexOf('### Comments'))
+  })
+
+  it('exports deterministic JSON and parseable TOON from the same task contract', () => {
+    const context = {
+      task: task(),
+      project: {
+        id: 'project-1',
+        organizationId: 'org-1',
+        name: 'Mission project',
+        archived: false,
+        metrics: { gateway: { promptShape: 'toon' } },
+        createdAt: 1,
+        updatedAt: 1
+      },
+      projectGroup: null,
+      agents: [],
+      skills: [],
+      tags: [],
+      customFields: [],
+      projectStatuses: []
+    }
+    const json = buildTaskJson(context)
+    const toon = buildTaskToon(context)
+    const parsedJson = JSON.parse(json)
+    const parsedToon = parseTaskToon(toon) as { task?: { title?: string }; subtasks?: unknown[] }
+
+    expect(parsedJson.format).toBe('open_mission_control_task')
+    expect(parsedJson.task.title).toBe('Planner task export')
+    expect(parsedJson.references.agents).toEqual([])
+    expect(parsedToon.task?.title).toBe('Planner task export')
+    expect(parsedToon.subtasks).toHaveLength(1)
+  })
+
+  it('selects the gateway prompt shape as the primary task file for payloads', () => {
+    const payload = buildProjectWorkspaceExportTaskPayload({
+      task: task(),
+      project: {
+        id: 'project-1',
+        organizationId: 'org-1',
+        name: 'Mission project',
+        archived: false,
+        metrics: { gateway: { promptShape: 'json' } },
+        createdAt: 1,
+        updatedAt: 1
+      },
+      projectGroup: null,
+      agents: [],
+      skills: [],
+      tags: [],
+      customFields: [],
+      projectStatuses: []
+    })
+
+    expect(payload.taskFileName).toBe('Task.json')
+    expect(payload.taskJson).toContain('"format": "open_mission_control_task"')
+    expect(payload.taskToon).toContain('format: "open_mission_control_task"')
   })
 })

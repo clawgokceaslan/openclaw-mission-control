@@ -267,7 +267,7 @@ describe('gatewayChatPrompt', () => {
       transcript: [],
       mode: 'chat',
       promptShape: 'toon'
-    })).toContain('family: chat')
+    })).toContain('family: "chat"')
   })
 })
 
@@ -516,8 +516,9 @@ describe('planner quality gate', () => {
     expect(markdown.trim().startsWith('{')).toBe(false)
     expect(JSON.parse(jsonPlanner).family).toBe('plan')
     expect(JSON.parse(jsonRun).family).toBe('run')
-    expect(toonRun).toContain('shape: toon')
-    expect(toonRun).toContain('family: run')
+    expect(toonRun).toContain('shape: "toon"')
+    expect(toonRun).toContain('family: "run"')
+    expect(toonRun).toContain('primary_task_file: "/export/Task.toon"')
   })
 
   it('serializes post-run prompts as structured JSON', () => {

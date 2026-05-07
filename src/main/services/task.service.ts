@@ -57,6 +57,7 @@ import { formatUsageSummary, parseGatewayEvents, type GatewayNormalizedEvent, ty
 import { gatewayLanguageDisplayName, normalizeGatewayLanguage, normalizeGatewayReasoningEffort, type GatewayLanguagePair } from '../../shared/utils/gateway-language.js'
 import { gatewayMetadataBlock, inferGatewayChatPhase, type GatewayChatPhase } from '../../shared/utils/gateway-chat-phase.js'
 import { normalizeGatewayPromptShape, type GatewayPromptShape } from '../../shared/utils/gateway-prompt-shape.js'
+import { serializeToonRecord } from '../../shared/utils/toon.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -628,26 +629,10 @@ function renderJsonPrompt(family: string, sections: PromptSection[]): string {
   return JSON.stringify(payload, null, 2)
 }
 
-function toonScalar(value: unknown): string {
-  if (typeof value === 'string') return value.includes('\n') ? `|\n${value.split('\n').map((line) => `  ${line}`).join('\n')}` : value
-  return JSON.stringify(value)
-}
-
-function renderToonValue(name: string, value: unknown): string {
-  if (Array.isArray(value)) {
-    if (value.every((item) => typeof item === 'string')) return `${name}[]:\n${value.map((item) => `  - ${item}`).join('\n')}`
-    return `${name}[]:\n${value.map((item) => `  - ${JSON.stringify(item)}`).join('\n')}`
-  }
-  if (value && typeof value === 'object') return `${name}: ${JSON.stringify(value)}`
-  return `${name}: ${toonScalar(value)}`
-}
-
 function renderToonPrompt(family: string, sections: PromptSection[]): string {
-  return [
-    'shape: toon',
-    `family: ${family}`,
-    ...nonEmptyPromptSections(sections).map((section) => renderToonValue(section.name, section.value))
-  ].join('\n')
+  const record: Record<string, unknown> = { shape: 'toon', family }
+  for (const section of nonEmptyPromptSections(sections)) record[section.name] = section.value
+  return serializeToonRecord(record)
 }
 
 function renderPrompt(family: string, shape: unknown, markdown: () => string, structured: () => PromptSection[]): string {
@@ -841,6 +826,8 @@ export function initialGatewayPrompt(
   options: { language?: string; languages?: GatewayLanguagePair; promptShape?: GatewayPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null } = {}
 ): string {
   const language = typeof options.languages === 'object' ? options.languages.outputLanguage : options.language
+  const promptShape = normalizeGatewayPromptShape(options.promptShape)
+  const taskFileName = promptShape === 'json' ? 'Task.json' : promptShape === 'toon' ? 'Task.toon' : 'Task.md'
   const rows = [
     `Open Mission Control runtime workspace is ${runtimeWorkspacePath}.`,
     `The exported task files are in ${exportWorkspacePath}.`,
@@ -849,10 +836,10 @@ export function initialGatewayPrompt(
     projectInstructionsSection(options.projectPrompt, { audience: 'run' }),
     effectiveAgentSection(options.effectiveAgent),
     `Before making changes, read the run-specific .omc CLI instructions at ${omcInstructionsPath} in the runtime workspace.`,
-    `Read ${exportWorkspacePath}/Task.md, ${exportWorkspacePath}/Agents.md, ${exportWorkspacePath}/Skills.md, and ${exportWorkspacePath}/attachments/ if present.`,
-    'Apply the Project Rules section in Task.md before making implementation decisions.',
-    'Apply the Plan Guide section in Task.md when planning or interpreting the task execution strategy.',
-    'Execute the task described in Task.md.',
+    `Read ${exportWorkspacePath}/${taskFileName} as the primary task context. Read ${exportWorkspacePath}/Agents.md, ${exportWorkspacePath}/Skills.md, and ${exportWorkspacePath}/attachments/ only if present and needed.`,
+    `Apply the Project Rules section in ${taskFileName} before making implementation decisions.`,
+    `Apply the Plan Guide section in ${taskFileName} when planning or interpreting the task execution strategy.`,
+    `Execute the task described in ${taskFileName}.`,
     'Respect subtask status instructions: bypass subtasks marked completed/done/closed.',
     'Do not use MCP in this flow.',
     'Use the local .omc CLI ready-for-review operation only after implementation and checks are complete.',
@@ -867,7 +854,8 @@ export function initialGatewayPrompt(
     { name: 'project_instructions', value: projectInstructionsSection(options.projectPrompt, { audience: 'run' }) },
     { name: 'effective_agent', value: effectiveAgentSection(options.effectiveAgent) },
     { name: 'omc_cli_instructions_path', value: omcInstructionsPath },
-    { name: 'required_reads', value: [`${exportWorkspacePath}/Task.md`, `${exportWorkspacePath}/Agents.md`, `${exportWorkspacePath}/Skills.md`, `${exportWorkspacePath}/attachments/ if present`] },
+    { name: 'primary_task_file', value: `${exportWorkspacePath}/${taskFileName}` },
+    { name: 'required_reads', value: [`${exportWorkspacePath}/${taskFileName}`, `${exportWorkspacePath}/Agents.md if needed`, `${exportWorkspacePath}/Skills.md if needed`, `${exportWorkspacePath}/attachments/ if present`] },
     { name: 'execution_instructions', value: rows.slice(8) }
   ])
 }
@@ -2651,6 +2639,8 @@ export async function writeTaskSnapshotToExportWorkspace(
   exportWorkspacePath: string,
   payload: {
     taskMarkdown?: string
+    taskJson?: string
+    taskToon?: string
     agentMarkdown?: string
     skillsMarkdown?: string
     attachments?: ProjectExportAttachmentInput[]
@@ -2666,6 +2656,8 @@ export async function writeTaskSnapshotToExportWorkspace(
   }
 
   await writeMarkdown('Task.md', payload.taskMarkdown)
+  await writeMarkdown('Task.json', payload.taskJson)
+  await writeMarkdown('Task.toon', payload.taskToon)
   await writeMarkdown('Agents.md', payload.agentMarkdown)
   await writeMarkdown('Skills.md', payload.skillsMarkdown)
 
@@ -3380,6 +3372,8 @@ export class TaskService {
       writtenFiles.push(name)
     }
     await writeMarkdown('Task.md', payload.taskMarkdown)
+    await writeMarkdown('Task.json', payload.taskJson)
+    await writeMarkdown('Task.toon', payload.taskToon)
     await writeMarkdown('Agents.md', payload.agentMarkdown)
     await writeMarkdown('Skills.md', payload.skillsMarkdown)
 
@@ -3410,6 +3404,8 @@ export class TaskService {
     const zipBuffer = zipBufferFromPayload(payload.zipBytes)
     const hasSnapshotPayload = Boolean(
       payload.taskMarkdown?.trim()
+      || payload.taskJson?.trim()
+      || payload.taskToon?.trim()
       || payload.agentMarkdown?.trim()
       || payload.skillsMarkdown?.trim()
       || (Array.isArray(payload.attachments) && payload.attachments.length > 0)

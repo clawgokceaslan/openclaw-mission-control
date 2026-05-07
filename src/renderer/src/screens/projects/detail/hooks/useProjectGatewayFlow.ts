@@ -298,6 +298,8 @@ export function useProjectGatewayFlow({
       let response = await invokeBridge<GatewayRunResponse>(IPC_CHANNELS.tasks.runGateway, {
         ...basePayload,
         taskMarkdown: snapshot.taskMarkdown,
+        taskJson: snapshot.taskJson,
+        taskToon: snapshot.taskToon,
         agentMarkdown: snapshot.agentMarkdown,
         skillsMarkdown: snapshot.skillsMarkdown,
         attachments: snapshot.attachments

@@ -220,6 +220,8 @@ export class ProjectService {
         writtenFiles.push(join(relativeExportDir, name))
       }
       await writeMarkdown('Task.md', input.taskMarkdown)
+      await writeMarkdown('Task.json', input.taskJson)
+      await writeMarkdown('Task.toon', input.taskToon)
       await writeMarkdown('Agents.md', input.agentMarkdown)
       await writeMarkdown('Skills.md', input.skillsMarkdown)
 
