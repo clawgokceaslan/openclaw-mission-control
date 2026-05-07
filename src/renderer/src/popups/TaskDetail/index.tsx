@@ -1,13 +1,13 @@
 import { Component, CSSProperties, DragEvent, PointerEvent, ReactNode, useEffect, useRef, useState } from 'react'
 import { Stack } from 'react-bootstrap'
-import { LuBot, LuChevronDown, LuCopy, LuDownload, LuExternalLink, LuFileText, LuListChecks, LuListPlus, LuMessageSquare, LuEllipsis, LuPaperclip, LuPencil, LuPlay, LuPlus, LuSettings2, LuSlidersHorizontal, LuSparkles, LuSquare, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
+import { LuBot, LuCircleCheck, LuChevronDown, LuClock3, LuCopy, LuDownload, LuExternalLink, LuFileText, LuListChecks, LuListPlus, LuMessageSquare, LuEllipsis, LuPaperclip, LuPencil, LuPlay, LuPlus, LuRefreshCw, LuSettings2, LuSlidersHorizontal, LuSparkles, LuSquare, LuTrash2, LuTriangleAlert, LuUpload, LuX } from 'react-icons/lu'
 import type { TaskComment } from '@shared/types/entities'
 import { GATEWAY_REASONING_EFFORT_OPTIONS, gatewayModelReasoningEfforts, gatewayModelSupportsReasoning, normalizeGatewayReasoningEffort } from '@shared/utils/gateway-language'
 import { AppSelect } from '@renderer/components/select/AppSelect'
 import { AttachmentTable } from '@renderer/components/attachments/AttachmentTable'
 import { MarkdownDescriptionEditor } from '@renderer/components/markdown/MarkdownDescriptionEditor'
 import { AgentAssignmentPanel, SkillsAssignmentPanel } from '@renderer/components/projects/detail/AssignmentPanels'
-import { codexConfigOf, customFieldValueLabel, customFieldValueToDraft, readTaskGatewayOverride } from '@renderer/screens/projects/detail/projectDetailUtils'
+import { codexConfigOf, customFieldValueLabel, customFieldValueToDraft, readTaskGatewayOverride, taskActivityMessages, taskGatewaySurfaceStatuses } from '@renderer/screens/projects/detail/projectDetailUtils'
 import { lockModalInteractionRegion } from '@renderer/utils/modalInteractionLock'
 import styles from './index.module.scss'
 
@@ -37,6 +37,167 @@ function acceptanceCriteriaOf(task: any): string {
   if (!agenticInputs || typeof agenticInputs !== 'object' || Array.isArray(agenticInputs)) return ''
   const value = (agenticInputs as Record<string, unknown>).acceptanceCriteria
   return typeof value === 'string' ? value : ''
+}
+
+function activityTimeLabel(value?: number) {
+  if (!value) return 'Henüz kayıt yok'
+  return new Date(value).toLocaleString()
+}
+
+function latestActivitySummary(task: any) {
+  const latest = taskActivityMessages(task)
+    .slice()
+    .sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt))[0]
+  if (!latest) return { title: 'Ajan aktivitesi yok', detail: 'Planlama veya çalışma başladığında son aksiyon burada görünür.', at: undefined }
+  const body = latest.body.trim().replace(/\s+/g, ' ')
+  return {
+    title: latest.role === 'error' || latest.status === 'failed' ? 'Son aksiyon hata verdi' : latest.status === 'running' || latest.status === 'queued' ? 'Ajan çalışıyor' : 'Son ajan aksiyonu kaydedildi',
+    detail: body ? body.slice(0, 140) : `${latest.phase ?? 'Akış'} mesajı`,
+    at: latest.updatedAt ?? latest.createdAt
+  }
+}
+
+function pipelineStatusText(task: any, statusKey: string, fallback: string) {
+  const latest = latestActivitySummary(task)
+  if (statusKey === 'planning') return 'Planlama çalışıyor; gerekirse duraklatıp chat geçmişinden devam edebilirsin.'
+  if (statusKey === 'planned') return 'Plan hazır; sıradaki güvenli adım taskı çalıştırmak.'
+  if (statusKey === 'working') return 'Çalıştırma aktif; son aksiyon ve çıktı geçmişi aynı task içinde izleniyor.'
+  if (statusKey === 'work-completed') return 'Çalışma tamamlandı; doğrulama ve son özet kontrol edilmeli.'
+  if (statusKey === 'post-running') return 'Doğrulama özeti hazırlanıyor; riskli karar varsa kullanıcı onayı beklenebilir.'
+  if (statusKey === 'post-run-completed') return 'Son çalışma özeti hazır; kabul kriterlerine göre tamamla.'
+  if (statusKey === 'needs-input') return 'Kullanıcı onayı veya kısa açıklama bekleniyor; chatten yanıt vererek devam et.'
+  if (statusKey === 'failed') return `${latest.title}: ${latest.detail || 'Yeniden dene veya manuel müdahale ile devam et.'}`
+  return fallback
+}
+
+function pipelineStateLabel(statusKey?: string, fallback = 'Bekliyor') {
+  if (statusKey === 'not-planned') return 'Plan bekliyor'
+  if (statusKey === 'planning') return 'Planlanıyor'
+  if (statusKey === 'planned') return 'Plan hazır'
+  if (statusKey === 'working') return 'Çalışıyor'
+  if (statusKey === 'work-completed') return 'Çalışma tamamlandı'
+  if (statusKey === 'post-running') return 'Doğrulanıyor'
+  if (statusKey === 'post-run-completed') return 'Özet hazır'
+  if (statusKey === 'following-up') return 'Devam ediyor'
+  if (statusKey === 'followed-up') return 'Devam tamamlandı'
+  if (statusKey === 'needs-input') return 'Onay bekliyor'
+  if (statusKey === 'failed') return 'Hata'
+  return fallback
+}
+
+function TaskPipelinePanel({
+  task,
+  completed,
+  onPlanWithGateway,
+  onRunGateway,
+  onStopPlanGateway,
+  onStopRunGateway,
+  onOpenChat,
+  isPlanWithGatewayBusy,
+  isPlanWithGatewayDisabled,
+  isPlanWithGatewayRunning,
+  isRunGatewayBusy,
+  isRunGatewayDisabled,
+  isRunGatewayRunning,
+  isStopGatewayBusy
+}: {
+  task: any
+  completed: Set<string>
+  onPlanWithGateway?: () => void
+  onRunGateway?: () => void
+  onStopPlanGateway?: () => void
+  onStopRunGateway?: () => void
+  onOpenChat?: () => void
+  isPlanWithGatewayBusy?: boolean
+  isPlanWithGatewayDisabled?: boolean
+  isPlanWithGatewayRunning?: boolean
+  isRunGatewayBusy?: boolean
+  isRunGatewayDisabled?: boolean
+  isRunGatewayRunning?: boolean
+  isStopGatewayBusy?: boolean
+}) {
+  const statuses = taskGatewaySurfaceStatuses(task)
+  const statusByPhase = new Map(statuses.map((status) => [status.key.split(':')[0], status]))
+  const planStatus = statusByPhase.get('PLAN')
+  const runStatus = statusByPhase.get('RUN')
+  const verifyStatus = statusByPhase.get('POST-RUNNING')
+  const latest = latestActivitySummary(task)
+  const runReady = planStatus?.statusKey === 'planned' || Boolean(runStatus)
+  const done = completed.has(task.status)
+  const failedPlan = planStatus?.statusKey === 'failed'
+  const failedRun = runStatus?.statusKey === 'failed' || verifyStatus?.statusKey === 'failed'
+  const pipelineSteps = [
+    {
+      key: 'plan',
+      title: 'Planla',
+      state: pipelineStateLabel(planStatus?.statusKey, 'Plan bekliyor'),
+      tone: planStatus?.statusKey ?? 'not-planned',
+      body: pipelineStatusText(task, planStatus?.statusKey ?? 'not-planned', 'Task kapsamı planlanmadı; önce uygulanabilir planı oluştur.'),
+      action: isPlanWithGatewayRunning && onStopPlanGateway
+        ? { label: 'Duraklat', icon: LuSquare, onClick: onStopPlanGateway, disabled: isStopGatewayBusy }
+        : { label: failedPlan ? 'Yeniden dene' : 'Planla', icon: failedPlan ? LuRefreshCw : LuSparkles, onClick: onPlanWithGateway, disabled: isPlanWithGatewayBusy || isPlanWithGatewayDisabled || !onPlanWithGateway }
+    },
+    {
+      key: 'run',
+      title: 'Çalıştır',
+      state: runStatus ? pipelineStateLabel(runStatus.statusKey) : runReady ? 'Çalıştırılabilir' : 'Plan bekleniyor',
+      tone: runStatus?.statusKey ?? (runReady ? 'planned' : 'not-planned'),
+      body: pipelineStatusText(task, runStatus?.statusKey ?? 'not-started', runReady ? 'Plan hazır; taskı çalıştırabilir veya önce chatten kapsamı netleştirebilirsin.' : 'Çalıştırma için önce plan aşaması tamamlanmalı.'),
+      action: isRunGatewayRunning && onStopRunGateway
+        ? { label: 'Duraklat', icon: LuSquare, onClick: onStopRunGateway, disabled: isStopGatewayBusy }
+        : { label: failedRun ? 'Yeniden dene' : 'Çalıştır', icon: failedRun ? LuRefreshCw : LuPlay, onClick: onRunGateway, disabled: isRunGatewayBusy || isRunGatewayDisabled || !onRunGateway }
+    },
+    {
+      key: 'verify',
+      title: 'Doğrula',
+      state: verifyStatus ? pipelineStateLabel(verifyStatus.statusKey) : runStatus?.statusKey === 'work-completed' ? 'Özet bekleniyor' : 'Bekliyor',
+      tone: verifyStatus?.statusKey ?? (runStatus?.statusKey === 'work-completed' ? 'working' : 'not-planned'),
+      body: pipelineStatusText(task, verifyStatus?.statusKey ?? 'not-started', runStatus?.statusKey === 'work-completed' ? 'Son çalışma özetini ve kabul kriterlerini kontrol et.' : 'Doğrulama çalıştırma tamamlanınca görünür olur.'),
+      action: { label: 'Chatte aç', icon: LuMessageSquare, onClick: onOpenChat, disabled: !onOpenChat }
+    },
+    {
+      key: 'complete',
+      title: 'Tamamla',
+      state: done ? 'Tamamlandı' : verifyStatus?.statusKey === 'post-run-completed' || runStatus?.statusKey === 'work-completed' ? 'Onay bekliyor' : 'Bekliyor',
+      tone: done ? 'post-run-completed' : verifyStatus?.statusKey === 'post-run-completed' || runStatus?.statusKey === 'work-completed' ? 'needs-input' : 'not-planned',
+      body: done ? 'Task kapalı durumda; akış tamamlandı.' : 'Kabul kriterleri doğrulandıysa statüyü tamamlanan kolona taşı; değilse chatten devam et.',
+      action: { label: done ? 'Geçmiş' : 'Devam et', icon: done ? LuCircleCheck : LuMessageSquare, onClick: onOpenChat, disabled: !onOpenChat }
+    }
+  ]
+
+  return (
+    <section className={styles.pipelinePanel}>
+      <header className={styles.pipelineHeader}>
+        <div>
+          <span>Task yaşam döngüsü</span>
+          <strong>Planla, çalıştır, doğrula ve tamamla</strong>
+        </div>
+        <p>{latest.title} · {activityTimeLabel(latest.at)}</p>
+      </header>
+      <div className={styles.pipelineSteps}>
+        {pipelineSteps.map((item) => {
+          const Icon = item.tone === 'failed' ? LuTriangleAlert : item.tone === 'not-planned' ? LuClock3 : LuCircleCheck
+          const ActionIcon = item.action.icon
+          return (
+            <article key={item.key} className={`${styles.pipelineStep} ${styles[`pipelineTone_${item.tone}`] ?? ''}`}>
+              <div className={styles.pipelineStepIcon}><Icon size={15} /></div>
+              <div className={styles.pipelineStepBody}>
+                <div><strong>{item.title}</strong><span>{item.state}</span></div>
+                <p>{item.body}</p>
+              </div>
+              <button type="button" onClick={item.action.onClick} disabled={item.action.disabled}>
+                <ActionIcon size={14} /> {item.action.label}
+              </button>
+            </article>
+          )
+        })}
+      </div>
+      <footer className={styles.pipelineFooter}>
+        <strong>Son çalışma özeti</strong>
+        <span>{latest.detail}</span>
+      </footer>
+    </section>
+  )
 }
 
 function ChecklistPanel({
@@ -316,6 +477,22 @@ function TaskDetailBody({ scope }: { scope: Record<string, any> }) {
               <AppSelect mode="multi" creatable variant="borderless" className={styles.tagInlineSelect} value={scope.selectedTaskTagOptions ?? []} options={scope.availableTagOptions ?? []} onChange={(nextValue) => void scope.setTaskTags?.((Array.isArray(nextValue) ? nextValue : []).map((item: any) => item.value))} onCreateOption={(value) => void scope.createTagAndAttach?.(value)} placeholder="Search or add tags..." />
             </div>
           </div>
+          <TaskPipelinePanel
+            task={task}
+            completed={completed}
+            onPlanWithGateway={scope.onPlanWithGateway}
+            onRunGateway={scope.onRunGateway}
+            onStopPlanGateway={scope.onStopPlanGateway}
+            onStopRunGateway={scope.onStopRunGateway}
+            onOpenChat={scope.onOpenChat}
+            isPlanWithGatewayBusy={scope.isPlanWithGatewayBusy}
+            isPlanWithGatewayDisabled={scope.isPlanWithGatewayDisabled}
+            isPlanWithGatewayRunning={scope.isPlanWithGatewayRunning}
+            isRunGatewayBusy={scope.isRunGatewayBusy}
+            isRunGatewayDisabled={scope.isRunGatewayDisabled}
+            isRunGatewayRunning={scope.isRunGatewayRunning}
+            isStopGatewayBusy={scope.isStopGatewayBusy}
+          />
         </section>
         <section className={styles.drawerSection}>
           <h4>Description</h4>
@@ -491,6 +668,21 @@ export function TaskDetailPopup({
   const copyTaskId = () => { void navigator.clipboard?.writeText(taskId); setIsMenuOpen(false) }
   const copyTaskLink = () => { const url = new URL(window.location.href); url.searchParams.set('task', taskId); void navigator.clipboard?.writeText(url.toString()); setIsMenuOpen(false) }
   const runHeaderAction = (event: PointerEvent<HTMLButtonElement>, action: () => void) => { event.preventDefault(); event.stopPropagation(); action() }
+  const bodyScope = scope ? {
+    ...scope,
+    onOpenChat,
+    onRunGateway,
+    isRunGatewayBusy,
+    isRunGatewayDisabled,
+    onStopRunGateway,
+    isRunGatewayRunning,
+    onPlanWithGateway,
+    isPlanWithGatewayBusy,
+    isPlanWithGatewayDisabled,
+    onStopPlanGateway,
+    isPlanWithGatewayRunning,
+    isStopGatewayBusy
+  } : null
 
   const actions = (
     <>
@@ -536,15 +728,15 @@ export function TaskDetailPopup({
           ) : null}
           <div className={styles.primaryActions}>
             {isPlanWithGatewayRunning && onStopPlanGateway ? (
-              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.stopButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isStopGatewayBusy) onStopPlanGateway() })} disabled={isStopGatewayBusy} aria-label="Stop Codex plan" title="Stop running Codex plan">
+              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.stopButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isStopGatewayBusy) onStopPlanGateway() })} disabled={isStopGatewayBusy} aria-label="Planlamayı duraklat" title="Çalışan planlamayı duraklat">
                 <LuSquare size={15} />
-                <span className={styles.primaryActionLabel}>Stop Plan</span>
+                <span className={styles.primaryActionLabel}>Duraklat</span>
               </button>
             ) : null}
             {onPlanWithGateway ? (
-              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.planButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isPlanWithGatewayBusy && !isPlanWithGatewayDisabled) onPlanWithGateway() })} disabled={isPlanWithGatewayBusy || isPlanWithGatewayDisabled} aria-label="Plan task with Codex" title={isPlanWithGatewayDisabled ? 'Configure Codex gateway and model before planning this task.' : 'Plan task with Codex'}>
+              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.planButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isPlanWithGatewayBusy && !isPlanWithGatewayDisabled) onPlanWithGateway() })} disabled={isPlanWithGatewayBusy || isPlanWithGatewayDisabled} aria-label="Taskı planla" title={isPlanWithGatewayDisabled ? 'Bu taskı planlamak için önce Codex gateway ve model ayarlarını yapılandır.' : 'Task için uygulanabilir plan oluştur'}>
                 <LuSparkles size={16} />
-                <span className={styles.primaryActionLabel}>Plan</span>
+                <span className={styles.primaryActionLabel}>Planla</span>
               </button>
             ) : null}
             {onOpenTaskPlanner ? (
@@ -554,15 +746,15 @@ export function TaskDetailPopup({
               </button>
             ) : null}
             {isRunGatewayRunning && onStopRunGateway ? (
-              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.stopButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isStopGatewayBusy) onStopRunGateway() })} disabled={isStopGatewayBusy} aria-label="Stop Codex run" title="Stop running Codex run">
+              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.stopButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isStopGatewayBusy) onStopRunGateway() })} disabled={isStopGatewayBusy} aria-label="Çalıştırmayı duraklat" title="Çalışan task akışını duraklat">
                 <LuSquare size={15} />
-                <span className={styles.primaryActionLabel}>Stop Run</span>
+                <span className={styles.primaryActionLabel}>Duraklat</span>
               </button>
             ) : null}
             {onRunGateway ? (
-              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.runButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isRunGatewayBusy && !isRunGatewayDisabled) onRunGateway() })} disabled={isRunGatewayBusy || isRunGatewayDisabled} aria-label="Run task with Codex" title={isRunGatewayDisabled ? 'Configure Codex gateway and model before running this task.' : 'Run task with Codex'}>
+              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.runButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isRunGatewayBusy && !isRunGatewayDisabled) onRunGateway() })} disabled={isRunGatewayBusy || isRunGatewayDisabled} aria-label="Taskı çalıştır" title={isRunGatewayDisabled ? 'Bu taskı çalıştırmak için önce Codex gateway ve model ayarlarını yapılandır.' : 'Planlanan taskı çalıştır'}>
                 <LuPlay size={16} />
-                <span className={styles.primaryActionLabel}>Run</span>
+                <span className={styles.primaryActionLabel}>Çalıştır</span>
               </button>
             ) : null}
             <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.taskDetailOpenChatButton}`} onPointerDown={(event) => runHeaderAction(event, onOpenChat)} aria-label="Open chat">
@@ -600,5 +792,5 @@ export function TaskDetailPopup({
     </>
   )
 
-  return <><div className={`${styles.backdrop} ${nested ? styles.nestedBackdrop : ''}`} onClick={onClose} /><section className={`${styles.shell} ${nested ? styles.nestedShell : ''}`} role="dialog" aria-modal="true" aria-label={title} onDragEnter={(event: DragEvent<HTMLElement>) => { if (!onFilesDrop || !Array.from(event.dataTransfer.types).includes('Files')) return; event.preventDefault(); dragDepthRef.current += 1; setIsDraggingFiles(true) }} onDragOver={(event) => { if (!onFilesDrop) return; event.preventDefault(); event.dataTransfer.dropEffect = 'copy' }} onDragLeave={(event) => { if (!onFilesDrop) return; event.preventDefault(); dragDepthRef.current = Math.max(0, dragDepthRef.current - 1); if (dragDepthRef.current === 0) setIsDraggingFiles(false) }} onDrop={(event) => { if (!onFilesDrop) return; event.preventDefault(); dragDepthRef.current = 0; setIsDraggingFiles(false); const files = Array.from(event.dataTransfer.files ?? []); if (files.length > 0) onFilesDrop(files) }}>{isDraggingFiles ? <div className={styles.dropOverlay}>Drop files here</div> : null}<header className={styles.header}><div className={styles.headerLeft}><span className={styles.headerTitle}>{title}</span></div><div className={styles.headerActions}>{actions}</div></header><TaskDetailPopupBoundary onClose={onClose}>{scope ? scope.variant === 'subtask' ? <SubtaskDetailBody scope={scope} /> : <TaskDetailBody scope={scope} /> : children}</TaskDetailPopupBoundary></section></>
+  return <><div className={`${styles.backdrop} ${nested ? styles.nestedBackdrop : ''}`} onClick={onClose} /><section className={`${styles.shell} ${nested ? styles.nestedShell : ''}`} role="dialog" aria-modal="true" aria-label={title} onDragEnter={(event: DragEvent<HTMLElement>) => { if (!onFilesDrop || !Array.from(event.dataTransfer.types).includes('Files')) return; event.preventDefault(); dragDepthRef.current += 1; setIsDraggingFiles(true) }} onDragOver={(event) => { if (!onFilesDrop) return; event.preventDefault(); event.dataTransfer.dropEffect = 'copy' }} onDragLeave={(event) => { if (!onFilesDrop) return; event.preventDefault(); dragDepthRef.current = Math.max(0, dragDepthRef.current - 1); if (dragDepthRef.current === 0) setIsDraggingFiles(false) }} onDrop={(event) => { if (!onFilesDrop) return; event.preventDefault(); dragDepthRef.current = 0; setIsDraggingFiles(false); const files = Array.from(event.dataTransfer.files ?? []); if (files.length > 0) onFilesDrop(files) }}>{isDraggingFiles ? <div className={styles.dropOverlay}>Drop files here</div> : null}<header className={styles.header}><div className={styles.headerLeft}><span className={styles.headerTitle}>{title}</span></div><div className={styles.headerActions}>{actions}</div></header><TaskDetailPopupBoundary onClose={onClose}>{bodyScope ? bodyScope.variant === 'subtask' ? <SubtaskDetailBody scope={bodyScope} /> : <TaskDetailBody scope={bodyScope} /> : children}</TaskDetailPopupBoundary></section></>
 }

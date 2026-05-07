@@ -86,7 +86,7 @@ export function AutoRunPage() {
   const currentProject = projectsById.get(currentProjectId)
   const sameAutomationActive = automationSnapshot.active.run
   const otherAutomationActive = automationSnapshot.active.plan
-  const activeAutomationLabel = sameAutomationActive ? 'Auto Run is already processing a queue' : otherAutomationActive ? 'Auto Plan is running independently' : null
+  const activeAutomationLabel = sameAutomationActive ? 'Çalıştırma kuyruğu zaten çalışıyor' : otherAutomationActive ? 'Plan kuyruğu bağımsız ilerliyor' : null
   const activeStepIndex = Math.max(0, stepOrder.indexOf(activeStep))
   const stepProgress = `${Math.round(((activeStepIndex + 1) / stepOrder.length) * 100)}%`
   const queueSummary = useMemo(() => ({
@@ -398,7 +398,7 @@ export function AutoRunPage() {
     if (queueBusy || !queue.some((item) => item.state === 'waiting')) return
     setQueueBusy(true)
     if (automationQueueSnapshot().active.run) {
-      setQueue((current) => current.map((item) => item.state === 'waiting' ? { ...item, message: 'Pending: queued behind another Auto Run batch.' } : item))
+      setQueue((current) => current.map((item) => item.state === 'waiting' ? { ...item, message: 'Bekliyor: başka bir çalıştırma kuyruğunun arkasında.' } : item))
     }
     const { promise } = enqueueAutomationQueue('run', executeQueue)
     await promise
@@ -479,14 +479,14 @@ export function AutoRunPage() {
     <section className={styles.page}>
       <header className={styles.header}>
         <div>
-          <h1>Auto Run</h1>
-          <p>Select never-run tasks from the current project and start them one at a time.</p>
+          <h1>Çalıştırma Kuyruğu</h1>
+          <p>Tek task pipeline ana akıştır; birden fazla planlanmış taskı sırayla çalıştırmak için bu ikincil kuyruğu kullan.</p>
         </div>
         <button type="button" onClick={() => void loadData()} disabled={loading}><LuRefreshCw size={15} /> Refresh</button>
       </header>
 
       {error ? <div className={styles.notice}>{error}</div> : null}
-      {activeAutomationLabel ? <div className={styles.notice}>{activeAutomationLabel}. Auto Run queues stay serial; Auto Plan can continue separately.</div> : null}
+      {activeAutomationLabel ? <div className={styles.notice}>{activeAutomationLabel}. Çalıştırma kuyrukları seri ilerler; plan kuyruğu ayrı kalır.</div> : null}
 
       <section className={styles.controls}>
         <div className={styles.scopeSummary}>
@@ -509,7 +509,7 @@ export function AutoRunPage() {
         </div>
       </section>
 
-      <section className={styles.stepperShell} aria-label="Auto Run progress">
+      <section className={styles.stepperShell} aria-label="Çalıştırma kuyruğu ilerlemesi">
         <header className={styles.stepperHeader}>
           <div>
             <span>Workflow</span>
@@ -521,7 +521,7 @@ export function AutoRunPage() {
         <div className={styles.stepperTrack} aria-hidden="true">
           <span style={{ width: stepProgress }} />
         </div>
-        <div className={styles.stepper} role="tablist" aria-label="Auto Run steps">
+        <div className={styles.stepper} role="tablist" aria-label="Çalıştırma kuyruğu adımları">
           {stepOrder.map((step, index) => {
             const isActive = activeStep === step
             const isComplete = stepOrder.indexOf(step) < activeStepIndex
@@ -645,7 +645,7 @@ export function AutoRunPage() {
         </section>
       </div>
 
-      <nav className={styles.flowNav} aria-label="Auto Run navigation">
+      <nav className={styles.flowNav} aria-label="Çalıştırma kuyruğu navigasyonu">
         <button type="button" onClick={() => goToRelativeStep(-1)} disabled={activeStepIndex === 0}>Previous</button>
         <span>{stepLabels[activeStep]}</span>
         <button type="button" onClick={() => goToRelativeStep(1)} disabled={activeStepIndex === stepOrder.length - 1 || ((stepOrder[activeStepIndex + 1] === 'queue' || stepOrder[activeStepIndex + 1] === 'confirm') && queue.length === 0)}>Next</button>

@@ -81,7 +81,7 @@ export function AutoPlansPage() {
   const currentProject = projectsById.get(currentProjectId)
   const sameAutomationActive = automationSnapshot.active.plan
   const otherAutomationActive = automationSnapshot.active.run
-  const activeAutomationLabel = sameAutomationActive ? 'Auto Plan is already processing a queue' : otherAutomationActive ? 'Auto Run is running independently' : null
+  const activeAutomationLabel = sameAutomationActive ? 'Plan kuyruğu zaten çalışıyor' : otherAutomationActive ? 'Çalıştırma kuyruğu bağımsız ilerliyor' : null
   const activeStepIndex = Math.max(0, stepOrder.indexOf(activeStep))
   const stepProgress = `${Math.round(((activeStepIndex + 1) / stepOrder.length) * 100)}%`
   const queueSummary = useMemo(() => ({
@@ -353,7 +353,7 @@ export function AutoPlansPage() {
     if (queueBusy || !queue.some((item) => item.state === 'waiting')) return
     setQueueBusy(true)
     if (automationQueueSnapshot().active.plan) {
-      setQueue((current) => current.map((item) => item.state === 'waiting' ? { ...item, message: 'Pending: queued behind another Auto Plan batch.' } : item))
+      setQueue((current) => current.map((item) => item.state === 'waiting' ? { ...item, message: 'Bekliyor: başka bir plan kuyruğunun arkasında.' } : item))
     }
     const { promise } = enqueueAutomationQueue('plan', executeQueue)
     await promise
@@ -384,14 +384,14 @@ export function AutoPlansPage() {
     <section className={styles.page}>
       <header className={styles.header}>
         <div>
-          <h1>Auto Plans</h1>
-          <p>Select not-planned tasks from the current project and prepare the plan queue step by step.</p>
+          <h1>Plan Kuyruğu</h1>
+          <p>Tek task pipeline ana akıştır; birden fazla taskı planlamak gerektiğinde bu ikincil kuyruğu kullan.</p>
         </div>
         <button type="button" onClick={() => void loadData()} disabled={loading}><LuRefreshCw size={15} /> Refresh</button>
       </header>
 
       {error ? <div className={styles.notice}>{error}</div> : null}
-      {activeAutomationLabel ? <div className={styles.notice}>{activeAutomationLabel}. Auto Plan queues stay serial; Auto Run can continue separately.</div> : null}
+      {activeAutomationLabel ? <div className={styles.notice}>{activeAutomationLabel}. Plan kuyrukları seri ilerler; çalıştırma kuyruğu ayrı kalır.</div> : null}
 
       <section className={styles.modeBar}>
         <div>
@@ -425,7 +425,7 @@ export function AutoPlansPage() {
         </div>
       </section>
 
-      <section className={styles.stepperShell} aria-label="Auto Plan progress">
+      <section className={styles.stepperShell} aria-label="Plan kuyruğu ilerlemesi">
         <header className={styles.stepperHeader}>
           <div>
             <span>Workflow</span>
@@ -437,7 +437,7 @@ export function AutoPlansPage() {
         <div className={styles.stepperTrack} aria-hidden="true">
           <span style={{ width: stepProgress }} />
         </div>
-        <div className={styles.stepper} role="tablist" aria-label="Auto Plan steps">
+        <div className={styles.stepper} role="tablist" aria-label="Plan kuyruğu adımları">
           {stepOrder.map((step, index) => {
             const isActive = activeStep === step
             const isComplete = stepOrder.indexOf(step) < activeStepIndex
@@ -483,7 +483,7 @@ export function AutoPlansPage() {
                   <div className={styles.taskCardBody}>
                     <span>{project?.name ?? 'No project'} · {status?.name ?? 'No status'}</span>
                     <strong>{task.title}</strong>
-                    <small>{missing || (queuedTaskIds.has(task.id) ? 'Already queued' : 'Ready for auto plan')}</small>
+                    <small>{missing || (queuedTaskIds.has(task.id) ? 'Already queued' : 'Planlamaya hazır')}</small>
                   </div>
                   <div className={styles.cardActions}>
                     <button type="button" onClick={(event) => {
@@ -523,7 +523,7 @@ export function AutoPlansPage() {
           {activeStep === 'queue' || activeStep === 'confirm' ? (
             <div className={`${styles.panel} ${draggingTaskId ? styles.dropReady : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={onQueuePanelDrop}>
               <header>
-                <div><strong>Auto Plan queue</strong><span>{queueSummary.waiting} pending · {queueSummary.running} active · {queueSummary.completed} completed · {queueSummary.failed} failed · {mode === 'ask-first' ? 'ask-first mode' : 'direct mode'}</span></div>
+                <div><strong>Plan kuyruğu</strong><span>{queueSummary.waiting} pending · {queueSummary.running} active · {queueSummary.completed} completed · {queueSummary.failed} failed · {mode === 'ask-first' ? 'ask-first mode' : 'direct mode'}</span></div>
                 <div className={styles.panelActions}>
                   <button type="button" onClick={() => void startQueue()} disabled={queueBusy || !queue.some((item) => item.state === 'waiting')}><LuPlay size={15} /> Start</button>
                   <button type="button" onClick={() => void stopQueue()} disabled={!queueBusy && !queue.some((item) => item.state === 'waiting' || item.state === 'running')}><LuCircleStop size={15} /> Stop</button>
@@ -583,7 +583,7 @@ export function AutoPlansPage() {
                 {plannedRows.length ? plannedRows.map((row) => (
                   <article key={row.taskId} className={styles.queueRow}>
                     <span className={styles.queueIndex}>{row.runnable ? 'Ready' : 'Missing'}</span>
-                    <div><strong>{row.taskTitle}</strong><span>{row.projectName} - {row.runnable ? 'Available from Auto Run' : row.missing.join(', ')}</span></div>
+                    <div><strong>{row.taskTitle}</strong><span>{row.projectName} - {row.runnable ? 'Çalıştırma kuyruğunda kullanılabilir' : row.missing.join(', ')}</span></div>
                     <div className={styles.cardActions}>
                       <button type="button" onClick={() => setDetailTarget({ projectId: row.projectId, taskId: row.taskId })} title="Open task details"><LuExternalLink size={15} /></button>
                     </div>
@@ -595,7 +595,7 @@ export function AutoPlansPage() {
         </section>
       </div>
 
-      <nav className={styles.flowNav} aria-label="Auto Plan navigation">
+      <nav className={styles.flowNav} aria-label="Plan kuyruğu navigasyonu">
         <button type="button" onClick={() => goToRelativeStep(-1)} disabled={activeStepIndex === 0}>Previous</button>
         <span>{stepLabels[activeStep]}</span>
         <button type="button" onClick={() => goToRelativeStep(1)} disabled={activeStepIndex === stepOrder.length - 1 || ((stepOrder[activeStepIndex + 1] === 'queue' || stepOrder[activeStepIndex + 1] === 'confirm') && queue.length === 0)}>Next</button>
