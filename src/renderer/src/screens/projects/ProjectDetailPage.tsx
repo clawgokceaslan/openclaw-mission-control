@@ -1579,6 +1579,7 @@ export function ProjectDetailPage() {
     const draft = descriptionDraftRef.current
     if (!task) return true
     const shouldFinalize = options.finalize ?? true
+    const shouldTrackSavingState = shouldFinalize
     const taskId = task.id
     const normalizedDraft = draft
     clearDescriptionAutosaveTimer()
@@ -1597,7 +1598,7 @@ export function ProjectDetailPage() {
     const requestId = ++descriptionAutosaveRequestIdRef.current
     descriptionAutosaveInFlightRef.current = true
     descriptionAutosaveSnapshotRef.current = normalizedDraft
-    setIsDescriptionSaving(true)
+    if (shouldTrackSavingState) setIsDescriptionSaving(true)
     const isCurrentTask = () => selectedTaskRef.current?.id === taskId
     const response = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
       actorToken: token,
@@ -1611,12 +1612,12 @@ export function ProjectDetailPage() {
     })
     if (descriptionAutosaveRequestIdRef.current !== requestId) {
       descriptionAutosaveInFlightRef.current = false
-      setIsDescriptionSaving(false)
+      if (shouldTrackSavingState) setIsDescriptionSaving(false)
       descriptionAutosavePendingRef.current = false
       return true
     }
     descriptionAutosaveInFlightRef.current = false
-    setIsDescriptionSaving(false)
+    if (shouldTrackSavingState) setIsDescriptionSaving(false)
     if (!isCurrentTask()) {
       return true
     }
@@ -1634,14 +1635,18 @@ export function ProjectDetailPage() {
     if (!response.ok) {
       setError(response.error?.message ?? 'Unable to update description')
       descriptionAutosaveSnapshotRef.current = latestDraft
-      setDescriptionDraft(latestDraft)
+      if (shouldFinalize) {
+        setDescriptionDraft(latestDraft)
+      }
       descriptionDraftRef.current = latestDraft
       descriptionAutosavePendingRef.current = false
       return false
     }
     descriptionAutosaveSnapshotRef.current = normalizedDraft
     descriptionDraftRef.current = normalizedDraft
-    setDescriptionDraft(normalizedDraft)
+    if (shouldFinalize) {
+      setDescriptionDraft(normalizedDraft)
+    }
     selectedTaskRef.current = {
       ...task,
       description: normalizedDraft,
