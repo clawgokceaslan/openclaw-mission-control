@@ -329,10 +329,10 @@
 .brandMark {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: 0;
   display: grid;
   place-items: center;
-  background: var(--omc-primary);
+  background: transparent;
   color: var(--omc-inverse-text);
   font-size: 0.76rem;
   letter-spacing: 0.08em;
@@ -341,8 +341,9 @@
   img {
     width: 100%;
     height: 100%;
-    border-radius: 10px;
-    object-fit: cover;
+    display: block;
+    border-radius: 0;
+    object-fit: contain;
   }
 }
 
