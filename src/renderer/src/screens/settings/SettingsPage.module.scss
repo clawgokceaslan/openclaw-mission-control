@@ -353,6 +353,36 @@
     }
   }
 
+  .databaseSummary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+
+    label {
+      min-width: 0;
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 8px;
+      background: var(--omc-surface);
+      padding: 10px 11px;
+      display: grid;
+      gap: 5px;
+
+      small {
+        color: var(--omc-text-muted);
+        font-size: 0.72rem;
+        font-weight: 850;
+        text-transform: uppercase;
+      }
+
+      span {
+        min-width: 0;
+        color: var(--omc-text-strong);
+        font-size: 0.88rem;
+        overflow-wrap: anywhere;
+      }
+    }
+  }
+
   .databaseStepDisabled {
     opacity: 0.72;
   }
@@ -491,6 +521,10 @@
           grid-template-columns: 1fr;
         }
       }
+    }
+
+    .databaseSummary {
+      grid-template-columns: 1fr;
     }
   }
 }

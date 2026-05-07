@@ -334,7 +334,7 @@ export function SettingsPage() {
     : databaseLoadError
       ? databaseLoadError
       : hasValidSource
-        ? 'Source is ready. Choose the destination folder next.'
+        ? 'This is the database file that will be moved.'
         : 'No usable source database was found. Select an existing SQLite file to continue.'
   const destinationDisabled = databaseMoving || databaseLoading || Boolean(databaseLoadError) || !hasValidSource
   const destinationStatus = databaseLoading
@@ -353,8 +353,21 @@ export function SettingsPage() {
       : !hasValidSource
         ? 'Select a source database first. The destination stays locked to avoid an invalid move.'
         : databaseFolder
-          ? 'Destination selected. You can move the database now.'
+          ? 'This folder will contain mission-control.sqlite after restart.'
           : 'Choose the folder that should contain the SQLite database after restart.'
+  const confirmDisabled = destinationDisabled || !databaseFolder
+  const confirmStatus = databaseMoving
+    ? 'Moving'
+    : confirmDisabled
+      ? 'Waiting'
+      : 'Ready'
+  const confirmStepMessage = databaseMoving
+    ? 'Moving the database and preparing the restart.'
+    : !hasValidSource
+      ? 'Answer the source question first.'
+      : !databaseFolder
+        ? 'Answer the destination question before moving the database.'
+        : 'Review the answers, then move the database and restart into the new location.'
 
   return (
     <section className={styles.page}>
@@ -491,7 +504,7 @@ export function SettingsPage() {
                   <div className={styles.stepContent}>
                     <header>
                       <div>
-                        <h3>Source database</h3>
+                        <h3>1. Which database should move?</h3>
                         <p>{sourceStepMessage}</p>
                       </div>
                       <b className={hasValidSource ? styles.stepStatusReady : styles.stepStatusBlocked}>{sourceStatus}</b>
@@ -507,6 +520,7 @@ export function SettingsPage() {
                       </button>
                       {databaseState.recommendedSourceDbPath ? (
                         <button type="button" className={styles.secondaryButton} onClick={useRecommendedSourceDatabase} disabled={databaseMoving || databaseLoading}>
+                          <LuCheck size={15} />
                           Use detected data file
                         </button>
                       ) : null}
@@ -524,7 +538,7 @@ export function SettingsPage() {
                   <div className={styles.stepContent}>
                     <header>
                       <div>
-                        <h3>Destination folder</h3>
+                        <h3>2. Where should it live?</h3>
                         <p>{destinationStepMessage}</p>
                       </div>
                       <b className={databaseFolder ? styles.stepStatusReady : styles.stepStatusBlocked}>{destinationStatus}</b>
@@ -538,7 +552,37 @@ export function SettingsPage() {
                         <LuFolderOpen size={15} />
                         Select folder
                       </button>
-                      <button type="button" className={styles.primaryButton} onClick={applyDatabaseMove} disabled={destinationDisabled || !databaseFolder}>
+                    </div>
+                  </div>
+                </section>
+
+                <span className={styles.transferArrow}><LuArrowRight size={18} /></span>
+
+                <section className={confirmDisabled ? styles.databaseStepDisabled : styles.databaseStep}>
+                  <div className={styles.stepMarker}>
+                    <span>3</span>
+                    <LuCheck size={16} />
+                  </div>
+                  <div className={styles.stepContent}>
+                    <header>
+                      <div>
+                        <h3>3. Ready to move and restart?</h3>
+                        <p>{confirmStepMessage}</p>
+                      </div>
+                      <b className={!confirmDisabled ? styles.stepStatusReady : styles.stepStatusBlocked}>{confirmStatus}</b>
+                    </header>
+                    <div className={styles.databaseSummary}>
+                      <label>
+                        <small>From</small>
+                        <span>{sourcePath || 'Waiting for source database'}</span>
+                      </label>
+                      <label>
+                        <small>To</small>
+                        <span>{databaseFolder || 'Waiting for destination folder'}</span>
+                      </label>
+                    </div>
+                    <div className={styles.databaseActions}>
+                      <button type="button" className={styles.primaryButton} onClick={applyDatabaseMove} disabled={confirmDisabled}>
                         {databaseMoving ? 'Moving...' : 'Move database'}
                       </button>
                     </div>
