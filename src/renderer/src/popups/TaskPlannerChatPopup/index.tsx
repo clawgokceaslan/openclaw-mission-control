@@ -592,6 +592,33 @@ function buildSmartDrafts(project: Project, form: PlannerForm, answers: string[]
   })
 }
 
+function markdownSection(value: string, heading: string) {
+  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = value.match(new RegExp(`(?:^|\\n)##\\s+${escapedHeading}\\s*\\n([\\s\\S]*?)(?=\\n##\\s+|$)`, 'i'))
+  return match?.[1]?.trim() ?? ''
+}
+
+function bulletsFromText(value: string) {
+  return splitInput(value)
+    .map((item) => item.replace(/^[-*]\s*/, '').trim())
+    .filter(Boolean)
+}
+
+function draftAcceptanceCriteria(draft: TaskPlannerDraft) {
+  const sectionBullets = bulletsFromText(markdownSection(draft.description, 'Kabul Sinyali'))
+  const criteria = sectionBullets.length > 0
+    ? sectionBullets
+    : [
+        `${draft.title.trim() || 'Task'} açıklamasındaki beklenen iş tamamlandı.`,
+        `${draft.phase.trim() || 'Plan'} fazındaki çıktı bağımsız task olarak doğrulanabiliyor.`
+      ]
+  const risk = draft.risk.trim()
+  return [
+    ...criteria.map((item) => `- ${item}`),
+    risk ? `- Risk notu kapatıldı veya kabul edildi: ${risk}` : ''
+  ].filter(Boolean).join('\n')
+}
+
 function draftsToPlannerJson(drafts: TaskPlannerDraft[], status?: string) {
   return drafts
     .slice()
@@ -600,6 +627,9 @@ function draftsToPlannerJson(drafts: TaskPlannerDraft[], status?: string) {
       title: draft.title.trim(),
       description: draft.description.trim(),
       ...(status ? { status } : {}),
+      agenticInputs: {
+        acceptanceCriteria: draftAcceptanceCriteria(draft)
+      },
       comments: [{
         authorName: 'Planner',
         body: [

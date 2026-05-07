@@ -3945,6 +3945,25 @@ export class TaskService {
     }
   }
 
+  private async validateBatchCreateJson(payload: TaskPlannerJsonRequest, items: PlannerJsonItem[]): Promise<ServiceResponse<{ warnings: string[] }>> {
+    const actor = await this.auth.requireActor(payload?.actorToken)
+    if (!payload?.projectId) return errorResponse(ErrorCodes.Validation, 'Project id required')
+    const projectOrg = await this.findProjectOrg(payload.projectId)
+    if (!projectOrg || projectOrg !== actor.user.organizationId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
+    const normalizer = new TaskJsonImportNormalizer(actor.user.organizationId, this.agents, this.tags, this.skills, this.customFields)
+    const warnings: string[] = []
+    for (const item of items) {
+      try {
+        const normalized = await normalizer.normalize(item.json)
+        warnings.push(...normalized.warnings)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Invalid task JSON'
+        return errorResponse(ErrorCodes.Validation, `tasks[${item.index}]: ${message}`)
+      }
+    }
+    return okResponse({ warnings: Array.from(new Set(warnings)) })
+  }
+
   async plannerCreateFromJson(payload: TaskPlannerJsonRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<TaskJsonImportResult>> {
     if (!payload?.projectId) return errorResponse(ErrorCodes.Validation, 'Project id required')
     let items: PlannerJsonItem[]
@@ -3954,10 +3973,10 @@ export class TaskService {
       return errorResponse(ErrorCodes.Validation, error instanceof Error ? error.message : 'Invalid task JSON')
     }
     if (items[0]?.fromArray) {
-      const validation = await this.plannerValidateJson(payload)
+      const validation = await this.validateBatchCreateJson(payload, items)
       if (!validation.ok) return validation as ServiceResponse<TaskJsonImportResult>
       const createdTasks: TaskEntity[] = []
-      const warnings: string[] = []
+      const warnings: string[] = [...(validation.data?.warnings ?? [])]
       for (const item of items) {
         const response = await this.importJson({ actorToken: payload.actorToken, projectId: payload.projectId, json: item.json })
         if (!response.ok) {

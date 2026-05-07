@@ -436,7 +436,12 @@ describe('planner quality gate', () => {
     const service = Object.create(TaskService.prototype) as TaskService & any
     const importedJson: unknown[] = []
     let traceComment = ''
-    service.plannerValidateJson = async () => ({ ok: true, data: { valid: true } })
+    service.auth = { requireActor: async () => ({ user: { organizationId: 'org-1' } }) }
+    service.findProjectOrg = async () => 'org-1'
+    service.agents = {}
+    service.tags = { list: async () => [] }
+    service.skills = {}
+    service.customFields = { list: async () => [] }
     service.importJson = async (payload: any) => {
       importedJson.push(payload.json)
       return {
@@ -476,6 +481,78 @@ describe('planner quality gate', () => {
     expect(traceComment).toContain('Large source task')
     expect(traceComment).toContain('Discovery task (task-1)')
     expect(traceComment).toContain('Delivery task (task-2)')
+  })
+
+  it('creates batch planner JSON from task objects without planner-update-only fields', async () => {
+    const service = Object.create(TaskService.prototype) as TaskService & any
+    const importedJson: unknown[] = []
+    service.auth = { requireActor: async () => ({ user: { organizationId: 'org-1' } }) }
+    service.findProjectOrg = async () => 'org-1'
+    service.agents = {}
+    service.tags = { list: async () => [] }
+    service.skills = {}
+    service.customFields = { list: async () => [] }
+    service.plannerValidateJson = async () => {
+      throw new Error('planner update quality gate should not run for batch create')
+    }
+    service.importJson = async (payload: any) => {
+      importedJson.push(payload.json)
+      return {
+        ok: true,
+        data: {
+          task: {
+            id: `task-${importedJson.length}`,
+            projectId: payload.projectId,
+            title: payload.json.title,
+            status: 'active',
+            createdAt: 1,
+            updatedAt: 1
+          },
+          warnings: []
+        }
+      }
+    }
+
+    const response = await service.plannerCreateFromJson({
+      actorToken: 'actor',
+      projectId: 'project-1',
+      json: [
+        { title: 'Discovery task', description: 'Define scope.' },
+        { title: 'Delivery task', description: 'Ship the UI.' }
+      ]
+    })
+
+    expect(response.ok).toBe(true)
+    expect(response.data?.tasks?.map((task) => task.title)).toEqual(['Discovery task', 'Delivery task'])
+    expect(importedJson).toHaveLength(2)
+  })
+
+  it('prevalidates every batch create item before importing any task', async () => {
+    const service = Object.create(TaskService.prototype) as TaskService & any
+    let importCount = 0
+    service.auth = { requireActor: async () => ({ user: { organizationId: 'org-1' } }) }
+    service.findProjectOrg = async () => 'org-1'
+    service.agents = {}
+    service.tags = { list: async () => [] }
+    service.skills = {}
+    service.customFields = { list: async () => [] }
+    service.importJson = async () => {
+      importCount += 1
+      return { ok: true, data: { warnings: [] } }
+    }
+
+    const response = await service.plannerCreateFromJson({
+      actorToken: 'actor',
+      projectId: 'project-1',
+      json: [
+        { title: 'Discovery task', description: 'Define scope.' },
+        { description: 'Missing title.' }
+      ]
+    })
+
+    expect(response.ok).toBe(false)
+    expect(response.error?.message).toContain('tasks[1]: title is required.')
+    expect(importCount).toBe(0)
   })
 
   it('normalizes planner/import subtask checklists into subtask payload', async () => {
