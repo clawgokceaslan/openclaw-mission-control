@@ -9,7 +9,7 @@ import { promisify } from 'node:util'
 import type { ProjectStatus, TaskChecklistItem, TaskEntity } from '../../shared/types/entities.js'
 import type { NormalizedTaskJsonImport, NormalizedImportedSubtask } from './task-json-import.js'
 import { TaskJsonImportNormalizer } from './task-json-import.js'
-import { codexChatPrompt, codexOutputChanges, codexWorkspaceChanges, initialCodexPrompt, initialPlannerPrompt, normalizePlannerQuestionPayload, omcCliInstructions, plannerJsonGuidance, postRunContinuationPrompt, shouldStartPostRunPrompt, summarizeRunningConversation, TaskService, validatePlannerTaskJsonQuality, writeTaskSnapshotToExportWorkspace } from './task.service.js'
+import { appendCodexNextChatHandoff, codexChatPrompt, codexOutputChanges, codexWorkspaceChanges, initialCodexPrompt, initialPlannerPrompt, normalizePlannerQuestionPayload, omcCliInstructions, plannerJsonGuidance, postRunContinuationPrompt, shouldStartPostRunPrompt, summarizeRunningConversation, TaskService, validatePlannerTaskJsonQuality, writeTaskSnapshotToExportWorkspace } from './task.service.js'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 
 const execFileAsync = promisify(execFile)
@@ -1061,5 +1061,94 @@ describe('post-run prompt gate', () => {
     expect(shouldStartPostRunPrompt(1, 'exec', 'Review final output.')).toBe(false)
     expect(shouldStartPostRunPrompt(0, 'terminal', 'Review final output.')).toBe(false)
     expect(shouldStartPostRunPrompt(0, 'exec', '')).toBe(false)
+  })
+})
+
+describe('Codex next-chat handoff summary', () => {
+  const task = {
+    id: 'task-1',
+    title: 'Context handoff',
+    status: 'active',
+    description: 'Append a compact context summary to the final Codex response.',
+    projectId: 'project-1',
+    createdAt: 1,
+    updatedAt: 1
+  } as TaskEntity
+
+  const changes = codexOutputChanges([
+    '*** Begin Patch',
+    '*** Update File: src/main/services/task.service.ts',
+    '@@',
+    '-old',
+    '+new',
+    '*** End Patch'
+  ].join('\n'), '')
+
+  it('defaults to compact Markdown with stable fields and one handoff block', () => {
+    const first = appendCodexNextChatHandoff({
+      task,
+      finalMessage: 'Implemented the formatter and ran npm test for task.service.',
+      changes
+    })
+    const second = appendCodexNextChatHandoff({
+      task,
+      finalMessage: first,
+      changes
+    })
+
+    expect(second.match(/NEXT_CHAT_HANDOFF/g)).toHaveLength(1)
+    expect(second).toContain('task: task-1 | Context handoff | active')
+    expect(second).toContain('goal: Append a compact context summary to the final Codex response.')
+    expect(second).toContain('completed_work:')
+    expect(second).toContain('changed_areas: src/main/services/task.service.ts')
+    expect(second).toContain('verification:')
+  })
+
+  it('renders a parseable JSON handoff payload', () => {
+    const message = appendCodexNextChatHandoff({
+      task,
+      finalMessage: 'Added JSON output. Verification not run.',
+      changes,
+      promptShape: 'json'
+    })
+    const payload = JSON.parse(message.split('NEXT_CHAT_HANDOFF_JSON\n')[1])
+
+    expect(payload.schema).toBe('open_mission_control_next_chat_handoff')
+    expect(payload.version).toBe(1)
+    expect(payload.task).toEqual({ id: 'task-1', title: 'Context handoff', status: 'active' })
+    expect(Object.keys(payload)).toEqual([
+      'schema',
+      'version',
+      'task',
+      'goal',
+      'completed_work',
+      'decisions',
+      'changed_areas',
+      'verification',
+      'blockers',
+      'next_steps'
+    ])
+  })
+
+  it('renders TOON with stable parseable field labels and falls back from unknown shapes', () => {
+    const toon = appendCodexNextChatHandoff({
+      task,
+      finalMessage: 'Updated TOON support and verified compactness.',
+      changes,
+      promptShape: 'toon'
+    })
+    const fallback = appendCodexNextChatHandoff({
+      task,
+      finalMessage: 'Done.',
+      changes,
+      promptShape: 'xml' as any
+    })
+
+    expect(toon).toContain('NEXT_CHAT_HANDOFF\nschema: open_mission_control_next_chat_handoff')
+    expect(toon).toContain('task: {"id":"task-1","title":"Context handoff","status":"active"}')
+    expect(toon).toContain('completed_work[]:')
+    expect(toon).toContain('next_steps[]:')
+    expect(fallback).toContain('NEXT_CHAT_HANDOFF\nschema: open_mission_control_next_chat_handoff')
+    expect(fallback).not.toContain('NEXT_CHAT_HANDOFF_JSON')
   })
 })

@@ -1893,6 +1893,199 @@ export function shouldStartPostRunPrompt(code: number | null, executionMode: Cod
   return executionMode === 'exec' && code === 0 && Boolean(postRunPrompt?.trim())
 }
 
+const NEXT_CHAT_HANDOFF_MARKER = 'NEXT_CHAT_HANDOFF'
+const NEXT_CHAT_HANDOFF_FIELD_NAMES = [
+  'task',
+  'goal',
+  'completed_work',
+  'decisions',
+  'changed_areas',
+  'verification',
+  'blockers',
+  'next_steps'
+] as const
+
+type NextChatHandoffField = typeof NEXT_CHAT_HANDOFF_FIELD_NAMES[number]
+
+type NextChatHandoffSummary = Record<NextChatHandoffField, unknown> & {
+  schema: 'open_mission_control_next_chat_handoff'
+  version: 1
+  task: {
+    id: string
+    title: string
+    status: string
+  }
+  goal: string
+  completed_work: string[]
+  decisions: string[]
+  changed_areas: string[]
+  verification: string[]
+  blockers: string[]
+  next_steps: string[]
+}
+
+function stripExistingNextChatHandoff(value: string): string {
+  const markerIndex = value.indexOf(`\n\n${NEXT_CHAT_HANDOFF_MARKER}`)
+  if (markerIndex >= 0) return value.slice(0, markerIndex).trimEnd()
+  return value.trimEnd()
+}
+
+function nextChatHandoffBlockFromFinalMessage(value: string): string {
+  const markerIndex = value.indexOf(`\n\n${NEXT_CHAT_HANDOFF_MARKER}`)
+  return markerIndex >= 0 ? value.slice(markerIndex + 2).trim() : ''
+}
+
+function compactHandoffText(value: string, limit = 180): string {
+  const compact = value
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/[`*_#>\[\]()]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!compact) return ''
+  return compact.length <= limit ? compact : `${compact.slice(0, Math.max(0, limit - 1)).trimEnd()}…`
+}
+
+function handoffLinesFromFinalMessage(value: string): string[] {
+  return stripExistingNextChatHandoff(value)
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:[-*]|\d+[.)])\s+/, '').trim())
+    .map((line) => compactHandoffText(line))
+    .filter(Boolean)
+}
+
+function uniqueCompactItems(items: string[], limit: number, fallback: string): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const item of items) {
+    const compact = compactHandoffText(item)
+    if (!compact) continue
+    const key = compact.toLocaleLowerCase('en')
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push(compact)
+    if (result.length >= limit) break
+  }
+  return result.length > 0 ? result : [fallback]
+}
+
+function linesMatching(lines: string[], patterns: RegExp[], limit: number, fallback: string): string[] {
+  return uniqueCompactItems(lines.filter((line) => patterns.some((pattern) => pattern.test(line))), limit, fallback)
+}
+
+function changedAreasFromCodexChanges(changes: ReturnType<typeof codexOutputChanges>): string[] {
+  const metadata = changes.metadata ?? {}
+  const fileStats = Array.isArray(metadata.changeFileStats) ? metadata.changeFileStats : []
+  const paths = fileStats.flatMap((item) => {
+    const record = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {}
+    return typeof record.path === 'string' && record.path.trim() ? [record.path.trim()] : []
+  })
+  if (paths.length > 0) return uniqueCompactItems(paths, 8, 'not_reported')
+  if (changes.hasChanges) return ['changes_reported']
+  return ['none_reported']
+}
+
+function nextChatHandoffSummary(input: {
+  task: Pick<TaskEntity, 'id' | 'title' | 'status' | 'description'>
+  finalMessage: string
+  changes: ReturnType<typeof codexOutputChanges>
+  code?: number | null
+}): NextChatHandoffSummary {
+  const lines = handoffLinesFromFinalMessage(input.finalMessage)
+  const goal = compactHandoffText(input.task.description ?? '') || 'not_reported'
+  const completed = linesMatching(lines, [
+    /\b(done|completed|implemented|added|updated|changed|fixed|wired|created|moved|removed)\b/i
+  ], 5, input.code === 0 ? 'completed' : 'not_reported')
+  const decisions = linesMatching(lines, [
+    /\b(decision|kept|used|chose|fallback|schema|format|deterministic|avoided|without)\b/i
+  ], 4, 'not_reported')
+  const verification = linesMatching(lines, [
+    /\b(test|tests|vitest|npm|build|typecheck|verify|verified|checks?|ran)\b/i
+  ], 4, 'not_reported')
+  const blockers = input.code && input.code !== 0
+    ? linesMatching(lines, [/\b(error|failed|blocked|unable|could not|couldn't|remaining|not run)\b/i], 4, `codex_exit_${input.code}`)
+    : linesMatching(lines, [/\b(blocked|unable|could not|couldn't|not run)\b/i], 4, 'none_reported')
+  const nextSteps = linesMatching(lines, [
+    /\b(next|follow[- ]?up|remaining|todo|later|still|needs?)\b/i
+  ], 4, 'none_reported')
+
+  return {
+    schema: 'open_mission_control_next_chat_handoff',
+    version: 1,
+    task: {
+      id: input.task.id,
+      title: input.task.title,
+      status: input.task.status
+    },
+    goal,
+    completed_work: completed,
+    decisions,
+    changed_areas: changedAreasFromCodexChanges(input.changes),
+    verification,
+    blockers,
+    next_steps: nextSteps
+  }
+}
+
+function renderMarkdownHandoff(summary: NextChatHandoffSummary): string {
+  const lines = [
+    NEXT_CHAT_HANDOFF_MARKER,
+    `schema: ${summary.schema}`,
+    `version: ${summary.version}`,
+    `task: ${summary.task.id} | ${summary.task.title} | ${summary.task.status}`,
+    `goal: ${summary.goal}`,
+    ...NEXT_CHAT_HANDOFF_FIELD_NAMES.filter((field) => field !== 'task' && field !== 'goal').map((field) => {
+      const value = summary[field]
+      return `${field}: ${Array.isArray(value) ? value.join('; ') : String(value)}`
+    })
+  ]
+  return lines.join('\n')
+}
+
+function renderToonHandoff(summary: NextChatHandoffSummary): string {
+  const arrayField = (name: NextChatHandoffField, value: unknown) => {
+    const items = Array.isArray(value) ? value : [String(value)]
+    return [`${name}[]:`, ...items.map((item) => `  - ${String(item)}`)].join('\n')
+  }
+  return [
+    NEXT_CHAT_HANDOFF_MARKER,
+    `schema: ${summary.schema}`,
+    `version: ${summary.version}`,
+    `task: ${JSON.stringify(summary.task)}`,
+    `goal: ${summary.goal}`,
+    arrayField('completed_work', summary.completed_work),
+    arrayField('decisions', summary.decisions),
+    arrayField('changed_areas', summary.changed_areas),
+    arrayField('verification', summary.verification),
+    arrayField('blockers', summary.blockers),
+    arrayField('next_steps', summary.next_steps)
+  ].join('\n')
+}
+
+function renderNextChatHandoff(summary: NextChatHandoffSummary, shape: unknown): string {
+  const normalizedShape = normalizeCodexPromptShape(shape)
+  if (normalizedShape === 'json') return `${NEXT_CHAT_HANDOFF_MARKER}_JSON\n${JSON.stringify(summary)}`
+  if (normalizedShape === 'toon') return renderToonHandoff(summary)
+  return renderMarkdownHandoff(summary)
+}
+
+export function appendCodexNextChatHandoff(input: {
+  task: Pick<TaskEntity, 'id' | 'title' | 'status' | 'description'>
+  finalMessage: string
+  changes: ReturnType<typeof codexOutputChanges>
+  promptShape?: CodexPromptShape
+  code?: number | null
+}): string {
+  const base = stripExistingNextChatHandoff(input.finalMessage)
+  const summary = nextChatHandoffSummary(input)
+  const rendered = renderNextChatHandoff(summary, input.promptShape)
+  return [base || 'Codex completed.', rendered].join('\n\n')
+}
+
+function codexFinalAssistantBody(finalMessage: string, fallback: string, hasStreamedAssistantMessage: boolean): string {
+  if (!hasStreamedAssistantMessage) return finalMessage.trim() || fallback
+  return nextChatHandoffBlockFromFinalMessage(finalMessage) || fallback
+}
+
 function extractCodexSessionId(rawEvents: string): string | undefined {
   const keys = new Set(['session_id', 'sessionId', 'conversation_id', 'conversationId', 'thread_id', 'threadId'])
   const visit = (value: unknown, depth = 0): string | undefined => {
@@ -3507,11 +3700,19 @@ export class TaskService {
               if (settled) return
               void (async () => {
                 await postStreamer.flush()
-                const postFinalMessage = await readFile(postFinalMessagePath, 'utf8').catch(() => '')
+                const postFinalMessageRaw = await readFile(postFinalMessagePath, 'utf8').catch(() => '')
                 const postEventRaw = await readFile(postEventsPath, 'utf8').catch(() => '')
                 const postEventSummary = summarizeCodexExecEvents(postEventRaw)
                 const postUsage = postEventSummary.usage ?? postStreamer.latestUsage()
-                const postChanges = codexOutputChanges(postEventRaw, postFinalMessage)
+                const postChanges = codexOutputChanges(postEventRaw, postFinalMessageRaw)
+                const postFinalMessage = appendCodexNextChatHandoff({
+                  task: access.data.task,
+                  finalMessage: postFinalMessageRaw,
+                  changes: postChanges,
+                  promptShape,
+                  code: postCode
+                })
+                await writeFile(postFinalMessagePath, postFinalMessage, 'utf8').catch(() => undefined)
                 const postTerminalMessages: CodexActivityDraft[] = []
                 if (postChanges.hasChanges) {
                   postTerminalMessages.push({
@@ -3534,17 +3735,16 @@ export class TaskService {
                   metadata: { codexBlock: 'run-complete', parentRunId: runId, code: postCode, signal: postSignal, eventsPath: postEventsPath, finalMessagePath: postFinalMessagePath, usage: postUsage }
                 })
                 if (postCode === 0) {
-                  if (!postStreamer.hasAssistantMessage()) {
-                    postTerminalMessages.push({
-                      runId: postRunId,
-                      conversationId: runId,
-                      source: 'codex-run',
-                      role: 'assistant',
-                      status: 'completed',
-                      body: postFinalMessage.trim() || 'Codex post-run prompt completed.',
-                      metadata: { code: postCode, signal: postSignal, eventsPath: postEventsPath, finalMessagePath: postFinalMessagePath, usage: postUsage, codexBlock: 'final-fallback' }
-                    })
-                  }
+                  const hasStreamedAssistantMessage = postStreamer.hasAssistantMessage()
+                  postTerminalMessages.push({
+                    runId: postRunId,
+                    conversationId: runId,
+                    source: 'codex-run',
+                    role: 'assistant',
+                    status: 'completed',
+                    body: codexFinalAssistantBody(postFinalMessage, 'Codex post-run prompt completed.', hasStreamedAssistantMessage),
+                    metadata: { code: postCode, signal: postSignal, eventsPath: postEventsPath, finalMessagePath: postFinalMessagePath, usage: postUsage, codexBlock: hasStreamedAssistantMessage ? 'final-handoff' : 'final-fallback' }
+                  })
                 } else {
                   postTerminalMessages.push({
                     runId: postRunId,
@@ -3577,11 +3777,19 @@ export class TaskService {
         child.on('close', (code, signal) => {
           void (async () => {
             await streamer.flush()
-            const finalMessage = await readFile(execFinalMessagePath, 'utf8').catch(() => '')
+            const finalMessageRaw = await readFile(execFinalMessagePath, 'utf8').catch(() => '')
             const eventRaw = await readFile(execEventsPath, 'utf8').catch(() => '')
             const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
             const usage = eventSummary.usage ?? streamer.latestUsage()
-            const changes = codexOutputChanges(eventRaw, finalMessage)
+            const changes = codexOutputChanges(eventRaw, finalMessageRaw)
+            const finalMessage = appendCodexNextChatHandoff({
+              task: access.data.task,
+              finalMessage: finalMessageRaw,
+              changes,
+              promptShape,
+              code
+            })
+            await writeFile(execFinalMessagePath, finalMessage, 'utf8').catch(() => undefined)
             const terminalMessages: CodexActivityDraft[] = []
             if (changes.hasChanges) {
               terminalMessages.push({
@@ -3602,16 +3810,15 @@ export class TaskService {
               metadata: { codexBlock: 'run-complete', code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage }
             })
             if (code === 0) {
-              if (!streamer.hasAssistantMessage()) {
-                terminalMessages.push({
-                  runId,
-                  source: 'codex-run',
-                  role: 'assistant',
-                  status: 'completed',
-                  body: finalMessage.trim() || 'Codex exec completed.',
-                  metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, codexBlock: 'final-fallback' }
-                })
-              }
+              const hasStreamedAssistantMessage = streamer.hasAssistantMessage()
+              terminalMessages.push({
+                runId,
+                source: 'codex-run',
+                role: 'assistant',
+                status: 'completed',
+                body: codexFinalAssistantBody(finalMessage, 'Codex exec completed.', hasStreamedAssistantMessage),
+                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, codexBlock: hasStreamedAssistantMessage ? 'final-handoff' : 'final-fallback' }
+              })
               await this.appendTaskActivityMessages(taskId, terminalMessages, { emitTaskUpdatedAction: 'activity_complete' })
               const postRunCode = shouldStartPostRunPrompt(code, executionMode, projectPrompt.postRunPrompt)
                 ? await runPostRunPrompt(eventRaw, finalMessage, changes)
@@ -4176,11 +4383,19 @@ export class TaskService {
               }
               return
             }
-            const finalMessage = await readFile(execFinalMessagePath, 'utf8').catch(() => '')
+            const finalMessageRaw = await readFile(execFinalMessagePath, 'utf8').catch(() => '')
             const eventRaw = await readFile(execEventsPath, 'utf8').catch(() => '')
             const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
             const usage = eventSummary.usage ?? streamer.latestUsage()
-            const changes = codexOutputChanges(eventRaw, finalMessage)
+            const changes = codexOutputChanges(eventRaw, finalMessageRaw)
+            const finalMessage = appendCodexNextChatHandoff({
+              task: access.data.task,
+              finalMessage: finalMessageRaw,
+              changes,
+              promptShape,
+              code
+            })
+            await writeFile(execFinalMessagePath, finalMessage, 'utf8').catch(() => undefined)
             const terminalMessages: CodexActivityDraft[] = []
             if (changes.hasChanges) {
               terminalMessages.push({
@@ -4203,17 +4418,16 @@ export class TaskService {
               metadata: { codexBlock: 'run-complete', code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage }
             })
             if (code === 0) {
-              if (!streamer.hasAssistantMessage()) {
-                terminalMessages.push({
-                  runId,
-                  conversationId,
-                  source: 'codex-plan',
-                  role: 'assistant',
-                  status: 'completed',
-                  body: finalMessage.trim() || 'Codex planner completed.',
-                  metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, codexBlock: 'final-fallback' }
-                })
-              }
+              const hasStreamedAssistantMessage = streamer.hasAssistantMessage()
+              terminalMessages.push({
+                runId,
+                conversationId,
+                source: 'codex-plan',
+                role: 'assistant',
+                status: 'completed',
+                body: codexFinalAssistantBody(finalMessage, 'Codex planner completed.', hasStreamedAssistantMessage),
+                metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, codexBlock: hasStreamedAssistantMessage ? 'final-handoff' : 'final-fallback' }
+              })
             } else {
               terminalMessages.push({
                 runId,
@@ -4535,9 +4749,17 @@ export class TaskService {
         }
         const eventRaw = await readFile(eventsPath, 'utf8').catch(() => '')
         const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
-        const finalMessage = await readFile(finalMessagePath, 'utf8').catch(() => '')
+        const finalMessageRaw = await readFile(finalMessagePath, 'utf8').catch(() => '')
         const usage = eventSummary.usage ?? streamer.latestUsage()
-        const changes = codexOutputChanges(eventRaw, finalMessage)
+        const changes = codexOutputChanges(eventRaw, finalMessageRaw)
+        const finalMessage = appendCodexNextChatHandoff({
+          task: access.data.task,
+          finalMessage: finalMessageRaw,
+          changes,
+          promptShape,
+          code
+        })
+        await writeFile(finalMessagePath, finalMessage, 'utf8').catch(() => undefined)
         const terminalMessages: CodexActivityDraft[] = []
         if (changes.hasChanges) {
           terminalMessages.push({
@@ -4560,17 +4782,16 @@ export class TaskService {
           metadata: { codexBlock: 'run-complete', code, signal, eventsPath, finalMessagePath, usage }
         })
         if (code === 0) {
-          if (!streamer.hasAssistantMessage()) {
-            terminalMessages.push({
-              runId,
-              conversationId,
-              source: activitySource,
-              role: 'assistant',
-              status: 'completed',
-              body: finalMessage.trim() || (mode === 'plan' ? 'Codex plan revision completed.' : 'Codex chat completed.'),
-              metadata: { code, signal, eventsPath, finalMessagePath, usage, codexBlock: 'final-fallback' }
-            })
-          }
+          const hasStreamedAssistantMessage = streamer.hasAssistantMessage()
+          terminalMessages.push({
+            runId,
+            conversationId,
+            source: activitySource,
+            role: 'assistant',
+            status: 'completed',
+            body: codexFinalAssistantBody(finalMessage, mode === 'plan' ? 'Codex plan revision completed.' : 'Codex chat completed.', hasStreamedAssistantMessage),
+            metadata: { code, signal, eventsPath, finalMessagePath, usage, codexBlock: hasStreamedAssistantMessage ? 'final-handoff' : 'final-fallback' }
+          })
         } else {
           terminalMessages.push({
             runId,
