@@ -5,7 +5,7 @@ import {
   LuPlus
 } from 'react-icons/lu'
 import { IPC_CHANNELS, type AppNavigateState } from '@shared/contracts/ipc'
-import { DEFAULT_CODEX_LANGUAGE } from '@shared/utils/codex-language'
+import { CODEX_REASONING_EFFORT_OPTIONS, DEFAULT_CODEX_LANGUAGE, codexModelReasoningEfforts, codexModelSupportsReasoning } from '@shared/utils/codex-language'
 import { invokeBridge } from '@renderer/utils/api'
 import { clearRendererDiagnosticContext, setRendererDiagnosticContext } from '@renderer/utils/rendererResilience'
 import { Agent, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, CustomField } from '@shared/types/entities'
@@ -291,6 +291,10 @@ export function ProjectDetailPage() {
     setChatPlanModel,
     chatRunModel,
     setChatRunModel,
+    chatPlanReasoningEffort,
+    setChatPlanReasoningEffort,
+    chatRunReasoningEffort,
+    setChatRunReasoningEffort,
     chatIncludeContext,
     setChatIncludeContext,
     chatComposerMode,
@@ -627,7 +631,29 @@ export function ProjectDetailPage() {
   const chatModelOption = chatModelOptions.find((option) => option.value === chatModel) ?? null
   const chatPlanModelOption = chatModelOptions.find((option) => option.value === (chatPlanModel || chatModel)) ?? null
   const chatRunModelOption = chatModelOptions.find((option) => option.value === (chatRunModel || chatModel)) ?? null
+  const chatPlanModelRecord = useMemo(() => (chatGatewayConfig.models ?? []).find((model) => model.id === (chatPlanModel || chatModel)) ?? null, [chatGatewayConfig.models, chatModel, chatPlanModel])
+  const chatRunModelRecord = useMemo(() => (chatGatewayConfig.models ?? []).find((model) => model.id === (chatRunModel || chatModel)) ?? null, [chatGatewayConfig.models, chatModel, chatRunModel])
+  const chatPlanReasoningOptions = useMemo<AppSelectOption[]>(() => {
+    const efforts = codexModelReasoningEfforts(chatPlanModelRecord)
+    return CODEX_REASONING_EFFORT_OPTIONS.filter((option) => efforts.includes(option.value)).map((option) => ({ label: option.label, value: option.value }))
+  }, [chatPlanModelRecord])
+  const chatRunReasoningOptions = useMemo<AppSelectOption[]>(() => {
+    const efforts = codexModelReasoningEfforts(chatRunModelRecord)
+    return CODEX_REASONING_EFFORT_OPTIONS.filter((option) => efforts.includes(option.value)).map((option) => ({ label: option.label, value: option.value }))
+  }, [chatRunModelRecord])
   const selectedTaskCodexSignature = useMemo(() => JSON.stringify(selectedTask?.payload?.codex ?? null), [selectedTask?.payload])
+
+  useEffect(() => {
+    if (chatPlanReasoningOptions.length === 0) return
+    if (chatPlanReasoningOptions.some((option) => option.value === chatPlanReasoningEffort)) return
+    setChatPlanReasoningEffort(chatPlanReasoningOptions.find((option) => option.value === 'medium')?.value ?? chatPlanReasoningOptions[0].value)
+  }, [chatPlanReasoningEffort, chatPlanReasoningOptions, setChatPlanReasoningEffort])
+
+  useEffect(() => {
+    if (chatRunReasoningOptions.length === 0) return
+    if (chatRunReasoningOptions.some((option) => option.value === chatRunReasoningEffort)) return
+    setChatRunReasoningEffort(chatRunReasoningOptions.find((option) => option.value === 'medium')?.value ?? chatRunReasoningOptions[0].value)
+  }, [chatRunReasoningEffort, chatRunReasoningOptions, setChatRunReasoningEffort])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -669,12 +695,16 @@ export function ProjectDetailPage() {
     if (!selectedTask) return
     const override = readTaskCodexOverride(selectedTask)
     const nextRunModel = override.runModel || override.legacyModel || savedCodexSettings.runModel || savedCodexSettings.defaultModel || ''
+    const nextPlanReasoningEffort = override.planReasoningEffort || projectCodexPlanReasoningEffort
+    const nextRunReasoningEffort = override.runReasoningEffort || projectCodexRunReasoningEffort
     const nextGatewayId = override.gatewayId || savedCodexSettings.gatewayId || ''
     const nextPlanModel = override.planModel || savedCodexSettings.planModel || savedCodexSettings.defaultModel || ''
     setChatGatewayId(nextGatewayId)
     setChatModel(nextRunModel)
     setChatPlanModel(nextPlanModel)
     setChatRunModel(nextRunModel)
+    setChatPlanReasoningEffort(nextPlanReasoningEffort)
+    setChatRunReasoningEffort(nextRunReasoningEffort)
   }, [
     selectedTask?.id,
     selectedTaskCodexSignature,
@@ -682,10 +712,14 @@ export function ProjectDetailPage() {
     savedCodexSettings.defaultModel,
     savedCodexSettings.planModel,
     savedCodexSettings.runModel,
+    projectCodexPlanReasoningEffort,
+    projectCodexRunReasoningEffort,
     setChatGatewayId,
     setChatModel,
     setChatPlanModel,
-    setChatRunModel
+    setChatRunModel,
+    setChatPlanReasoningEffort,
+    setChatRunReasoningEffort
   ])
   useEffect(() => {
     setCodexRunFeedback(null)
@@ -1207,8 +1241,8 @@ export function ProjectDetailPage() {
     chatPlanModel,
     chatRunModel,
     codexLanguage: projectCodexLanguage,
-    planReasoningEffort: projectCodexPlanReasoningEffort,
-    runReasoningEffort: projectCodexRunReasoningEffort,
+    planReasoningEffort: chatPlanReasoningOptions.length > 0 ? chatPlanReasoningEffort : undefined,
+    runReasoningEffort: chatRunReasoningOptions.length > 0 ? chatRunReasoningEffort : undefined,
     chatIncludeContext,
     chatComposerMode,
     selectedChatConversationId,
@@ -1294,6 +1328,10 @@ export function ProjectDetailPage() {
     chatPlanModelOption,
     chatRunModel,
     chatRunModelOption,
+    chatPlanReasoningEffort,
+    chatRunReasoningEffort,
+    chatPlanReasoningOptions,
+    chatRunReasoningOptions,
     chatModelOptions,
     chatGatewayConfig,
     chatRuntimeWorkspace,
@@ -1323,6 +1361,8 @@ export function ProjectDetailPage() {
     setChatModel,
     setChatPlanModel,
     setChatRunModel,
+    setChatPlanReasoningEffort,
+    setChatRunReasoningEffort,
     setChatIncludeContext,
     setChatGatewayId,
     setChatComposerFocused,
@@ -1836,18 +1876,35 @@ export function ProjectDetailPage() {
     await refresh()
   }
 
-  const setTaskCodexSelection = async (patch: { gatewayId?: string | null; model?: string | null; planModel?: string | null; runModel?: string | null }) => {
+  const setTaskCodexSelection = async (patch: { gatewayId?: string | null; model?: string | null; planModel?: string | null; runModel?: string | null; planReasoningEffort?: string | null; runReasoningEffort?: string | null }) => {
     if (!selectedTask) return
     const nextPayload: Record<string, unknown> = { ...(selectedTask.payload ?? {}) }
     const currentCodex = readTaskCodexOverride(selectedTask)
     const currentGatewayId = currentCodex.gatewayId
     const currentPlanModel = currentCodex.planModel
     const currentRunModel = currentCodex.runModel || currentCodex.legacyModel
+    const currentPlanReasoningEffort = currentCodex.planReasoningEffort
+    const currentRunReasoningEffort = currentCodex.runReasoningEffort
     const nextGatewayId = patch.gatewayId === undefined ? currentGatewayId : patch.gatewayId ?? ''
     const nextPlanModel = patch.planModel === undefined ? currentPlanModel : patch.planModel ?? ''
     const nextRunModel = patch.runModel === undefined ? currentRunModel : patch.runModel ?? ''
     const nextModel = patch.model === undefined ? nextRunModel : patch.model ?? ''
-    const override = codexPayloadOverride(nextGatewayId, nextModel, nextPlanModel, nextRunModel)
+    const effectiveGateway = gateways.find((gateway) => gateway.id === (nextGatewayId || savedCodexSettings.gatewayId)) ?? null
+    const gatewayModels = codexConfigOf(effectiveGateway).models ?? []
+    const effectivePlanModel = nextPlanModel || savedCodexSettings.planModel || savedCodexSettings.defaultModel || ''
+    const effectiveRunModel = nextRunModel || savedCodexSettings.runModel || savedCodexSettings.defaultModel || ''
+    const planModelRecord = gatewayModels.find((model) => model.id === effectivePlanModel) ?? null
+    const runModelRecord = gatewayModels.find((model) => model.id === effectiveRunModel) ?? null
+    const nextPlanReasoningEffort = patch.planReasoningEffort === undefined ? currentPlanReasoningEffort : patch.planReasoningEffort ?? ''
+    const nextRunReasoningEffort = patch.runReasoningEffort === undefined ? currentRunReasoningEffort : patch.runReasoningEffort ?? ''
+    const override = codexPayloadOverride(
+      nextGatewayId,
+      nextModel,
+      nextPlanModel,
+      nextRunModel,
+      codexModelSupportsReasoning(planModelRecord) ? nextPlanReasoningEffort : '',
+      codexModelSupportsReasoning(runModelRecord) ? nextRunReasoningEffort : ''
+    )
     if (override) {
       nextPayload.codex = override
     } else {

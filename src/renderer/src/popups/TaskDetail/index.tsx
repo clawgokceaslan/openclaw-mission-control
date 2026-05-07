@@ -2,6 +2,7 @@ import { Component, CSSProperties, DragEvent, PointerEvent, ReactNode, useEffect
 import { Stack } from 'react-bootstrap'
 import { LuBot, LuChevronDown, LuCopy, LuDownload, LuExternalLink, LuFileText, LuListChecks, LuMessageSquare, LuEllipsis, LuPaperclip, LuPencil, LuPlay, LuPlus, LuSettings2, LuSlidersHorizontal, LuSparkles, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
 import type { TaskComment } from '@shared/types/entities'
+import { CODEX_REASONING_EFFORT_OPTIONS, codexModelReasoningEfforts, codexModelSupportsReasoning, normalizeCodexReasoningEffort } from '@shared/utils/codex-language'
 import { AppSelect } from '@renderer/components/select/AppSelect'
 import { AttachmentTable } from '@renderer/components/attachments/AttachmentTable'
 import { useConfirmation } from '@renderer/components/confirmation'
@@ -193,11 +194,26 @@ function ModelTab({ scope }: { scope: Record<string, any> }) {
   const effectiveGatewayId = selectedGatewayId || saved.gatewayId || ''
   const effectiveGateway = (scope.gateways ?? []).find((gateway: any) => gateway.id === effectiveGatewayId) ?? null
   const taskModelOptions = (codexConfigOf(effectiveGateway).models ?? []).map((model) => ({ label: model.label || model.id, value: model.id }))
+  const taskModels = codexConfigOf(effectiveGateway).models ?? []
   const effectivePlan = override.planModel || saved.planModel || saved.defaultModel || ''
   const effectiveRun = override.runModel || override.legacyModel || saved.runModel || saved.defaultModel || ''
+  const effectivePlanReasoning = override.planReasoningEffort || saved.planReasoningEffort || 'medium'
+  const effectiveRunReasoning = override.runReasoningEffort || saved.runReasoningEffort || 'medium'
+  const effectivePlanModelRecord = taskModels.find((model) => model.id === effectivePlan) ?? null
+  const effectiveRunModelRecord = taskModels.find((model) => model.id === effectiveRun) ?? null
+  const planSupportsReasoning = codexModelSupportsReasoning(effectivePlanModelRecord)
+  const runSupportsReasoning = codexModelSupportsReasoning(effectiveRunModelRecord)
+  const planReasoningOptions = CODEX_REASONING_EFFORT_OPTIONS
+    .filter((option) => codexModelReasoningEfforts(effectivePlanModelRecord).includes(option.value))
+    .map((option) => ({ label: option.label, value: option.value }))
+  const runReasoningOptions = CODEX_REASONING_EFFORT_OPTIONS
+    .filter((option) => codexModelReasoningEfforts(effectiveRunModelRecord).includes(option.value))
+    .map((option) => ({ label: option.label, value: option.value }))
   const selectedGatewayOption = selectedGatewayId ? (scope.codexGatewayOptions ?? []).find((option: any) => option.value === selectedGatewayId) ?? null : null
   const selectedPlanOption = taskModelOptions.find((option) => option.value === override.planModel) ?? null
   const selectedRunOption = taskModelOptions.find((option) => option.value === (override.runModel || override.legacyModel)) ?? null
+  const selectedPlanReasoningOption = planReasoningOptions.find((option) => option.value === effectivePlanReasoning) ?? planReasoningOptions.find((option) => option.value === 'medium') ?? planReasoningOptions[0] ?? null
+  const selectedRunReasoningOption = runReasoningOptions.find((option) => option.value === effectiveRunReasoning) ?? runReasoningOptions.find((option) => option.value === 'medium') ?? runReasoningOptions[0] ?? null
 
   return (
     <>
@@ -213,6 +229,8 @@ function ModelTab({ scope }: { scope: Record<string, any> }) {
             <div><span>Gateway</span><strong>{selectedGatewayId ? effectiveGateway?.name ?? selectedGatewayId : `Project default: ${scope.selectedCodexGateway?.name ?? saved.gatewayId}`}</strong></div>
             <div><span>Plan model</span><strong>{override.planModel || `Project default: ${saved.planModel || saved.defaultModel}`}</strong></div>
             <div><span>Run model</span><strong>{override.runModel || override.legacyModel || `Project default: ${saved.runModel || saved.defaultModel}`}</strong></div>
+            {planSupportsReasoning ? <div><span>Plan reasoning</span><strong>{override.planReasoningEffort || `Project default: ${saved.planReasoningEffort || 'medium'}`}</strong></div> : null}
+            {runSupportsReasoning ? <div><span>Run reasoning</span><strong>{override.runReasoningEffort || `Project default: ${saved.runReasoningEffort || 'medium'}`}</strong></div> : null}
           </div>
           <div className={styles.settingsFormGrid}>
             <label>
@@ -238,7 +256,9 @@ function ModelTab({ scope }: { scope: Record<string, any> }) {
               />
             </label>
             <label><span>Task plan model</span><AppSelect value={selectedPlanOption} options={taskModelOptions} placeholder={`Use project plan model: ${saved.planModel || saved.defaultModel}`} isClearable isDisabled={taskModelOptions.length === 0} onChange={(option) => { if (!Array.isArray(option)) void scope.setTaskCodexSelection?.({ planModel: option?.value ?? null }) }} /></label>
+            {planSupportsReasoning ? <label><span>Task plan reasoning</span><AppSelect value={selectedPlanReasoningOption} options={planReasoningOptions} placeholder={`Use project plan reasoning: ${saved.planReasoningEffort || 'medium'}`} isClearable onChange={(option) => { if (!Array.isArray(option)) void scope.setTaskCodexSelection?.({ planReasoningEffort: option?.value ? normalizeCodexReasoningEffort(option.value) : null }) }} /></label> : null}
             <label><span>Task run model</span><AppSelect value={selectedRunOption} options={taskModelOptions} placeholder={`Use project run model: ${saved.runModel || saved.defaultModel}`} isClearable isDisabled={taskModelOptions.length === 0} onChange={(option) => { if (!Array.isArray(option)) void scope.setTaskCodexSelection?.({ runModel: option?.value ?? null }) }} /></label>
+            {runSupportsReasoning ? <label><span>Task run reasoning</span><AppSelect value={selectedRunReasoningOption} options={runReasoningOptions} placeholder={`Use project run reasoning: ${saved.runReasoningEffort || 'medium'}`} isClearable onChange={(option) => { if (!Array.isArray(option)) void scope.setTaskCodexSelection?.({ runReasoningEffort: option?.value ? normalizeCodexReasoningEffort(option.value) : null }) }} /></label> : null}
           </div>
         </>
       )}

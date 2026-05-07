@@ -358,8 +358,8 @@ export function useProjectWorkspaceSettings({
     const savedCodex = projectCodexSettings(project)
     const nextLanguage = draft?.language ?? savedCodex.language ?? null
     const nextPromptShape = draft?.promptShape ?? savedCodex.promptShape ?? 'markdown'
-    const nextPlanReasoningEffort = draft?.planReasoningEffort ?? savedCodex.planReasoningEffort ?? 'medium'
-    const nextRunReasoningEffort = draft?.runReasoningEffort ?? savedCodex.runReasoningEffort ?? 'medium'
+    const nextPlanReasoningEffort = draft?.planReasoningEffort ?? savedCodex.planReasoningEffort ?? null
+    const nextRunReasoningEffort = draft?.runReasoningEffort ?? savedCodex.runReasoningEffort ?? null
 
     setCodexSaving(true)
     const response = await invokeBridge<Project>(IPC_CHANNELS.projects.update, {
@@ -373,8 +373,8 @@ export function useProjectWorkspaceSettings({
         runModel: nextRunModel || null,
         language: nextLanguage || null,
         promptShape: nextPromptShape || 'markdown',
-        planReasoningEffort: nextPlanReasoningEffort || 'medium',
-        runReasoningEffort: nextRunReasoningEffort || 'medium'
+        planReasoningEffort: nextPlanReasoningEffort || null,
+        runReasoningEffort: nextRunReasoningEffort || null
       }
     })
     setCodexSaving(false)

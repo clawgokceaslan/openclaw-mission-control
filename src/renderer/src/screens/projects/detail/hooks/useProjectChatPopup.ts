@@ -53,6 +53,10 @@ export interface ChatPopupState {
   chatPlanModelOption: AppSelectOption | null
   chatRunModel: string
   chatRunModelOption: AppSelectOption | null
+  chatPlanReasoningEffort: string
+  chatRunReasoningEffort: string
+  chatPlanReasoningOptions: AppSelectOption[]
+  chatRunReasoningOptions: AppSelectOption[]
   chatModelOptions: AppSelectOption[]
   chatGatewayConfig: { executionMode?: string }
   chatRuntimeWorkspace: Workspace | null
@@ -95,6 +99,8 @@ interface ChatPopupHandlers {
   onModelChange: (option: AppSelectOption | null) => void
   onPlanModelChange: (option: AppSelectOption | null) => void
   onRunModelChange: (option: AppSelectOption | null) => void
+  onPlanReasoningChange: (option: AppSelectOption | null) => void
+  onRunReasoningChange: (option: AppSelectOption | null) => void
   onIncludeContextChange: (value: boolean) => void
   onAttachmentRemove: (attachmentId: string) => void
   onAttachFilesClick: () => void
@@ -157,6 +163,10 @@ interface ChatPopupParams {
   chatPlanModelOption: AppSelectOption | null
   chatRunModel: string
   chatRunModelOption: AppSelectOption | null
+  chatPlanReasoningEffort: string
+  chatRunReasoningEffort: string
+  chatPlanReasoningOptions: AppSelectOption[]
+  chatRunReasoningOptions: AppSelectOption[]
   chatModelOptions: AppSelectOption[]
   chatGatewayConfig: { executionMode?: string }
   chatRuntimeWorkspace: Workspace | null
@@ -187,6 +197,8 @@ interface ChatPopupParams {
   setChatModel: Setter<string>
   setChatPlanModel: Setter<string>
   setChatRunModel: Setter<string>
+  setChatPlanReasoningEffort: Setter<string>
+  setChatRunReasoningEffort: Setter<string>
   setChatIncludeContext: Setter<boolean>
   setChatGatewayId: Setter<string>
   setChatComposerFocused: Setter<boolean>
@@ -236,6 +248,10 @@ export function useProjectChatPopup({
   chatPlanModelOption,
   chatRunModel,
   chatRunModelOption,
+  chatPlanReasoningEffort,
+  chatRunReasoningEffort,
+  chatPlanReasoningOptions,
+  chatRunReasoningOptions,
   chatModelOptions,
   chatGatewayConfig,
   chatRuntimeWorkspace,
@@ -265,6 +281,8 @@ export function useProjectChatPopup({
   setChatModel,
   setChatPlanModel,
   setChatRunModel,
+  setChatPlanReasoningEffort,
+  setChatRunReasoningEffort,
   setChatIncludeContext,
   setChatGatewayId,
   setChatComposerFocused,
@@ -556,6 +574,10 @@ export function useProjectChatPopup({
     chatPlanModelOption,
     chatRunModel,
     chatRunModelOption,
+    chatPlanReasoningEffort,
+    chatRunReasoningEffort,
+    chatPlanReasoningOptions,
+    chatRunReasoningOptions,
     chatModelOptions,
     chatGatewayConfig,
     chatRuntimeWorkspace,
@@ -634,6 +656,8 @@ export function useProjectChatPopup({
       setChatRunModel(next)
       setChatModel(next)
     },
+    onPlanReasoningChange: (option) => setChatPlanReasoningEffort(option?.value ?? 'medium'),
+    onRunReasoningChange: (option) => setChatRunReasoningEffort(option?.value ?? 'medium'),
     onIncludeContextChange: setChatIncludeContext,
     onAttachmentRemove: (attachmentId) => setChatAttachments((current) => current.filter((item) => item.id !== attachmentId)),
     onAttachFilesClick: () => chatFileInputRef.current?.click(),

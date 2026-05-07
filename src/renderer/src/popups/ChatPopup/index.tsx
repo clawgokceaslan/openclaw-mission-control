@@ -40,6 +40,10 @@ interface ChatPopupFlatProps {
   chatPlanModelOption: AppSelectOption | null
   chatRunModel: string
   chatRunModelOption: AppSelectOption | null
+  chatPlanReasoningEffort: string
+  chatRunReasoningEffort: string
+  chatPlanReasoningOptions: AppSelectOption[]
+  chatRunReasoningOptions: AppSelectOption[]
   chatModelOptions: AppSelectOption[]
   chatGatewayConfig: { executionMode?: string }
   chatRuntimeWorkspace: Workspace | null
@@ -79,6 +83,8 @@ interface ChatPopupFlatProps {
   onModelChange: (option: AppSelectOption | null) => void
   onPlanModelChange: (option: AppSelectOption | null) => void
   onRunModelChange: (option: AppSelectOption | null) => void
+  onPlanReasoningChange: (option: AppSelectOption | null) => void
+  onRunReasoningChange: (option: AppSelectOption | null) => void
   onIncludeContextChange: (value: boolean) => void
   onAttachmentRemove: (attachmentId: string) => void
   onAttachFilesClick: () => void
@@ -114,6 +120,8 @@ type ChatPopupStateProps = Omit<
   | 'onModelChange'
   | 'onPlanModelChange'
   | 'onRunModelChange'
+  | 'onPlanReasoningChange'
+  | 'onRunReasoningChange'
   | 'onIncludeContextChange'
   | 'onAttachmentRemove'
   | 'onAttachFilesClick'
@@ -149,6 +157,8 @@ type ChatPopupHandlerProps = Pick<
   | 'onModelChange'
   | 'onPlanModelChange'
   | 'onRunModelChange'
+  | 'onPlanReasoningChange'
+  | 'onRunReasoningChange'
   | 'onIncludeContextChange'
   | 'onAttachmentRemove'
   | 'onAttachFilesClick'
@@ -200,6 +210,8 @@ export function ChatPopup({
       { label: 'Gateway', value: state?.chatGateway?.name ?? 'Gateway required', warning: !state?.chatGateway },
       { label: 'Plan model', value: state?.chatPlanModel || state?.chatModel || 'Plan model required', warning: !state?.chatPlanModel && !state?.chatModel },
       { label: 'Run model', value: state?.chatRunModel || state?.chatModel || 'Run model required', warning: !state?.chatRunModel && !state?.chatModel },
+      { label: 'Plan reasoning', value: state?.chatPlanReasoningEffort || 'Project default', hidden: !(state?.chatPlanReasoningOptions?.length ?? 0) },
+      { label: 'Run reasoning', value: state?.chatRunReasoningEffort || 'Project default', hidden: !(state?.chatRunReasoningOptions?.length ?? 0) },
       { label: 'Mode', value: state?.chatGatewayConfig?.executionMode === 'exec' ? 'Exec' : 'Terminal' },
       { label: 'Workspace', value: workspaceLabel, warning: !workspaceLabel || workspaceLabel === 'Workspace required' },
       { label: 'Session', value: sessionLabel },
@@ -214,6 +226,8 @@ export function ChatPopup({
     state?.chatIncludeContext,
     state?.chatModel,
     state?.chatPlanModel,
+    state?.chatPlanReasoningEffort,
+    state?.chatPlanReasoningOptions?.length,
     state?.chatRuntimeWorkspace?.name,
     state?.runtimeWorkspaceId,
     state?.selectedChatSummary?.status,
@@ -221,7 +235,9 @@ export function ChatPopup({
     state?.selectedChatUsage,
     state?.taskContextSkills,
     state?.visibleMessages.length,
-    state?.chatRunModel
+    state?.chatRunModel,
+    state?.chatRunReasoningEffort,
+    state?.chatRunReasoningOptions?.length
   ])
 
   const visibleConfigurationDetails = configurationDetails.filter((item) => !item.hidden)
@@ -233,7 +249,7 @@ export function ChatPopup({
     })
     return [
       { title: 'Runtime', items: pick(['Gateway', 'Mode', 'Workspace', 'Session']) },
-      { title: 'Models', items: pick(['Plan model', 'Run model']) },
+      { title: 'Models', items: pick(['Plan model', 'Plan reasoning', 'Run model', 'Run reasoning']) },
       { title: 'Task context', items: pick(['Agent', 'Skills', 'Task context']) },
       { title: 'Usage', items: pick(['Usage']) }
     ].filter((group) => group.items.length > 0)
@@ -272,6 +288,8 @@ export function ChatPopup({
     onModelChange: chatHandlers?.onModelChange ?? flatProps.onModelChange ?? (() => {}),
     onPlanModelChange: chatHandlers?.onPlanModelChange ?? flatProps.onPlanModelChange ?? (() => {}),
     onRunModelChange: chatHandlers?.onRunModelChange ?? flatProps.onRunModelChange ?? (() => {}),
+    onPlanReasoningChange: chatHandlers?.onPlanReasoningChange ?? flatProps.onPlanReasoningChange ?? (() => {}),
+    onRunReasoningChange: chatHandlers?.onRunReasoningChange ?? flatProps.onRunReasoningChange ?? (() => {}),
     onIncludeContextChange: chatHandlers?.onIncludeContextChange ?? flatProps.onIncludeContextChange ?? noOp,
     onAttachmentRemove: chatHandlers?.onAttachmentRemove ?? flatProps.onAttachmentRemove ?? noOp,
     onAttachFilesClick: chatHandlers?.onAttachFilesClick ?? flatProps.onAttachFilesClick ?? noOp,
@@ -314,6 +332,10 @@ export function ChatPopup({
     chatPlanModelOption,
     chatRunModel,
     chatRunModelOption,
+    chatPlanReasoningEffort,
+    chatRunReasoningEffort,
+    chatPlanReasoningOptions = [],
+    chatRunReasoningOptions = [],
     chatModelOptions,
     chatGatewayConfig,
     chatRuntimeWorkspace,
@@ -353,6 +375,8 @@ export function ChatPopup({
     onModelChange,
     onPlanModelChange,
     onRunModelChange,
+    onPlanReasoningChange,
+    onRunReasoningChange,
     onIncludeContextChange,
     onAttachmentRemove,
     onAttachFilesClick,
@@ -515,10 +539,22 @@ export function ChatPopup({
                   <div className={styles.chatSettingTitle}><span><LuBot size={14} /></span><div><b>Plan model</b><small>{chatPlanModel || chatModel || 'Select a plan model'}</small></div></div>
                   <AppSelect mode="single" value={chatPlanModelOption} options={chatModelOptions} onChange={(option) => { if (!Array.isArray(option)) onPlanModelChange(option) }} placeholder="Select plan model" isDisabled={!chatGatewayOption} />
                 </div>
+                {chatPlanReasoningOptions.length > 0 ? (
+                  <div className={styles.chatSettingsCard}>
+                    <div className={styles.chatSettingTitle}><span><LuSparkles size={14} /></span><div><b>Plan reasoning</b><small>{chatPlanReasoningEffort || 'Select reasoning'}</small></div></div>
+                    <AppSelect mode="single" value={chatPlanReasoningOptions.find((option) => option.value === chatPlanReasoningEffort) ?? null} options={chatPlanReasoningOptions} onChange={(option) => { if (!Array.isArray(option)) onPlanReasoningChange(option) }} placeholder="Select plan reasoning" />
+                  </div>
+                ) : null}
                 <div className={styles.chatSettingsCard}>
                   <div className={styles.chatSettingTitle}><span><LuBot size={14} /></span><div><b>Run / chat model</b><small>{chatRunModel || chatModel || 'Select a run model'}</small></div></div>
                   <AppSelect mode="single" value={chatRunModelOption ?? chatModelOption} options={chatModelOptions} onChange={(option) => { if (!Array.isArray(option)) onRunModelChange(option) }} placeholder="Select run model" isDisabled={!chatGatewayOption} />
                 </div>
+                {chatRunReasoningOptions.length > 0 ? (
+                  <div className={styles.chatSettingsCard}>
+                    <div className={styles.chatSettingTitle}><span><LuSparkles size={14} /></span><div><b>Run reasoning</b><small>{chatRunReasoningEffort || 'Select reasoning'}</small></div></div>
+                    <AppSelect mode="single" value={chatRunReasoningOptions.find((option) => option.value === chatRunReasoningEffort) ?? null} options={chatRunReasoningOptions} onChange={(option) => { if (!Array.isArray(option)) onRunReasoningChange(option) }} placeholder="Select run reasoning" />
+                  </div>
+                ) : null}
                 <div className={styles.chatSettingsMetaGrid}>
                   <div className={styles.chatSettingReadout}><span>Mode</span><b>{chatGatewayConfig.executionMode === 'exec' ? 'Exec' : 'Terminal'}</b></div>
                   <div className={styles.chatSettingReadout}><span>Workspace</span><b>{chatRuntimeWorkspace?.name ?? runtimeWorkspaceId ?? 'Not configured'}</b></div>

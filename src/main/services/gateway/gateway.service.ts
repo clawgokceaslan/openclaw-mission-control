@@ -71,7 +71,13 @@ function modelFromRecord(record: Record<string, unknown>, fallbackSource?: strin
   const label = asString(record.label) ?? asString(record.display_name) ?? asString(record.displayName) ?? asString(record.name) ?? id
   const source = asString(record.provider) ?? asString(record.source) ?? asString(record.owned_by) ?? fallbackSource
   const recommended = id === 'gpt-5.5' || id === 'gpt-5.4' || id === 'gpt-5.3-codex-spark' || record.recommended === true
-  return { id, label, ...(source ? { source } : {}), ...(recommended ? { recommended } : {}) }
+  const supportsReasoning = record.supportsReasoning === true || record.supports_reasoning === true
+  const reasoningEfforts = Array.isArray(record.reasoningEfforts)
+    ? record.reasoningEfforts.filter((item): item is string => typeof item === 'string')
+    : Array.isArray(record.reasoning_efforts)
+      ? record.reasoning_efforts.filter((item): item is string => typeof item === 'string')
+      : undefined
+  return { id, label, ...(source ? { source } : {}), ...(recommended ? { recommended } : {}), ...(supportsReasoning ? { supportsReasoning } : {}), ...(reasoningEfforts?.length ? { reasoningEfforts } : {}) }
 }
 
 function collectModelRecords(value: unknown, source?: string): CodexCliModel[] {

@@ -261,6 +261,8 @@ export interface CodexCliModel {
   label: string
   source?: string
   recommended?: boolean
+  supportsReasoning?: boolean
+  reasoningEfforts?: string[]
 }
 
 export interface CodexCliGatewayConfig {

@@ -13,6 +13,7 @@ import { copyFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { normalizeCodexPromptShape } from '../../shared/utils/codex-prompt-shape.js'
+import { codexModelSupportsReasoning } from '../../shared/utils/codex-language.js'
 
 const CODEX_LANGUAGE_VALUES = new Set(['tr', 'en'])
 const CODEX_REASONING_VALUES = new Set(['minimal', 'low', 'medium', 'high', 'xhigh'])
@@ -104,8 +105,8 @@ export class ProjectService {
   private async normalizeCodexSettings(orgId: string, codex: ProjectCodexSettings | undefined): Promise<ServiceResponse<ProjectCodexSettings>> {
     if (!codex) return okResponse({})
     const gatewayId = typeof codex.gatewayId === 'string' && codex.gatewayId.trim() ? codex.gatewayId.trim() : null
+    const gateway = gatewayId ? await this.gateways.get(gatewayId) : null
     if (gatewayId) {
-      const gateway = await this.gateways.get(gatewayId)
       if (!gateway || gateway.organizationId !== orgId) return errorResponse(ErrorCodes.Validation, 'Codex gateway is invalid')
     }
     const runtimeWorkspaceId = await this.normalizeWorkspaceId(orgId, codex.runtimeWorkspaceId)
@@ -117,8 +118,12 @@ export class ProjectService {
       ?? normalizeCodexLanguageValue(codex.outputLanguage)
       ?? normalizeCodexLanguageValue(codex.inputLanguage)
       ?? null
-    const planReasoningEffort = normalizeCodexReasoningValue(codex.planReasoningEffort)
-    const runReasoningEffort = normalizeCodexReasoningValue(codex.runReasoningEffort)
+    const gatewayTemplate = gateway?.template && typeof gateway.template === 'object' && !Array.isArray(gateway.template) ? gateway.template as { models?: unknown[] } : {}
+    const gatewayModels = Array.isArray(gatewayTemplate.models) ? gatewayTemplate.models : []
+    const planModelRecord = gatewayModels.find((model) => model && typeof model === 'object' && !Array.isArray(model) && (model as { id?: unknown }).id === planModel)
+    const runModelRecord = gatewayModels.find((model) => model && typeof model === 'object' && !Array.isArray(model) && (model as { id?: unknown }).id === runModel)
+    const planReasoningEffort = planModelRecord && codexModelSupportsReasoning(planModelRecord) ? normalizeCodexReasoningValue(codex.planReasoningEffort) : null
+    const runReasoningEffort = runModelRecord && codexModelSupportsReasoning(runModelRecord) ? normalizeCodexReasoningValue(codex.runReasoningEffort) : null
     const promptShape = normalizeCodexPromptShape(codex.promptShape)
     return okResponse({
       gatewayId,

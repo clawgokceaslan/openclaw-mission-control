@@ -3,7 +3,7 @@ import type { AppSelectOption } from '@renderer/components/select/AppSelect'
 import { AppSelect } from '@renderer/components/select/AppSelect'
 import { LuCircleCheck, LuTriangleAlert } from 'react-icons/lu'
 import type { Agent, Gateway, Project, ProjectCodexSettings, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Workspace } from '@shared/types/entities'
-import { CODEX_LANGUAGE_OPTIONS, CODEX_REASONING_EFFORT_OPTIONS, normalizeCodexLanguage, normalizeCodexReasoningEffort } from '@shared/utils/codex-language'
+import { CODEX_LANGUAGE_OPTIONS, CODEX_REASONING_EFFORT_OPTIONS, codexModelReasoningEfforts, codexModelSupportsReasoning, normalizeCodexLanguage, normalizeCodexReasoningEffort } from '@shared/utils/codex-language'
 import { CODEX_PROMPT_SHAPES, normalizeCodexPromptShape } from '@shared/utils/codex-prompt-shape'
 import type { ProjectSettingsTab } from '@renderer/screens/projects/detail/types'
 import { StatusTemplatePickerModal } from '@renderer/components/projects/detail/ProjectModals/StatusTemplatePickerModal'
@@ -178,22 +178,33 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
   const localGatewayOptions = useMemo(() => scope.codexGatewayOptions, [scope.codexGatewayOptions])
   const localWorkspaceOptions = useMemo(() => scope.workspaceOptions ?? (scope.workspaces ?? []).map((workspace) => ({ label: workspace.name, value: workspace.id })), [scope.workspaceOptions, scope.workspaces])
   const localSelectedGateway = useMemo(() => (scope.gateways ?? []).find((gateway) => gateway.id === gatewayIdDraft) ?? null, [scope.gateways, gatewayIdDraft])
+  const localGatewayModels = useMemo(() => codexConfigOf(localSelectedGateway).models ?? [], [localSelectedGateway])
   const localModelOptions = useMemo<AppSelectOption[]>(() => {
-    const gatewayModels = codexConfigOf(localSelectedGateway).models ?? []
-    if (gatewayModels.length > 0) return gatewayModels.map((model) => ({ label: model.label || model.id, value: model.id }))
+    if (localGatewayModels.length > 0) return localGatewayModels.map((model) => ({ label: model.label || model.id, value: model.id }))
     return gatewayIdDraft === scope.codexGatewayId ? scope.projectCodexModelOptions : []
-  }, [gatewayIdDraft, localSelectedGateway, scope.codexGatewayId, scope.projectCodexModelOptions])
+  }, [gatewayIdDraft, localGatewayModels, scope.codexGatewayId, scope.projectCodexModelOptions])
   const localSelectedGatewayOption = useMemo(() => localGatewayOptions.find((option) => option.value === gatewayIdDraft) ?? null, [gatewayIdDraft, localGatewayOptions])
   const localSelectedWorkspaceOption = useMemo(() => localWorkspaceOptions.find((option) => option.value === runtimeWorkspaceIdDraft) ?? null, [localWorkspaceOptions, runtimeWorkspaceIdDraft])
   const localSelectedPlanModelOption = useMemo(() => localModelOptions.find((option) => option.value === planModelDraft) ?? null, [localModelOptions, planModelDraft])
   const localSelectedRunModelOption = useMemo(() => localModelOptions.find((option) => option.value === runModelDraft) ?? null, [localModelOptions, runModelDraft])
   const languageOptions = useMemo<AppSelectOption[]>(() => CODEX_LANGUAGE_OPTIONS.map((option) => ({ label: option.label, value: option.value })), [])
   const promptShapeOptions = useMemo<AppSelectOption[]>(() => CODEX_PROMPT_SHAPES.map((shape) => ({ label: shape === 'json' ? 'JSON' : shape === 'toon' ? 'Toon' : 'Markdown', value: shape })), [])
-  const reasoningOptions = useMemo<AppSelectOption[]>(() => CODEX_REASONING_EFFORT_OPTIONS.map((option) => ({ label: option.label, value: option.value })), [])
+  const localPlanModel = useMemo(() => localGatewayModels.find((model) => model.id === planModelDraft) ?? null, [localGatewayModels, planModelDraft])
+  const localRunModel = useMemo(() => localGatewayModels.find((model) => model.id === runModelDraft) ?? null, [localGatewayModels, runModelDraft])
+  const planSupportsReasoning = codexModelSupportsReasoning(localPlanModel)
+  const runSupportsReasoning = codexModelSupportsReasoning(localRunModel)
+  const planReasoningOptions = useMemo<AppSelectOption[]>(() => {
+    const efforts = codexModelReasoningEfforts(localPlanModel)
+    return CODEX_REASONING_EFFORT_OPTIONS.filter((option) => efforts.includes(option.value)).map((option) => ({ label: option.label, value: option.value }))
+  }, [localPlanModel])
+  const runReasoningOptions = useMemo<AppSelectOption[]>(() => {
+    const efforts = codexModelReasoningEfforts(localRunModel)
+    return CODEX_REASONING_EFFORT_OPTIONS.filter((option) => efforts.includes(option.value)).map((option) => ({ label: option.label, value: option.value }))
+  }, [localRunModel])
   const selectedLanguageOption = useMemo(() => languageOptions.find((option) => option.value === languageDraft) ?? languageOptions[0] ?? null, [languageDraft, languageOptions])
   const selectedPromptShapeOption = useMemo(() => promptShapeOptions.find((option) => option.value === promptShapeDraft) ?? promptShapeOptions[0] ?? null, [promptShapeDraft, promptShapeOptions])
-  const selectedPlanReasoningOption = useMemo(() => reasoningOptions.find((option) => option.value === planReasoningDraft) ?? reasoningOptions[2] ?? null, [planReasoningDraft, reasoningOptions])
-  const selectedRunReasoningOption = useMemo(() => reasoningOptions.find((option) => option.value === runReasoningDraft) ?? reasoningOptions[2] ?? null, [runReasoningDraft, reasoningOptions])
+  const selectedPlanReasoningOption = useMemo(() => planReasoningOptions.find((option) => option.value === planReasoningDraft) ?? planReasoningOptions.find((option) => option.value === 'medium') ?? planReasoningOptions[0] ?? null, [planReasoningDraft, planReasoningOptions])
+  const selectedRunReasoningOption = useMemo(() => runReasoningOptions.find((option) => option.value === runReasoningDraft) ?? runReasoningOptions.find((option) => option.value === 'medium') ?? runReasoningOptions[0] ?? null, [runReasoningDraft, runReasoningOptions])
   const agentOptions = useMemo<AppSelectOption[]>(() => (scope.agents ?? []).map((agent) => ({ label: agent.name, value: agent.id })).sort((a, b) => a.label.localeCompare(b.label, 'tr')), [scope.agents])
   const selectedDefaultAgentOption = useMemo(() => agentOptions.find((option) => option.value === defaultAgentIdDraft) ?? null, [agentOptions, defaultAgentIdDraft])
   const skillOptions = useMemo<AppSelectOption[]>(() => (scope.skills ?? []).filter((skill) => skill.status === 'active' || skill.enabled || defaultSkillIdsDraft.includes(skill.id)).map((skill) => ({ label: skill.name, value: skill.id })).sort((a, b) => a.label.localeCompare(b.label, 'tr')), [defaultSkillIdsDraft, scope.skills])
@@ -216,7 +227,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
     setCodexSaveMessage(null)
     setCodexSaveError(null)
     try {
-      const saved = await s.onSaveProjectCodexSettings({ gatewayId: gatewayIdDraft, runtimeWorkspaceId: runtimeWorkspaceIdDraft, planModel: planModelDraft, runModel: runModelDraft, language: languageDraft, promptShape: promptShapeDraft, planReasoningEffort: planReasoningDraft, runReasoningEffort: runReasoningDraft })
+      const saved = await s.onSaveProjectCodexSettings({ gatewayId: gatewayIdDraft, runtimeWorkspaceId: runtimeWorkspaceIdDraft, planModel: planModelDraft, runModel: runModelDraft, language: languageDraft, promptShape: promptShapeDraft, planReasoningEffort: planSupportsReasoning ? planReasoningDraft : '', runReasoningEffort: runSupportsReasoning ? runReasoningDraft : '' })
       if (saved && typeof saved === 'object') {
         setGatewayIdDraft(saved.gatewayId ?? '')
         setRuntimeWorkspaceIdDraft(saved.runtimeWorkspaceId ?? '')
@@ -701,19 +712,21 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     }}
                   />
                 </label>
-                <label>
-                  <span>Plan reasoning</span>
-                  <AppSelect
-                    value={selectedPlanReasoningOption}
-                    options={reasoningOptions}
-                    placeholder="Select reasoning"
-                    onChange={(option) => {
-                      setPlanReasoningDraft(normalizeCodexReasoningEffort(option?.value))
-                      setCodexSaveMessage(null)
-                      setCodexSaveError(null)
-                    }}
-                  />
-                </label>
+                {planSupportsReasoning ? (
+                  <label>
+                    <span>Plan reasoning</span>
+                    <AppSelect
+                      value={selectedPlanReasoningOption}
+                      options={planReasoningOptions}
+                      placeholder="Select reasoning"
+                      onChange={(option) => {
+                        setPlanReasoningDraft(normalizeCodexReasoningEffort(option?.value))
+                        setCodexSaveMessage(null)
+                        setCodexSaveError(null)
+                      }}
+                    />
+                  </label>
+                ) : null}
                 <label>
                   <span>Run model</span>
                   <AppSelect
@@ -728,19 +741,21 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     }}
                   />
                 </label>
-                <label>
-                  <span>Run reasoning</span>
-                  <AppSelect
-                    value={selectedRunReasoningOption}
-                    options={reasoningOptions}
-                    placeholder="Select reasoning"
-                    onChange={(option) => {
-                      setRunReasoningDraft(normalizeCodexReasoningEffort(option?.value))
-                      setCodexSaveMessage(null)
-                      setCodexSaveError(null)
-                    }}
-                  />
-                </label>
+                {runSupportsReasoning ? (
+                  <label>
+                    <span>Run reasoning</span>
+                    <AppSelect
+                      value={selectedRunReasoningOption}
+                      options={runReasoningOptions}
+                      placeholder="Select reasoning"
+                      onChange={(option) => {
+                        setRunReasoningDraft(normalizeCodexReasoningEffort(option?.value))
+                        setCodexSaveMessage(null)
+                        setCodexSaveError(null)
+                      }}
+                    />
+                  </label>
+                ) : null}
               </div>
               {s.codexModelLoading ? <div className={styles.settingsEmptyState}>Loading models from Codex CLI...</div> : null}
               {s.codexModelError ? <div className={styles.settingsEmptyState}>{s.codexModelError}</div> : null}

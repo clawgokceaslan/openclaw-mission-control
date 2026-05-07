@@ -28,8 +28,8 @@ export function projectCodexSettings(project: Project | null): ProjectCodexSetti
     runModel: typeof record.runModel === 'string' ? record.runModel : null,
     language: typeof record.language === 'string' ? normalizeCodexLanguage(record.language) : legacyLanguage ? normalizeCodexLanguage(legacyLanguage) : null,
     promptShape: normalizeCodexPromptShape(record.promptShape),
-    planReasoningEffort: normalizeCodexReasoningEffort(record.planReasoningEffort),
-    runReasoningEffort: normalizeCodexReasoningEffort(record.runReasoningEffort),
+    planReasoningEffort: typeof record.planReasoningEffort === 'string' ? normalizeCodexReasoningEffort(record.planReasoningEffort) : null,
+    runReasoningEffort: typeof record.runReasoningEffort === 'string' ? normalizeCodexReasoningEffort(record.runReasoningEffort) : null,
     inputLanguage: typeof record.inputLanguage === 'string' ? record.inputLanguage : null,
     outputLanguage: typeof record.outputLanguage === 'string' ? record.outputLanguage : null
   }
@@ -63,17 +63,19 @@ export function taskCodexModel(task: TaskEntity | null | undefined): string {
   return readTaskCodexOverride(task).legacyModel
 }
 
-export function readTaskCodexOverride(task: TaskEntity | null | undefined): { gatewayId: string; legacyModel: string; planModel: string; runModel: string } {
+export function readTaskCodexOverride(task: TaskEntity | null | undefined): { gatewayId: string; legacyModel: string; planModel: string; runModel: string; planReasoningEffort: string; runReasoningEffort: string } {
   const codex = task?.payload?.codex
   if (!codex || typeof codex !== 'object' || Array.isArray(codex)) {
-    return { gatewayId: '', legacyModel: '', planModel: '', runModel: '' }
+    return { gatewayId: '', legacyModel: '', planModel: '', runModel: '', planReasoningEffort: '', runReasoningEffort: '' }
   }
   const record = codex as Record<string, unknown>
   return {
     gatewayId: typeof record.gatewayId === 'string' ? record.gatewayId : '',
     legacyModel: typeof record.model === 'string' ? record.model : '',
     planModel: typeof record.planModel === 'string' ? record.planModel : '',
-    runModel: typeof record.runModel === 'string' ? record.runModel : ''
+    runModel: typeof record.runModel === 'string' ? record.runModel : '',
+    planReasoningEffort: typeof record.planReasoningEffort === 'string' ? normalizeCodexReasoningEffort(record.planReasoningEffort) : '',
+    runReasoningEffort: typeof record.runReasoningEffort === 'string' ? normalizeCodexReasoningEffort(record.runReasoningEffort) : ''
   }
 }
 
@@ -98,12 +100,14 @@ export function taskCodexGatewayId(task: TaskEntity | null | undefined): string 
   return readTaskCodexOverride(task).gatewayId
 }
 
-export function codexPayloadOverride(gatewayId: string, model: string, planModel = '', runModel = ''): Record<string, string> | undefined {
+export function codexPayloadOverride(gatewayId: string, model: string, planModel = '', runModel = '', planReasoningEffort = '', runReasoningEffort = ''): Record<string, string> | undefined {
   const next: Record<string, string> = {}
   if (gatewayId) next.gatewayId = gatewayId
   if (model) next.model = model
   if (planModel) next.planModel = planModel
   if (runModel) next.runModel = runModel
+  if (planReasoningEffort) next.planReasoningEffort = normalizeCodexReasoningEffort(planReasoningEffort)
+  if (runReasoningEffort) next.runReasoningEffort = normalizeCodexReasoningEffort(runReasoningEffort)
   return Object.keys(next).length > 0 ? next : undefined
 }
 

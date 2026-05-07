@@ -64,3 +64,26 @@ export function normalizeCodexReasoningEffort(value: unknown): CodexReasoningEff
     ? normalized as CodexReasoningEffort
     : DEFAULT_CODEX_REASONING_EFFORT
 }
+
+export function codexModelSupportsReasoning(model: unknown): boolean {
+  if (!model || typeof model !== 'object' || Array.isArray(model)) return false
+  const record = model as Record<string, unknown>
+  if (record.supportsReasoning === true || record.supports_reasoning === true) return true
+  if (Array.isArray(record.reasoningEfforts) || Array.isArray(record.reasoning_efforts)) return true
+  const id = typeof record.id === 'string' ? record.id.trim().toLowerCase() : ''
+  return /^(gpt-5|o[1-9]|o\d|codex)/.test(id)
+}
+
+export function codexModelReasoningEfforts(model: unknown): CodexReasoningEffort[] {
+  if (!codexModelSupportsReasoning(model)) return []
+  const record = model && typeof model === 'object' && !Array.isArray(model) ? model as Record<string, unknown> : {}
+  const raw = Array.isArray(record.reasoningEfforts)
+    ? record.reasoningEfforts
+    : Array.isArray(record.reasoning_efforts)
+      ? record.reasoning_efforts
+      : []
+  const normalized = raw
+    .map((value) => normalizeCodexReasoningEffort(value))
+    .filter((value, index, items) => items.indexOf(value) === index)
+  return normalized.length > 0 ? normalized : CODEX_REASONING_EFFORT_OPTIONS.map((option) => option.value)
+}

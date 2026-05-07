@@ -142,6 +142,8 @@ export interface ProjectDetailChatState {
   chatModel: string
   chatPlanModel: string
   chatRunModel: string
+  chatPlanReasoningEffort: string
+  chatRunReasoningEffort: string
   chatIncludeContext: boolean
   chatComposerMode: ChatComposerMode
   chatAttachments: ChatAttachmentDraft[]
@@ -370,6 +372,8 @@ export const PROJECT_DETAIL_INITIAL_STATE: ProjectDetailState = {
     chatModel: '',
     chatPlanModel: '',
     chatRunModel: '',
+    chatPlanReasoningEffort: 'medium',
+    chatRunReasoningEffort: 'medium',
     chatIncludeContext: true,
     chatComposerMode: 'chat',
     chatAttachments: [],
@@ -505,6 +509,8 @@ const PROJECT_DETAIL_FIELD_TO_PATH = {
   chatModel: ['chat', 'chatModel'],
   chatPlanModel: ['chat', 'chatPlanModel'],
   chatRunModel: ['chat', 'chatRunModel'],
+  chatPlanReasoningEffort: ['chat', 'chatPlanReasoningEffort'],
+  chatRunReasoningEffort: ['chat', 'chatRunReasoningEffort'],
   chatIncludeContext: ['chat', 'chatIncludeContext'],
   chatComposerMode: ['chat', 'chatComposerMode'],
   chatAttachments: ['chat', 'chatAttachments'],
