@@ -289,38 +289,107 @@
   font-weight: 800;
 }
 
-.databaseTransfer {
+.databaseFlow {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
+  gap: 10px;
+  align-items: stretch;
 
-  section {
+  .databaseStep,
+  .databaseStepDisabled {
     min-width: 0;
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 10px;
+    background: var(--omc-surface-muted);
+    padding: 12px;
     display: grid;
-    gap: 10px;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 12px;
+
+    .stepMarker {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      border: 1px solid var(--omc-info-border);
+      background: var(--omc-active-bg);
+      color: var(--omc-text-strong);
+      display: inline-grid;
+      place-items: center;
+      align-content: center;
+      gap: 0;
+      flex: 0 0 auto;
+
+      span {
+        font-size: 0.7rem;
+        font-weight: 900;
+        line-height: 1;
+      }
+    }
+
+    .stepContent {
+      min-width: 0;
+      display: grid;
+      gap: 10px;
+
+      header {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: start;
+
+        h3 {
+          margin: 0;
+          color: var(--omc-text-strong);
+          font-size: 0.98rem;
+        }
+
+        p {
+          margin: 4px 0 0;
+          color: var(--omc-text-muted);
+          font-size: 0.86rem;
+          font-weight: 700;
+        }
+      }
+    }
   }
 
-  h3 {
-    margin: 0;
-    color: var(--omc-text-strong);
+  .databaseStepDisabled {
+    opacity: 0.72;
+  }
+
+  .stepStatusReady,
+  .stepStatusBlocked {
+    border-radius: 999px;
+    padding: 6px 9px;
+    font-size: 0.72rem;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+
+  .stepStatusReady {
+    border: 1px solid var(--omc-success-border, #85c79d);
+    background: var(--omc-success-bg, #eefaf2);
+    color: var(--omc-success-strong, #277044);
+  }
+
+  .stepStatusBlocked {
+    border: 1px solid var(--omc-border-subtle);
+    background: var(--omc-surface);
+    color: var(--omc-text-muted);
+  }
+
+  .transferArrow {
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    border: 1px solid var(--omc-border-subtle);
+    background: var(--omc-surface-muted);
+    color: var(--omc-text-muted);
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    font-size: 0.98rem;
+    justify-content: center;
+    justify-self: center;
   }
-}
-
-.transferArrow {
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  border: 1px solid var(--omc-border-subtle);
-  background: var(--omc-surface-muted);
-  color: var(--omc-text-muted);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .databaseFooter {
@@ -408,13 +477,20 @@
   }
 
   .databaseHero,
-  .databaseOverview,
-  .databaseTransfer {
+  .databaseOverview {
     grid-template-columns: 1fr;
   }
 
-  .transferArrow {
-    transform: rotate(90deg);
-    justify-self: center;
+  .databaseFlow {
+    .databaseStep,
+    .databaseStepDisabled {
+      grid-template-columns: 1fr;
+
+      .stepContent {
+        header {
+          grid-template-columns: 1fr;
+        }
+      }
+    }
   }
 }

@@ -41,6 +41,8 @@ export function SettingsPage() {
   const [databaseState, setDatabaseState] = useState<DatabaseLocationState>(databaseFallbackState)
   const [databaseFolder, setDatabaseFolder] = useState('')
   const [sourceDatabasePath, setSourceDatabasePath] = useState('')
+  const [databaseLoading, setDatabaseLoading] = useState(false)
+  const [databaseLoadError, setDatabaseLoadError] = useState<string | null>(null)
   const [databaseMoving, setDatabaseMoving] = useState(false)
   const [databaseMessage, setDatabaseMessage] = useState<string | null>(null)
   const [databaseCopied, setDatabaseCopied] = useState(false)
@@ -58,8 +60,14 @@ export function SettingsPage() {
       setDefaultAgentId('')
       setCodexLanguage(DEFAULT_CODEX_LANGUAGE)
       setDatabaseState(databaseFallbackState)
+      setDatabaseFolder('')
+      setSourceDatabasePath('')
+      setDatabaseLoading(false)
+      setDatabaseLoadError(null)
       return
     }
+    setDatabaseLoading(true)
+    setDatabaseLoadError(null)
     void Promise.all([
       loadList<Agent[]>(IPC_CHANNELS.agents.list, token),
       invokeBridge<{ agentId: string | null }>(IPC_CHANNELS.appSettings.getDefaultAgent, { actorToken: token }),
@@ -72,9 +80,14 @@ export function SettingsPage() {
       setCodexLanguage(languageResponse.ok && languageResponse.data?.language ? languageResponse.data.language : DEFAULT_CODEX_LANGUAGE)
       if (databaseResponse.ok && databaseResponse.data) {
         setDatabaseState(databaseResponse.data)
+      } else {
+        setDatabaseLoadError(databaseResponse.error?.message ?? 'Unable to load database location.')
       }
     }).catch(() => {
       if (!cancelled) setDefaultAgentMessage('Unable to load settings.')
+      if (!cancelled) setDatabaseLoadError('Unable to load database location.')
+    }).finally(() => {
+      if (!cancelled) setDatabaseLoading(false)
     })
     return () => {
       cancelled = true
@@ -176,6 +189,7 @@ export function SettingsPage() {
         return
       }
       setSourceDatabasePath(response.data.filePath)
+      setDatabaseFolder('')
       setDatabaseMessage(`Source database selected: ${response.data.filePath}`)
     } catch (error) {
       setDatabaseMessage(error instanceof Error ? error.message : 'Unable to select a source database file.')
@@ -185,6 +199,7 @@ export function SettingsPage() {
   const useRecommendedSourceDatabase = () => {
     if (!databaseState.recommendedSourceDbPath) return
     setSourceDatabasePath(databaseState.recommendedSourceDbPath)
+    setDatabaseFolder('')
     setDatabaseMessage(`Source database selected: ${databaseState.recommendedSourceDbPath}`)
   }
 
@@ -228,13 +243,25 @@ export function SettingsPage() {
 
   const refreshDatabaseLocation = async () => {
     setDatabaseMessage(null)
-    const response = await invokeBridge<DatabaseLocationState>(IPC_CHANNELS.appSettings.getDatabaseLocation, { actorToken: token })
-    if (!response.ok) {
-      setDatabaseMessage(response.error?.message ?? 'Unable to refresh database location.')
-      return
+    setDatabaseLoading(true)
+    setDatabaseLoadError(null)
+    try {
+      const response = await invokeBridge<DatabaseLocationState>(IPC_CHANNELS.appSettings.getDatabaseLocation, { actorToken: token })
+      if (!response.ok) {
+        const message = response.error?.message ?? 'Unable to refresh database location.'
+        setDatabaseLoadError(message)
+        setDatabaseMessage(message)
+        return
+      }
+      setDatabaseState(response.data ?? databaseFallbackState)
+      setDatabaseMessage('Database location refreshed.')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to refresh database location.'
+      setDatabaseLoadError(message)
+      setDatabaseMessage(message)
+    } finally {
+      setDatabaseLoading(false)
     }
-    setDatabaseState(response.data ?? databaseFallbackState)
-    setDatabaseMessage('Database location refreshed.')
   }
 
   const copyDatabasePath = async () => {
@@ -293,7 +320,8 @@ export function SettingsPage() {
   ]
 
   const hasPendingRestart = databaseState.restartRequired
-  const sourcePath = sourceDatabasePath || databaseState.recommendedSourceDbPath || databaseState.currentDbPath
+  const sourcePath = sourceDatabasePath || databaseState.recommendedSourceDbPath || (databaseState.currentDbExists ? databaseState.currentDbPath : '')
+  const hasValidSource = Boolean(sourceDatabasePath || databaseState.recommendedSourceDbPath || (databaseState.currentDbExists && databaseState.currentDbPath))
   const sourceStatus = sourceDatabasePath
     ? 'Manual source'
     : databaseState.recommendedSourceDbPath
@@ -301,6 +329,32 @@ export function SettingsPage() {
       : databaseState.currentDbExists
         ? 'Active database'
         : 'Missing source'
+  const sourceStepMessage = databaseLoading
+    ? 'Loading database status...'
+    : databaseLoadError
+      ? databaseLoadError
+      : hasValidSource
+        ? 'Source is ready. Choose the destination folder next.'
+        : 'No usable source database was found. Select an existing SQLite file to continue.'
+  const destinationDisabled = databaseMoving || databaseLoading || Boolean(databaseLoadError) || !hasValidSource
+  const destinationStatus = databaseLoading
+    ? 'Waiting'
+    : databaseLoadError
+      ? 'Blocked'
+      : !hasValidSource
+        ? 'Source required'
+        : databaseFolder
+          ? 'Ready'
+          : 'Required'
+  const destinationStepMessage = databaseLoading
+    ? 'Destination selection will unlock after the current database status loads.'
+    : databaseLoadError
+      ? 'Refresh the database status before selecting a destination.'
+      : !hasValidSource
+        ? 'Select a source database first. The destination stays locked to avoid an invalid move.'
+        : databaseFolder
+          ? 'Destination selected. You can move the database now.'
+          : 'Choose the folder that should contain the SQLite database after restart.'
 
   return (
     <section className={styles.page}>
@@ -428,42 +482,66 @@ export function SettingsPage() {
                 </div>
               ) : null}
 
-              <div className={styles.databaseTransfer}>
-                <section>
-                  <h3><LuDatabase size={16} /> Source</h3>
-                  <div className={styles.pathInput}>
-                    <span>{sourcePath || 'No source selected'}</span>
-                    <b>{sourceStatus}</b>
+              <div className={styles.databaseFlow}>
+                <section className={styles.databaseStep}>
+                  <div className={styles.stepMarker}>
+                    <span>1</span>
+                    <LuDatabase size={16} />
                   </div>
-                  <div className={styles.databaseActions}>
-                    <button type="button" className={styles.secondaryButton} onClick={() => void pickSourceDatabaseFile()} disabled={databaseMoving}>
-                      <LuFileSearch size={15} />
-                      Select database file
-                    </button>
-                    {databaseState.recommendedSourceDbPath ? (
-                      <button type="button" className={styles.secondaryButton} onClick={useRecommendedSourceDatabase} disabled={databaseMoving}>
-                        Use detected data file
+                  <div className={styles.stepContent}>
+                    <header>
+                      <div>
+                        <h3>Source database</h3>
+                        <p>{sourceStepMessage}</p>
+                      </div>
+                      <b className={hasValidSource ? styles.stepStatusReady : styles.stepStatusBlocked}>{sourceStatus}</b>
+                    </header>
+                    <div className={styles.pathInput}>
+                      <span>{sourcePath || 'No source selected'}</span>
+                      <b>{databaseLoading ? 'Loading' : databaseLoadError ? 'Error' : sourceStatus}</b>
+                    </div>
+                    <div className={styles.databaseActions}>
+                      <button type="button" className={styles.secondaryButton} onClick={() => void pickSourceDatabaseFile()} disabled={databaseMoving || databaseLoading}>
+                        <LuFileSearch size={15} />
+                        Select database file
                       </button>
-                    ) : null}
+                      {databaseState.recommendedSourceDbPath ? (
+                        <button type="button" className={styles.secondaryButton} onClick={useRecommendedSourceDatabase} disabled={databaseMoving || databaseLoading}>
+                          Use detected data file
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 </section>
 
                 <span className={styles.transferArrow}><LuArrowRight size={18} /></span>
 
-                <section>
-                  <h3><LuFolderOpen size={16} /> Destination</h3>
-                  <div className={styles.pathInput}>
-                    <span>{databaseFolder || 'No destination folder selected'}</span>
-                    <b>{databaseFolder ? 'Ready' : 'Required'}</b>
+                <section className={destinationDisabled ? styles.databaseStepDisabled : styles.databaseStep}>
+                  <div className={styles.stepMarker}>
+                    <span>2</span>
+                    <LuFolderOpen size={16} />
                   </div>
-                  <div className={styles.databaseActions}>
-                    <button type="button" className={styles.secondaryButton} onClick={pickDatabaseFolder} disabled={databaseMoving}>
-                      <LuFolderOpen size={15} />
-                      Select folder
-                    </button>
-                    <button type="button" className={styles.primaryButton} onClick={applyDatabaseMove} disabled={databaseMoving || !databaseFolder || (!databaseState.currentDbExists && !sourceDatabasePath && !databaseState.recommendedSourceDbPath)}>
-                      {databaseMoving ? 'Moving...' : 'Move database'}
-                    </button>
+                  <div className={styles.stepContent}>
+                    <header>
+                      <div>
+                        <h3>Destination folder</h3>
+                        <p>{destinationStepMessage}</p>
+                      </div>
+                      <b className={databaseFolder ? styles.stepStatusReady : styles.stepStatusBlocked}>{destinationStatus}</b>
+                    </header>
+                    <div className={styles.pathInput}>
+                      <span>{databaseFolder || 'No destination folder selected'}</span>
+                      <b>{destinationStatus}</b>
+                    </div>
+                    <div className={styles.databaseActions}>
+                      <button type="button" className={styles.secondaryButton} onClick={pickDatabaseFolder} disabled={destinationDisabled}>
+                        <LuFolderOpen size={15} />
+                        Select folder
+                      </button>
+                      <button type="button" className={styles.primaryButton} onClick={applyDatabaseMove} disabled={destinationDisabled || !databaseFolder}>
+                        {databaseMoving ? 'Moving...' : 'Move database'}
+                      </button>
+                    </div>
                   </div>
                 </section>
               </div>
@@ -482,9 +560,9 @@ export function SettingsPage() {
                     <LuFolderOpen size={15} />
                     Show current folder
                   </button>
-                  <button type="button" className={styles.secondaryButton} onClick={() => void refreshDatabaseLocation()}>
+                  <button type="button" className={styles.secondaryButton} onClick={() => void refreshDatabaseLocation()} disabled={databaseLoading}>
                     <LuRefreshCw size={15} />
-                    Refresh
+                    {databaseLoading ? 'Refreshing...' : 'Refresh'}
                   </button>
                 </div>
                 {databaseMessage ? <p className={styles.settingMessage}>{databaseMessage}</p> : null}
