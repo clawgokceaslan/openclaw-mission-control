@@ -1,4 +1,4 @@
-import type { RunningCodexConversationType } from '@shared/contracts/ipc'
+import type { RunningCodexConversationType, RunningCodexGroupKey } from '@shared/contracts/ipc'
 
 export function runningCodexConversationTypeLabel(type: RunningCodexConversationType | string): string {
   if (type === 'plan') return 'Planning'
@@ -11,6 +11,13 @@ export function runningCodexConversationTypeLabel(type: RunningCodexConversation
 
 export function runningCodexLiveStatusLabel(status: 'queued' | 'running'): string {
   return status === 'queued' ? 'Queued' : 'Running'
+}
+
+export function runningCodexGroupLabel(group: RunningCodexGroupKey): string {
+  if (group === 'planning') return 'Planning'
+  if (group === 'postRunning') return 'Post Running'
+  if (group === 'running') return 'Running'
+  return 'All'
 }
 
 export function formatRunningCodexActivitySummary(value: string, maxLength = 120): string {

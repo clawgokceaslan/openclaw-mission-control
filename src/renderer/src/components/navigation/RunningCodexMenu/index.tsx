@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LuArrowRight, LuChevronLeft, LuChevronRight, LuMessageSquare, LuRefreshCw } from 'react-icons/lu'
-import { IPC_CHANNELS, type PaginatedResponse, type RunningCodexTaskRow } from '@shared/contracts/ipc'
+import { IPC_CHANNELS, type RunningCodexGroupCounts, type RunningCodexGroupKey, type RunningCodexTaskRow, type RunningCodexTasksResponse } from '@shared/contracts/ipc'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { useGlobalCodexChat } from '@renderer/providers/codex-global-chat'
-import { invokeBridge } from '@renderer/utils/api'
-import { formatRunningCodexActivitySummary, runningCodexConversationTypeLabel, runningCodexLiveStatusLabel } from '../runningCodexMenuUtils'
+import { invokeBridge, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
+import { formatRunningCodexActivitySummary, runningCodexConversationTypeLabel, runningCodexGroupLabel, runningCodexLiveStatusLabel } from '../runningCodexMenuUtils'
 import { useOutsidePointerDown } from '../useOutsidePointerDown'
+import { type TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 import styles from './index.module.scss'
 
 const PAGE_SIZE = 8
-const RUNNING_SECTION_KEYS = ['planning', 'postRunning', 'running'] as const
-type RunningSectionKey = typeof RUNNING_SECTION_KEYS[number]
+const RUNNING_GROUP_KEYS: RunningCodexGroupKey[] = ['all', 'planning', 'running', 'postRunning']
+const EMPTY_COUNTS: RunningCodexGroupCounts = {
+  all: 0,
+  planning: 0,
+  running: 0,
+  postRunning: 0
+}
+type RunningSectionKey = Exclude<RunningCodexGroupKey, 'all'>
 
 type RunningSection = {
   key: RunningSectionKey
@@ -41,8 +48,8 @@ function buildRunningSections(rows: RunningCodexTaskRow[]): RunningSection[] {
 
   const sections: RunningSection[] = [
     { key: 'planning', title: 'Planning', rows: sectionMap.get('planning')! },
-    { key: 'postRunning', title: 'Post Running', rows: sectionMap.get('postRunning')! },
-    { key: 'running', title: 'Running', rows: sectionMap.get('running')! }
+    { key: 'running', title: 'Running', rows: sectionMap.get('running')! },
+    { key: 'postRunning', title: 'Post Running', rows: sectionMap.get('postRunning')! }
   ]
   return sections.filter((section) => section.rows.length > 0)
 }
@@ -53,31 +60,55 @@ export function RunningCodexMenu() {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [open, setOpen] = useState(false)
   const [page, setPage] = useState(1)
+  const [activeGroup, setActiveGroup] = useState<RunningCodexGroupKey>('all')
+  const [counts, setCounts] = useState<RunningCodexGroupCounts>(EMPTY_COUNTS)
   const [rows, setRows] = useState<RunningCodexTaskRow[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [openingConversationId, setOpeningConversationId] = useState<string | null>(null)
+  const requestCounterRef = useRef(0)
+  const refreshTimerRef = useRef<number | null>(null)
+  const pageRef = useRef(1)
+  const openRef = useRef(false)
+  const activeGroupRef = useRef<RunningCodexGroupKey>('all')
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total])
   const hasRows = rows.length > 0
+  const runningTotal = counts.all
 
-  const loadPage = useCallback(async (nextPage: number) => {
+  const loadPage = useCallback(async (nextPage: number, options: { includeRows?: boolean } = {}) => {
     if (!token) return
+    const includeRows = options.includeRows ?? true
     const requestedPage = Math.max(1, nextPage)
-    setLoading(true)
-    setError(null)
-    const response = await invokeBridge<PaginatedResponse<RunningCodexTaskRow>>(IPC_CHANNELS.tasks.listRunningCodex, {
+    const requestId = ++requestCounterRef.current
+
+    if (includeRows) {
+      setLoading(true)
+    }
+    const response = await invokeBridge<RunningCodexTasksResponse>(IPC_CHANNELS.tasks.listRunningCodex, {
       actorToken: token,
       page: requestedPage,
-      pageSize: PAGE_SIZE
+      pageSize: includeRows ? PAGE_SIZE : 1,
+      group: activeGroupRef.current
     })
-    setLoading(false)
+
+    if (requestId !== requestCounterRef.current) return
+
+    if (includeRows) {
+      setLoading(false)
+    }
+    setError(null)
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Unable to load running Codex conversations')
+      if (includeRows && openRef.current) {
+        setError(response.error?.message ?? 'Unable to load running Codex conversations')
+      }
       return
     }
+    setCounts(response.data.counts ?? EMPTY_COUNTS)
     const nextTotal = Number(response.data.total ?? 0)
+    setTotal(nextTotal)
+    if (!includeRows || !openRef.current) return
     const nextTotalPages = Math.max(1, Math.ceil(nextTotal / PAGE_SIZE))
     if (requestedPage > nextTotalPages) {
       void loadPage(nextTotalPages)
@@ -86,12 +117,86 @@ export function RunningCodexMenu() {
     setRows(Array.isArray(response.data.rows) ? response.data.rows : [])
     setTotal(nextTotal)
     setPage(response.data.page || requestedPage)
+    pageRef.current = response.data.page || requestedPage
   }, [token])
+
+  const scheduleSummaryRefresh = useCallback(() => {
+    if (!token) return
+    if (refreshTimerRef.current) {
+      window.clearTimeout(refreshTimerRef.current)
+    }
+    refreshTimerRef.current = window.setTimeout(() => {
+      refreshTimerRef.current = null
+      if (!token) return
+      if (openRef.current) {
+        void loadPage(pageRef.current)
+      } else {
+        void loadPage(1, { includeRows: false })
+      }
+    }, 250)
+  }, [loadPage, token])
 
   useEffect(() => {
     if (!open) return
+    openRef.current = open
+    setRows([])
+    setError(null)
     void loadPage(1)
-  }, [loadPage, open])
+  }, [activeGroup, loadPage, open])
+
+  useEffect(() => {
+    openRef.current = open
+  }, [open])
+
+  useEffect(() => {
+    pageRef.current = page
+  }, [page])
+
+  useEffect(() => {
+    activeGroupRef.current = activeGroup
+  }, [activeGroup])
+
+  useEffect(() => {
+    if (!token) {
+      setCounts(EMPTY_COUNTS)
+      setRows([])
+      setTotal(0)
+      return
+    }
+    void loadPage(1, { includeRows: false })
+  }, [loadPage, token])
+
+  useEffect(() => {
+    if (!token) return
+
+    const onTaskActivity = (...args: unknown[]) => {
+      const payload = (args[1] ?? args[0]) as { message?: TaskActivityMessage } | undefined
+      const source = payload?.message?.source
+      if (source === 'codex-plan' || source === 'codex-run' || source === 'codex-chat') {
+        scheduleSummaryRefresh()
+      }
+    }
+
+    const onTaskUpdated = () => {
+      scheduleSummaryRefresh()
+    }
+
+    subscribeToChannel(IPC_CHANNELS.events.taskActivity, onTaskActivity)
+    subscribeToChannel(IPC_CHANNELS.events.taskUpdated, onTaskUpdated)
+
+    return () => {
+      unsubscribeFromChannel(IPC_CHANNELS.events.taskActivity, onTaskActivity)
+      unsubscribeFromChannel(IPC_CHANNELS.events.taskUpdated, onTaskUpdated)
+    }
+  }, [scheduleSummaryRefresh, token])
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current)
+      }
+    }
+  }, [])
   const sections = useMemo(() => buildRunningSections(rows), [rows])
 
   useOutsidePointerDown(open, containerRef, () => setOpen(false))
@@ -116,25 +221,48 @@ export function RunningCodexMenu() {
     <div ref={containerRef} className={styles.runningCodexTopArea}>
       <button
         type="button"
-        className={`${styles.runningCodexButton} ${total === 0 ? styles.runningCodexButtonIdle : ''}`}
+        className={`${styles.runningCodexButton} ${runningTotal === 0 ? styles.runningCodexButtonIdle : ''}`}
         onClick={() => setOpen((current) => !current)}
-        aria-label={total > 0 ? `${total} running Codex conversation${total === 1 ? '' : 's'}` : 'No running Codex conversations'}
+        aria-label={runningTotal > 0 ? `${runningTotal} running Codex conversation${runningTotal === 1 ? '' : 's'}` : 'No running Codex conversations'}
         title="Running Codex chats"
       >
         <LuMessageSquare size={16} />
-        {total > 0 ? <span>{total > 99 ? '99+' : total}</span> : null}
+        {runningTotal > 0 ? <span>{runningTotal > 99 ? '99+' : runningTotal}</span> : null}
       </button>
       {open ? (
         <div className={styles.runningCodexPanel}>
           <header>
             <div>
               <strong>Running</strong>
-              <span>{total > 0 ? `${total} live Codex conversation${total === 1 ? '' : 's'}` : 'No running conversations'}</span>
+              <span>{runningTotal > 0 ? `${runningTotal} live Codex conversation${runningTotal === 1 ? '' : 's'}` : 'No running conversations'}</span>
             </div>
             <button type="button" onClick={() => loadPage(page)} disabled={loading} aria-label="Refresh running conversations">
               <LuRefreshCw size={14} />
             </button>
           </header>
+          <div className={styles.runningCodexTabs} role="tablist" aria-label="Running Codex groups">
+            {RUNNING_GROUP_KEYS.map((group) => (
+              <button
+                key={group}
+                type="button"
+                role="tab"
+                aria-selected={activeGroup === group}
+                className={activeGroup === group ? styles.runningCodexTabActive : undefined}
+                onClick={() => {
+                  if (activeGroup === group) return
+                  activeGroupRef.current = group
+                  setActiveGroup(group)
+                  setPage(1)
+                  setRows([])
+                  setTotal(counts[group])
+                  pageRef.current = 1
+                }}
+              >
+                <span>{runningCodexGroupLabel(group)}</span>
+                <b>{counts[group]}</b>
+              </button>
+            ))}
+          </div>
           {loading && !hasRows ? (
             <div className={styles.runningCodexState}>Loading running conversations...</div>
           ) : error ? (

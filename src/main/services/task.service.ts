@@ -25,9 +25,12 @@ import type {
   ProjectExportAttachmentInput,
   RemoveTaskCommentRequest,
   RunTaskCodexRequest,
+  RunningCodexGroupCounts,
+  RunningCodexGroupKey,
   SetTaskSkillsRequest,
   SetTaskTagsRequest,
   RunningCodexTaskRow,
+  RunningCodexTasksResponse,
   TaskPlannerContextRequest,
   TaskPlannerJsonRequest,
   UpdateTaskSubtaskRequest,
@@ -228,6 +231,31 @@ function runningConversationLabel(type: RunningCodexConversationType): string {
   if (type === 'run') return 'Run'
   if (type === 'post-run') return 'Post Running'
   return 'Running'
+}
+
+function runningConversationGroupOf(type: RunningCodexConversationType): Exclude<RunningCodexGroupKey, 'all'> {
+  if (type === 'plan') return 'planning'
+  if (type === 'post-run') return 'postRunning'
+  return 'running'
+}
+
+function normalizeRunningCodexGroup(value: unknown): RunningCodexGroupKey {
+  return value === 'planning' || value === 'running' || value === 'postRunning' ? value : 'all'
+}
+
+function countRunningCodexGroups(rows: RunningCodexTaskRow[]): RunningCodexGroupCounts {
+  const counts: RunningCodexGroupCounts = {
+    all: rows.length,
+    planning: 0,
+    running: 0,
+    postRunning: 0
+  }
+
+  for (const row of rows) {
+    counts[runningConversationGroupOf(row.conversationType)] += 1
+  }
+
+  return counts
 }
 
 function compactRunningActivitySummary(message: TaskActivityMessage): string {
@@ -2973,24 +3001,31 @@ export class TaskService {
     })
   }
 
-  async listRunningCodex(payload: ListRunningCodexTasksRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<PaginatedResponse<RunningCodexTaskRow>>> {
+  async listRunningCodex(payload: ListRunningCodexTasksRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<RunningCodexTasksResponse>> {
     const actor = await this.auth.requireActor(payload?.actorToken)
     const page = Math.max(1, Math.floor(Number(payload?.page ?? 1)))
     const pageSize = Math.max(1, Math.min(50, Math.floor(Number(payload?.pageSize ?? 12))))
+    const group = normalizeRunningCodexGroup(payload?.group)
     const candidates = await this.repo.listRunningCodex(actor.user.organizationId)
     const runningRows = candidates.flatMap(({ task, project }) => summarizeRunningConversation(
       task,
       project,
       taskActivityMessagesFromPayload(task.payload)
     )).map(({ latestActivityBody, ...row }) => row)
-    const total = runningRows.length
+    const counts = countRunningCodexGroups(runningRows)
+    const filteredRows = group === 'all'
+      ? runningRows
+      : runningRows.filter((row) => runningConversationGroupOf(row.conversationType) === group)
+    const total = filteredRows.length
     const start = (page - 1) * pageSize
-    const rows = runningRows.slice(start, start + pageSize)
+    const rows = filteredRows.slice(start, start + pageSize)
     return okResponse({
       rows,
       total,
       page,
-      pageSize
+      pageSize,
+      group,
+      counts
     })
   }
 

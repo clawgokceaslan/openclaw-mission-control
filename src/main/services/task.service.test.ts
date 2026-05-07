@@ -962,13 +962,27 @@ describe('running Codex conversations', () => {
       createdAt: 1,
       updatedAt: 1
     }
+    const planTask: TaskEntity = {
+      id: 'task-2',
+      projectId: 'project-1',
+      title: 'Plan Task',
+      status: 'active',
+      payload: {
+        activityMessages: [
+          { id: 'plan-live', runId: 'plan-run', source: 'codex-plan', role: 'thinking', status: 'running', body: 'Planning', createdAt: now - 20_000 }
+        ]
+      },
+      createdAt: 1,
+      updatedAt: 1
+    }
 
     service.auth = {
       requireActor: async () => ({ user: { organizationId: 'org-1' } })
     } as any
     service.repo = {
       listRunningCodex: async () => ([
-        { task, project: { id: 'project-1', name: 'Project One' } }
+        { task, project: { id: 'project-1', name: 'Project One' } },
+        { task: planTask, project: { id: 'project-1', name: 'Project One' } }
       ])
     }
     service.eventBus = eventBus
@@ -977,10 +991,19 @@ describe('running Codex conversations', () => {
       const response = await service.listRunningCodex({ actorToken: 'token', page: 1, pageSize: 12 })
 
       expect(response.ok).toBe(true)
-      expect(response.data?.total).toBe(1)
-      expect(response.data?.rows).toHaveLength(1)
-      expect(response.data?.rows[0].codexConversationId).toBe('run-run')
-      expect(response.data?.rows[0].latestActivitySummary).toBe('Working')
+      expect(response.data?.total).toBe(2)
+      expect(response.data?.counts).toEqual({ all: 2, planning: 1, running: 1, postRunning: 0 })
+      expect(response.data?.rows).toHaveLength(2)
+      const runningRow = response.data?.rows.find((row) => row.codexConversationId === 'run-run')
+      expect(runningRow?.latestActivitySummary).toBe('Working')
+
+      const planningResponse = await service.listRunningCodex({ actorToken: 'token', page: 1, pageSize: 12, group: 'planning' })
+
+      expect(planningResponse.ok).toBe(true)
+      expect(planningResponse.data?.group).toBe('planning')
+      expect(planningResponse.data?.total).toBe(1)
+      expect(planningResponse.data?.rows[0].codexConversationId).toBe('plan-run')
+      expect(planningResponse.data?.counts).toEqual({ all: 2, planning: 1, running: 1, postRunning: 0 })
     } finally {
       dateNowSpy.mockRestore()
     }

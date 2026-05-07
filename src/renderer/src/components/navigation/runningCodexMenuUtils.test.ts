@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatRunningCodexActivitySummary, runningCodexConversationTypeLabel, runningCodexLiveStatusLabel } from './runningCodexMenuUtils'
+import { formatRunningCodexActivitySummary, runningCodexConversationTypeLabel, runningCodexGroupLabel, runningCodexLiveStatusLabel } from './runningCodexMenuUtils'
 
 describe('running Codex menu helpers', () => {
   it('labels conversation types and live states clearly', () => {
@@ -11,6 +11,10 @@ describe('running Codex menu helpers', () => {
     expect(runningCodexConversationTypeLabel('mystery')).toBe('Running')
     expect(runningCodexLiveStatusLabel('queued')).toBe('Queued')
     expect(runningCodexLiveStatusLabel('running')).toBe('Running')
+    expect(runningCodexGroupLabel('all')).toBe('All')
+    expect(runningCodexGroupLabel('planning')).toBe('Planning')
+    expect(runningCodexGroupLabel('running')).toBe('Running')
+    expect(runningCodexGroupLabel('postRunning')).toBe('Post Running')
   })
 
   it('compacts long activity summaries', () => {

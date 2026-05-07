@@ -3,8 +3,9 @@ import { LuClipboardList, LuRefreshCw, LuSettings2, LuPlay, LuChevronLeft, LuChe
 import { IPC_CHANNELS, type PaginatedResponse, type PlannedCodexTaskRow } from '@shared/contracts/ipc'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { useGlobalCodexChat } from '@renderer/providers/codex-global-chat'
-import { invokeBridge } from '@renderer/utils/api'
+import { invokeBridge, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { useOutsidePointerDown } from '../useOutsidePointerDown'
+import { type TaskActivityMessage } from '@renderer/screens/projects/detail/types'
 import styles from './index.module.scss'
 
 const PAGE_SIZE = 8
@@ -27,40 +28,127 @@ export function PlannedTasksMenu() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [launchingTaskId, setLaunchingTaskId] = useState<string | null>(null)
+  const requestCounterRef = useRef(0)
+  const refreshTimerRef = useRef<number | null>(null)
+  const pageRef = useRef(1)
+  const openRef = useRef(false)
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total])
   const hasRows = rows.length > 0
 
-  const loadPage = useCallback(async (nextPage: number) => {
+  const loadPage = useCallback(async (nextPage: number, options: { includeRows?: boolean } = {}) => {
     if (!token) return
+
+    const includeRows = options.includeRows ?? true
     const requestedPage = Math.max(1, nextPage)
-    setLoading(true)
-    setError(null)
+    const requestId = ++requestCounterRef.current
+
+    if (includeRows) {
+      setLoading(true)
+    }
+
     const response = await invokeBridge<PaginatedResponse<PlannedCodexTaskRow>>(IPC_CHANNELS.tasks.listPlannedCodex, {
       actorToken: token,
       page: requestedPage,
-      pageSize: PAGE_SIZE
+      pageSize: includeRows ? PAGE_SIZE : 1
     })
-    setLoading(false)
+
+    if (requestId !== requestCounterRef.current) return
+
+    if (includeRows) {
+      setLoading(false)
+    }
+    setError(null)
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Unable to load planned tasks')
+      if (includeRows && openRef.current) {
+        setError(response.error?.message ?? 'Unable to load planned tasks')
+      }
       return
     }
     const nextTotal = Number(response.data.total ?? 0)
+    setTotal(nextTotal)
+    if (!includeRows || !openRef.current) return
+
     const nextTotalPages = Math.max(1, Math.ceil(nextTotal / PAGE_SIZE))
     if (requestedPage > nextTotalPages) {
       void loadPage(nextTotalPages)
       return
     }
     setRows(Array.isArray(response.data.rows) ? response.data.rows : [])
-    setTotal(nextTotal)
     setPage(response.data.page || requestedPage)
+    pageRef.current = response.data.page || requestedPage
   }, [token])
+
+  const scheduleRefresh = useCallback(() => {
+    if (!token) return
+    if (refreshTimerRef.current) {
+      window.clearTimeout(refreshTimerRef.current)
+    }
+    refreshTimerRef.current = window.setTimeout(() => {
+      refreshTimerRef.current = null
+      if (!token) return
+      if (openRef.current) {
+        void loadPage(pageRef.current)
+      } else {
+        void loadPage(1, { includeRows: false })
+      }
+    }, 250)
+  }, [loadPage, token])
 
   useEffect(() => {
     if (!open) return
+    openRef.current = open
     void loadPage(1)
   }, [loadPage, open])
+
+  useEffect(() => {
+    openRef.current = open
+  }, [open])
+
+  useEffect(() => {
+    pageRef.current = page
+  }, [page])
+
+  useEffect(() => {
+    if (!token) {
+      setRows([])
+      setTotal(0)
+      return
+    }
+    void loadPage(1, { includeRows: false })
+  }, [loadPage, token])
+
+  useEffect(() => {
+    if (!token) return
+
+    const onTaskActivity = (...args: unknown[]) => {
+      const payload = (args[1] ?? args[0]) as { message?: TaskActivityMessage } | undefined
+      const source = payload?.message?.source
+      if (source === 'codex-plan' || source === 'codex-run' || source === 'codex-chat') {
+        scheduleRefresh()
+      }
+    }
+
+    const onTaskUpdated = () => {
+      scheduleRefresh()
+    }
+
+    subscribeToChannel(IPC_CHANNELS.events.taskActivity, onTaskActivity)
+    subscribeToChannel(IPC_CHANNELS.events.taskUpdated, onTaskUpdated)
+
+    return () => {
+      unsubscribeFromChannel(IPC_CHANNELS.events.taskActivity, onTaskActivity)
+      unsubscribeFromChannel(IPC_CHANNELS.events.taskUpdated, onTaskUpdated)
+    }
+  }, [scheduleRefresh, token])
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current)
+      }
+    }
+  }, [])
 
   useOutsidePointerDown(open, containerRef, () => setOpen(false))
 

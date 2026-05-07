@@ -137,6 +137,60 @@
     }
   }
 
+  .runningCodexTabs {
+    display: flex;
+    gap: 6px;
+    padding: 10px 10px 0;
+    overflow-x: auto;
+
+    button {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 30px;
+      padding: 5px 8px 5px 10px;
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 999px;
+      background: var(--omc-surface-muted);
+      color: var(--omc-text-muted);
+      font-size: 0.72rem;
+      font-weight: 850;
+      white-space: nowrap;
+      transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+
+      &:hover {
+        border-color: color-mix(in srgb, var(--omc-warning) 34%, var(--omc-border));
+        color: var(--omc-text);
+      }
+
+      b {
+        min-width: 18px;
+        height: 18px;
+        padding: 0 6px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        background: var(--omc-surface);
+        color: var(--omc-text-muted);
+        font-size: 0.66rem;
+        font-weight: 900;
+        line-height: 1;
+      }
+    }
+
+    .runningCodexTabActive {
+      border-color: var(--omc-warning-border);
+      background: var(--omc-warning-bg);
+      color: var(--omc-warning-text);
+
+      b {
+        background: var(--omc-warning);
+        color: var(--omc-inverse-text);
+      }
+    }
+  }
+
   .runningCodexList {
     display: grid;
     gap: 8px;

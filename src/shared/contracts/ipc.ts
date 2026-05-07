@@ -429,9 +429,18 @@ export interface ListRunningCodexTasksRequest {
   actorToken?: string
   page?: number
   pageSize?: number
+  group?: RunningCodexGroupKey
 }
 
 export type RunningCodexConversationType = 'plan' | 'run' | 'chat' | 'steer' | 'post-run'
+export type RunningCodexGroupKey = 'all' | 'planning' | 'running' | 'postRunning'
+
+export interface RunningCodexGroupCounts {
+  all: number
+  planning: number
+  running: number
+  postRunning: number
+}
 
 export interface RunningCodexTaskRow {
   taskId: string
@@ -446,6 +455,11 @@ export interface RunningCodexTaskRow {
   liveStatus: 'queued' | 'running'
   latestAt: number
   latestActivitySummary: string
+}
+
+export interface RunningCodexTasksResponse extends PaginatedResponse<RunningCodexTaskRow> {
+  group: RunningCodexGroupKey
+  counts: RunningCodexGroupCounts
 }
 
 export interface AddTaskCommentRequest {
