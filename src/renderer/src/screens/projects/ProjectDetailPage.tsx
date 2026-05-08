@@ -3292,6 +3292,11 @@ export function ProjectDetailPage() {
           setIsTaskGroupsOpen(false)
           navigateToTaskDetail(taskId)
         }}
+        onCreateGroup={() => {
+          setTaskGroupError(null)
+          setIsTaskGroupsOpen(false)
+          setIsTaskGroupCreateOpen(true)
+        }}
         onClose={() => setIsTaskGroupsOpen(false)}
       />
 

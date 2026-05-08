@@ -486,6 +486,36 @@
     color: var(--omc-text-muted);
     background: var(--omc-surface-muted);
     font-size: 13px;
+    display: grid;
+    justify-items: start;
+    gap: 8px;
+
+    strong {
+      color: var(--omc-text-strong);
+      font-size: 13px;
+      line-height: 1.25;
+    }
+
+    span {
+      color: var(--omc-text-muted);
+      line-height: 1.35;
+    }
+
+    button {
+      min-height: 32px;
+      border: 1px solid color-mix(in srgb, var(--omc-primary) 32%, var(--omc-border));
+      border-radius: 8px;
+      padding: 0 11px;
+      color: var(--omc-primary-strong);
+      background: color-mix(in srgb, var(--omc-primary) 10%, var(--omc-surface));
+      font-size: 12px;
+      font-weight: 750;
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+    }
   }
 
   &__emptyInline {

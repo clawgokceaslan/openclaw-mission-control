@@ -14,6 +14,7 @@ interface TaskGroupsModalProps {
   updatingGroupId: string | null
   onUpdate: (groupId: string, orderedTaskIds: string[], activeTaskId?: string | null) => void
   onOpenTask?: (taskId: string) => void
+  onCreateGroup?: () => void
   onClose: () => void
 }
 
@@ -26,6 +27,7 @@ export function TaskGroupsModal({
   updatingGroupId,
   onUpdate,
   onOpenTask,
+  onCreateGroup,
   onClose
 }: TaskGroupsModalProps) {
   useEffect(() => {
@@ -80,6 +82,7 @@ export function TaskGroupsModal({
           updatingGroupId={updatingGroupId}
           onUpdate={onUpdate}
           onOpenTask={onOpenTask}
+          onCreateGroup={onCreateGroup}
         />
       </section>
     </div>

@@ -12,6 +12,7 @@ interface TaskGroupsPanelProps {
   className?: string
   onUpdate: (groupId: string, orderedTaskIds: string[], activeTaskId?: string | null) => void
   onOpenTask?: (taskId: string) => void
+  onCreateGroup?: () => void
 }
 
 function formatGroupDate(value: number): string {
@@ -45,7 +46,8 @@ export function TaskGroupsPanel({
   updatingGroupId,
   className,
   onUpdate,
-  onOpenTask
+  onOpenTask,
+  onCreateGroup
 }: TaskGroupsPanelProps) {
   const [selectedTaskByGroup, setSelectedTaskByGroup] = useState<Record<string, string>>({})
   const tasksById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])
@@ -246,7 +248,11 @@ export function TaskGroupsPanel({
             )
           })
         ) : (
-          <p className={styles.taskGroupsPanel__empty}>Bu projede henüz task grubu yok. Önce bir Task Grubu oluşturup plan ve çalışma kuyruğunu aynı bağlama bağla.</p>
+          <div className={styles.taskGroupsPanel__empty}>
+            <strong>Bu projede henüz task grubu yok</strong>
+            <span>Plan Kuyruğu ve Çalıştırma Kuyruğu bağlamını görünür yapmak için önce bir Task Grubu oluştur.</span>
+            {onCreateGroup ? <button type="button" onClick={onCreateGroup} disabled={saving}>Task Grubu oluştur</button> : null}
+          </div>
         )}
       </div>
     </section>
