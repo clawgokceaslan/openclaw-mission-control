@@ -1,5 +1,5 @@
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
-import type { OutputFormat, Skill, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, TaskTemplate } from '@shared/types/entities'
+import type { OutputFormat, Skill, TaskComment, TaskEntity, TaskGroup, TaskJsonImportResult, TaskSubtask, TaskTemplate } from '@shared/types/entities'
 import { prefixDataFormatTokens } from '@renderer/components/markdown/MarkdownDescriptionEditor'
 import { invokeBridge } from '@renderer/utils/api'
 import type { ProjectStatusColumn } from './status'
@@ -13,6 +13,8 @@ export type CreateTaskInput = {
   agentId?: string | null
   templateId?: string | null
   importJson?: string | null
+  targetGroupId?: string | null
+  targetGroupOrderedTaskIds?: string[]
   statusOrder?: number
   agenticInputs?: {
     acceptanceCriteria?: string
@@ -31,6 +33,7 @@ export type CreateTaskWithTemplateContext = {
 
 export type CreateTaskWithTemplateResult = {
   task: TaskEntity
+  taskGroup?: TaskGroup
   warnings: string[]
 }
 
@@ -52,6 +55,26 @@ function hasPatch(value: Record<string, unknown>) {
   return Object.keys(value).length > 0
 }
 
+async function appendTaskToGroup(actorToken: string | null, input: CreateTaskInput, taskId: string): Promise<{ taskGroup?: TaskGroup; warning?: string }> {
+  const targetGroupId = input.targetGroupId?.trim()
+  if (!targetGroupId) return {}
+
+  const currentOrder = Array.isArray(input.targetGroupOrderedTaskIds) ? input.targetGroupOrderedTaskIds : []
+  const orderedTaskIds = Array.from(new Set([...currentOrder, taskId].filter((id) => typeof id === 'string' && id.trim())))
+  const response = await invokeBridge<TaskGroup>(IPC_CHANNELS.taskGroups.update, {
+    actorToken,
+    groupId: targetGroupId,
+    orderedTaskIds,
+    activeTaskId: orderedTaskIds[0] ?? taskId
+  })
+
+  if (!response.ok || !response.data) {
+    return { warning: response.error?.message ?? 'Task created, but task group could not be updated' }
+  }
+
+  return { taskGroup: response.data }
+}
+
 export async function createTaskWithTemplate(context: CreateTaskWithTemplateContext): Promise<CreateTaskWithTemplateResult> {
   const { actorToken, userName, input, templates, statusColumns, defaultStatus, outputFormats } = context
   const selectedTemplate = input.templateId ? templates.find((template) => template.id === input.templateId) : null
@@ -68,7 +91,9 @@ export async function createTaskWithTemplate(context: CreateTaskWithTemplateCont
       throw new Error(importResponse.error?.message ?? 'Task JSON import failed')
     }
     warnings.push(...(importResponse.data.warnings ?? []))
-    return { task: importResponse.data.task, warnings }
+    const groupUpdate = await appendTaskToGroup(actorToken, input, importResponse.data.task.id)
+    if (groupUpdate.warning) warnings.push(groupUpdate.warning)
+    return { task: importResponse.data.task, taskGroup: groupUpdate.taskGroup, warnings }
   }
 
   const normalizeStatus = (value?: string | null) => {
@@ -118,7 +143,10 @@ export async function createTaskWithTemplate(context: CreateTaskWithTemplateCont
     if (!tagResponse.ok) warnings.push(tagResponse.error?.message ?? 'Task created, but tags could not be applied')
   }
 
-  if (!templatePayload) return { task, warnings }
+  const groupUpdate = await appendTaskToGroup(actorToken, input, task.id)
+  if (groupUpdate.warning) warnings.push(groupUpdate.warning)
+
+  if (!templatePayload) return { task, taskGroup: groupUpdate.taskGroup, warnings }
 
   const payloadPatch: Record<string, unknown> = {}
   if (Array.isArray(templatePayload.attachments)) payloadPatch.attachments = structuredClone(templatePayload.attachments)
@@ -207,5 +235,5 @@ export async function createTaskWithTemplate(context: CreateTaskWithTemplateCont
     }
   }
 
-  return { task, warnings }
+  return { task, taskGroup: groupUpdate.taskGroup, warnings }
 }

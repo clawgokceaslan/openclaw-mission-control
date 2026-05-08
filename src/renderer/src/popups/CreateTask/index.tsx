@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { LuFolder, LuListChecks, LuTag, LuUpload, LuUserPlus, LuX } from 'react-icons/lu'
-import type { Agent, Project, Tag, TaskEntity, TaskTemplate } from '@shared/types/entities'
+import { LuFolder, LuListChecks, LuRoute, LuTag, LuUpload, LuUserPlus, LuX } from 'react-icons/lu'
+import type { Agent, Project, Tag, TaskEntity, TaskGroup, TaskTemplate } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { MarkdownDescriptionEditor } from '@renderer/components/markdown/MarkdownDescriptionEditor'
 import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
@@ -17,6 +17,7 @@ interface CreateTaskPopupProps {
   tags: Tag[]
   agents: Agent[]
   templates: TaskTemplate[]
+  taskGroups?: TaskGroup[]
   statusColumns: ProjectStatusColumn[]
   defaultStatus: TaskEntity['status']
   initialTitle?: string
@@ -33,6 +34,8 @@ interface CreateTaskPopupProps {
     tagIds: string[]
     agentId?: string | null
     templateId?: string | null
+    targetGroupId?: string | null
+    targetGroupOrderedTaskIds?: string[]
     importJson?: string | null
     agenticInputs?: {
       acceptanceCriteria?: string
@@ -40,13 +43,14 @@ interface CreateTaskPopupProps {
   }) => void
 }
 
-export function CreateTaskPopup({ open, project, projects = [], selectedProjectId, tags, agents, templates, statusColumns, defaultStatus, initialTitle = '', initialTemplateId = null, busy, error, onClose, onProjectChange, onCreate }: CreateTaskPopupProps) {
+export function CreateTaskPopup({ open, project, projects = [], selectedProjectId, tags, agents, templates, taskGroups = [], statusColumns, defaultStatus, initialTitle = '', initialTemplateId = null, busy, error, onClose, onProjectChange, onCreate }: CreateTaskPopupProps) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [status, setStatus] = useState<TaskEntity['status']>(defaultStatus)
   const [selectedTags, setSelectedTags] = useState<AppSelectOption[]>([])
   const [selectedAgent, setSelectedAgent] = useState<AppSelectOption | null>(null)
   const [selectedTemplate, setSelectedTemplate] = useState<AppSelectOption | null>(null)
+  const [selectedTaskGroup, setSelectedTaskGroup] = useState<AppSelectOption | null>(null)
   const [acceptanceCriteria, setAcceptanceCriteria] = useState('')
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [importJson, setImportJson] = useState<string | null>(null)
@@ -54,6 +58,7 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
   const tagOptions = tags.map((tag) => ({ label: tag.name, value: tag.id, color: tag.color }))
   const agentOptions = agents.map((agent) => ({ label: agent.name, value: agent.id }))
   const templateOptions = templates.map((template) => ({ label: template.name, value: template.id }))
+  const taskGroupOptions = taskGroups.map((group) => ({ label: group.title, value: group.groupId }))
   const projectOptions = projects.map((item) => ({ label: item.name, value: item.id }))
   const statusOptions = statusOptionsFromColumns(statusColumns)
   const currentProjectId = selectedProjectId ?? project?.id ?? ''
@@ -86,6 +91,7 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
     setHasSubmitted(false)
     const templateOption = initialTemplateId ? templates.map((template) => ({ label: template.name, value: template.id })).find((option) => option.value === initialTemplateId) ?? null : null
     setSelectedTemplate(templateOption)
+    setSelectedTaskGroup(null)
     if (templateOption) applyTemplate(templateOption)
   }, [open, initialTitle, initialTemplateId])
 
@@ -108,6 +114,8 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
       tagIds: selectedTags.map((tag) => tag.value),
       agentId: selectedAgent?.value ?? null,
       templateId: selectedTemplate?.value ?? null,
+      targetGroupId: selectedTaskGroup?.value ?? null,
+      targetGroupOrderedTaskIds: taskGroups.find((group) => group.groupId === selectedTaskGroup?.value)?.orderedTaskIds ?? [],
       importJson,
       agenticInputs: {
         acceptanceCriteria: acceptanceCriteria.trim()
@@ -168,6 +176,24 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
               isDisabled={!templateOptions.length}
             />
           </div>
+          {taskGroupOptions.length > 0 ? (
+            <div className={styles.createTaskGroupPicker}>
+              <div className={styles.createTaskFieldLabel}>
+                <LuRoute size={15} />
+                <span>Task group</span>
+              </div>
+              <AppSelect
+                mode="single"
+                options={taskGroupOptions}
+                value={selectedTaskGroup}
+                onChange={(option) => {
+                  if (!Array.isArray(option)) setSelectedTaskGroup(option)
+                }}
+                isClearable
+                placeholder="Add to existing group..."
+              />
+            </div>
+          ) : null}
           <div className={styles.createTaskTitleField}>
             <input
               id="create-task-title"

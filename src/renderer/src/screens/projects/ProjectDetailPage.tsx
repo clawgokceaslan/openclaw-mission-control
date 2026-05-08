@@ -1635,6 +1635,9 @@ export function ProjectDetailPage() {
       setIsCreateTaskOpen(false)
       setCreateTaskInitialTitle('')
       setCreateTaskInitialTemplateId(null)
+      if (result.taskGroup) {
+        setTaskGroups((current) => current.map((group) => group.groupId === result.taskGroup?.groupId ? result.taskGroup : group))
+      }
       await refresh()
       openTask(result.task.id)
     } catch (error) {
@@ -3343,6 +3346,7 @@ export function ProjectDetailPage() {
           tags,
           agents,
           templates: taskTemplates,
+          taskGroups,
           statusColumns,
           defaultStatus: createTaskStatus,
           initialTitle: createTaskInitialTitle,

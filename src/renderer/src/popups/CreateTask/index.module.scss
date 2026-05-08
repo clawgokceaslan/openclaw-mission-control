@@ -186,6 +186,22 @@
   }
 }
 
+.createTaskGroupPicker {
+  min-width: 0;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 10px;
+  background: var(--omc-table-header);
+  padding: 10px;
+  display: grid;
+  grid-template-columns: minmax(96px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+
+  > :last-child {
+    min-width: 0;
+  }
+}
+
 .createTaskFieldLabel {
   min-width: 0;
   max-width: 100%;

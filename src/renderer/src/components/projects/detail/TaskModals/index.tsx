@@ -2,7 +2,7 @@ import { ReactNode } from 'react'
 import type { AppSelectOption } from '@renderer/components/select/AppSelect'
 import type { DataFormatRole, ProjectPromptTab } from '@renderer/screens/projects/detail/types'
 import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
-import type { Agent, CustomField, Project, Tag, TaskEntity, TaskSubtask, TaskTemplate } from '@shared/types/entities'
+import type { Agent, CustomField, Project, Tag, TaskEntity, TaskGroup, TaskSubtask, TaskTemplate } from '@shared/types/entities'
 import { AddSubtaskPopup } from '@renderer/popups/AddSubtask'
 import { ChecklistPopup } from '@renderer/popups/Checklist'
 import { CreateTaskPopup } from '@renderer/popups/CreateTask'
@@ -23,6 +23,7 @@ export interface TaskModalsProps {
     tags: Tag[]
     agents: Agent[]
     templates: TaskTemplate[]
+    taskGroups?: TaskGroup[]
     statusColumns: ProjectStatusColumn[]
     defaultStatus: TaskSubtask['status']
     initialTitle: string
@@ -34,6 +35,8 @@ export interface TaskModalsProps {
       status: TaskSubtask['status']
       projectId?: string | null
       templateId?: string | null
+      targetGroupId?: string | null
+      targetGroupOrderedTaskIds?: string[]
       agentId?: string | null
       assigneeIds?: string[]
       customFields?: Record<string, unknown>
@@ -151,6 +154,7 @@ export function TaskModals(props: TaskModalsProps) {
           tags={props.createTaskProject?.tags ?? []}
           agents={props.createTaskProject?.agents ?? []}
           templates={props.createTaskProject?.templates ?? []}
+          taskGroups={props.createTaskProject?.taskGroups ?? []}
           statusColumns={props.createTaskProject?.statusColumns ?? []}
           defaultStatus={props.createTaskProject?.defaultStatus ?? 'pending'}
           initialTitle={props.createTaskProject?.initialTitle ?? ''}
