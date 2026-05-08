@@ -750,10 +750,10 @@ export function AutoPlansPage() {
 
       {projectPickerOpen ? (
         <div className={styles.modalBackdrop} role="presentation">
-          <section className={styles.projectModal} role="dialog" aria-modal="true" aria-label="Choose project">
+          <section className={styles.projectModal} role="dialog" aria-modal="true" aria-label="Proje seç">
             <header>
-              <div><strong>Choose project</strong><span>Default task lists only show the selected project.</span></div>
-              <button type="button" onClick={() => setProjectPickerOpen(false)}>Close</button>
+              <div><strong>Proje seç</strong><span>Varsayılan task listeleri yalnızca seçili projeyi gösterir.</span></div>
+              <button type="button" onClick={() => setProjectPickerOpen(false)}>Kapat</button>
             </header>
             <div className={styles.projectModalList}>
               {projects.map((project) => (
