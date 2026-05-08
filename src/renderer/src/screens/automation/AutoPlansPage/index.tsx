@@ -78,6 +78,7 @@ export function AutoPlansPage() {
 
   const projectsById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects])
   const tasksById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])
+  const taskGroupsById = useMemo(() => new Map(taskGroups.map((group) => [group.groupId, group])), [taskGroups])
   const groupIdByTaskId = useMemo(() => {
     const next = new Map<string, string>()
     for (const group of taskGroups) {
@@ -211,6 +212,7 @@ export function AutoPlansPage() {
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, 80)
   }, [currentProjectId, isPlanCandidate, query, queryMatchesTask, tasks])
+  const groupedCandidateCount = useMemo(() => filteredTasks.filter((task) => groupIdByTaskId.has(task.id)).length, [filteredTasks, groupIdByTaskId])
 
   const otherTasks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
@@ -428,6 +430,14 @@ export function AutoPlansPage() {
     setActiveStep(nextStep)
   }
 
+  const groupContextLabel = (taskId: string) => {
+    const groupId = groupIdByTaskId.get(taskId)
+    const group = groupId ? taskGroupsById.get(groupId) : null
+    if (!group) return 'Task grubu yok'
+    const order = group.orderedTaskIds.indexOf(taskId)
+    return `${group.title}${order >= 0 ? ` · P${order + 1}` : ''}`
+  }
+
   return (
     <section className={styles.page}>
       <header className={styles.header}>
@@ -470,6 +480,24 @@ export function AutoPlansPage() {
           <span>Uygun</span>
           <strong>{filteredTasks.length}</strong>
           <small>plan bekleyen task</small>
+        </div>
+      </section>
+
+      <section className={styles.contextStrip} aria-label="Plan kuyruğu fırsat kapsamı">
+        <div>
+          <span>Task Grubu</span>
+          <strong>{taskGroups.length} grup · {groupedCandidateCount} bağlı aday</strong>
+          <small>Grup sırası korunur; seçilen tasklar kuyruğa bu bağlamla girer.</small>
+        </div>
+        <div>
+          <span>Plan Kuyruğu</span>
+          <strong>{queueSummary.waiting} bekliyor · {queueSummary.running} aktif</strong>
+          <small>Bu ekran yalnızca planlama sırasını ve plan modunu yönetir.</small>
+        </div>
+        <div>
+          <span>Sonraki faz</span>
+          <strong>Öneri ve otomasyon yok</strong>
+          <small>Kuyruk önerileri, favoriler ve otomasyon motoru bu teslimata dahil değildir.</small>
         </div>
       </section>
 
@@ -531,7 +559,7 @@ export function AutoPlansPage() {
                   <div className={styles.taskCardBody}>
                     <span>{project?.name ?? 'No project'} · {status?.name ?? 'No status'}</span>
                     <strong>{task.title}</strong>
-                    <small>{missing || (queuedTaskIds.has(task.id) ? 'Zaten kuyrukta' : 'Planlamaya hazır')}</small>
+                    <small>{groupContextLabel(task.id)} · {missing || (queuedTaskIds.has(task.id) ? 'Zaten kuyrukta' : 'Planlamaya hazır')}</small>
                   </div>
                   <div className={styles.cardActions}>
                     <button type="button" onClick={(event) => {
@@ -592,7 +620,7 @@ export function AutoPlansPage() {
                       onDragEnd={() => setDraggingQueueId(null)}
                     >
                       <span className={styles.queueIndex}><LuGripVertical size={14} /> {index + 1}</span>
-                      <div><strong>{task?.title ?? item.taskId}</strong><span>{project?.name ?? item.projectId} - {item.message ?? item.state}</span></div>
+                      <div><strong>{task?.title ?? item.taskId}</strong><span>{project?.name ?? item.projectId} - {groupContextLabel(item.taskId)} - {item.message ?? item.state}</span></div>
                       <div className={styles.cardActions}>
                         <button type="button" onClick={() => moveQueueItem(item.id, -1)} disabled={index === 0 || item.state === 'running'} title="Move up"><LuArrowUp size={15} /></button>
                         <button type="button" onClick={() => moveQueueItem(item.id, 1)} disabled={index === queue.length - 1 || item.state === 'running'} title="Move down"><LuArrowDown size={15} /></button>

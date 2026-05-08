@@ -102,6 +102,21 @@ export function TaskGroupsPanel({
         </div>
       </div>
 
+      <div className={styles.taskGroupsPanel__scopeBoundary} aria-label="Fırsat kapsamı">
+        <div>
+          <strong>Temel davranış</strong>
+          <span>Kullanıcı seçili grubu, aktif kuyruğu ve sıradaki taskı aynı panelde görür.</span>
+        </div>
+        <div>
+          <strong>Kapsam sınırı</strong>
+          <span>Öneri motoru, favoriler ve otomasyonlar sonraki faza bırakıldı.</span>
+        </div>
+        <div>
+          <strong>Doğrulama</strong>
+          <span>Boş, hata, aktif ve tamamlanmış durumlar aksiyon ya da açıklanabilir bağlam üretir.</span>
+        </div>
+      </div>
+
       <div className={styles.taskGroupsPanel__list}>
         {groups.length > 0 ? (
           groups.map((group) => {

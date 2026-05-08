@@ -127,6 +127,38 @@
     }
   }
 
+  &__scopeBoundary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+
+    div {
+      min-width: 0;
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 8px;
+      padding: 8px;
+      background: var(--omc-surface);
+      display: grid;
+      gap: 3px;
+    }
+
+    strong {
+      overflow: hidden;
+      color: var(--omc-text-strong);
+      font-size: 12px;
+      font-weight: 850;
+      line-height: 1.2;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    span {
+      color: var(--omc-text-muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+  }
+
   &__list {
     min-height: 0;
     overflow-y: auto;
@@ -485,6 +517,7 @@
     }
 
     &__model,
+    &__scopeBoundary,
     &__queueGrid {
       grid-template-columns: 1fr;
     }

@@ -189,6 +189,41 @@
     }
   }
 
+  .contextStrip {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+
+    div {
+      min-width: 0;
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 8px;
+      background: var(--omc-surface);
+      padding: 12px;
+      display: grid;
+      gap: 4px;
+
+      span {
+        color: var(--omc-primary);
+        font-size: 0.72rem;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      strong {
+        color: var(--omc-text-strong);
+        font-size: 0.95rem;
+        line-height: 1.25;
+      }
+
+      small {
+        color: var(--omc-text-muted);
+        font-size: 0.8rem;
+        line-height: 1.35;
+      }
+    }
+  }
+
   .stepperShell {
     border: 1px solid var(--omc-border-subtle);
     border-radius: 8px;
@@ -872,6 +907,7 @@
 @media (max-width: 980px) {
   .page {
     .controls,
+    .contextStrip,
     .layout {
       grid-template-columns: 1fr;
     }
