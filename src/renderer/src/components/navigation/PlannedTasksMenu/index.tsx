@@ -173,7 +173,7 @@ export function PlannedTasksMenu() {
       return
     }
     setLaunchingTaskId(row.taskId)
-    const launched = await launchPlannedTaskRun({ projectId: row.projectId, taskId: row.taskId })
+    const launched = await launchPlannedTaskRun({ projectId: row.projectId, taskId: row.taskId, groupId: row.groupId })
     setLaunchingTaskId(null)
     if (launched) {
       setOpen(false)

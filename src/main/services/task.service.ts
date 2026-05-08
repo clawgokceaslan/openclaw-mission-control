@@ -51,6 +51,7 @@ import { StatusRepository } from '../../db/repositories/status-repo.js'
 import { AppSettingsRepository, WorkspaceRepository } from '../../db/repositories/workspace-repo.js'
 import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
 import { GATEWAY_LANGUAGE_KEY, DEFAULT_AGENT_KEY } from './app-settings.service.js'
+import { buildTaskGroupContextMarkdown, buildTaskGroupContract, taskGroupContextPath, taskGroupQueueDetails } from './task-group-contract.js'
 import { TaskJsonImportNormalizer } from './task-json-import.js'
 import type { NormalizedTaskJsonImport } from './task-json-import.js'
 import { safeConsole } from '../utils/safe-output.js'
@@ -154,62 +155,6 @@ function plannerTaskGroupTitle(payloadTitle: unknown, sourceTask: TaskEntity | u
   if (typeof payloadTitle === 'string' && payloadTitle.trim()) return payloadTitle.trim()
   if (sourceTask?.title?.trim()) return `${sourceTask.title.trim()} grubu`
   return `${firstTask.title.trim()} grubu`
-}
-
-function taskSummaryLine(task: TaskEntity, index: number): string {
-  const description = typeof task.description === 'string' ? task.description.trim().replace(/\s+/g, ' ') : ''
-  const acceptanceCriteria = typeof task.agenticInputs?.acceptanceCriteria === 'string'
-    ? task.agenticInputs.acceptanceCriteria.trim().replace(/\s+/g, ' ')
-    : ''
-  const details = [
-    description ? `Açıklama: ${description.slice(0, 260)}` : '',
-    acceptanceCriteria ? `Kabul: ${acceptanceCriteria.slice(0, 220)}` : ''
-  ].filter(Boolean).join(' | ')
-  return `${index + 1}. ${task.title} (${task.id})${details ? ` - ${details}` : ''}`
-}
-
-function buildTaskGroupContract(input: { projectId: string; groupId: string; title: string; tasks: TaskEntity[] }): string {
-  const orderedTaskIds = input.tasks.map((task) => task.id)
-  return [
-    `TaskGroup Contract: ${input.title}`,
-    `projectId: ${input.projectId}`,
-    `groupId: ${input.groupId}`,
-    `orderedTaskIds: ${orderedTaskIds.join(', ')}`,
-    `activeTaskId: ${orderedTaskIds[0] ?? ''}`,
-    'Sıra ve kapsam: Task oluşturma merkezindeki taslak sırası korunur; proje sınırı dışına çıkılmaz.',
-    'Task özeti:',
-    ...input.tasks.map(taskSummaryLine)
-  ].join('\n')
-}
-
-function buildTaskGroupContextMarkdown(input: { projectId: string; title: string; contractedContext: string; tasks: TaskEntity[] }): string {
-  return [
-    `# ${input.title}`,
-    '',
-    '## Contract',
-    '',
-    input.contractedContext,
-    '',
-    '## Queue State',
-    '',
-    '- planningQueueState: idle',
-    '- executionQueueState: idle',
-    '',
-    '## Ordered Tasks',
-    '',
-    ...input.tasks.map((task, index) => [
-      `### ${index + 1}. ${task.title}`,
-      '',
-      `- taskId: ${task.id}`,
-      `- projectId: ${input.projectId}`,
-      `- status: ${task.status}`,
-      task.description ? `- description: ${task.description.trim().slice(0, 600)}` : '- description: ',
-      typeof task.agenticInputs?.acceptanceCriteria === 'string' && task.agenticInputs.acceptanceCriteria.trim()
-        ? `- acceptanceCriteria: ${task.agenticInputs.acceptanceCriteria.trim().slice(0, 500)}`
-        : '- acceptanceCriteria: '
-    ].join('\n')),
-    ''
-  ].join('\n')
 }
 
 type PlannerLaunchResult = {
@@ -3213,45 +3158,58 @@ export class TaskService {
     return groups[0] ?? null
   }
 
-  private queueStateDetails(group: TaskGroup, activeTaskId: string) {
-    return {
-      projectId: group.projectId,
-      groupId: group.groupId,
-      orderedTaskIds: group.orderedTaskIds,
-      activeTaskId,
-      groupContextMdPath: group.groupContextMdPath,
-      contractedContext: group.contractedContext
+  private async tasksByGroupOrder(group: TaskGroup): Promise<Map<string, TaskEntity>> {
+    const tasksById = new Map<string, TaskEntity>()
+    for (const taskId of group.orderedTaskIds) {
+      const task = await this.repo.get(taskId)
+      if (task) tasksById.set(task.id, task)
     }
+    return tasksById
+  }
+
+  private queueStateDetails(group: TaskGroup, activeTaskId: string) {
+    return taskGroupQueueDetails(group, activeTaskId)
   }
 
   private async markTaskGroupQueue(group: TaskGroup | null, queue: 'planning' | 'execution', state: 'queued' | 'running' | 'completed' | 'failed', activeTaskId: string): Promise<TaskGroup | null> {
     if (!group || !this.taskGroups) return group
-    const details = this.queueStateDetails(group, activeTaskId)
+    const groupContextMdPath = group.groupContextMdPath || taskGroupContextPath(group.groupId)
+    const baseDetails = taskGroupQueueDetails({ ...group, groupContextMdPath }, activeTaskId)
+    const planningQueueState = queue === 'planning'
+      ? { state, updatedAt: Date.now(), details: baseDetails }
+      : group.planningQueueState
+    const executionQueueState = queue === 'execution'
+      ? { state, updatedAt: Date.now(), details: baseDetails }
+      : group.executionQueueState
+    const tasksById = await this.tasksByGroupOrder(group)
+    const contractedContext = buildTaskGroupContract({
+      projectId: group.projectId,
+      groupId: group.groupId,
+      title: group.title,
+      orderedTaskIds: group.orderedTaskIds,
+      activeTaskId,
+      groupContextMdPath,
+      planningQueueState,
+      executionQueueState,
+      tasksById
+    })
+    const details = { ...baseDetails, contractedContext }
     const patch = queue === 'planning'
-      ? { planningQueueState: { state, updatedAt: Date.now(), details } }
-      : { executionQueueState: { state, updatedAt: Date.now(), details } }
+      ? { activeTaskId, groupContextMdPath, contractedContext, planningQueueState: { ...planningQueueState, details } }
+      : { activeTaskId, groupContextMdPath, contractedContext, executionQueueState: { ...executionQueueState, details } }
     const updated = await this.taskGroups.update(group.id, patch)
     if (!updated) return group
     if (updated.groupContextMdPath) {
       await mkdir(dirname(updated.groupContextMdPath), { recursive: true })
-      await writeFile(updated.groupContextMdPath, [
-        `# ${updated.title}`,
-        '',
-        '## Contracted Context',
-        '',
-        updated.contractedContext,
-        '',
-        '## Queue State',
-        '',
-        `- planningQueueState: ${updated.planningQueueState.state}`,
-        `- executionQueueState: ${updated.executionQueueState.state}`,
-        `- activeTaskId: ${updated.activeTaskId ?? activeTaskId}`,
-        '',
-        '## Ordered Task IDs',
-        '',
-        ...updated.orderedTaskIds.map((taskId, index) => `- ${index + 1}. ${taskId}`),
-        ''
-      ].join('\n'), 'utf8')
+      await writeFile(updated.groupContextMdPath, buildTaskGroupContextMarkdown({
+        title: updated.title,
+        contractedContext: updated.contractedContext,
+        orderedTaskIds: updated.orderedTaskIds,
+        activeTaskId: updated.activeTaskId,
+        planningQueueState: updated.planningQueueState,
+        executionQueueState: updated.executionQueueState,
+        tasksById
+      }), 'utf8')
     }
     return updated
   }
@@ -4136,17 +4094,30 @@ export class TaskService {
     const groupId = randomUUID()
     const title = plannerTaskGroupTitle(payload.taskGroupTitle, sourceTask, tasks[0])
     const orderedTaskIds = tasks.map((task) => task.id)
-    const groupContextMdPath = join(process.cwd(), '.omc', 'task-groups', groupId, 'groupContext.md')
-    const contractedContext = buildTaskGroupContract({ projectId: payload.projectId, groupId, title, tasks })
+    const groupContextMdPath = taskGroupContextPath(groupId)
     const now = Date.now()
-    const queueDetails = {
+    const queueDetailsBase = {
       projectId: payload.projectId,
       groupId,
       orderedTaskIds,
       activeTaskId: orderedTaskIds[0] ?? null,
-      groupContextMdPath,
-      contractedContext
+      groupContextMdPath
     }
+    const planningQueueState = { state: 'idle' as const, updatedAt: now, details: queueDetailsBase }
+    const executionQueueState = { state: 'idle' as const, updatedAt: now, details: queueDetailsBase }
+    const tasksById = new Map(tasks.map((task) => [task.id, task]))
+    const contractedContext = buildTaskGroupContract({
+      projectId: payload.projectId,
+      groupId,
+      title,
+      orderedTaskIds,
+      activeTaskId: orderedTaskIds[0] ?? null,
+      groupContextMdPath,
+      planningQueueState,
+      executionQueueState,
+      tasksById
+    })
+    const queueDetails = { ...queueDetailsBase, contractedContext }
     const group = await this.taskGroups.create({
       id: groupId,
       projectId: payload.projectId,
@@ -4155,11 +4126,19 @@ export class TaskService {
       activeTaskId: orderedTaskIds[0] ?? null,
       groupContextMdPath,
       contractedContext,
-      planningQueueState: { state: 'idle', updatedAt: now, details: queueDetails },
-      executionQueueState: { state: 'idle', updatedAt: now, details: queueDetails }
+      planningQueueState: { ...planningQueueState, details: queueDetails },
+      executionQueueState: { ...executionQueueState, details: queueDetails }
     })
     await mkdir(dirname(groupContextMdPath), { recursive: true })
-    await writeFile(groupContextMdPath, buildTaskGroupContextMarkdown({ projectId: payload.projectId, title, contractedContext, tasks }), 'utf8')
+    await writeFile(groupContextMdPath, buildTaskGroupContextMarkdown({
+      title,
+      contractedContext,
+      orderedTaskIds,
+      activeTaskId: orderedTaskIds[0] ?? null,
+      planningQueueState: group.planningQueueState,
+      executionQueueState: group.executionQueueState,
+      tasksById
+    }), 'utf8')
     return okResponse(group)
   }
 
@@ -4325,6 +4304,7 @@ export class TaskService {
     const reasoningEffort = projectGatewayReasoningEffort(project, 'run', payload.reasoningEffort)
     const effectiveAgent = await this.effectiveAgentForTask(access.data.task, access.data.actorOrgId, project)
     let taskGroup = await this.taskGroupForLaunch(access.data.task.id, payload.groupId)
+    if (payload.groupId?.trim() && !taskGroup) return errorResponse(ErrorCodes.Validation, 'Task group does not include this task')
     if (taskGroup && taskGroup.projectId !== project.id) return errorResponse(ErrorCodes.Forbidden, 'Task group project mismatch')
     taskGroup = await this.markTaskGroupQueue(taskGroup, 'execution', 'running', access.data.task.id)
 
@@ -5137,6 +5117,7 @@ export class TaskService {
     const reasoningEffort = projectGatewayReasoningEffort(project, 'plan', payload.reasoningEffort)
     const effectiveAgent = await this.effectiveAgentForTask(access.data.task, access.data.actorOrgId, project)
     let taskGroup = await this.taskGroupForLaunch(access.data.task.id, payload.groupId)
+    if (payload.groupId?.trim() && !taskGroup) return errorResponse(ErrorCodes.Validation, 'Task group does not include this task')
     if (taskGroup && taskGroup.projectId !== project.id) return errorResponse(ErrorCodes.Forbidden, 'Task group project mismatch')
     taskGroup = await this.markTaskGroupQueue(taskGroup, 'planning', 'running', access.data.task.id)
 

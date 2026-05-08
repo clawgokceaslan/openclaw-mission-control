@@ -1,7 +1,7 @@
 import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LuArrowDown, LuArrowUp, LuSquareCheck, LuCircleStop, LuExternalLink, LuGripVertical, LuListFilter, LuPlay, LuRefreshCw, LuSquare, LuTrash2 } from 'react-icons/lu'
 import { IPC_CHANNELS, type PaginatedResponse, type PlanTaskGatewayRequest, type PlannedGatewayTaskRow, type RunningGatewayTaskRow, type RunningGatewayTasksResponse } from '@shared/contracts/ipc'
-import type { Project, ProjectStatus, TaskEntity } from '@shared/types/entities'
+import type { Project, ProjectStatus, TaskEntity, TaskGroup } from '@shared/types/entities'
 import { DEFAULT_GATEWAY_LANGUAGE } from '@shared/utils/gateway-language'
 import { GlobalTaskDetailModal } from '@renderer/components/navigation/GlobalTaskDetailModal'
 import { LoadingState } from '@renderer/components/loading'
@@ -14,7 +14,7 @@ import styles from './index.module.scss'
 type StepKey = 'scope' | 'tasks' | 'queue' | 'confirm'
 type PlanMode = NonNullable<PlanTaskGatewayRequest['clarificationMode']>
 type QueueState = 'waiting' | 'running' | 'completed' | 'failed' | 'stopped'
-type QueueItem = { id: string; taskId: string; projectId: string; state: QueueState; message?: string; conversationId?: string }
+type QueueItem = { id: string; taskId: string; projectId: string; groupId?: string | null; state: QueueState; message?: string; conversationId?: string }
 type GatewayPlanResponse = { executionMode?: 'terminal' | 'exec'; runId?: string; conversationId?: string; runtimeWorkspacePath?: string }
 type DefaultProjectResponse = { projectId: string | null; project?: Project | null; fallbackProject?: Project | null; invalidStoredProjectId?: string | null }
 
@@ -60,6 +60,7 @@ export function AutoPlansPage() {
   const [statusesByProject, setStatusesByProject] = useState<Record<string, ProjectStatus[]>>({})
   const [runningRows, setRunningRows] = useState<RunningGatewayTaskRow[]>([])
   const [plannedRows, setPlannedRows] = useState<PlannedGatewayTaskRow[]>([])
+  const [taskGroups, setTaskGroups] = useState<TaskGroup[]>([])
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [currentProjectId, setCurrentProjectId] = useState('')
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
@@ -77,6 +78,28 @@ export function AutoPlansPage() {
 
   const projectsById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects])
   const tasksById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])
+  const groupIdByTaskId = useMemo(() => {
+    const next = new Map<string, string>()
+    for (const group of taskGroups) {
+      for (const taskId of group.orderedTaskIds) next.set(taskId, group.groupId)
+    }
+    for (const row of plannedRows) {
+      if (row.groupId) next.set(row.taskId, row.groupId)
+    }
+    return next
+  }, [plannedRows, taskGroups])
+  const groupOrderByTaskId = useMemo(() => {
+    const next = new Map<string, number>()
+    for (const group of taskGroups) {
+      group.orderedTaskIds.forEach((taskId, index) => next.set(taskId, index))
+    }
+    for (const row of plannedRows) {
+      row.orderedTaskIds?.forEach((taskId, index) => {
+        if (!next.has(taskId)) next.set(taskId, index)
+      })
+    }
+    return next
+  }, [plannedRows, taskGroups])
   const queuedTaskIds = useMemo(() => new Set(queue.filter((item) => item.state === 'waiting' || item.state === 'running').map((item) => item.taskId)), [queue])
   const currentProject = projectsById.get(currentProjectId)
   const sameAutomationActive = automationSnapshot.active.plan
@@ -132,6 +155,24 @@ export function AutoPlansPage() {
   }, [loadData])
 
   useEffect(() => subscribeAutomationQueue(() => setAutomationSnapshot(automationQueueSnapshot())), [])
+
+  useEffect(() => {
+    if (!currentProjectId) {
+      setTaskGroups([])
+      return
+    }
+    let cancelled = false
+    invokeBridge<TaskGroup[]>(IPC_CHANNELS.taskGroups.list, { actorToken: token, projectId: currentProjectId })
+      .then((response) => {
+        if (!cancelled) setTaskGroups(response.ok && Array.isArray(response.data) ? response.data : [])
+      })
+      .catch(() => {
+        if (!cancelled) setTaskGroups([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [currentProjectId, token])
 
   useEffect(() => {
     const refresh = () => void loadData()
@@ -192,7 +233,7 @@ export function AutoPlansPage() {
 
   const addToQueue = (task: TaskEntity) => {
     if (queuedTaskIds.has(task.id) || isTaskClosed(task) || missingPlanLabel(projectsById.get(task.projectId))) return
-    setQueue((current) => [...current, { id: `${task.id}-${Date.now()}`, taskId: task.id, projectId: task.projectId, state: 'waiting' }])
+    setQueue((current) => [...current, { id: `${task.id}-${Date.now()}`, taskId: task.id, projectId: task.projectId, groupId: groupIdByTaskId.get(task.id) ?? null, state: 'waiting' }])
     setActiveStep('queue')
   }
 
@@ -205,7 +246,13 @@ export function AutoPlansPage() {
     const selected = filteredTasks.filter((task) => selectedTaskIds.includes(task.id))
     const nextItems = selected
       .filter((task) => !queuedTaskIds.has(task.id) && !isTaskClosed(task) && !missingPlanLabel(projectsById.get(task.projectId)))
-      .map((task, index) => ({ id: `${task.id}-${Date.now()}-${index}`, taskId: task.id, projectId: task.projectId, state: 'waiting' as QueueState }))
+      .sort((a, b) => {
+        const groupA = groupIdByTaskId.get(a.id) ?? ''
+        const groupB = groupIdByTaskId.get(b.id) ?? ''
+        if (groupA && groupA === groupB) return (groupOrderByTaskId.get(a.id) ?? 0) - (groupOrderByTaskId.get(b.id) ?? 0)
+        return selectedTaskIds.indexOf(a.id) - selectedTaskIds.indexOf(b.id)
+      })
+      .map((task, index) => ({ id: `${task.id}-${Date.now()}-${index}`, taskId: task.id, projectId: task.projectId, groupId: groupIdByTaskId.get(task.id) ?? null, state: 'waiting' as QueueState }))
     if (nextItems.length === 0) return
     setQueue((current) => [...current, ...nextItems])
     setSelectedTaskIds([])
@@ -292,6 +339,7 @@ export function AutoPlansPage() {
       actorToken: token,
       taskId: item.taskId,
       projectId: item.projectId,
+      groupId: item.groupId ?? undefined,
       gatewayId,
       model,
       language: codex.language || DEFAULT_GATEWAY_LANGUAGE,

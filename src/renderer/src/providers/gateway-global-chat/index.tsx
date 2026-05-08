@@ -17,6 +17,7 @@ import type { ChatConversationSummary, TaskActivityMessage } from '@renderer/scr
 type LaunchRequest = {
   projectId: string
   taskId: string
+  groupId?: string | null
 }
 
 type OpenTaskConversationRequest = {
@@ -153,7 +154,7 @@ export function GlobalGatewayChatProvider({ children }: { children: ReactNode })
     }
   }, [loadRunContext, token])
 
-  const launchPlannedTaskRun = useCallback(async ({ projectId, taskId }: LaunchRequest) => {
+  const launchPlannedTaskRun = useCallback(async ({ projectId, taskId, groupId }: LaunchRequest) => {
     if (!token) {
       setError('Sign in is required before starting a Codex run.')
       return false
@@ -228,6 +229,7 @@ export function GlobalGatewayChatProvider({ children }: { children: ReactNode })
         actorToken: token,
         taskId,
         projectId,
+        groupId: groupId ?? undefined,
         gatewayId,
         model,
         language: codex.language || DEFAULT_GATEWAY_LANGUAGE,

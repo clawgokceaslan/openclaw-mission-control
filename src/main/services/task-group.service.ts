@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname } from 'node:path'
 import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
 import type { UpdateTaskGroupRequest } from '../../shared/contracts/ipc.js'
@@ -9,85 +9,13 @@ import { ProjectRepository } from '../../db/repositories/project-repo.js'
 import { TaskRepository } from '../../db/repositories/task-repo.js'
 import { TaskGroupRepository } from '../../db/repositories/task-group-repo.js'
 import { AuthService } from './auth.service.js'
+import { buildTaskGroupContextMarkdown, buildTaskGroupContract, taskGroupContextPath } from './task-group-contract.js'
 
 const CONTRACT_QUEUE_IDLE: TaskGroupQueueState = { state: 'idle' }
 
 function uniqueTaskIds(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   return Array.from(new Set(value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim())))
-}
-
-function contextPathForGroup(groupId: string): string {
-  return join(process.cwd(), '.omc', 'task-groups', groupId, 'groupContext.md')
-}
-
-function taskLine(task: TaskEntity | undefined, id: string, index: number): string {
-  const title = task?.title?.trim() || 'Bilinmeyen task'
-  const status = task?.status?.trim() || 'unknown'
-  const description = typeof task?.description === 'string' && task.description.trim()
-    ? ` - ${task.description.trim().replace(/\s+/g, ' ').slice(0, 220)}`
-    : ''
-  return `${index + 1}. ${title} (${id}) - status: ${status}${description}`
-}
-
-function buildContract(input: {
-  projectId: string
-  groupId: string
-  title: string
-  orderedTaskIds: string[]
-  activeTaskId: string | null
-  groupContextMdPath: string
-  planningQueueState: TaskGroupQueueState
-  executionQueueState: TaskGroupQueueState
-  tasksById: Map<string, TaskEntity>
-}): string {
-  return [
-    `TaskGroup Contract: ${input.title}`,
-    `projectId: ${input.projectId}`,
-    `groupId: ${input.groupId}`,
-    `orderedTaskIds: ${input.orderedTaskIds.join(', ')}`,
-    `activeTaskId: ${input.activeTaskId ?? ''}`,
-    `groupContextMdPath: ${input.groupContextMdPath}`,
-    `planningQueueState: ${input.planningQueueState.state}`,
-    `executionQueueState: ${input.executionQueueState.state}`,
-    'Sayfa kapsamı: proje detayı grup yönetimi, Kanban grup görünümü, planlama kuyruğu ve çalıştırma kuyruğu aynı contract alanlarını taşır.',
-    'Context window contract: ham geçmiş yerine güncel hedef, karar, sıra, aktif task ve kuyruk durumu özetlenir.',
-    'Ordered task özeti:',
-    ...(input.orderedTaskIds.length > 0
-      ? input.orderedTaskIds.map((taskId, index) => taskLine(input.tasksById.get(taskId), taskId, index))
-      : ['Henüz gruba bağlı task yok.'])
-  ].join('\n')
-}
-
-function buildMarkdown(input: {
-  title: string
-  contractedContext: string
-  orderedTaskIds: string[]
-  activeTaskId: string | null
-  planningQueueState: TaskGroupQueueState
-  executionQueueState: TaskGroupQueueState
-  tasksById: Map<string, TaskEntity>
-}): string {
-  return [
-    `# ${input.title}`,
-    '',
-    '## Contracted Context',
-    '',
-    input.contractedContext,
-    '',
-    '## Queue State',
-    '',
-    `- planningQueueState: ${input.planningQueueState.state}`,
-    `- executionQueueState: ${input.executionQueueState.state}`,
-    `- activeTaskId: ${input.activeTaskId ?? ''}`,
-    '',
-    '## Ordered Tasks',
-    '',
-    ...(input.orderedTaskIds.length > 0
-      ? input.orderedTaskIds.map((taskId, index) => `- ${taskLine(input.tasksById.get(taskId), taskId, index)}`)
-      : ['- Henüz gruba bağlı task yok.']),
-    ''
-  ].join('\n')
 }
 
 export class TaskGroupService {
@@ -122,7 +50,7 @@ export class TaskGroupService {
     if (project.organizationId !== actor.user.organizationId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
 
     const groupId = randomUUID()
-    const groupContextMdPath = contextPathForGroup(groupId)
+    const groupContextMdPath = taskGroupContextPath(groupId)
     const queueDetails = {
       projectId,
       groupId,
@@ -132,7 +60,7 @@ export class TaskGroupService {
     }
     const planningQueueState = { ...CONTRACT_QUEUE_IDLE, updatedAt: Date.now(), details: queueDetails }
     const executionQueueState = { ...CONTRACT_QUEUE_IDLE, updatedAt: Date.now(), details: queueDetails }
-    const contractedContext = buildContract({
+    const contractedContext = buildTaskGroupContract({
       projectId,
       groupId,
       title,
@@ -185,7 +113,7 @@ export class TaskGroupService {
       ? requestedActiveTaskId
       : orderedTaskIds[0] ?? null
     const title = payload.title?.trim() || current.title
-    const groupContextMdPath = current.groupContextMdPath || contextPathForGroup(current.groupId)
+    const groupContextMdPath = current.groupContextMdPath || taskGroupContextPath(current.groupId)
     const now = Date.now()
     const queueDetails = {
       projectId: current.projectId,
@@ -196,7 +124,7 @@ export class TaskGroupService {
     }
     const planningQueueState = { state: 'idle' as const, updatedAt: now, details: queueDetails }
     const executionQueueState = { state: 'idle' as const, updatedAt: now, details: queueDetails }
-    const contractedContext = buildContract({
+    const contractedContext = buildTaskGroupContract({
       projectId: current.projectId,
       groupId: current.groupId,
       title,
@@ -224,7 +152,7 @@ export class TaskGroupService {
   private async writeContextMarkdown(group: TaskGroup, tasksById: Map<string, TaskEntity>): Promise<void> {
     if (!group.groupContextMdPath) return
     await mkdir(dirname(group.groupContextMdPath), { recursive: true })
-    await writeFile(group.groupContextMdPath, buildMarkdown({
+    await writeFile(group.groupContextMdPath, buildTaskGroupContextMarkdown({
       title: group.title,
       contractedContext: group.contractedContext,
       orderedTaskIds: group.orderedTaskIds,
