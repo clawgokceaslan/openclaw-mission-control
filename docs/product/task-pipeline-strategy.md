@@ -6,6 +6,23 @@
 
 Bu strateji, mevcut task modeli ve `TaskPlannerChatPopup` sınırları içinde uygulanabilir bir MVP tanımlar. Çoklu task orkestrasyonu, dış CI/CD entegrasyonları, takım bazlı izinler, kurumsal audit yapısı ve gelişmiş otomasyon şablonları sonraki katmanlara bırakılır.
 
+## Mevcut Akış Envanteri
+
+Bugünkü ürün yüzeyi planlama ve çalıştırmayı ayrı temas noktalarında gösterir. Bu envanter, MVP kararlarının mevcut modele bağlı kalmasını sağlar.
+
+| Yüzey | Bugünkü rol | MVP'de korunacak varsayım |
+| --- | --- | --- |
+| `TaskPlannerChatPopup` | Geniş kapsamı bağımsız task taslaklarına bölen PM chat ve önizleme akışı. | İlk MVP uzun form eklemeden bu popup sınırında tek task pipeline kontrol merkezine genişletilebilir. |
+| `PlanChoiceModal` | Kullanıcı planlama başlamadan önce "onay sorularıyla planla" veya "doğrudan planla" kararını verir. | Planlama kontrol noktası korunur; serbest prompt yerine kısa karar/onay akışı olarak yeniden adlandırılır. |
+| `AutoPlansPage` | Planlanmamış taskları plan kuyruğuna alır, ask-first/direct moduyla seri planlatır ve çalışan/planlanan kayıtları gösterir. | Çoklu plan kuyruğu ikinci katmandır; MVP tek task görünümündeki "Planla" aşamasını netleştirir. |
+| `AutoRunPage` | Planlanmış ve çalıştırılabilir taskları çalıştırma kuyruğuna alır, sırayı düzenletir ve çalışan aktiviteyi gösterir. | Çoklu çalıştırma kuyruğu ikinci katmandır; MVP tek task görünümündeki "Çalıştır" aşamasını netleştirir. |
+| `RunningGatewayMenu` | Aktif Codex konuşmalarını Planla, Çalıştır ve Doğrula gruplarında gösterir. | Aşama isimleri mevcut teknik conversation tiplerine bağlı kalabilir; kullanıcı metni task yaşam döngüsü diliyle sadeleşir. |
+| `PlannedTasksMenu` | Planı hazır olan taskları üst menüden çalıştırılabilir liste olarak gösterir. | "Plan hazır" durumundan "Çalıştır" aksiyonuna geçiş korunur; ayrı bir komut gibi değil pipeline sonraki adımı gibi sunulur. |
+| Task aktivite geçmişi | `gateway-plan`, `gateway-run`, `gateway-chat` kaynaklı mesajlar, çalışan/duran durumlar ve run-complete kayıtları taşır. | İlk sürüm yeni task modeli gerektirmeden bu kaynakları zaman çizgisi/aktivite geçmişi olarak gruplayabilir. |
+| Task durum türetimi | `PLAN:not-planned`, `PLAN:planned`, çalışan run kayıtları, `post-run` doğrulama ve başarısız/terminal mesajlardan yüzey statüsü çıkarılır. | Belirsiz `running`/`pending` dili kullanıcıya gösterilmez; aynı veri kullanıcı dostu aşama ve sonraki aksiyona çevrilir. |
+
+Korunması gereken masaüstü deneyimi: hızlı açılan popup, üst menüden aktif iş takibi, sürükle-bıraklı kuyrukların ayrı sayfalarda kalması ve task detayına geri dönüş. MVP bu yüzeyleri tek ekranda birleştirmeye çalışmaz; tek task bağlamında planlama, çalıştırma, doğrulama ve tamamlama bilgisini aynı kontrol merkezinde okunur hale getirir.
+
 ## MVP Kapsamı
 
 ### Must
@@ -224,3 +241,31 @@ Sonraki tasarım veya geliştirme taskı şu kararı baz almalıdır:
 - Auto Plan ve Auto Run kullanıcı arayüzünde birincil ürün dili olmaktan çıkar.
 - Her aşama için kullanıcı tetikleyicisi, sistem durumu, ajan çıktısı ve kullanılabilir kontrol aksiyonları görünür.
 - İlk uygulama kapsamı tek task ile sınırlıdır; çoklu task orkestrasyonu sonraki taska bırakılır.
+
+## Kabul ve Devir Sözleşmesi
+
+Sonraki uygulama taskı bu dokümanı tasarım sözleşmesi olarak kullanabilir. Teslim edilecek ilk ürün davranışı aşağıdaki maddelerle sınırlıdır:
+
+1. Kullanıcı bir task detayından veya planlama popup akışından tek birincil aksiyonla `Taskı İlerlet` akışını başlatır.
+2. Sistem aynı yüzeyde en az şu aşamaları gösterir: `Hazırla`, `Planla`, `Çalıştır`, `Müdahale Et`, `Doğrula`, `Tamamla`.
+3. Her aşamada kullanıcıya üç bilgi verilir: mevcut durum, ajan çıktısı veya son aktivite, sıradaki güvenli aksiyon.
+4. Planlama tamamlandığında task `Plan hazır` durumuna gelir ve sıradaki aksiyon `Çalıştır` olarak görünür.
+5. Çalıştırma tamamlandığında task doğrudan belirsiz tamamlandı durumuna düşmez; `Doğrula` veya `Özet hazır` bilgisi görünür.
+6. Ajan karar bekliyorsa serbest prompt zorunlu değildir; kullanıcı onay, düzenleme, reddetme, kısa bilgi verme veya kapsam küçültme seçeneklerinden biriyle ilerler.
+7. Hata durumunda en az bir geri kazanım yolu görünür: `Yeniden dene`, `Müdahale et`, `Kapsamı değiştir` veya `Manuel devral`.
+8. Tamamlama anında özet, değişen dosyalar veya etkilenen alanlar, doğrulama sonucu ve kalan risk kayda geçirilir.
+
+Kapsam içi bağımlılıklar:
+
+- Mevcut task modeli, task activity mesajları ve gateway conversation kaynakları kullanılmalıdır.
+- `TaskPlannerChatPopup` ilk tek task pipeline kontrol merkezi olarak ele alınmalıdır.
+- Üst menüdeki aktif/planlı task yüzeyleri yardımcı görünürlük olarak kalabilir; MVP'nin ana kabulü tek task deneyimidir.
+- Stil veya UI uygulaması yapılacaksa her parça kendi `index.tsx` ve `index.module.scss` dosyasında, mevcut parent-child hiyerarşisini nested SCSS ile koruyarak ilerlemelidir.
+
+Kapsam dışı notları:
+
+- Çoklu task orkestrasyon merkezi, toplu çalıştırma şablonları ve otomasyon seviyesi seçimi bu MVP'nin kabul koşulu değildir.
+- Dış CI/CD, deploy pipeline, build job, runner yönetimi veya takım yetki modeli bu kararın parçası değildir.
+- Kullanıcıya "Auto Plan" ve "Auto Run" ana ürün dili olarak gösterilmemelidir; teknik kaynak adları yalnızca log, telemetry veya geliştirici detayında kalabilir.
+
+Risk kapanışı: CodePipeline benzetmesi kullanıcı dili olarak kullanılmaz. "Task Pipeline" ifadesi kalacaksa arayüzde her zaman task yaşam döngüsü, ajan orkestrasyonu ve doğrulanmış çıktı bağlamıyla birlikte kullanılmalıdır.
