@@ -63,7 +63,8 @@ export function resolveMigrations(basePath: string): MigrationPlan[] {
     '015_openclaw_resource_mappings.sql',
     '016_project_instruction_templates.sql',
     '017_agent_tags.sql',
-    '018_remove_agent_steps_reasoning_config.sql'
+    '018_remove_agent_steps_reasoning_config.sql',
+    '019_task_groups.sql'
   ]
   return filenames.map((filename) => {
     const searchPaths = [

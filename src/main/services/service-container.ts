@@ -13,6 +13,7 @@ import { WebhookRepository } from '../../db/repositories/webhook-repo.js'
 import { SkillRepository, PackRepository } from '../../db/repositories/skill-repo.js'
 import { OrganizationRepository } from '../../db/repositories/org-repo.js'
 import { GroupRepository } from '../../db/repositories/group-repo.js'
+import { TaskGroupRepository } from '../../db/repositories/task-group-repo.js'
 import { CustomFieldRepository, TagRepository } from '../../db/repositories/custom-field-repo.js'
 import { JobRepository } from '../../db/repositories/job-repo.js'
 import { StatusRepository } from '../../db/repositories/status-repo.js'
@@ -30,6 +31,7 @@ import { WebhookService } from './webhook.service.js'
 import { SkillService } from './skill.service.js'
 import { OrganizationService } from './organization.service.js'
 import { ProjectGroupService } from './project-group.service.js'
+import { TaskGroupService } from './task-group.service.js'
 import { CustomFieldService } from './custom-field.service.js'
 import { JobService } from './job.service.js'
 import { StatusService } from './status.service.js'
@@ -53,6 +55,7 @@ export interface AppServices {
   skills: SkillService
   organization: OrganizationService
   projectGroups: ProjectGroupService
+  taskGroups: TaskGroupService
   customFields: CustomFieldService
   outputFormats: OutputFormatService
   jobs: JobService
@@ -87,6 +90,7 @@ export async function createAppContext(): Promise<AppContext> {
   const packRepo = new PackRepository(db)
   const orgRepo = new OrganizationRepository(db)
   const groupRepo = new GroupRepository(db)
+  const taskGroupRepo = new TaskGroupRepository(db)
   const customFieldRepo = new CustomFieldRepository(db)
   const tagRepo = new TagRepository(db)
   const jobRepo = new JobRepository(db)
@@ -112,6 +116,7 @@ export async function createAppContext(): Promise<AppContext> {
     skills: new SkillService(auth, skillRepo, packRepo),
     organization: new OrganizationService(auth, orgRepo, authRepo),
     projectGroups: new ProjectGroupService(auth, groupRepo, projectRepo),
+    taskGroups: new TaskGroupService(auth, taskGroupRepo, projectRepo),
     customFields: new CustomFieldService(auth, customFieldRepo, tagRepo),
     outputFormats: new OutputFormatService(auth, outputFormatRepo),
     jobs: new JobService(auth, jobRepo),

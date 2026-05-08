@@ -147,6 +147,10 @@ export const IPC_CHANNELS = {
     update: 'project-groups:update',
     remove: 'project-groups:remove'
   },
+  taskGroups: {
+    list: 'task-groups:list',
+    create: 'task-groups:create'
+  },
   customFields: {
     list: 'custom-fields:list',
     create: 'custom-fields:create',
@@ -704,6 +708,7 @@ export const SERVICE_MAP = {
   skills: ['list', 'listPage', 'create', 'update', 'remove', 'listPacks'],
   organization: ['me', 'listMembers', 'createInvite'],
   projectGroups: ['list', 'create', 'update', 'remove'],
+  taskGroups: ['list', 'create'],
   customFields: ['list', 'create', 'update', 'remove', 'tagsList', 'tagsCreate', 'tagsUpdate', 'tagsRemove'],
   outputFormats: ['list', 'create', 'update', 'remove'],
   jobs: ['list', 'metrics']
@@ -1518,6 +1523,22 @@ export const SERVICE_ROUTING: {
       action: 'remove',
       method: 'remove',
       channel: IPC_CHANNELS.projectGroups.remove,
+      requiresAuth: true
+    }
+  },
+  taskGroups: {
+    list: {
+      domain: 'taskGroups',
+      action: 'list',
+      method: 'list',
+      channel: IPC_CHANNELS.taskGroups.list,
+      requiresAuth: true
+    },
+    create: {
+      domain: 'taskGroups',
+      action: 'create',
+      method: 'create',
+      channel: IPC_CHANNELS.taskGroups.create,
       requiresAuth: true
     }
   },

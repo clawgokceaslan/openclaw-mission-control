@@ -10,7 +10,7 @@ import { GATEWAY_REASONING_EFFORT_OPTIONS, DEFAULT_GATEWAY_LANGUAGE, gatewayMode
 import { gatewayChatLifecycleStatusKey, gatewayChatPhaseActionLabel, gatewayLifecycleStatusMeta, inferGatewayChatPhase, type GatewayChatPhase } from '@shared/utils/gateway-chat-phase'
 import { invokeBridge } from '@renderer/utils/api'
 import { clearRendererDiagnosticContext, setRendererDiagnosticContext } from '@renderer/utils/rendererResilience'
-import { Agent, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, CustomField } from '@shared/types/entities'
+import { Agent, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskGroup, TaskJsonImportResult, TaskSubtask, CustomField } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { LoadingState } from '@renderer/components/loading'
@@ -18,6 +18,7 @@ import { prefixDataFormatTokens, type DescriptionDataFormat } from '@renderer/co
 import { storedAttachmentRows } from '@renderer/components/attachments/AttachmentTable'
 import { AttachmentRow, attachmentRowsFromDescription, removeAttachmentFromMarkdown, uploadTaskAttachment } from '@renderer/components/attachments/attachments'
 import { ProjectDetailHeader } from '@renderer/components/projects/detail/ProjectDetailHeader'
+import { TaskGroupsPanel } from '@renderer/components/projects/detail/TaskGroupsPanel'
 import { ProjectDetailSettingsPopup } from '@renderer/popups/ProjectDetailSettingsPopup'
 import { ActiveProjectView } from '@renderer/components/projects/detail/ActiveProjectView'
 import { TaskModals } from '@renderer/components/projects/detail/TaskModals'
@@ -160,6 +161,8 @@ export function ProjectDetailPage() {
     setProject,
     projectGroups,
     setProjectGroups,
+    taskGroups,
+    setTaskGroups,
     tasks,
     setTasks,
     agents,
@@ -200,6 +203,12 @@ export function ProjectDetailPage() {
     setProjectGroupDescriptionDraft,
     projectGroupSaving,
     setProjectGroupSaving,
+    taskGroupTitleDraft,
+    setTaskGroupTitleDraft,
+    taskGroupSaving,
+    setTaskGroupSaving,
+    taskGroupError,
+    setTaskGroupError,
     projectSyncing,
     setProjectSyncing,
     projectSyncMessage,
@@ -1525,6 +1534,32 @@ export function ProjectDetailPage() {
     }
     setTaskTitle('')
     await refresh()
+  }
+
+  const createTaskGroup = async () => {
+    if (!projectId) return
+    const title = taskGroupTitleDraft.trim()
+    if (!title) {
+      setTaskGroupError('Grup adı zorunlu.')
+      return
+    }
+
+    setTaskGroupSaving(true)
+    setTaskGroupError(null)
+    const response = await invokeBridge<TaskGroup>(IPC_CHANNELS.taskGroups.create, {
+      actorToken: token,
+      projectId,
+      title
+    })
+    setTaskGroupSaving(false)
+
+    if (!response.ok || !response.data) {
+      setTaskGroupError(response.error?.message ?? 'Task grubu oluşturulamadı')
+      return
+    }
+
+    setTaskGroups((current) => [response.data as TaskGroup, ...current.filter((group) => group.groupId !== response.data?.groupId)])
+    setTaskGroupTitleDraft('')
   }
 
   const openCreateTask = (status: TaskEntity['status'] = defaultStatus) => {
@@ -3214,6 +3249,18 @@ export function ProjectDetailPage() {
 
       {error ? <p className={styles.error}>{error}</p> : null}
       {projectSyncMessage ? <p className={styles.notice}>{projectSyncMessage}</p> : null}
+
+      <TaskGroupsPanel
+        groups={taskGroups}
+        titleDraft={taskGroupTitleDraft}
+        saving={taskGroupSaving}
+        error={taskGroupError}
+        onTitleDraftChange={(value) => {
+          setTaskGroupTitleDraft(value)
+          if (taskGroupError) setTaskGroupError(null)
+        }}
+        onCreate={() => void createTaskGroup()}
+      />
 
       {isRecentChatsView ? (
         <section className={styles.projectRecentChatsView} aria-label="Chats">

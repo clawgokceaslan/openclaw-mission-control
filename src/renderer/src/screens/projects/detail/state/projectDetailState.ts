@@ -1,12 +1,13 @@
 import { Dispatch, useCallback, useMemo, useReducer } from 'react'
 import { AppSelectOption } from '@renderer/components/select/AppSelect'
-import { Agent, CustomField, Gateway, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, TaskEntity, TaskTemplate, Workspace, Tag } from '@shared/types/entities'
+import { Agent, CustomField, Gateway, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, TaskEntity, TaskGroup, TaskTemplate, Workspace, Tag } from '@shared/types/entities'
 import { ChatAttachmentDraft, ChatComposerMode, GatewayRunFeedback, CustomFieldDraftRow, DataFormatRole, DetailTab, DetailViewMode, ProjectPromptTab, ProjectSettingsTab, TaskHistoryItem, TextDraftRow, ThreadEntry } from '../types'
 import { createLocalId } from '../projectDetailUtils'
 
 export interface ProjectDetailDataState {
   project: Project | null
   projectGroups: ProjectGroup[]
+  taskGroups: TaskGroup[]
   tasks: TaskEntity[]
   agents: Agent[]
   gateways: Gateway[]
@@ -36,6 +37,9 @@ export interface ProjectDetailUiState {
   projectGroupNameDraft: string
   projectGroupDescriptionDraft: string
   projectGroupSaving: boolean
+  taskGroupTitleDraft: string
+  taskGroupSaving: boolean
+  taskGroupError: string | null
   projectSyncing: boolean
   projectSyncMessage: string | null
   workspaceDraftName: string
@@ -237,6 +241,7 @@ export const PROJECT_DETAIL_INITIAL_STATE: ProjectDetailState = {
   data: {
     project: null,
     projectGroups: [],
+    taskGroups: [],
     tasks: [],
     agents: [],
     gateways: [],
@@ -264,6 +269,9 @@ export const PROJECT_DETAIL_INITIAL_STATE: ProjectDetailState = {
     projectGroupNameDraft: '',
     projectGroupDescriptionDraft: '',
     projectGroupSaving: false,
+    taskGroupTitleDraft: '',
+    taskGroupSaving: false,
+    taskGroupError: null,
     projectSyncing: false,
     projectSyncMessage: null,
     workspaceDraftName: '',
@@ -379,6 +387,7 @@ export const PROJECT_DETAIL_INITIAL_STATE: ProjectDetailState = {
 const PROJECT_DETAIL_FIELD_TO_PATH = {
   project: ['data', 'project'],
   projectGroups: ['data', 'projectGroups'],
+  taskGroups: ['data', 'taskGroups'],
   tasks: ['data', 'tasks'],
   agents: ['data', 'agents'],
   gateways: ['data', 'gateways'],
@@ -402,6 +411,9 @@ const PROJECT_DETAIL_FIELD_TO_PATH = {
   projectGroupNameDraft: ['ui', 'projectGroupNameDraft'],
   projectGroupDescriptionDraft: ['ui', 'projectGroupDescriptionDraft'],
   projectGroupSaving: ['ui', 'projectGroupSaving'],
+  taskGroupTitleDraft: ['ui', 'taskGroupTitleDraft'],
+  taskGroupSaving: ['ui', 'taskGroupSaving'],
+  taskGroupError: ['ui', 'taskGroupError'],
   projectSyncing: ['ui', 'projectSyncing'],
   projectSyncMessage: ['ui', 'projectSyncMessage'],
   workspaceDraftName: ['ui', 'workspaceDraftName'],
