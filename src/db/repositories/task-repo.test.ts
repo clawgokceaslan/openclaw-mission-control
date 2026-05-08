@@ -107,6 +107,22 @@ describe('TaskRepository.listPlannedGateway', () => {
     await db.close()
   })
 
+  it('can scope planned Codex tasks to one project', async () => {
+    const db = await createDb()
+    const repo = new TaskRepository(db)
+    await insertProject(db, 'project-a', 'org-1', 'Alpha')
+    await insertProject(db, 'project-b', 'org-1', 'Beta')
+    await insertTask(db, 'task-a', 'project-a', 'Alpha planned', 10, { gatewayPlanState: { state: 'planned' } })
+    await insertTask(db, 'task-b', 'project-b', 'Beta planned', 20, { gatewayPlanState: { state: 'planned' } })
+
+    const page = await repo.listPlannedGateway('org-1', 1, 10, 'project-a')
+
+    expect(page.total).toBe(1)
+    expect(page.rows.map((row) => row.task.id)).toEqual(['task-a'])
+
+    await db.close()
+  })
+
   it('excludes done, closed, and already-run planned Codex tasks', async () => {
     const db = await createDb()
     const repo = new TaskRepository(db)
@@ -175,6 +191,29 @@ describe('TaskRepository.listRunningGateway', () => {
     expect(rows.map((row) => row.task.id)).toEqual(['task-chat', 'task-run', 'task-plan'])
     expect(rows[0].project.name).toBe('Beta')
     expect(rows[0].project.id).toBe('project-b')
+
+    await db.close()
+  })
+
+  it('can scope running Codex tasks to one project', async () => {
+    const db = await createDb()
+    const repo = new TaskRepository(db)
+    await insertProject(db, 'project-a', 'org-1', 'Alpha')
+    await insertProject(db, 'project-b', 'org-1', 'Beta')
+    await insertTask(db, 'task-a', 'project-a', 'Alpha run', 10, {
+      activityMessages: [
+        { id: 'm-1', runId: 'run-a', source: 'gateway-run', role: 'thinking', status: 'running', body: 'Running A', createdAt: 10 }
+      ]
+    })
+    await insertTask(db, 'task-b', 'project-b', 'Beta run', 20, {
+      activityMessages: [
+        { id: 'm-2', runId: 'run-b', source: 'gateway-run', role: 'thinking', status: 'running', body: 'Running B', createdAt: 20 }
+      ]
+    })
+
+    const rows = await repo.listRunningGateway('org-1', 'project-a')
+
+    expect(rows.map((row) => row.task.id)).toEqual(['task-a'])
 
     await db.close()
   })

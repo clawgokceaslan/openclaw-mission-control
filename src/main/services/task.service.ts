@@ -3528,7 +3528,8 @@ export class TaskService {
     const actor = await this.auth.requireActor(payload?.actorToken)
     const page = Math.max(1, Math.floor(Number(payload?.page ?? 1)))
     const pageSize = Math.max(1, Math.min(50, Math.floor(Number(payload?.pageSize ?? 12))))
-    const { rows, total } = await this.repo.listPlannedGateway(actor.user.organizationId, page, pageSize)
+    const projectId = payload?.projectId?.trim() || undefined
+    const { rows, total } = await this.repo.listPlannedGateway(actor.user.organizationId, page, pageSize, projectId)
     const groupsByTaskId = new Map<string, TaskGroup>()
     if (this.taskGroups) {
       for (const { task } of rows) {
@@ -3582,7 +3583,8 @@ export class TaskService {
     const page = Math.max(1, Math.floor(Number(payload?.page ?? 1)))
     const pageSize = Math.max(1, Math.min(50, Math.floor(Number(payload?.pageSize ?? 12))))
     const group = normalizeRunningGatewayGroup(payload?.group)
-    const candidates = await this.repo.listRunningGateway(actor.user.organizationId)
+    const projectId = payload?.projectId?.trim() || undefined
+    const candidates = await this.repo.listRunningGateway(actor.user.organizationId, projectId)
     const groupsByTaskId = new Map<string, TaskGroup>()
     if (this.taskGroups) {
       for (const { task } of candidates) {

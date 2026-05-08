@@ -1256,95 +1256,6 @@
   background-size: var(--omc-background-size, auto);
 }
 
-.sidebar {
-  width: 260px;
-  max-width: 260px;
-  border-right: 1px solid var(--omc-border);
-  background: var(--omc-surface);
-  display: grid;
-  grid-template-rows: 1fr auto;
-  height: calc(100vh - 64px);
-  min-height: 0;
-  overflow: hidden;
-}
-
-.sidebarScroll {
-  min-height: 0;
-  padding: 12px 10px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.navGroup {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.navList {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.navGroupTitle {
-  margin: 0 10px 6px;
-  color: var(--omc-text-soft);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  font-size: 0.68rem;
-  font-weight: 700;
-  opacity: 0.92;
-}
-
-.navLink {
-  min-height: 34px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 6px 10px !important;
-  width: 100%;
-  border-radius: 8px;
-  color: var(--omc-text-muted) !important;
-  font-size: 0.92rem;
-  font-weight: 500;
-  border: 1px solid transparent;
-  transition: background-color 0.16s ease, color 0.16s ease, border-color 0.16s ease;
-  background-color: transparent !important;
-  text-decoration: none !important;
-  white-space: nowrap;
-}
-
-.navLink:hover {
-  background-color: var(--omc-nav-hover-bg) !important;
-  border-color: var(--omc-primary) !important;
-  color: var(--omc-nav-accent) !important;
-}
-
-.navLinkActive {
-  background-color: var(--omc-nav-active-bg) !important;
-  border-color: var(--omc-primary) !important;
-  color: var(--omc-nav-accent) !important;
-  font-weight: 600;
-}
-
-.navIcon {
-  width: 14px;
-  height: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--omc-text-soft);
-  flex: 0 0 14px;
-}
-
-.navLabel {
-  flex: 1 1 auto;
-  line-height: 1.2;
-}
-
 @media (width <= 900px) {
   .topbarInner {
     grid-template-columns: minmax(130px, 1fr) minmax(180px, 1.4fr) auto;
@@ -1445,11 +1356,6 @@
     grid-template-columns: 220px 1fr;
   }
 
-  .sidebar {
-    width: 220px;
-    max-width: 220px;
-  }
-
   .content {
     padding: 18px;
   }
@@ -1480,12 +1386,6 @@
 
   .shell {
     grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    border-right: none;
-    border-bottom: 1px solid var(--omc-border);
-    min-height: auto;
   }
 
   .sidebarFooter {

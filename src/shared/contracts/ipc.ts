@@ -474,6 +474,7 @@ export interface ListPlannedGatewayTasksRequest {
   actorToken?: string
   page?: number
   pageSize?: number
+  projectId?: string
 }
 
 export interface PlannedGatewayTaskRow {
@@ -503,6 +504,7 @@ export interface ListRunningGatewayTasksRequest {
   page?: number
   pageSize?: number
   group?: RunningGatewayGroupKey
+  projectId?: string
 }
 
 export type RunningGatewayConversationType = 'plan' | 'run' | 'chat' | 'steer' | 'post-run'

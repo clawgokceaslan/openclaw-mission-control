@@ -63,12 +63,14 @@ export class TaskRepository extends BaseRepository<TaskEntity> {
     return rows.map((row: any) => this.map(row))
   }
 
-  async listPlannedGateway(orgId: string, page: number, pageSize: number): Promise<{ rows: PlannedGatewayTaskRepositoryRow[]; total: number }> {
+  async listPlannedGateway(orgId: string, page: number, pageSize: number, projectId?: string): Promise<{ rows: PlannedGatewayTaskRepositoryRow[]; total: number }> {
     const limit = Math.max(1, Math.min(100, Math.floor(pageSize)))
     const offset = Math.max(0, Math.floor((page - 1) * limit))
-    const params = { orgId, limit, offset }
+    const scopedProjectId = projectId?.trim() || null
+    const params = { orgId, projectId: scopedProjectId, limit, offset }
     const where = `
       p.organization_id = @orgId
+      AND (@projectId IS NULL OR t.project_id = @projectId)
       AND json_extract(t.payload_json, '$.gatewayPlanState.state') = 'planned'
       AND COALESCE(ps.category, lower(t.status)) NOT IN ('done', 'closed')
       AND (
@@ -95,7 +97,7 @@ export class TaskRepository extends BaseRepository<TaskEntity> {
         LEFT JOIN project_statuses ps ON ps.id = t.status AND ps.project_id = t.project_id
         WHERE ${where}
       `)
-      .get<{ total: number }>({ orgId })
+      .get<{ total: number }>({ orgId, projectId: scopedProjectId })
     const rows = await this.db
       .prepare(
         `SELECT
@@ -127,7 +129,8 @@ export class TaskRepository extends BaseRepository<TaskEntity> {
     }
   }
 
-  async listRunningGateway(orgId: string): Promise<RunningGatewayTaskRepositoryRow[]> {
+  async listRunningGateway(orgId: string, projectId?: string): Promise<RunningGatewayTaskRepositoryRow[]> {
+    const scopedProjectId = projectId?.trim() || null
     const rows = await this.db
       .prepare(
         `SELECT
@@ -140,6 +143,7 @@ export class TaskRepository extends BaseRepository<TaskEntity> {
          JOIN projects p ON t.project_id = p.id
          LEFT JOIN project_statuses ps ON ps.id = t.status AND ps.project_id = t.project_id
          WHERE p.organization_id = @orgId
+           AND (@projectId IS NULL OR t.project_id = @projectId)
            AND COALESCE(ps.category, lower(t.status)) NOT IN ('done', 'closed')
            AND EXISTS (
              SELECT 1
@@ -148,7 +152,7 @@ export class TaskRepository extends BaseRepository<TaskEntity> {
            )
          ORDER BY t.updated_at DESC`
       )
-      .all({ orgId }) as any[]
+      .all({ orgId, projectId: scopedProjectId }) as any[]
 
     return rows.map((row) => ({
       task: this.map(row),
