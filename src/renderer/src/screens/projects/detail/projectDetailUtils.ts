@@ -244,10 +244,29 @@ function isFreshActiveMessage(message: TaskActivityMessage, now: number): boolea
   return now - (message.updatedAt ?? message.createdAt) <= 15 * 60 * 1000
 }
 
-function isTerminalActivityMessage(message: TaskActivityMessage): boolean {
-  const metadata = message.metadata && typeof message.metadata === 'object' && !Array.isArray(message.metadata)
+function activityMetadata(message: TaskActivityMessage): Record<string, unknown> {
+  return message.metadata && typeof message.metadata === 'object' && !Array.isArray(message.metadata)
     ? message.metadata as Record<string, unknown>
     : {}
+}
+
+function isStaleActiveMessage(message: TaskActivityMessage, now: number): boolean {
+  if (message.status !== 'running' && message.status !== 'queued') return false
+  return !isFreshActiveMessage(message, now)
+}
+
+function isStoppedActivityMessage(message: TaskActivityMessage): boolean {
+  return activityMetadata(message).stopped === true
+}
+
+function isBlockedActivityMessage(message: TaskActivityMessage): boolean {
+  const metadata = activityMetadata(message)
+  const block = gatewayMetadataBlock(metadata)
+  return block === 'planner-question' || metadata.needsInput === true || metadata.blocked === true
+}
+
+function isTerminalActivityMessage(message: TaskActivityMessage): boolean {
+  const metadata = activityMetadata(message)
   const gatewayBlock = gatewayMetadataBlock(metadata)
   const runStatus = typeof metadata.runStatus === 'string' ? metadata.runStatus : undefined
   if (gatewayBlock && ['command', 'log', 'changes'].includes(gatewayBlock)) return false
@@ -282,7 +301,10 @@ function surfaceStatus(
   }
 }
 
-function phaseSurfaceStatus(phase: GatewayChatPhase, message: TaskActivityMessage, active: boolean): TaskGatewaySurfaceStatus {
+function phaseSurfaceStatus(phase: GatewayChatPhase, message: TaskActivityMessage, active: boolean, now = Date.now()): TaskGatewaySurfaceStatus {
+  if (isStoppedActivityMessage(message)) return surfaceStatus(`${phase}:paused`, 'paused', conversationIdOfActivity(message))
+  if (isBlockedActivityMessage(message)) return surfaceStatus(`${phase}:blocked`, 'blocked', conversationIdOfActivity(message))
+  if (isStaleActiveMessage(message, now)) return surfaceStatus(`${phase}:stale`, 'stale', conversationIdOfActivity(message))
   const statusKey = gatewayChatLifecycleStatusKey(phase, message.status ?? 'event', active)
   const status = surfaceStatus(`${phase}:${statusKey}`, statusKey, conversationIdOfActivity(message), active)
   if (statusKey !== 'failed') return status
@@ -327,17 +349,17 @@ export function taskGatewaySurfaceStatuses(task: TaskEntity, now = Date.now()): 
   const latestPlan = latestActivityMessageByPhase(task, 'PLAN')
 
   if (activePlan) {
-    statuses.push(phaseSurfaceStatus('PLAN', activePlan, true))
+    statuses.push(phaseSurfaceStatus('PLAN', activePlan, true, now))
   } else if (terminalPlan?.status === 'failed' || terminalPlan?.role === 'error' || terminalPlan?.metadata?.runStatus === 'failed') {
-    statuses.push(phaseSurfaceStatus('PLAN', terminalPlan, false))
+    statuses.push(phaseSurfaceStatus('PLAN', terminalPlan, false, now))
   } else if (planBadge?.state === 'planned') {
     statuses.push(surfaceStatus('PLAN:planned', 'planned', planBadge.conversationId, false, true))
   } else if (planBadge?.state === 'needs-clarification') {
     statuses.push(surfaceStatus('PLAN:needs-input', 'needs-input', planBadge.conversationId))
   } else if (terminalPlan) {
-    statuses.push(phaseSurfaceStatus('PLAN', terminalPlan, false))
+    statuses.push(phaseSurfaceStatus('PLAN', terminalPlan, false, now))
   } else if (latestPlan) {
-    statuses.push(phaseSurfaceStatus('PLAN', latestPlan, false))
+    statuses.push(phaseSurfaceStatus('PLAN', latestPlan, false, now))
   } else {
     statuses.push(surfaceStatus('PLAN:not-planned', 'not-planned'))
   }
@@ -346,21 +368,21 @@ export function taskGatewaySurfaceStatuses(task: TaskEntity, now = Date.now()): 
   if (latestRun) {
     const terminalRun = latestTerminalMessageByPhase(task, 'RUN')
     const activeRun = activeMessageAfterTerminal(task, 'RUN', now, terminalRun)
-    statuses.push(phaseSurfaceStatus('RUN', activeRun ?? terminalRun ?? latestRun, Boolean(activeRun)))
+    statuses.push(phaseSurfaceStatus('RUN', activeRun ?? terminalRun ?? latestRun, Boolean(activeRun), now))
   }
 
   const latestPostRunning = latestActivityMessageByPhase(task, 'POST-RUNNING')
   if (latestPostRunning) {
     const terminalPostRunning = latestTerminalMessageByPhase(task, 'POST-RUNNING')
     const activePostRunning = activeMessageAfterTerminal(task, 'POST-RUNNING', now, terminalPostRunning)
-    statuses.push(phaseSurfaceStatus('POST-RUNNING', activePostRunning ?? terminalPostRunning ?? latestPostRunning, Boolean(activePostRunning)))
+    statuses.push(phaseSurfaceStatus('POST-RUNNING', activePostRunning ?? terminalPostRunning ?? latestPostRunning, Boolean(activePostRunning), now))
   }
 
   const latestFollowUp = latestActivityMessageByPhase(task, 'FOLLOW UP')
   if (latestFollowUp) {
     const terminalFollowUp = latestTerminalMessageByPhase(task, 'FOLLOW UP')
     const activeFollowUp = activeMessageAfterTerminal(task, 'FOLLOW UP', now, terminalFollowUp)
-    statuses.push(phaseSurfaceStatus('FOLLOW UP', activeFollowUp ?? terminalFollowUp ?? latestFollowUp, Boolean(activeFollowUp)))
+    statuses.push(phaseSurfaceStatus('FOLLOW UP', activeFollowUp ?? terminalFollowUp ?? latestFollowUp, Boolean(activeFollowUp), now))
   }
 
   return statuses

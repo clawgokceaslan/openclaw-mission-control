@@ -512,7 +512,10 @@
       --pipeline-accent: var(--omc-success-strong);
     }
 
-    .pipelineTone_needs-input {
+    .pipelineTone_needs-input,
+    .pipelineTone_paused,
+    .pipelineTone_stale,
+    .pipelineTone_blocked {
       --pipeline-accent: var(--omc-warning);
     }
 

@@ -329,6 +329,52 @@ describe('task Codex card metadata', () => {
     expect(taskGatewayActiveTone(failedTask, 10_000)).toBeNull()
   })
 
+  it('keeps stopped and stale work as recovery checkpoints instead of completed work', () => {
+    const now = 30 * 60 * 1000
+    const stoppedTask = {
+      ...task('stopped-run', 'todo', 0),
+      payload: {
+        activityMessages: [
+          { id: 'stopped', runId: 'run-stopped', conversationId: 'run-stopped', source: 'gateway-run', role: 'system', phase: 'RUN', status: 'completed', body: 'stopped', createdAt: 1_000, updatedAt: 2_000, metadata: { stopped: true } }
+        ]
+      }
+    } satisfies TaskEntity
+    const staleTask = {
+      ...task('stale-run', 'todo', 0),
+      payload: {
+        activityMessages: [
+          { id: 'stale', runId: 'run-stale', conversationId: 'run-stale', source: 'gateway-run', role: 'thinking', phase: 'RUN', status: 'running', body: 'still working', createdAt: 1_000, updatedAt: 2_000 }
+        ]
+      }
+    } satisfies TaskEntity
+
+    expect(taskGatewaySurfaceStatuses(stoppedTask, now).find((status) => status.key === 'RUN:paused')).toMatchObject({
+      statusKey: 'paused',
+      label: 'Duraklatıldı',
+      active: undefined
+    })
+    expect(taskGatewaySurfaceStatuses(staleTask, now).find((status) => status.key === 'RUN:stale')).toMatchObject({
+      statusKey: 'stale',
+      label: 'Kontrol gerekiyor',
+      active: undefined
+    })
+    expect(taskGatewayActiveTone(stoppedTask, now)).toBeNull()
+    expect(taskGatewayActiveTone(staleTask, now)).toBeNull()
+  })
+
+  it('marks planner questions as blocked checkpoints', () => {
+    const result = taskGatewaySurfaceStatuses({
+      ...task('blocked-plan', 'todo', 0),
+      payload: {
+        activityMessages: [
+          { id: 'question', runId: 'plan-1', conversationId: 'plan-1', source: 'gateway-plan', role: 'system', status: 'completed', body: 'Need clarification', createdAt: 1, updatedAt: 1, metadata: { gatewayBlock: 'planner-question' } }
+        ]
+      }
+    }, 10_000)
+
+    expect(result[0]).toMatchObject({ statusKey: 'blocked', label: 'Bloke', conversationId: 'plan-1' })
+  })
+
   it('does not show legacy command failures as failed task card badges', () => {
     const commandFailedTask = {
       ...task('legacy-command-failed', 'todo', 0),

@@ -66,6 +66,9 @@ function pipelineStatusText(task: any, statusKey: string, fallback: string) {
   if (statusKey === 'post-running') return 'Doğrulama özeti hazırlanıyor; riskli karar varsa kullanıcı onayı beklenebilir.'
   if (statusKey === 'post-run-completed') return 'Son çalışma özeti hazır; kabul kriterlerine göre tamamla.'
   if (statusKey === 'needs-input') return 'Kullanıcı onayı veya kısa açıklama bekleniyor; chatten yanıt vererek devam et.'
+  if (statusKey === 'paused') return 'Akış duraklatıldı; son güvenli kontrol noktasından devam etmek için ilgili aşamayı tekrar başlat.'
+  if (statusKey === 'stale') return 'Akış uzun süredir güncellenmedi; geçmişi kontrol edip devam et veya güvenli kontrol noktasından yeniden dene.'
+  if (statusKey === 'blocked') return 'Akış bloke oldu; beklenen kullanıcı yanıtını chatten vererek sıradaki adımı aç.'
   if (statusKey === 'failed') return `${latest.title}: ${latest.detail || 'Yeniden dene veya manuel müdahale ile devam et.'}`
   return fallback
 }
@@ -81,6 +84,9 @@ function pipelineStateLabel(statusKey?: string, fallback = 'Bekliyor') {
   if (statusKey === 'following-up') return 'Devam ediyor'
   if (statusKey === 'followed-up') return 'Devam tamamlandı'
   if (statusKey === 'needs-input') return 'Onay bekliyor'
+  if (statusKey === 'paused') return 'Duraklatıldı'
+  if (statusKey === 'stale') return 'Kontrol gerekiyor'
+  if (statusKey === 'blocked') return 'Bloke'
   if (statusKey === 'failed') return 'Müdahale gerekiyor'
   return fallback
 }
