@@ -90,6 +90,7 @@ import { ChatPopup } from '@renderer/popups/ChatPopup'
 import { TaskDetailPopup } from '@renderer/popups/TaskDetail'
 import { PlanChoiceModal } from '@renderer/popups/PlanChoiceModal'
 import { TaskPlannerChatPopup } from '@renderer/popups/TaskPlannerChatPopup'
+import { TaskGroupCreateModal } from '@renderer/popups/TaskGroupCreateModal'
 import styles from './ProjectDetailPage.module.scss'
 
 const DETAIL_RATIO_KEY = 'omc:task-modal:detail-ratio'
@@ -449,6 +450,7 @@ export function ProjectDetailPage() {
   const lastGatewayModelRefreshRef = useRef<string | null>(null)
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false)
   const [isRecentChatsView, setIsRecentChatsView] = useState(false)
+  const [isTaskGroupCreateOpen, setIsTaskGroupCreateOpen] = useState(false)
   const [pendingChatOpen, setPendingChatOpen] = useState<{ taskId: string; conversationId: string } | null>(null)
   const [defaultAgentId, setDefaultAgentId] = useState<string>('')
   const [gatewayLanguage, setGatewayLanguage] = useState<string>(DEFAULT_GATEWAY_LANGUAGE)
@@ -1537,12 +1539,12 @@ export function ProjectDetailPage() {
     await refresh()
   }
 
-  const createTaskGroup = async () => {
-    if (!projectId) return
+  const createTaskGroup = async (): Promise<boolean> => {
+    if (!projectId) return false
     const title = taskGroupTitleDraft.trim()
     if (!title) {
       setTaskGroupError('Grup adı zorunlu.')
-      return
+      return false
     }
 
     setTaskGroupSaving(true)
@@ -1552,15 +1554,24 @@ export function ProjectDetailPage() {
       projectId,
       title
     })
-    setTaskGroupSaving(false)
 
     if (!response.ok || !response.data) {
+      setTaskGroupSaving(false)
       setTaskGroupError(response.error?.message ?? 'Task grubu oluşturulamadı')
-      return
+      return false
     }
 
     setTaskGroups((current) => [response.data as TaskGroup, ...current.filter((group) => group.groupId !== response.data?.groupId)])
     setTaskGroupTitleDraft('')
+    setTaskGroupSaving(false)
+    return true
+  }
+
+  const closeTaskGroupCreateModal = () => {
+    if (taskGroupSaving) return
+    setIsTaskGroupCreateOpen(false)
+    setTaskGroupTitleDraft('')
+    setTaskGroupError(null)
   }
 
   const updateTaskGroupTasks = async (groupId: string, orderedTaskIds: string[]) => {
@@ -3233,6 +3244,10 @@ export function ProjectDetailPage() {
         onTaskTitleChange={setTaskTitle}
         onQuickCreate={() => void handleQuickCreate()}
         onOpenCreateTask={() => openCreateTask(defaultStatus)}
+        onOpenCreateTaskGroup={() => {
+          setTaskGroupError(null)
+          setIsTaskGroupCreateOpen(true)
+        }}
         onOpenTaskPlanner={() => setIsTaskPlannerOpen(true)}
         onOpenProjectPrompts={openProjectPromptSettings}
         onOpenAnalytics={() => setIsAnalyticsOpen(true)}
@@ -3243,6 +3258,23 @@ export function ProjectDetailPage() {
         recentChatsActive={isRecentChatsView}
         recentChatsCount={projectRecentChats.length}
         onRecentChatsSelect={() => setIsRecentChatsView(true)}
+      />
+
+      <TaskGroupCreateModal
+        open={isTaskGroupCreateOpen}
+        titleDraft={taskGroupTitleDraft}
+        saving={taskGroupSaving}
+        error={taskGroupError}
+        onTitleDraftChange={(value) => {
+          setTaskGroupTitleDraft(value)
+          if (taskGroupError) setTaskGroupError(null)
+        }}
+        onClose={closeTaskGroupCreateModal}
+        onSubmit={() => {
+          void createTaskGroup().then((created) => {
+            if (created) setIsTaskGroupCreateOpen(false)
+          })
+        }}
       />
 
       {isAnalyticsOpen ? (
@@ -3276,16 +3308,10 @@ export function ProjectDetailPage() {
 
       <TaskGroupsPanel
         groups={taskGroups}
-        titleDraft={taskGroupTitleDraft}
         saving={taskGroupSaving}
-        error={taskGroupError}
+        error={isTaskGroupCreateOpen ? null : taskGroupError}
         tasks={tasks}
         updatingGroupId={updatingTaskGroupId}
-        onTitleDraftChange={(value) => {
-          setTaskGroupTitleDraft(value)
-          if (taskGroupError) setTaskGroupError(null)
-        }}
-        onCreate={() => void createTaskGroup()}
         onUpdate={(groupId, orderedTaskIds) => void updateTaskGroupTasks(groupId, orderedTaskIds)}
       />
 

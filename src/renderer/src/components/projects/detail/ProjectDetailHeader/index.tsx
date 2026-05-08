@@ -1,4 +1,4 @@
-import { LuListPlus, LuMessageSquare, LuPlus, LuRefreshCw, LuSettings2, LuSignal } from 'react-icons/lu'
+import { LuLayers, LuListPlus, LuMessageSquare, LuPlus, LuRefreshCw, LuSettings2, LuSignal } from 'react-icons/lu'
 import type { Project } from '@shared/types/entities'
 import { ProjectViewBar } from '../ProjectViewBar'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
@@ -10,6 +10,7 @@ interface ProjectDetailHeaderProps {
   onTaskTitleChange: (value: string) => void
   onQuickCreate: () => void
   onOpenCreateTask: () => void
+  onOpenCreateTaskGroup: () => void
   onOpenTaskPlanner: () => void
   onOpenProjectPrompts: () => void
   onOpenAnalytics: () => void
@@ -29,6 +30,7 @@ export function ProjectDetailHeader({
   onTaskTitleChange,
   onQuickCreate,
   onOpenCreateTask,
+  onOpenCreateTaskGroup,
   onOpenTaskPlanner,
   onOpenProjectPrompts,
   onOpenAnalytics,
@@ -62,6 +64,15 @@ export function ProjectDetailHeader({
           />
           <button type="button" className={styles.plusBtn} onClick={onOpenCreateTask} disabled={busy}>
             <LuPlus size={18} />
+          </button>
+          <button
+            type="button"
+            className={styles.iconBtn}
+            onClick={onOpenCreateTaskGroup}
+            aria-label="Task grubu oluştur"
+            title="Task grubu oluştur"
+          >
+            <LuLayers size={16} />
           </button>
           <button
             type="button"

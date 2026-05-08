@@ -5,13 +5,10 @@ import styles from './index.module.scss'
 
 interface TaskGroupsPanelProps {
   groups: TaskGroup[]
-  titleDraft: string
   saving: boolean
   error: string | null
   tasks: TaskEntity[]
   updatingGroupId: string | null
-  onTitleDraftChange: (value: string) => void
-  onCreate: () => void
   onUpdate: (groupId: string, orderedTaskIds: string[]) => void
 }
 
@@ -26,13 +23,10 @@ function formatGroupDate(value: number): string {
 
 export function TaskGroupsPanel({
   groups,
-  titleDraft,
   saving,
   error,
   tasks,
   updatingGroupId,
-  onTitleDraftChange,
-  onCreate,
   onUpdate
 }: TaskGroupsPanelProps) {
   const [selectedTaskByGroup, setSelectedTaskByGroup] = useState<Record<string, string>>({})
@@ -54,26 +48,7 @@ export function TaskGroupsPanel({
             <p className={styles.taskGroupsPanel__description}>Proje detayına bağlı bağımsız iş paketleri.</p>
           </div>
         </div>
-        <form
-          className={styles.taskGroupsPanel__form}
-          onSubmit={(event) => {
-            event.preventDefault()
-            onCreate()
-          }}
-        >
-          <input
-            className={styles.taskGroupsPanel__input}
-            value={titleDraft}
-            onChange={(event) => onTitleDraftChange(event.target.value)}
-            placeholder="Grup adı"
-            aria-label="Yeni task grubu adı"
-            disabled={saving}
-          />
-          <button type="submit" className={styles.taskGroupsPanel__button} disabled={saving}>
-            <LuPlus size={16} />
-            <span>{saving ? 'Ekleniyor' : 'Grup oluştur'}</span>
-          </button>
-        </form>
+        <span className={styles.taskGroupsPanel__count}>{groups.length} grup</span>
       </div>
 
       {error ? <p className={styles.taskGroupsPanel__error}>{error}</p> : null}
@@ -115,7 +90,7 @@ export function TaskGroupsPanel({
                           next[index - 1] = taskId
                           next[index] = previous
                           updateGroupTasks(group, next)
-                        }} disabled={index === 0 || updatingGroupId === group.groupId} aria-label="Taskı yukarı taşı" title="Yukarı taşı">
+                        }} disabled={saving || index === 0 || updatingGroupId === group.groupId} aria-label="Taskı yukarı taşı" title="Yukarı taşı">
                           <LuArrowUp size={14} />
                         </button>
                         <button type="button" onClick={() => {
@@ -125,10 +100,10 @@ export function TaskGroupsPanel({
                           next[index + 1] = taskId
                           next[index] = following
                           updateGroupTasks(group, next)
-                        }} disabled={index === group.orderedTaskIds.length - 1 || updatingGroupId === group.groupId} aria-label="Taskı aşağı taşı" title="Aşağı taşı">
+                        }} disabled={saving || index === group.orderedTaskIds.length - 1 || updatingGroupId === group.groupId} aria-label="Taskı aşağı taşı" title="Aşağı taşı">
                           <LuArrowDown size={14} />
                         </button>
-                        <button type="button" onClick={() => updateGroupTasks(group, group.orderedTaskIds.filter((id) => id !== taskId))} disabled={updatingGroupId === group.groupId} aria-label="Taskı gruptan çıkar" title="Gruptan çıkar">
+                        <button type="button" onClick={() => updateGroupTasks(group, group.orderedTaskIds.filter((id) => id !== taskId))} disabled={saving || updatingGroupId === group.groupId} aria-label="Taskı gruptan çıkar" title="Gruptan çıkar">
                           <LuTrash2 size={14} />
                         </button>
                       </div>
@@ -141,7 +116,7 @@ export function TaskGroupsPanel({
                 <select
                   value={selectedTaskByGroup[group.groupId] ?? ''}
                   onChange={(event) => setSelectedTaskByGroup((current) => ({ ...current, [group.groupId]: event.target.value }))}
-                  disabled={updatingGroupId === group.groupId}
+                  disabled={saving || updatingGroupId === group.groupId}
                   aria-label={`${group.title} grubuna task ekle`}
                 >
                   <option value="">Task seç</option>
@@ -151,7 +126,7 @@ export function TaskGroupsPanel({
                 </select>
                 <button
                   type="button"
-                  disabled={updatingGroupId === group.groupId || !selectedTaskByGroup[group.groupId]}
+                  disabled={saving || updatingGroupId === group.groupId || !selectedTaskByGroup[group.groupId]}
                   onClick={() => {
                     const taskId = selectedTaskByGroup[group.groupId]
                     if (!taskId) return
