@@ -543,7 +543,7 @@ export function AutoRunPage() {
         <button type="button" onClick={() => void loadData()} disabled={loading}><LuRefreshCw size={15} /> Yenile</button>
       </header>
 
-      {error ? <div className={styles.notice}>{error}</div> : null}
+      {error ? <div className={styles.notice}>{error}<button type="button" onClick={() => void loadData()} disabled={loading}>Yeniden dene</button></div> : null}
       {activeAutomationLabel ? <div className={styles.notice}>{activeAutomationLabel}. Çalıştırma kuyrukları seri ilerler; plan kuyruğu ayrı kalır.</div> : null}
 
       <section className={styles.controls}>
@@ -575,8 +575,8 @@ export function AutoRunPage() {
         </div>
         <div>
           <span>Çalıştırma Kuyruğu</span>
-          <strong>{queueSummary.waiting} bekliyor · {queueSummary.running} aktif</strong>
-          <small>Bu ekran yalnızca planı hazır taskların uygulama sırasını yönetir.</small>
+          <strong>{queueSummary.waiting} bekliyor · {queueSummary.running} aktif · {queueSummary.completed} bitti</strong>
+          <small>{queueSummary.failed ? `${queueSummary.failed} hata var; kontrol adımından task detayına dön.` : 'Bu ekran yalnızca planı hazır taskların uygulama sırasını yönetir.'}</small>
         </div>
         <div>
           <span>Sonraki faz</span>
@@ -619,7 +619,14 @@ export function AutoRunPage() {
             <button type="button" onClick={addSelectedToQueue} disabled={selectedTaskIds.length === 0}>Seçilenleri ekle</button>
           </header>
           <div className={styles.taskList}>
-            {loading ? <LoadingState variant="skeleton" rows={5} columns={2} messageIndex={0} /> : filteredTasks.length ? filteredTasks.map(renderTaskCard) : <div className={styles.emptyState}>Bu projede çalıştırmaya uygun planlanmış task bulunamadı.</div>}
+            {loading ? <LoadingState variant="skeleton" rows={5} columns={2} messageIndex={0} /> : filteredTasks.length ? filteredTasks.map(renderTaskCard) : <div className={`${styles.emptyState} ${styles.emptyStateActionable}`}>
+              <strong>Çalıştırılabilir task yok</strong>
+              <span>Proje kapsamını değiştir, listeyi yenile veya diğer taskların neden kuyruk dışında kaldığını aşağıdan kontrol et.</span>
+              <div>
+                <button type="button" onClick={() => setProjectPickerOpen(true)}>Projeyi değiştir</button>
+                <button type="button" onClick={() => void loadData()} disabled={loading}>Yenile</button>
+              </div>
+            </div>}
             {otherTasks.length ? (
               <details className={styles.otherTasks}>
                 <summary>Bu projedeki diğer tasklar <span>{otherTasks.length}</span></summary>
@@ -679,7 +686,14 @@ export function AutoRunPage() {
                       </div>
                     </article>
                   )
-                }) : <div className={styles.emptyState}>Task kartlarını buraya bırak veya soldan seçilen taskları ekle.</div>}
+                }) : <div className={`${styles.emptyState} ${styles.emptyStateActionable}`}>
+                  <strong>Çalıştırma kuyruğu boş</strong>
+                  <span>Tasklar adımından planı hazır kayıtları seç; kuyruk grup bağlamıyla başlatılır.</span>
+                  <div>
+                    <button type="button" onClick={() => setActiveStep('tasks')}>Task seç</button>
+                    <button type="button" onClick={() => setProjectPickerOpen(true)}>Projeyi değiştir</button>
+                  </div>
+                </div>}
               </div>
             </div>
           ) : null}
@@ -697,7 +711,14 @@ export function AutoRunPage() {
                       <button type="button" onClick={() => void stopRunningRow(row)} title="Stop"><LuCircleStop size={15} /></button>
                     </div>
                   </article>
-                )) : <div className={styles.emptyState}>Şu anda görünen aktif çalışma yok.</div>}
+                )) : <div className={`${styles.emptyState} ${styles.emptyStateActionable}`}>
+                  <strong>Aktif çalışma yok</strong>
+                  <span>Kuyruk tamamlandıysa planlı adayları aşağıdan kontrol et; yeni iş için task seçimine dön.</span>
+                  <div>
+                    <button type="button" onClick={() => setActiveStep('tasks')}>Task seç</button>
+                    <button type="button" onClick={() => void loadData()} disabled={loading}>Yenile</button>
+                  </div>
+                </div>}
               </div>
             </div>
           ) : null}
@@ -714,7 +735,14 @@ export function AutoRunPage() {
                       <button type="button" onClick={() => setDetailTarget({ projectId: row.projectId, taskId: row.taskId })} title="Open task details"><LuExternalLink size={15} /></button>
                     </div>
                   </article>
-                )) : <div className={styles.emptyState}>Kontrol için hazır planlanmış task yok.</div>}
+                )) : <div className={`${styles.emptyState} ${styles.emptyStateActionable}`}>
+                  <strong>Planlı aday görünmüyor</strong>
+                  <span>Önce Plan Kuyruğu ile taskları hazırla veya proje kapsamını değiştir.</span>
+                  <div>
+                    <button type="button" onClick={() => setActiveStep(queue.length ? 'queue' : 'tasks')}>{queue.length ? 'Kuyruğa dön' : 'Task seç'}</button>
+                    <button type="button" onClick={() => setProjectPickerOpen(true)}>Projeyi değiştir</button>
+                  </div>
+                </div>}
               </div>
             </div>
           ) : null}
