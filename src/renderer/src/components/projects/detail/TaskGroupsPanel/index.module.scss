@@ -1,5 +1,6 @@
 .taskGroupsPanel {
   display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 10px;
   min-height: 0;
   padding: 12px;
@@ -68,6 +69,7 @@
   }
 
   &__error {
+    grid-row: 2;
     margin: 0;
     border: 1px solid var(--omc-danger-border);
     border-radius: 8px;
@@ -78,7 +80,7 @@
   }
 
   &__list {
-    max-height: min(24vh, 260px);
+    grid-row: 3;
     min-height: 0;
     overflow-y: auto;
     display: grid;

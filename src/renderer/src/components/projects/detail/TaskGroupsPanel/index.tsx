@@ -9,6 +9,7 @@ interface TaskGroupsPanelProps {
   error: string | null
   tasks: TaskEntity[]
   updatingGroupId: string | null
+  className?: string
   onUpdate: (groupId: string, orderedTaskIds: string[]) => void
 }
 
@@ -27,6 +28,7 @@ export function TaskGroupsPanel({
   error,
   tasks,
   updatingGroupId,
+  className,
   onUpdate
 }: TaskGroupsPanelProps) {
   const [selectedTaskByGroup, setSelectedTaskByGroup] = useState<Record<string, string>>({})
@@ -37,7 +39,7 @@ export function TaskGroupsPanel({
   }
 
   return (
-    <section className={styles.taskGroupsPanel} aria-label="Task grupları">
+    <section className={`${styles.taskGroupsPanel} ${className ?? ''}`} aria-label="Task grupları">
       <div className={styles.taskGroupsPanel__header}>
         <div className={styles.taskGroupsPanel__heading}>
           <span className={styles.taskGroupsPanel__icon}>

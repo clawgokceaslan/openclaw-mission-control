@@ -18,7 +18,6 @@ import { prefixDataFormatTokens, type DescriptionDataFormat } from '@renderer/co
 import { storedAttachmentRows } from '@renderer/components/attachments/AttachmentTable'
 import { AttachmentRow, attachmentRowsFromDescription, removeAttachmentFromMarkdown, uploadTaskAttachment } from '@renderer/components/attachments/attachments'
 import { ProjectDetailHeader } from '@renderer/components/projects/detail/ProjectDetailHeader'
-import { TaskGroupsPanel } from '@renderer/components/projects/detail/TaskGroupsPanel'
 import { ProjectDetailSettingsPopup } from '@renderer/popups/ProjectDetailSettingsPopup'
 import { ActiveProjectView } from '@renderer/components/projects/detail/ActiveProjectView'
 import { TaskModals } from '@renderer/components/projects/detail/TaskModals'
@@ -91,6 +90,7 @@ import { TaskDetailPopup } from '@renderer/popups/TaskDetail'
 import { PlanChoiceModal } from '@renderer/popups/PlanChoiceModal'
 import { TaskPlannerChatPopup } from '@renderer/popups/TaskPlannerChatPopup'
 import { TaskGroupCreateModal } from '@renderer/popups/TaskGroupCreateModal'
+import { TaskGroupsModal } from '@renderer/popups/TaskGroupsModal'
 import styles from './ProjectDetailPage.module.scss'
 
 const DETAIL_RATIO_KEY = 'omc:task-modal:detail-ratio'
@@ -451,6 +451,7 @@ export function ProjectDetailPage() {
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false)
   const [isRecentChatsView, setIsRecentChatsView] = useState(false)
   const [isTaskGroupCreateOpen, setIsTaskGroupCreateOpen] = useState(false)
+  const [isTaskGroupsOpen, setIsTaskGroupsOpen] = useState(false)
   const [pendingChatOpen, setPendingChatOpen] = useState<{ taskId: string; conversationId: string } | null>(null)
   const [defaultAgentId, setDefaultAgentId] = useState<string>('')
   const [gatewayLanguage, setGatewayLanguage] = useState<string>(DEFAULT_GATEWAY_LANGUAGE)
@@ -3248,6 +3249,7 @@ export function ProjectDetailPage() {
           setTaskGroupError(null)
           setIsTaskGroupCreateOpen(true)
         }}
+        onOpenTaskGroups={() => setIsTaskGroupsOpen(true)}
         onOpenTaskPlanner={() => setIsTaskPlannerOpen(true)}
         onOpenProjectPrompts={openProjectPromptSettings}
         onOpenAnalytics={() => setIsAnalyticsOpen(true)}
@@ -3275,6 +3277,17 @@ export function ProjectDetailPage() {
             if (created) setIsTaskGroupCreateOpen(false)
           })
         }}
+      />
+
+      <TaskGroupsModal
+        open={isTaskGroupsOpen}
+        groups={taskGroups}
+        saving={taskGroupSaving}
+        error={isTaskGroupCreateOpen ? null : taskGroupError}
+        tasks={tasks}
+        updatingGroupId={updatingTaskGroupId}
+        onUpdate={(groupId, orderedTaskIds) => void updateTaskGroupTasks(groupId, orderedTaskIds)}
+        onClose={() => setIsTaskGroupsOpen(false)}
       />
 
       {isAnalyticsOpen ? (
@@ -3305,15 +3318,6 @@ export function ProjectDetailPage() {
 
       {error ? <p className={styles.error}>{error}</p> : null}
       {projectSyncMessage ? <p className={styles.notice}>{projectSyncMessage}</p> : null}
-
-      <TaskGroupsPanel
-        groups={taskGroups}
-        saving={taskGroupSaving}
-        error={isTaskGroupCreateOpen ? null : taskGroupError}
-        tasks={tasks}
-        updatingGroupId={updatingTaskGroupId}
-        onUpdate={(groupId, orderedTaskIds) => void updateTaskGroupTasks(groupId, orderedTaskIds)}
-      />
 
       {isRecentChatsView ? (
         <section className={styles.projectRecentChatsView} aria-label="Chats">
