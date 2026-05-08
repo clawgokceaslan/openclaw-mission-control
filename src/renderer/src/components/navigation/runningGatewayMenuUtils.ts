@@ -1,23 +1,23 @@
 import type { RunningGatewayConversationType, RunningGatewayGroupKey } from '@shared/contracts/ipc'
 
 export function runningCodexConversationTypeLabel(type: RunningGatewayConversationType | string): string {
-  if (type === 'plan') return 'Planning'
-  if (type === 'run') return 'Working'
-  if (type === 'steer') return 'Following Up'
-  if (type === 'post-run') return 'Post Running'
-  if (type === 'chat') return 'Following Up'
-  return 'Working'
+  if (type === 'plan') return 'Planlanıyor'
+  if (type === 'run') return 'Çalışıyor'
+  if (type === 'steer') return 'Devam ediyor'
+  if (type === 'post-run') return 'Doğrulanıyor'
+  if (type === 'chat') return 'Devam ediyor'
+  return 'Çalışıyor'
 }
 
 export function runningCodexLiveStatusLabel(status: 'queued' | 'running'): string {
-  return status === 'queued' ? 'Queued' : 'Working'
+  return status === 'queued' ? 'Sırada' : 'Çalışıyor'
 }
 
 export function runningCodexGroupLabel(group: RunningGatewayGroupKey): string {
-  if (group === 'planning') return 'Planning'
-  if (group === 'postRunning') return 'Post Running'
-  if (group === 'running') return 'Working'
-  return 'All'
+  if (group === 'planning') return 'Planla'
+  if (group === 'postRunning') return 'Doğrula'
+  if (group === 'running') return 'Çalıştır'
+  return 'Tümü'
 }
 
 export function formatRunningGatewayActivitySummary(value: string, maxLength = 120): string {

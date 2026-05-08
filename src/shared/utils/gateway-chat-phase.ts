@@ -14,6 +14,9 @@ export type GatewayLifecycleStatusKey =
   | 'following-up'
   | 'followed-up'
   | 'needs-input'
+  | 'paused'
+  | 'stale'
+  | 'blocked'
   | 'failed'
 export type GatewayLifecycleTone =
   | 'neutral'
@@ -103,17 +106,20 @@ export function gatewayChatPhaseTone(phase: GatewayChatPhase): GatewayChatPhaseT
 }
 
 const lifecycleStatusMeta: Record<GatewayLifecycleStatusKey, GatewayLifecycleStatusMeta> = {
-  'not-planned': { key: 'not-planned', label: 'Not Planned', tone: 'neutral', active: false, completed: false },
-  planning: { key: 'planning', label: 'Planning', tone: 'planning', active: true, completed: false },
-  planned: { key: 'planned', label: 'Planned', tone: 'planned', active: false, completed: true },
-  working: { key: 'working', label: 'Working', tone: 'working', active: true, completed: false },
-  'work-completed': { key: 'work-completed', label: 'Work Completed', tone: 'completed', active: false, completed: true },
-  'post-running': { key: 'post-running', label: 'Post Running', tone: 'post-running', active: true, completed: false },
-  'post-run-completed': { key: 'post-run-completed', label: 'Post Run Completed', tone: 'completed', active: false, completed: true },
-  'following-up': { key: 'following-up', label: 'Following Up', tone: 'following-up', active: true, completed: false },
-  'followed-up': { key: 'followed-up', label: 'Followed Up', tone: 'completed', active: false, completed: true },
-  'needs-input': { key: 'needs-input', label: 'Needs Input', tone: 'needs-input', active: false, completed: false },
-  failed: { key: 'failed', label: 'Failed', tone: 'failed', active: false, completed: false }
+  'not-planned': { key: 'not-planned', label: 'Plan bekliyor', tone: 'neutral', active: false, completed: false },
+  planning: { key: 'planning', label: 'Planlanıyor', tone: 'planning', active: true, completed: false },
+  planned: { key: 'planned', label: 'Plan hazır', tone: 'planned', active: false, completed: true },
+  working: { key: 'working', label: 'Çalışıyor', tone: 'working', active: true, completed: false },
+  'work-completed': { key: 'work-completed', label: 'Çalışma tamamlandı', tone: 'completed', active: false, completed: true },
+  'post-running': { key: 'post-running', label: 'Doğrulanıyor', tone: 'post-running', active: true, completed: false },
+  'post-run-completed': { key: 'post-run-completed', label: 'Özet hazır', tone: 'completed', active: false, completed: true },
+  'following-up': { key: 'following-up', label: 'Devam ediyor', tone: 'following-up', active: true, completed: false },
+  'followed-up': { key: 'followed-up', label: 'Devam tamamlandı', tone: 'completed', active: false, completed: true },
+  'needs-input': { key: 'needs-input', label: 'Onay bekliyor', tone: 'needs-input', active: false, completed: false },
+  paused: { key: 'paused', label: 'Duraklatıldı', tone: 'needs-input', active: false, completed: false },
+  stale: { key: 'stale', label: 'Kontrol gerekiyor', tone: 'needs-input', active: false, completed: false },
+  blocked: { key: 'blocked', label: 'Bloke', tone: 'needs-input', active: false, completed: false },
+  failed: { key: 'failed', label: 'Müdahale gerekiyor', tone: 'failed', active: false, completed: false }
 }
 
 export function gatewayLifecycleStatusMeta(status: GatewayLifecycleStatusKey): GatewayLifecycleStatusMeta {
@@ -121,10 +127,10 @@ export function gatewayLifecycleStatusMeta(status: GatewayLifecycleStatusKey): G
 }
 
 export function gatewayChatPhaseActionLabel(phase: GatewayChatPhase): string {
-  if (phase === 'PLAN') return 'Plan'
-  if (phase === 'RUN') return 'Run'
-  if (phase === 'POST-RUNNING') return 'Post Run'
-  return 'Follow-up'
+  if (phase === 'PLAN') return 'Planla'
+  if (phase === 'RUN') return 'Çalıştır'
+  if (phase === 'POST-RUNNING') return 'Doğrula'
+  return 'Devam et'
 }
 
 export function gatewayChatLifecycleStatusKey(phase: GatewayChatPhase, status: GatewayChatLifecycleRawStatus, active: boolean): GatewayLifecycleStatusKey {

@@ -12,10 +12,10 @@ import styles from './index.module.scss'
 const PAGE_SIZE = 8
 
 function missingLabel(row: PlannedGatewayTaskRow): string {
-  if (row.missing.includes('gateway') && row.missing.includes('runModel')) return 'Gateway and run model required'
-  if (row.missing.includes('gateway')) return 'Gateway required'
-  if (row.missing.includes('runModel')) return 'Run model required'
-  return 'Ready to run'
+  if (row.missing.includes('gateway') && row.missing.includes('runModel')) return 'Gateway ve çalışma modeli gerekli'
+  if (row.missing.includes('gateway')) return 'Gateway gerekli'
+  if (row.missing.includes('runModel')) return 'Çalışma modeli gerekli'
+  return 'Çalıştırmaya hazır'
 }
 
 export function PlannedTasksMenu() {
@@ -187,8 +187,8 @@ export function PlannedTasksMenu() {
         type="button"
         className={`${styles.plannedTasksButton} ${total === 0 ? styles.plannedTasksButtonIdle : ''}`}
         onClick={() => setOpen((current) => !current)}
-        aria-label={total > 0 ? `${total} planned Codex task${total === 1 ? '' : 's'}` : 'No planned Codex tasks'}
-        title="Planned Codex tasks"
+        aria-label={total > 0 ? `${total} planı hazır task` : 'Planı hazır task yok'}
+        title="Planı hazır tasklar"
       >
         <LuClipboardList size={16} />
         {total > 0 ? <span>{total > 99 ? '99+' : total}</span> : null}
@@ -197,10 +197,10 @@ export function PlannedTasksMenu() {
         <div className={styles.plannedTasksPanel}>
           <header>
             <div>
-              <strong>Planned runs</strong>
-              <span>{total > 0 ? `${total} task${total === 1 ? '' : 's'} ready or waiting` : 'No planned tasks'}</span>
+              <strong>Çalıştırmaya hazır tasklar</strong>
+              <span>{total > 0 ? `${total} task hazır veya ayar bekliyor` : 'Planı hazır task yok'}</span>
             </div>
-            <button type="button" onClick={() => loadPage(page)} disabled={loading} aria-label="Refresh planned tasks">
+            <button type="button" onClick={() => loadPage(page)} disabled={loading} aria-label="Planı hazır taskları yenile">
               <LuRefreshCw size={14} />
             </button>
           </header>
@@ -223,8 +223,8 @@ export function PlannedTasksMenu() {
                     type="button"
                     onClick={() => void selectRow(row)}
                     disabled={globalBusy || launchingTaskId === row.taskId}
-                    aria-label={row.runnable ? `Run ${row.taskTitle}` : `Configure ${row.taskTitle}`}
-                    title={row.runnable ? 'Start run' : 'Open Codex settings'}
+                    aria-label={row.runnable ? `${row.taskTitle} taskını çalıştır` : `${row.taskTitle} ayarlarını aç`}
+                    title={row.runnable ? 'Çalıştır' : 'Codex ayarlarını aç'}
                   >
                     {row.runnable ? <LuPlay size={14} /> : <LuSettings2 size={14} />}
                   </button>
@@ -234,8 +234,8 @@ export function PlannedTasksMenu() {
           ) : (
             <div className={styles.plannedTasksEmpty}>
               <LuClipboardList size={18} />
-              <strong>No planned tasks</strong>
-              <span>Codex tasks with a planned plan state will appear here.</span>
+              <strong>Planı hazır task yok</strong>
+              <span>Planla aşaması tamamlanan tasklar burada çalıştırmaya hazır görünür.</span>
             </div>
           )}
           <footer>

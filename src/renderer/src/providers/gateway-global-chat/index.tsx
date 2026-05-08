@@ -173,10 +173,10 @@ export function GlobalGatewayChatProvider({ children }: { children: ReactNode })
       }
 
       const confirmed = await confirm({
-        title: 'Start Codex run?',
-        message: `Run "${context.task.title}" from ${context.project.name}.`,
-        confirmLabel: 'Start run',
-        cancelLabel: 'Cancel'
+        title: 'Task çalıştırılsın mı?',
+        message: `"${context.task.title}" taskı ${context.project.name} projesinde çalıştırılacak.`,
+        confirmLabel: 'Çalıştır',
+        cancelLabel: 'Vazgeç'
       })
       if (!confirmed) {
         setBusy(false)

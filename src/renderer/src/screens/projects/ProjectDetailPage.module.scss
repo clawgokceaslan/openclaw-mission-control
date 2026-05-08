@@ -1666,7 +1666,7 @@
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   background: var(--omc-bg);
 }
 
@@ -1853,6 +1853,108 @@
   border-color: color-mix(in srgb, var(--omc-danger-border) 80%, transparent) !important;
   background: var(--omc-danger-bg) !important;
   color: var(--omc-danger) !important;
+}
+
+.chatPipelineStrip {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--omc-border-subtle) 66%, transparent);
+  padding: 10px clamp(12px, 1.4vw, 18px) 10px clamp(14px, 3vw, 36px);
+  background: color-mix(in srgb, var(--omc-table-header) 72%, var(--omc-bg) 28%);
+
+  .chatPipelineStep {
+    --pipeline-accent: var(--omc-text-soft);
+
+    min-width: 0;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 8px;
+    background: var(--omc-surface);
+    padding: 8px;
+
+    .chatPipelineIcon {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      background: color-mix(in srgb, var(--pipeline-accent) 12%, var(--omc-surface));
+      color: var(--pipeline-accent);
+    }
+
+    .chatPipelineCopy {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+
+      strong,
+      span,
+      p {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      strong {
+        color: var(--omc-text-strong);
+        font-size: 0.76rem;
+        font-weight: 900;
+      }
+
+      span {
+        color: var(--pipeline-accent);
+        font-size: 0.68rem;
+        font-weight: 900;
+      }
+
+      p {
+        margin: 0;
+        color: var(--omc-text-muted);
+        font-size: 0.68rem;
+        font-weight: 750;
+      }
+    }
+
+    button {
+      min-height: 28px;
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 7px;
+      background: var(--omc-surface-muted);
+      color: var(--omc-text-strong);
+      padding: 0 8px;
+      font-size: 0.7rem;
+      font-weight: 900;
+      white-space: nowrap;
+
+      &:not(:disabled):hover {
+        border-color: var(--omc-border-strong);
+        background: var(--omc-hover-bg);
+      }
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+    }
+  }
+
+  .chatPipelineStep_active {
+    --pipeline-accent: var(--omc-primary);
+  }
+
+  .chatPipelineStep_ready {
+    --pipeline-accent: var(--omc-warning);
+  }
+
+  .chatPipelineStep_done {
+    --pipeline-accent: var(--omc-success-strong);
+  }
 }
 
 .chatWorkspace {
@@ -7625,6 +7727,17 @@
 
   .chatTopbarActions {
     justify-content: flex-end;
+  }
+
+  .chatPipelineStrip {
+    grid-template-columns: 1fr;
+    padding: 8px 12px;
+    max-height: 210px;
+    overflow: auto;
+
+    .chatPipelineStep {
+      grid-template-columns: auto minmax(0, 1fr) auto;
+    }
   }
 
   .chatWorkspace {

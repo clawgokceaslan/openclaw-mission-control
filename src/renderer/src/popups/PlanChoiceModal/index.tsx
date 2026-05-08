@@ -15,24 +15,24 @@ export function PlanChoiceModal({ open, loading = false, onClose, onSelect }: Pl
   const target = typeof document === 'undefined' ? null : document.body
 
   const modal = (
-    <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Choose Codex planning mode" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+    <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Planlama kontrol noktası seç" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <div className={styles.dialog}>
         <header className={styles.header}>
           <span className={styles.icon}><LuSparkles size={18} /></span>
           <div>
-            <h3>How should Codex plan this task?</h3>
-            <p>Choose whether Codex should pause for clarification before updating the task plan.</p>
+            <h3>Planlama nasıl ilerlesin?</h3>
+            <p>Task planı güncellenmeden önce onay sorusu beklensin mi, yoksa mevcut bağlamla doğrudan planlansın mı?</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close planning mode dialog" title="Close"><LuX size={16} /></button>
+          <button type="button" onClick={onClose} aria-label="Planlama seçimini kapat" title="Kapat"><LuX size={16} /></button>
         </header>
         <div className={styles.options}>
           <button type="button" onClick={() => onSelect('ask-first')} disabled={loading}>
-            <b>Continue with questions</b>
-            <span>Codex will ask concise clarification questions first.</span>
+            <b>Onay sorularıyla planla</b>
+            <span>AI önce kısa karar soruları çıkarır; yanıtın plan güncellemesini yönlendirir.</span>
           </button>
           <button type="button" onClick={() => onSelect('direct')} disabled={loading}>
-            <b>Continue without questions</b>
-            <span>Codex will plan immediately from the current task context.</span>
+            <b>Doğrudan planla</b>
+            <span>AI mevcut task bağlamından hareketle planı hemen günceller.</span>
           </button>
         </div>
       </div>

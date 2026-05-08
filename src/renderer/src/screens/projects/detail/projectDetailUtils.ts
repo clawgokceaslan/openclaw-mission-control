@@ -157,7 +157,7 @@ export function withTaskMeta(task: TaskEntity): TaskEntity {
 
 export type TaskGatewayPlanBadge = {
   state: 'planned' | 'needs-clarification'
-  label: 'Planned' | 'Needs Input'
+  label: 'Plan hazır' | 'Onay bekliyor'
   conversationId?: string
 }
 
@@ -212,14 +212,14 @@ export function taskGatewayPlanBadge(task: TaskEntity): TaskGatewayPlanBadge | n
   if (record.state === 'planned') {
     return {
       state: 'planned',
-      label: 'Planned',
+      label: 'Plan hazır',
       conversationId: typeof record.conversationId === 'string' ? record.conversationId : undefined
     }
   }
   if (record.state === 'needs-clarification') {
     return {
       state: 'needs-clarification',
-      label: 'Needs Input',
+      label: 'Onay bekliyor',
       conversationId: typeof record.conversationId === 'string' ? record.conversationId : undefined
     }
   }
@@ -286,10 +286,10 @@ function phaseSurfaceStatus(phase: GatewayChatPhase, message: TaskActivityMessag
   const statusKey = gatewayChatLifecycleStatusKey(phase, message.status ?? 'event', active)
   const status = surfaceStatus(`${phase}:${statusKey}`, statusKey, conversationIdOfActivity(message), active)
   if (statusKey !== 'failed') return status
-  if (phase === 'PLAN') return { ...status, label: 'Planning Failed' }
-  if (phase === 'RUN') return { ...status, label: 'Running Failed' }
-  if (phase === 'POST-RUNNING') return { ...status, label: 'Post Running Failed' }
-  return { ...status, label: 'Follow-up Failed' }
+  if (phase === 'PLAN') return { ...status, label: 'Planlama durdu' }
+  if (phase === 'RUN') return { ...status, label: 'Çalıştırma durdu' }
+  if (phase === 'POST-RUNNING') return { ...status, label: 'Doğrulama durdu' }
+  return { ...status, label: 'Devam akışı durdu' }
 }
 
 function latestFreshActiveMessageByPhase(task: TaskEntity, phase: GatewayChatPhase, now: number): TaskActivityMessage | null {

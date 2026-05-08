@@ -293,10 +293,10 @@ function runningConversationTypeOf(message: TaskActivityMessage): RunningGateway
 }
 
 function runningConversationLabel(type: RunningGatewayConversationType): string {
-  if (type === 'plan') return 'Planning'
-  if (type === 'run') return 'Run'
-  if (type === 'post-run') return 'Post Running'
-  return 'Running'
+  if (type === 'plan') return 'Planla'
+  if (type === 'run') return 'Çalıştır'
+  if (type === 'post-run') return 'Doğrula'
+  return 'Devam et'
 }
 
 function runningConversationGroupOf(type: RunningGatewayConversationType): Exclude<RunningGatewayGroupKey, 'all'> {

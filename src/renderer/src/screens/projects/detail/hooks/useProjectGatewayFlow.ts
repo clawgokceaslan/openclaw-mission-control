@@ -321,8 +321,8 @@ export function useProjectGatewayFlow({
       setGatewayRunFeedback({
         kind: 'success',
         message: response.data.executionMode === 'exec'
-          ? 'Codex exec started. Chat will update as it runs.'
-          : `Codex terminal launched. Workspace: ${response.data.workspacePath}`
+          ? 'Çalıştırma başladı. Chat akış ilerledikçe güncellenecek.'
+          : `Çalıştırma terminalde başladı. Workspace: ${response.data.workspacePath}`
       })
       setError(null)
     } catch (error) {
@@ -395,8 +395,8 @@ export function useProjectGatewayFlow({
       setGatewayRunFeedback({
         kind: 'success',
         message: response.data.executionMode === 'exec'
-          ? 'Codex planner exec started. Chat will update as it runs.'
-          : `Codex planner launched. Runtime workspace: ${response.data.runtimeWorkspacePath}`
+          ? 'Planlama başladı. Chat akış ilerledikçe güncellenecek.'
+          : `Planlama terminalde başladı. Runtime workspace: ${response.data.runtimeWorkspacePath}`
       })
       setError(null)
     } catch (error) {
@@ -472,8 +472,8 @@ export function useProjectGatewayFlow({
       setGatewayRunFeedback({
         kind: 'success',
         message: response.data.executionMode === 'exec'
-          ? 'Codex planner exec started. Chat will update as it runs.'
-          : `Codex planner launched. Runtime workspace: ${response.data.runtimeWorkspacePath}`
+          ? 'Planlama başladı. Chat akış ilerledikçe güncellenecek.'
+          : `Planlama terminalde başladı. Runtime workspace: ${response.data.runtimeWorkspacePath}`
       })
       setError(null)
     } catch (error) {
@@ -550,7 +550,7 @@ export function useProjectGatewayFlow({
         setChatAttachments([])
         setChatComposerMode('chat')
         setGatewayRunFeedback(response.data.executionMode === 'terminal'
-          ? { kind: 'success', message: 'Codex planner launched with your clarification.' }
+          ? { kind: 'success', message: 'Planlama yanıtınla devam ediyor.' }
           : null)
         return
       }
@@ -580,7 +580,7 @@ export function useProjectGatewayFlow({
       setChatAttachments([])
       setChatComposerMode('chat')
       if (response.data.executionMode === 'terminal') {
-        setGatewayRunFeedback({ kind: 'success', message: 'Codex terminal chat launched.' })
+        setGatewayRunFeedback({ kind: 'success', message: 'Devam mesajı terminalde başlatıldı.' })
       } else {
         setGatewayRunFeedback(null)
       }
@@ -721,9 +721,9 @@ export function useProjectGatewayFlow({
   ])
 
   const chatOperationFeedback: ChatOperationFeedbackData | null = gatewayPlanLaunching
-    ? { state: 'running', title: 'Planning with Codex', message: `Launching ${chatPlanModel || resolvedPlanModel || 'the selected model'} with the current task context.` }
+    ? { state: 'running', title: 'Planlanıyor', message: `${chatPlanModel || resolvedPlanModel || 'Seçili model'} mevcut task bağlamıyla başlatılıyor.` }
     : gatewayRunLaunching
-      ? { state: 'running', title: 'Working with Codex', message: `Preparing the task workspace for ${chatRunModel || chatModel || resolvedRunModel || 'the selected model'}.` }
+      ? { state: 'running', title: 'Çalıştırılıyor', message: `${chatRunModel || chatModel || resolvedRunModel || 'Seçili model'} için task workspace hazırlanıyor.` }
       : chatSending
         ? { state: 'running', title: 'Sending message', message: `Starting ${chatRunModel || chatModel || 'the selected model'} for this chat thread.` }
         : chatStopping

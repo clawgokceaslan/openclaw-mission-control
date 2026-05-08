@@ -48,9 +48,9 @@ function buildRunningSections(rows: RunningGatewayTaskRow[]): RunningSection[] {
   }
 
   const sections: RunningSection[] = [
-    { key: 'planning', title: 'Planning', rows: sectionMap.get('planning')! },
-    { key: 'running', title: 'Working', rows: sectionMap.get('running')! },
-    { key: 'postRunning', title: 'Post Running', rows: sectionMap.get('postRunning')! }
+    { key: 'planning', title: 'Planla', rows: sectionMap.get('planning')! },
+    { key: 'running', title: 'Çalıştır', rows: sectionMap.get('running')! },
+    { key: 'postRunning', title: 'Doğrula', rows: sectionMap.get('postRunning')! }
   ]
   return sections.filter((section) => section.rows.length > 0)
 }

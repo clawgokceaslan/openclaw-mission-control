@@ -90,17 +90,17 @@ describe('task Codex card metadata', () => {
     expect(taskGatewayPlanBadge({
       ...task('planned', 'todo', 0),
       payload: { gatewayPlanState: { state: 'planned', conversationId: 'plan-1' } }
-    })).toEqual({ state: 'planned', label: 'Planned', conversationId: 'plan-1' })
+    })).toEqual({ state: 'planned', label: 'Plan hazır', conversationId: 'plan-1' })
 
     expect(taskGatewayPlanBadge({
       ...task('needs-info', 'todo', 0),
       payload: { gatewayPlanState: { state: 'needs-clarification', conversationId: 'plan-2' } }
-    })).toEqual({ state: 'needs-clarification', label: 'Needs Input', conversationId: 'plan-2' })
+    })).toEqual({ state: 'needs-clarification', label: 'Onay bekliyor', conversationId: 'plan-2' })
   })
 
   it('shows not planned when no plan metadata or plan conversation exists', () => {
     expect(taskGatewaySurfaceStatuses(task('no-plan', 'todo', 0)).map((status) => [status.label, status.tone, status.active])).toEqual([
-      ['Not Planned', 'neutral', undefined]
+      ['Plan bekliyor', 'neutral', undefined]
     ])
     expect(taskGatewayActiveTone(task('no-plan', 'todo', 0))).toBeNull()
     expect(taskGatewayLatestSurfaceStatus(task('no-plan', 'todo', 0))).toBeNull()
@@ -120,9 +120,9 @@ describe('task Codex card metadata', () => {
     }, now)
 
     expect(result.map((status) => [status.label, status.tone, status.active, status.iconOnly])).toEqual([
-      ['Planned', 'planned', undefined, true],
-      ['Working', 'working', true, undefined],
-      ['Followed Up', 'completed', undefined, undefined]
+      ['Plan hazır', 'planned', undefined, true],
+      ['Çalışıyor', 'working', true, undefined],
+      ['Devam tamamlandı', 'completed', undefined, undefined]
     ])
     expect(taskGatewayActiveTone({
       ...task('active-run', 'todo', 0),
@@ -143,7 +143,7 @@ describe('task Codex card metadata', () => {
       }
     }, now)
 
-    expect(result).toMatchObject({ statusKey: 'working', label: 'Working', tone: 'working', active: true })
+    expect(result).toMatchObject({ statusKey: 'working', label: 'Çalışıyor', tone: 'working', active: true })
   })
 
   it('uses completed status labels for finished run, post-run and follow-up phases', () => {
@@ -160,10 +160,10 @@ describe('task Codex card metadata', () => {
     }, 10_000)
 
     expect(result.map((status) => [status.statusKey, status.label, status.tone])).toEqual([
-      ['planned', 'Planned', 'planned'],
-      ['work-completed', 'Work Completed', 'completed'],
-      ['post-run-completed', 'Post Run Completed', 'completed'],
-      ['followed-up', 'Followed Up', 'completed']
+      ['planned', 'Plan hazır', 'planned'],
+      ['work-completed', 'Çalışma tamamlandı', 'completed'],
+      ['post-run-completed', 'Özet hazır', 'completed'],
+      ['followed-up', 'Devam tamamlandı', 'completed']
     ])
   })
 
@@ -197,7 +197,7 @@ describe('task Codex card metadata', () => {
       }
     }, now)
 
-    expect(result[0]).toMatchObject({ label: 'Planning', tone: 'planning', active: true, conversationId: 'plan-active' })
+    expect(result[0]).toMatchObject({ label: 'Planlanıyor', tone: 'planning', active: true, conversationId: 'plan-active' })
     expect(taskGatewayActiveTone({
       ...task('replanning', 'todo', 0),
       payload: {
@@ -209,7 +209,7 @@ describe('task Codex card metadata', () => {
     }, now)).toBe('planning')
   })
 
-  it('moves Planning to Planned when a terminal plan message is newer than the active message', () => {
+  it('moves planning to planned when a terminal plan message is newer than the active message', () => {
     const now = 10_000
     const planTransitionTask = {
       ...task('plan-transition', 'todo', 0),
@@ -223,12 +223,12 @@ describe('task Codex card metadata', () => {
     } satisfies TaskEntity
 
     expect(taskGatewaySurfaceStatuses(planTransitionTask, now).map((status) => [status.statusKey, status.label, status.active])).toEqual([
-      ['planned', 'Planned', undefined]
+      ['planned', 'Plan hazır', undefined]
     ])
     expect(taskGatewayActiveTone(planTransitionTask, now)).toBeNull()
   })
 
-  it('keeps Planning active when a new replanning message is newer than the previous terminal message', () => {
+  it('keeps planning active when a new replanning message is newer than the previous terminal message', () => {
     const now = 10_000
     const result = taskGatewaySurfaceStatuses({
       ...task('plan-restarted', 'todo', 0),
@@ -241,7 +241,7 @@ describe('task Codex card metadata', () => {
       }
     }, now)
 
-    expect(result[0]).toMatchObject({ statusKey: 'planning', label: 'Planning', active: true, conversationId: 'new-plan' })
+    expect(result[0]).toMatchObject({ statusKey: 'planning', label: 'Planlanıyor', active: true, conversationId: 'new-plan' })
     expect(taskGatewayActiveTone({
       ...task('plan-restarted', 'todo', 0),
       payload: {
@@ -271,10 +271,10 @@ describe('task Codex card metadata', () => {
     }, now)
 
     expect(result.map((status) => [status.statusKey, status.label, status.active])).toEqual([
-      ['not-planned', 'Not Planned', undefined],
-      ['work-completed', 'Work Completed', undefined],
-      ['post-run-completed', 'Post Run Completed', undefined],
-      ['followed-up', 'Followed Up', undefined]
+      ['not-planned', 'Plan bekliyor', undefined],
+      ['work-completed', 'Çalışma tamamlandı', undefined],
+      ['post-run-completed', 'Özet hazır', undefined],
+      ['followed-up', 'Devam tamamlandı', undefined]
     ])
     expect(taskGatewayActiveTone({
       ...task('phase-transitions', 'todo', 0),
@@ -304,7 +304,7 @@ describe('task Codex card metadata', () => {
     } satisfies TaskEntity
 
     expect(taskGatewaySurfaceStatuses(activeTask, now).find((status) => status.statusKey === 'following-up')).toMatchObject({
-      label: 'Following Up',
+      label: 'Devam ediyor',
       tone: 'following-up',
       active: true
     })
@@ -323,8 +323,8 @@ describe('task Codex card metadata', () => {
     } satisfies TaskEntity
 
     expect(taskGatewaySurfaceStatuses(failedTask, 10_000).map((status) => [status.statusKey, status.label, status.active])).toEqual([
-      ['not-planned', 'Not Planned', undefined],
-      ['failed', 'Running Failed', undefined]
+      ['not-planned', 'Plan bekliyor', undefined],
+      ['failed', 'Çalıştırma durdu', undefined]
     ])
     expect(taskGatewayActiveTone(failedTask, 10_000)).toBeNull()
   })
@@ -342,7 +342,7 @@ describe('task Codex card metadata', () => {
 
     expect(taskGatewayLatestSurfaceStatus(commandFailedTask, 10_000)).toMatchObject({
       statusKey: 'working',
-      label: 'Working',
+      label: 'Çalışıyor',
       tone: 'working',
       active: true
     })
@@ -361,8 +361,8 @@ describe('task Codex card metadata', () => {
     })
 
     expect(result.map((chip) => [chip.label, chip.conversationId, chip.status])).toEqual([
-      ['Plan', 'plan-new', 'completed'],
-      ['Run', 'run-new', 'running']
+      ['Planla', 'plan-new', 'completed'],
+      ['Çalıştır', 'run-new', 'running']
     ])
   })
 

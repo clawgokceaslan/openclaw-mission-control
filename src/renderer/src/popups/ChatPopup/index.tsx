@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type DragEvent, type RefObject } from 'react'
-import { LuBot, LuCircleStop, LuCloudUpload, LuFileText, LuHistory, LuMessageSquare, LuPaperclip, LuPlay, LuPlus, LuSend, LuSettings2, LuSignal, LuSparkles, LuX } from 'react-icons/lu'
+import { LuBot, LuCircleCheck, LuCircleStop, LuCloudUpload, LuFileText, LuHistory, LuMessageSquare, LuPaperclip, LuPlay, LuPlus, LuRefreshCw, LuSend, LuSettings2, LuSignal, LuSparkles, LuX } from 'react-icons/lu'
 import { formatUsageSummary } from '@shared/utils/gateway-events'
 import type { Agent, Gateway, Skill, TaskEntity, Workspace } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
@@ -421,6 +421,62 @@ export function ChatPopup({
     return styles[`chatSource_${gatewayChatPhaseTone(conversation.phase)}`] ?? ''
   }
   const selectedChatStatusMeta = selectedChatSummary ? conversationStatusMeta(selectedChatSummary) : null
+  const latestConversationForPhase = (phase: 'PLAN' | 'RUN' | 'POST-RUNNING') => conversations
+    .filter((conversation) => conversation.phase === phase)
+    .slice()
+    .sort((a, b) => b.at - a.at)[0] ?? null
+  const planConversation = latestConversationForPhase('PLAN')
+  const runConversation = latestConversationForPhase('RUN')
+  const verifyConversation = latestConversationForPhase('POST-RUNNING')
+  const activePlan = planConversation ? runningConversationIds.has(planConversation.id) || planConversation.status === 'running' || conversationStatusMeta(planConversation).active : false
+  const activeRun = runConversation ? runningConversationIds.has(runConversation.id) || runConversation.status === 'running' || conversationStatusMeta(runConversation).active : false
+  const activeVerify = verifyConversation ? runningConversationIds.has(verifyConversation.id) || verifyConversation.status === 'running' || conversationStatusMeta(verifyConversation).active : false
+  const pipelineRows = [
+    {
+      key: 'plan',
+      title: 'Planla',
+      status: activePlan ? 'Planlanıyor' : planConversation ? conversationStatusMeta(planConversation).label : 'Hazır',
+      detail: activePlan ? 'AI uygulanabilir task planını çıkarıyor.' : planConversation ? `${formatChatTime(planConversation.at)} tarihinde plan kaydı var.` : 'İlk adım: kapsamı ve alt işleri netleştir.',
+      tone: activePlan ? 'active' : planConversation ? 'done' : 'idle',
+      icon: activePlan ? LuRefreshCw : LuSparkles,
+      action: activePlan && planConversation ? () => onConversationSelect(planConversation.id) : onPlan,
+      actionLabel: activePlan ? 'Durumu aç' : planConversation ? 'Yeniden planla' : 'Planla',
+      disabled: gatewayPlanLaunching
+    },
+    {
+      key: 'run',
+      title: 'Çalıştır',
+      status: activeRun ? 'Çalışıyor' : runConversation ? conversationStatusMeta(runConversation).label : planConversation ? 'Çalıştırılabilir' : 'Plan bekliyor',
+      detail: activeRun ? 'AI task çıktısını üretmek için çalışıyor.' : runConversation ? `${formatChatTime(runConversation.at)} tarihinde çalışma kaydı var.` : planConversation ? 'Plan hazır; güvenli sıradaki adım çalışma.' : 'Önce planlama adımı tamamlanmalı.',
+      tone: activeRun ? 'active' : runConversation ? 'done' : planConversation ? 'ready' : 'idle',
+      icon: activeRun ? LuRefreshCw : LuPlay,
+      action: activeRun && runConversation ? () => onConversationSelect(runConversation.id) : onRun,
+      actionLabel: activeRun ? 'Durumu aç' : runConversation ? 'Yeniden dene' : 'Çalıştır',
+      disabled: gatewayRunLaunching || !planConversation
+    },
+    {
+      key: 'verify',
+      title: 'Doğrula',
+      status: activeVerify ? 'Doğrulanıyor' : verifyConversation ? conversationStatusMeta(verifyConversation).label : runConversation ? 'Özet bekliyor' : 'Bekliyor',
+      detail: activeVerify ? 'Son çalışma özeti ve kontrol noktaları hazırlanıyor.' : verifyConversation ? `${formatChatTime(verifyConversation.at)} tarihinde doğrulama özeti var.` : runConversation ? 'Çalışma çıktısını kabul sinyalleriyle karşılaştır.' : 'Çalışma tamamlandığında burada izlenir.',
+      tone: activeVerify ? 'active' : verifyConversation ? 'done' : runConversation ? 'ready' : 'idle',
+      icon: LuFileText,
+      action: () => setIsContextDrawerOpen(true),
+      actionLabel: 'Özet',
+      disabled: !showContextHistory
+    },
+    {
+      key: 'complete',
+      title: 'Tamamla',
+      status: verifyConversation || runConversation ? 'Onay bekliyor' : 'Bekliyor',
+      detail: 'Kabul kriterleri tuttuysa task statüsünü tamamlanan kolona taşı; değilse devam mesajı gönder.',
+      tone: verifyConversation || runConversation ? 'ready' : 'idle',
+      icon: LuCircleCheck,
+      action: onNewConversation,
+      actionLabel: 'Devam et',
+      disabled: false
+    }
+  ] as const
 
   return (
     <>
@@ -503,11 +559,29 @@ export function ChatPopup({
               {showContextHistory ? <button type="button" onClick={() => setIsContextDrawerOpen(true)} className={`${styles.chatLabeledAction} ${isContextDrawerOpen ? styles.chatActionActive : ''}`} aria-label="Context history" title="Context history"><LuHistory size={16} /><span>Context</span></button> : null}
               <button type="button" onClick={onSettingsToggle} className={`${styles.chatLabeledAction} ${chatSettingsOpen ? styles.chatActionActive : ''}`} aria-label="Chat settings" title="Chat settings"><LuSettings2 size={16} /><span>Settings</span></button>
               {selectedChatCanStop ? <button type="button" onClick={() => onStopChat()} disabled={chatStopping} className={`${styles.chatLabeledAction} ${styles.chatStopAction}`} aria-label="Stop Codex chat" title="Stop Codex chat"><LuCircleStop size={16} /><span>Stop</span></button> : null}
-              {showRunActions ? <button type="button" onClick={onPlan} disabled={gatewayPlanLaunching} className={styles.chatLabeledAction} aria-label={gatewayPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'} title={gatewayPlanLaunching ? 'Planning with Codex' : 'Plan with Codex'}><LuSparkles size={16} /><span>{gatewayPlanLaunching ? 'Planning' : 'Plan'}</span></button> : null}
-              {showRunActions ? <button type="button" onClick={onRun} disabled={gatewayRunLaunching} className={styles.chatLabeledAction} aria-label={gatewayRunLaunching ? 'Working with Codex' : 'Run with Codex'} title={gatewayRunLaunching ? 'Working with Codex' : 'Run with Codex'}><LuPlay size={16} /><span>{gatewayRunLaunching ? 'Working' : 'Run'}</span></button> : null}
+              {showRunActions ? <button type="button" onClick={onPlan} disabled={gatewayPlanLaunching} className={styles.chatLabeledAction} aria-label={gatewayPlanLaunching ? 'Task planlanıyor' : 'Taskı planla'} title={gatewayPlanLaunching ? 'Task planlanıyor' : 'Taskı planla'}><LuSparkles size={16} /><span>{gatewayPlanLaunching ? 'Planlanıyor' : 'Planla'}</span></button> : null}
+              {showRunActions ? <button type="button" onClick={onRun} disabled={gatewayRunLaunching} className={styles.chatLabeledAction} aria-label={gatewayRunLaunching ? 'Task çalışıyor' : 'Taskı çalıştır'} title={gatewayRunLaunching ? 'Task çalışıyor' : 'Taskı çalıştır'}><LuPlay size={16} /><span>{gatewayRunLaunching ? 'Çalışıyor' : 'Çalıştır'}</span></button> : null}
               <button type="button" onClick={onClose} aria-label="Close chat" title="Close chat" className={styles.chatIconAction}><LuX size={16} /></button>
             </div>
           </header>
+          {showRunActions ? (
+            <section className={styles.chatPipelineStrip} aria-label="Task yaşam döngüsü">
+              {pipelineRows.map((item) => {
+                const Icon = item.icon
+                return (
+                  <article key={item.key} className={`${styles.chatPipelineStep} ${styles[`chatPipelineStep_${item.tone}`] ?? ''}`}>
+                    <span className={styles.chatPipelineIcon}><Icon size={14} /></span>
+                    <div className={styles.chatPipelineCopy}>
+                      <strong>{item.title}</strong>
+                      <span>{item.status}</span>
+                      <p>{item.detail}</p>
+                    </div>
+                    <button type="button" onClick={item.action} disabled={item.disabled}>{item.actionLabel}</button>
+                  </article>
+                )
+              })}
+            </section>
+          ) : null}
           <div className={styles.chatWorkspace}>
             <div className={styles.chatTranscript} ref={chatFeedRef} onScroll={onChatScroll}>
               {visibleMessages.length > 0 ? (
@@ -525,11 +599,11 @@ export function ChatPopup({
                   ) : (
                     <>
                       <LuMessageSquare size={28} />
-                      <h3>Start a Codex chat for this task</h3>
-                      <p>Use Plan, Run, or send a follow-up message. Codex messages will appear here as a transcript.</p>
+                      <h3>Task akışını başlat</h3>
+                      <p>Planla, çalıştır, doğrula veya devam mesajı gönder. Ajan aksiyonları bu task içinde geçmiş olarak görünür.</p>
                       <div>
-                        {showRunActions ? <button type="button" onClick={onPlan} disabled={gatewayPlanLaunching}><LuSparkles size={15} /> {gatewayPlanLaunching ? 'Planning' : 'Plan'}</button> : null}
-                        {showRunActions ? <button type="button" onClick={onRun} disabled={gatewayRunLaunching}><LuPlay size={15} /> {gatewayRunLaunching ? 'Working' : 'Run'}</button> : null}
+                        {showRunActions ? <button type="button" onClick={onPlan} disabled={gatewayPlanLaunching}><LuSparkles size={15} /> {gatewayPlanLaunching ? 'Planlanıyor' : 'Planla'}</button> : null}
+                        {showRunActions ? <button type="button" onClick={onRun} disabled={gatewayRunLaunching}><LuPlay size={15} /> {gatewayRunLaunching ? 'Çalışıyor' : 'Çalıştır'}</button> : null}
                         {(!chatGateway || (!chatPlanModel && !chatModel) || (!chatRunModel && !chatModel)) ? <button type="button" onClick={onSettingsToggle}><LuSettings2 size={15} /> Configure</button> : null}
                       </div>
                     </>
@@ -540,7 +614,7 @@ export function ChatPopup({
             {chatSettingsOpen ? (
               <aside className={styles.chatSettingsPanel}>
                 <div className={styles.chatSettingsHeader}>
-                  <div><span>Codex</span><h3>Run settings</h3></div>
+                  <div><span>Otomatik ilerletme</span><h3>Model ayarları</h3></div>
                   <button type="button" onClick={onSettingsClose} aria-label="Close run settings" title="Close"><LuX size={15} /></button>
                 </div>
                 <div className={styles.chatSettingsCard}>

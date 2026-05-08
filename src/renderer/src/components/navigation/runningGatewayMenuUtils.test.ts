@@ -3,18 +3,18 @@ import { formatRunningGatewayActivitySummary, runningCodexConversationTypeLabel,
 
 describe('running Codex menu helpers', () => {
   it('labels conversation types and live states clearly', () => {
-    expect(runningCodexConversationTypeLabel('plan')).toBe('Planning')
-    expect(runningCodexConversationTypeLabel('run')).toBe('Working')
-    expect(runningCodexConversationTypeLabel('chat')).toBe('Following Up')
-    expect(runningCodexConversationTypeLabel('steer')).toBe('Following Up')
-    expect(runningCodexConversationTypeLabel('post-run')).toBe('Post Running')
-    expect(runningCodexConversationTypeLabel('mystery')).toBe('Working')
-    expect(runningCodexLiveStatusLabel('queued')).toBe('Queued')
-    expect(runningCodexLiveStatusLabel('running')).toBe('Working')
-    expect(runningCodexGroupLabel('all')).toBe('All')
-    expect(runningCodexGroupLabel('planning')).toBe('Planning')
-    expect(runningCodexGroupLabel('running')).toBe('Working')
-    expect(runningCodexGroupLabel('postRunning')).toBe('Post Running')
+    expect(runningCodexConversationTypeLabel('plan')).toBe('Planlanıyor')
+    expect(runningCodexConversationTypeLabel('run')).toBe('Çalışıyor')
+    expect(runningCodexConversationTypeLabel('chat')).toBe('Devam ediyor')
+    expect(runningCodexConversationTypeLabel('steer')).toBe('Devam ediyor')
+    expect(runningCodexConversationTypeLabel('post-run')).toBe('Doğrulanıyor')
+    expect(runningCodexConversationTypeLabel('mystery')).toBe('Çalışıyor')
+    expect(runningCodexLiveStatusLabel('queued')).toBe('Sırada')
+    expect(runningCodexLiveStatusLabel('running')).toBe('Çalışıyor')
+    expect(runningCodexGroupLabel('all')).toBe('Tümü')
+    expect(runningCodexGroupLabel('planning')).toBe('Planla')
+    expect(runningCodexGroupLabel('running')).toBe('Çalıştır')
+    expect(runningCodexGroupLabel('postRunning')).toBe('Doğrula')
   })
 
   it('compacts long activity summaries', () => {
