@@ -75,6 +75,7 @@ type PlannerBridgeContext = {
   actorToken?: string
   projectId: string
   taskId: string
+  groupId?: string
   finishFilePath?: string
   terminalTitle?: string
   workspaceRunPath?: string
@@ -3255,6 +3256,13 @@ export class TaskService {
     return updated
   }
 
+  private async markBridgeTaskGroupQueue(context: PlannerBridgeContext, state: 'completed' | 'failed'): Promise<void> {
+    if (!this.taskGroups) return
+    const group = await this.taskGroupForLaunch(context.taskId, context.groupId)
+    if (!group) return
+    await this.markTaskGroupQueue(group, context.mode === 'execute' ? 'execution' : 'planning', state, context.taskId)
+  }
+
   private rowGroupContract(taskId: string, groupsByTaskId: Map<string, TaskGroup>): Pick<PlannedGatewayTaskRow, 'groupId' | 'orderedTaskIds' | 'activeTaskId' | 'groupContextMdPath' | 'contractedContext'> {
     const group = groupsByTaskId.get(taskId)
     return group
@@ -3343,6 +3351,7 @@ export class TaskService {
       exitCode,
       model: context.model ?? null
     })
+    await this.markBridgeTaskGroupQueue(context, kind === 'completed' ? 'completed' : 'failed')
   }
 
   private async appendPlannerQuestionActivity(
@@ -4224,6 +4233,8 @@ export class TaskService {
     const updated = await this.repo.update(access.data.task.id, { status: target.id, payload: nextPayload })
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Task not found')
     await this.subtaskRepo.updateStatusesByTask(access.data.task.id, target.id)
+    const taskGroup = await this.taskGroupForLaunch(access.data.task.id)
+    await this.markTaskGroupQueue(taskGroup, 'execution', 'completed', access.data.task.id)
     this.emitTaskUpdated(access.data.task.projectId, access.data.task.id, 'ready_for_review')
     await this.signalGatewayTerminalRun(access.data.task.id)
     return okResponse({ taskId: access.data.task.id, statusId: target.id, statusName: target.name })
@@ -4376,6 +4387,7 @@ export class TaskService {
         actorToken: payload.actorToken,
         projectId: project.id,
         taskId: access.data.task.id,
+        groupId: taskGroup?.groupId,
         finishFilePath,
         terminalTitle: runTerminalTitle,
         workspaceRunPath,
@@ -4767,6 +4779,7 @@ export class TaskService {
             body: error.message,
             metadata: { gatewayBlock: 'run-complete', command: execCommand, codexPath, configuredCodexPath, attemptedCodexPaths }
           }, { emitTaskUpdatedAction: 'activity_complete' })
+          void this.markTaskGroupQueue(taskGroup, 'execution', 'failed', taskId)
           notifyRunCompletion('failed', 1)
           void bridge?.close()
           if (workspaceRunPathForCleanup) {
@@ -4828,6 +4841,7 @@ export class TaskService {
               if (postRunCode === 0) {
                 await this.markTaskReadyForReview({ actorToken: payload.actorToken, projectId: project.id, taskId }).catch(() => undefined)
               }
+              await this.markTaskGroupQueue(taskGroup, 'execution', postRunCode === 0 ? 'completed' : 'failed', taskId)
               notifyRunCompletion(postRunCode === 0 ? 'completed' : 'failed', postRunCode)
             } else {
               terminalMessages.push({
@@ -4839,6 +4853,7 @@ export class TaskService {
                 metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, rawTail: eventSummary.rawTail }
               })
               await this.appendTaskActivityMessages(taskId, terminalMessages, { emitTaskUpdatedAction: 'activity_complete' })
+              await this.markTaskGroupQueue(taskGroup, 'execution', 'failed', taskId)
               notifyRunCompletion('failed', code)
             }
             await bridge?.close()
@@ -5154,6 +5169,7 @@ export class TaskService {
         actorToken: payload.actorToken,
         projectId: project.id,
         taskId: access.data.task.id,
+        groupId: taskGroup?.groupId,
         finishFilePath,
         terminalTitle: runTerminalTitle,
         workspaceRunPath,
@@ -5392,6 +5408,7 @@ export class TaskService {
             body: error.message,
             metadata: { gatewayBlock: 'run-complete', command: execCommand, codexPath, configuredCodexPath, attemptedCodexPaths }
           }, { emitTaskUpdatedAction: 'activity_complete' })
+          void this.markTaskGroupQueue(taskGroup, 'planning', 'failed', taskId)
           notifyPlanCompletion('failed', 1)
           void bridge?.close()
           if (workspaceRunPathForCleanup) {
@@ -5470,6 +5487,7 @@ export class TaskService {
               })
             }
             await this.appendTaskActivityMessages(taskId, terminalMessages, { emitTaskUpdatedAction: 'activity_complete' })
+            await this.markTaskGroupQueue(taskGroup, 'planning', code === 0 ? 'completed' : 'failed', taskId)
             notifyPlanCompletion(code === 0 ? 'completed' : 'failed', code)
             await bridge?.close()
             if (workspaceRunPathForCleanup) {
