@@ -75,7 +75,7 @@
     background: var(--omc-surface);
     padding: 10px;
     display: grid;
-    grid-template-columns: minmax(260px, 0.9fr) minmax(260px, 1.35fr) minmax(132px, auto);
+    grid-template-columns: minmax(250px, 0.9fr) minmax(240px, 1.15fr) minmax(220px, 0.85fr) minmax(132px, auto);
     gap: 10px;
     align-items: stretch;
 
@@ -177,6 +177,27 @@
       }
     }
 
+    .groupScope {
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 8px;
+      background: var(--omc-surface-muted);
+      padding: 10px;
+
+      select {
+        background: var(--omc-surface);
+      }
+
+      small {
+        min-height: 16px;
+        color: var(--omc-text-muted);
+        font-size: 0.76rem;
+        line-height: 1.25;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
+
     .controlStat {
       min-width: 132px;
       border: 1px solid var(--omc-border-subtle);
@@ -211,7 +232,7 @@
 
   .contextStrip {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px;
 
     div {
@@ -240,6 +261,18 @@
         color: var(--omc-text-muted);
         font-size: 0.8rem;
         line-height: 1.35;
+      }
+
+      a {
+        width: fit-content;
+        color: var(--omc-primary);
+        font-size: 0.8rem;
+        font-weight: 850;
+        text-decoration: none;
+
+        &:hover {
+          text-decoration: underline;
+        }
       }
     }
   }

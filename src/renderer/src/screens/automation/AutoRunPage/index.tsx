@@ -1,7 +1,9 @@
 import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { LuArrowDown, LuArrowUp, LuSquareCheck, LuCircleStop, LuExternalLink, LuGripVertical, LuListFilter, LuPlay, LuRefreshCw, LuSquare, LuTrash2 } from 'react-icons/lu'
 import { IPC_CHANNELS, type PaginatedResponse, type PlannedGatewayTaskRow, type RunningGatewayTaskRow, type RunningGatewayTasksResponse } from '@shared/contracts/ipc'
 import type { Agent, CustomField, Project, ProjectStatus, Skill, Tag, TaskEntity, TaskGroup } from '@shared/types/entities'
+import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { DEFAULT_GATEWAY_LANGUAGE } from '@shared/utils/gateway-language'
 import { GlobalTaskDetailModal } from '@renderer/components/navigation/GlobalTaskDetailModal'
 import { LoadingState } from '@renderer/components/loading'
@@ -69,6 +71,7 @@ export function AutoRunPage() {
   const [taskGroups, setTaskGroups] = useState<TaskGroup[]>([])
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [currentProjectId, setCurrentProjectId] = useState('')
+  const [selectedGroupId, setSelectedGroupId] = useState('')
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
@@ -108,6 +111,8 @@ export function AutoRunPage() {
   }, [plannedRows, taskGroups])
   const queuedTaskIds = useMemo(() => new Set(queue.filter((item) => item.state === 'waiting' || item.state === 'running').map((item) => item.taskId)), [queue])
   const currentProject = projectsById.get(currentProjectId)
+  const selectedTaskGroup = selectedGroupId ? taskGroupsById.get(selectedGroupId) : null
+  const selectedGroupTaskIds = useMemo(() => new Set(selectedTaskGroup?.orderedTaskIds ?? []), [selectedTaskGroup])
   const sameAutomationActive = automationSnapshot.active.run
   const otherAutomationActive = automationSnapshot.active.plan
   const activeAutomationLabel = sameAutomationActive ? 'Çalıştırma kuyruğu zaten çalışıyor' : otherAutomationActive ? 'Plan kuyruğu bağımsız ilerliyor' : null
@@ -190,6 +195,12 @@ export function AutoRunPage() {
   }, [currentProjectId, token])
 
   useEffect(() => {
+    if (selectedGroupId && !taskGroups.some((group) => group.groupId === selectedGroupId)) {
+      setSelectedGroupId('')
+    }
+  }, [selectedGroupId, taskGroups])
+
+  useEffect(() => {
     const refresh = () => void loadData()
     subscribeToChannel(IPC_CHANNELS.events.taskActivity, refresh)
     subscribeToChannel(IPC_CHANNELS.events.taskUpdated, refresh)
@@ -222,26 +233,32 @@ export function AutoRunPage() {
     !normalizedQuery || `${task.title} ${task.description ?? ''} ${projectsById.get(task.projectId)?.name ?? ''} ${taskStatus(task)?.name ?? ''}`.toLowerCase().includes(normalizedQuery)
   ), [projectsById, taskStatus])
 
+  const isInSelectedGroup = useCallback((task: TaskEntity) => (
+    !selectedGroupId || selectedGroupTaskIds.has(task.id)
+  ), [selectedGroupId, selectedGroupTaskIds])
+
   const filteredTasks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
     return tasks
       .filter((task) => task.projectId === currentProjectId)
+      .filter(isInSelectedGroup)
       .filter(isRunCandidate)
       .filter((task) => queryMatchesTask(task, normalizedQuery))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .sort((a, b) => selectedGroupId ? (groupOrderByTaskId.get(a.id) ?? 0) - (groupOrderByTaskId.get(b.id) ?? 0) : b.updatedAt - a.updatedAt)
       .slice(0, 80)
-  }, [currentProjectId, isRunCandidate, query, queryMatchesTask, tasks])
+  }, [currentProjectId, groupOrderByTaskId, isInSelectedGroup, isRunCandidate, query, queryMatchesTask, selectedGroupId, tasks])
   const groupedCandidateCount = useMemo(() => filteredTasks.filter((task) => groupIdByTaskId.has(task.id)).length, [filteredTasks, groupIdByTaskId])
 
   const otherTasks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
     return tasks
       .filter((task) => task.projectId === currentProjectId)
+      .filter(isInSelectedGroup)
       .filter((task) => !isRunCandidate(task))
       .filter((task) => queryMatchesTask(task, normalizedQuery))
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, 40)
-  }, [currentProjectId, isRunCandidate, query, queryMatchesTask, tasks])
+  }, [currentProjectId, isInSelectedGroup, isRunCandidate, query, queryMatchesTask, tasks])
 
   useEffect(() => {
     setSelectedTaskIds((current) => current.filter((taskId) => filteredTasks.some((task) => task.id === taskId) && !queuedTaskIds.has(taskId)))
@@ -533,6 +550,13 @@ export function AutoRunPage() {
     setActiveStep(nextStep)
   }
 
+  const chooseProject = (projectId: string) => {
+    setCurrentProjectId(projectId)
+    setSelectedGroupId('')
+    setProjectPickerOpen(false)
+    setActiveStep('tasks')
+  }
+
   return (
     <section className={styles.page}>
       <header className={styles.header}>
@@ -560,6 +584,19 @@ export function AutoRunPage() {
           <span>Task ara</span>
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Başlık, açıklama veya proje" />
         </label>
+        <label className={styles.groupScope}>
+          <span>Task Grubu</span>
+          <select value={selectedGroupId} onChange={(event) => {
+            setSelectedGroupId(event.target.value)
+            setActiveStep('tasks')
+          }}>
+            <option value="">Tüm task grupları</option>
+            {taskGroups.map((group) => (
+              <option key={group.groupId} value={group.groupId}>{group.title}</option>
+            ))}
+          </select>
+          <small>{selectedTaskGroup ? `${selectedTaskGroup.orderedTaskIds.length} task bu grup kapsamında` : `${taskGroups.length} grup taranıyor`}</small>
+        </label>
         <div className={styles.controlStat}>
           <span>Uygun</span>
           <strong>{filteredTasks.length}</strong>
@@ -570,13 +607,19 @@ export function AutoRunPage() {
       <section className={styles.contextStrip} aria-label="Çalıştırma kuyruğu fırsat kapsamı">
         <div>
           <span>Task Grubu</span>
-          <strong>{taskGroups.length} grup · {groupedCandidateCount} bağlı aday</strong>
-          <small>Grup sırası korunur; seçilen tasklar çalışma bağlamıyla başlar.</small>
+          <strong>{selectedTaskGroup ? selectedTaskGroup.title : `${taskGroups.length} grup`} · {groupedCandidateCount} bağlı aday</strong>
+          <small>{selectedTaskGroup ? 'Liste seçili grubun P sırasına ve proje kapsamına göre daraltıldı.' : 'Grup sırası korunur; seçilen tasklar çalışma bağlamıyla başlar.'}</small>
         </div>
         <div>
           <span>Çalıştırma Kuyruğu</span>
           <strong>{queueSummary.waiting} bekliyor · {queueSummary.running} aktif · {queueSummary.completed} bitti</strong>
           <small>{queueSummary.failed ? `${queueSummary.failed} hata var; kontrol adımından task detayına dön.` : 'Bu ekran yalnızca planı hazır taskların uygulama sırasını yönetir.'}</small>
+        </div>
+        <div>
+          <span>Plan Kuyruğu</span>
+          <strong>Hazırlık kaynağı</strong>
+          <small>Planı eksik tasklar aynı proje ve grup bağlamıyla plan kuyruğunda hazırlanır.</small>
+          <Link to={APP_ROUTES.AUTO_PLANS}>Plan Kuyruğunu aç</Link>
         </div>
         <div>
           <span>Sonraki faz</span>
@@ -757,18 +800,14 @@ export function AutoRunPage() {
 
       {projectPickerOpen ? (
         <div className={styles.modalBackdrop} role="presentation">
-          <section className={styles.projectModal} role="dialog" aria-modal="true" aria-label="Choose project">
+          <section className={styles.projectModal} role="dialog" aria-modal="true" aria-label="Proje seç">
             <header>
-              <div><strong>Choose project</strong><span>Default task lists only show the selected project.</span></div>
-              <button type="button" onClick={() => setProjectPickerOpen(false)}>Close</button>
+              <div><strong>Proje seç</strong><span>Varsayılan task listeleri yalnızca seçili projeyi gösterir.</span></div>
+              <button type="button" onClick={() => setProjectPickerOpen(false)}>Kapat</button>
             </header>
             <div className={styles.projectModalList}>
               {projects.map((project) => (
-                <button key={project.id} type="button" className={project.id === currentProjectId ? styles.projectModalActive : ''} onClick={() => {
-                  setCurrentProjectId(project.id)
-                  setProjectPickerOpen(false)
-                  setActiveStep('tasks')
-                }}>
+                <button key={project.id} type="button" className={project.id === currentProjectId ? styles.projectModalActive : ''} onClick={() => chooseProject(project.id)}>
                   <strong>{project.name}</strong>
                   <span>{project.description?.trim() || 'No description'}</span>
                 </button>
