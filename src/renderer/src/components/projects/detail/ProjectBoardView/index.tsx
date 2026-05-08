@@ -1,7 +1,7 @@
-import { useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react'
+import { useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react'
 import { Card } from 'react-bootstrap'
-import { LuCalendarPlus, LuChevronDown, LuMessageSquare, LuPlus, LuUserPlus } from 'react-icons/lu'
-import type { Agent, Tag, TaskEntity } from '@shared/types/entities'
+import { LuCalendarPlus, LuChevronDown, LuLayers, LuMessageSquare, LuPlus, LuUserPlus } from 'react-icons/lu'
+import type { Agent, Tag, TaskEntity, TaskGroup } from '@shared/types/entities'
 import { TagPill } from '@renderer/components/tags/TagPill'
 import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
 import { formatTaskDate } from '@renderer/screens/projects/detail/status'
@@ -11,6 +11,7 @@ import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 interface ProjectBoardViewProps {
   columns: ProjectStatusColumn[]
   tasksByStatus: Record<TaskEntity['status'], TaskEntity[]>
+  taskGroups: TaskGroup[]
   agents: Agent[]
   onDropStatus: (event: DragEvent<HTMLElement>, status: TaskEntity['status']) => void
   onReorder: (sourceTaskId: string, targetTaskId: string, position: TaskDropPosition) => void
@@ -43,8 +44,20 @@ function codexStatusClass(status: TaskGatewaySurfaceStatus) {
   return `${styles.taskGatewayStateBadge} ${styles[`taskGatewayTone_${status.tone}`] ?? ''}`
 }
 
-export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus, onReorder, onOpenTask, onOpenSubtask, onOpenCreateTask }: ProjectBoardViewProps) {
+export function ProjectBoardView({ columns, tasksByStatus, taskGroups, agents, onDropStatus, onReorder, onOpenTask, onOpenSubtask, onOpenCreateTask }: ProjectBoardViewProps) {
   const agentName = (task: TaskEntity) => agents.find((agent) => agent.id === task.agentId)?.name ?? 'Unassigned'
+  const allTasks = useMemo(() => Object.values(tasksByStatus).flat(), [tasksByStatus])
+  const taskById = useMemo(() => new Map(allTasks.map((task) => [task.id, task])), [allTasks])
+  const groupsByStatus = useMemo(() => {
+    const result: Record<string, TaskGroup[]> = {}
+    for (const group of taskGroups) {
+      const activeTask = (group.activeTaskId ? taskById.get(group.activeTaskId) : undefined)
+        ?? group.orderedTaskIds.map((taskId) => taskById.get(taskId)).find((task): task is TaskEntity => Boolean(task))
+      if (!activeTask) continue
+      result[activeTask.status] = [...(result[activeTask.status] ?? []), group]
+    }
+    return result
+  }, [taskById, taskGroups])
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const panRef = useRef({ active: false, startX: 0, scrollLeft: 0 })
   const [dropTarget, setDropTarget] = useState<{ taskId: string; position: TaskDropPosition } | null>(null)
@@ -86,6 +99,7 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
     >
       {columns.map((column) => {
         const rows = tasksByStatus[column.status] ?? []
+        const groupRows = groupsByStatus[column.status] ?? []
         return (
           <article
             key={column.key}
@@ -118,6 +132,41 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
               </div>
             ) : null}
             <div className={styles.columnBody}>
+              {groupRows.map((group) => {
+                const doneCount = group.orderedTaskIds.filter((taskId) => {
+                  const task = taskById.get(taskId)
+                  return task ? ['done', 'closed', 'completed'].includes(String(task.status).toLowerCase()) : false
+                }).length
+                const activeTask = group.activeTaskId ? taskById.get(group.activeTaskId) : undefined
+                return (
+                  <article key={group.groupId} className={styles.taskGroupBoardCard}>
+                    <header className={styles.taskGroupBoardCard__header}>
+                      <span className={styles.taskGroupBoardCard__icon}><LuLayers size={15} /></span>
+                      <div className={styles.taskGroupBoardCard__titleBlock}>
+                        <h3>{group.title}</h3>
+                        <p>{doneCount}/{group.orderedTaskIds.length} task tamamlandı</p>
+                      </div>
+                    </header>
+                    <div className={styles.taskGroupBoardCard__contract}>
+                      <span>groupId: {group.groupId}</span>
+                      <span>active: {activeTask?.title ?? group.activeTaskId ?? 'yok'}</span>
+                    </div>
+                    <ol className={styles.taskGroupBoardCard__tasks}>
+                      {group.orderedTaskIds.slice(0, 5).map((taskId, index) => {
+                        const task = taskById.get(taskId)
+                        return (
+                          <li key={taskId}>
+                            <button type="button" onClick={() => task && onOpenTask(task.id)} disabled={!task}>
+                              <span>{index + 1}</span>
+                              <strong>{task?.title ?? taskId}</strong>
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ol>
+                  </article>
+                )
+              })}
               {rows.map((task) => {
                 const subtasks = task.subtasks ?? []
                 const expanded = Boolean(expandedSubtasks[task.id])

@@ -984,7 +984,7 @@ export function initialGatewayPrompt(
   projectId: string,
   taskId: string,
   omcInstructionsPath: string,
-  options: { language?: string; languages?: GatewayLanguagePair; promptShape?: GatewayPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null } = {}
+  options: { language?: string; languages?: GatewayLanguagePair; promptShape?: GatewayPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null; groupContract?: string | null } = {}
 ): string {
   const language = typeof options.languages === 'object' ? options.languages.outputLanguage : options.language
   const promptShape = normalizeGatewayPromptShape(options.promptShape)
@@ -996,6 +996,7 @@ export function initialGatewayPrompt(
     gatewayLanguageInstruction(language),
     projectInstructionsSection(options.projectPrompt, { audience: 'run' }),
     effectiveAgentSection(options.effectiveAgent),
+    options.groupContract ? `TaskGroup context contract:\n${options.groupContract}` : '',
     `Before making changes, read the run-specific .omc CLI instructions at ${omcInstructionsPath} in the runtime workspace.`,
     `Read ${exportWorkspacePath}/${taskFileName} as the primary task context. Read ${exportWorkspacePath}/Agents.md, ${exportWorkspacePath}/Skills.md, and ${exportWorkspacePath}/attachments/ only if present and needed.`,
     `Apply the Project Rules section in ${taskFileName} before making implementation decisions.`,
@@ -1014,6 +1015,7 @@ export function initialGatewayPrompt(
     { name: 'language_instruction', value: gatewayLanguageInstruction(language) },
     { name: 'project_instructions', value: projectInstructionsSection(options.projectPrompt, { audience: 'run' }) },
     { name: 'effective_agent', value: effectiveAgentSection(options.effectiveAgent) },
+    ...(options.groupContract ? [{ name: 'task_group_contract', value: options.groupContract }] : []),
     { name: 'omc_cli_instructions_path', value: omcInstructionsPath },
     { name: 'primary_task_file', value: `${exportWorkspacePath}/${taskFileName}` },
     { name: 'required_reads', value: [`${exportWorkspacePath}/${taskFileName}`, `${exportWorkspacePath}/Agents.md if needed`, `${exportWorkspacePath}/Skills.md if needed`, `${exportWorkspacePath}/attachments/ if present`] },
@@ -1275,7 +1277,7 @@ export function initialPlannerPrompt(
   helperPath: string,
   contextPath: string,
   plannedTaskPath: string,
-  options: { language?: string; languages?: GatewayLanguagePair; promptShape?: GatewayPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null; clarificationMode?: PlannerClarificationMode } = {}
+  options: { language?: string; languages?: GatewayLanguagePair; promptShape?: GatewayPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null; clarificationMode?: PlannerClarificationMode; groupContract?: string | null } = {}
 ): string {
   const questionsPath = plannedTaskPath.replace(/planned-task\.json$/i, 'questions.json')
   const language = typeof options.languages === 'object' ? options.languages.outputLanguage : options.language
@@ -1323,6 +1325,7 @@ export function initialPlannerPrompt(
     `The project id is ${projectId} and the source task id is ${taskId}.`,
     gatewayLanguageInstruction(language),
     projectInstructionsSection(options.projectPrompt, { audience: 'plan' }),
+    options.groupContract ? `TaskGroup context contract:\n${options.groupContract}` : '',
     effectiveAgentSection(options.effectiveAgent),
     'Plan the current task from currentTaskJson task-detail data: title, description/content, custom fields, checklist, comments, tags, and subtasks.',
     'Treat currentTaskJson.title and currentTaskJson.description as the authoritative task title and description/content sources; do not replace them with chat headings, user prompt labels, or gateway payload text.',
@@ -3014,6 +3017,7 @@ export function omcCliInstructions(context: {
   plannedTaskRelativePath: string
   exportWorkspacePath?: string
   runtimeWorkspacePath: string
+  groupContract?: string | null
 }): string {
   const helper = context.helperRelativePath
   const questionsRelativePath = plannerRunRelativePath(context.runId, 'questions.json')
@@ -3047,6 +3051,7 @@ export function omcCliInstructions(context: {
     `- Runtime workspace: ${context.runtimeWorkspacePath}`,
     `- Run folder: .omc/runs/${context.runId}`,
     ...(context.exportWorkspacePath ? [`- Export workspace: ${context.exportWorkspacePath}`] : []),
+    ...(context.groupContract ? ['- TaskGroup contract: available below'] : []),
     '',
     '## Commands',
     '',
@@ -3062,6 +3067,7 @@ export function omcCliInstructions(context: {
     '',
     `- ${gatewayLanguageInstruction(language)}`,
     '- Run context before planning or when you need project/task metadata.',
+    ...(context.groupContract ? ['', '## TaskGroup Contract', '', context.groupContract] : []),
     '- Run validate before create or update.',
     ...plannerModeRules,
     '- Non-negotiable planner rules in these instructions override weaker or conflicting project Plan Guide instructions, including any instruction that says user input is not needed.',
@@ -3194,6 +3200,72 @@ export class TaskService {
 
   private emitTaskUpdated(projectId: string, taskId: string, action: string): void {
     this.eventBus?.emit(IPC_CHANNELS.events.taskUpdated, { projectId, taskId, action, updatedAt: Date.now() })
+  }
+
+  private async taskGroupForLaunch(taskId: string, requestedGroupId?: string): Promise<TaskGroup | null> {
+    if (!this.taskGroups) return null
+    if (requestedGroupId?.trim()) {
+      const group = await this.taskGroups.get(requestedGroupId.trim())
+      return group?.orderedTaskIds.includes(taskId) ? group : null
+    }
+    const groups = await this.taskGroups.listByTaskId(taskId)
+    return groups[0] ?? null
+  }
+
+  private queueStateDetails(group: TaskGroup, activeTaskId: string) {
+    return {
+      projectId: group.projectId,
+      groupId: group.groupId,
+      orderedTaskIds: group.orderedTaskIds,
+      activeTaskId,
+      groupContextMdPath: group.groupContextMdPath,
+      contractedContext: group.contractedContext
+    }
+  }
+
+  private async markTaskGroupQueue(group: TaskGroup | null, queue: 'planning' | 'execution', state: 'queued' | 'running' | 'completed' | 'failed', activeTaskId: string): Promise<TaskGroup | null> {
+    if (!group || !this.taskGroups) return group
+    const details = this.queueStateDetails(group, activeTaskId)
+    const patch = queue === 'planning'
+      ? { planningQueueState: { state, updatedAt: Date.now(), details } }
+      : { executionQueueState: { state, updatedAt: Date.now(), details } }
+    const updated = await this.taskGroups.update(group.id, patch)
+    if (!updated) return group
+    if (updated.groupContextMdPath) {
+      await mkdir(dirname(updated.groupContextMdPath), { recursive: true })
+      await writeFile(updated.groupContextMdPath, [
+        `# ${updated.title}`,
+        '',
+        '## Contracted Context',
+        '',
+        updated.contractedContext,
+        '',
+        '## Queue State',
+        '',
+        `- planningQueueState: ${updated.planningQueueState.state}`,
+        `- executionQueueState: ${updated.executionQueueState.state}`,
+        `- activeTaskId: ${updated.activeTaskId ?? activeTaskId}`,
+        '',
+        '## Ordered Task IDs',
+        '',
+        ...updated.orderedTaskIds.map((taskId, index) => `- ${index + 1}. ${taskId}`),
+        ''
+      ].join('\n'), 'utf8')
+    }
+    return updated
+  }
+
+  private rowGroupContract(taskId: string, groupsByTaskId: Map<string, TaskGroup>): Pick<PlannedGatewayTaskRow, 'groupId' | 'orderedTaskIds' | 'activeTaskId' | 'groupContextMdPath' | 'contractedContext'> {
+    const group = groupsByTaskId.get(taskId)
+    return group
+      ? {
+          groupId: group.groupId,
+          orderedTaskIds: group.orderedTaskIds,
+          activeTaskId: group.activeTaskId,
+          groupContextMdPath: group.groupContextMdPath,
+          contractedContext: group.contractedContext
+        }
+      : {}
   }
 
   private async setTaskGatewayPlanState(taskId: string, gatewayPlanState: Record<string, unknown>): Promise<void> {
@@ -3490,6 +3562,13 @@ export class TaskService {
     const page = Math.max(1, Math.floor(Number(payload?.page ?? 1)))
     const pageSize = Math.max(1, Math.min(50, Math.floor(Number(payload?.pageSize ?? 12))))
     const { rows, total } = await this.repo.listPlannedGateway(actor.user.organizationId, page, pageSize)
+    const groupsByTaskId = new Map<string, TaskGroup>()
+    if (this.taskGroups) {
+      for (const { task } of rows) {
+        const group = await this.taskGroupForLaunch(task.id)
+        if (group) groupsByTaskId.set(task.id, group)
+      }
+    }
     const plannedRows: PlannedGatewayTaskRow[] = rows.map(({ task, project }) => {
       const taskGateway = taskGatewayMetrics(task)
       const projectGateway = projectGatewayMetrics(project.metrics)
@@ -3508,6 +3587,7 @@ export class TaskService {
       return {
         taskId: task.id,
         projectId: project.id,
+        ...this.rowGroupContract(task.id, groupsByTaskId),
         taskTitle: task.title,
         taskStatus: task.status,
         projectName: project.name,
@@ -3536,11 +3616,21 @@ export class TaskService {
     const pageSize = Math.max(1, Math.min(50, Math.floor(Number(payload?.pageSize ?? 12))))
     const group = normalizeRunningGatewayGroup(payload?.group)
     const candidates = await this.repo.listRunningGateway(actor.user.organizationId)
+    const groupsByTaskId = new Map<string, TaskGroup>()
+    if (this.taskGroups) {
+      for (const { task } of candidates) {
+        const taskGroup = await this.taskGroupForLaunch(task.id)
+        if (taskGroup) groupsByTaskId.set(task.id, taskGroup)
+      }
+    }
     const runningRows = candidates.flatMap(({ task, project }) => summarizeRunningConversation(
       task,
       project,
       taskActivityMessagesFromPayload(task.payload)
-    )).map(({ latestActivityBody, ...row }) => row)
+    )).map(({ latestActivityBody, ...row }) => ({
+      ...row,
+      ...this.rowGroupContract(row.taskId, groupsByTaskId)
+    }))
     const counts = countRunningGatewayGroups(runningRows)
     const filteredRows = group === 'all'
       ? runningRows
@@ -4223,6 +4313,9 @@ export class TaskService {
     const promptShape = projectGatewayPromptShape(project)
     const reasoningEffort = projectGatewayReasoningEffort(project, 'run', payload.reasoningEffort)
     const effectiveAgent = await this.effectiveAgentForTask(access.data.task, access.data.actorOrgId, project)
+    let taskGroup = await this.taskGroupForLaunch(access.data.task.id, payload.groupId)
+    if (taskGroup && taskGroup.projectId !== project.id) return errorResponse(ErrorCodes.Forbidden, 'Task group project mismatch')
+    taskGroup = await this.markTaskGroupQueue(taskGroup, 'execution', 'running', access.data.task.id)
 
     const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-gateway-run-'))
     let bridge: { url: string; close: () => Promise<void> } | null = null
@@ -4273,7 +4366,8 @@ export class TaskService {
         language,
         promptShape,
         projectPrompt,
-        effectiveAgent
+        effectiveAgent,
+        groupContract: taskGroup?.contractedContext
       })
       const workspaceRunPath = join(runtimeWorkspacePath, '.omc', 'runs', runId)
       workspaceRunPathForCleanup = workspaceRunPath
@@ -4311,6 +4405,7 @@ export class TaskService {
         language,
         reasoningEffort,
         effectiveAgent,
+        taskGroupContract: taskGroup ? this.queueStateDetails(taskGroup, access.data.task.id) : null,
         bridgeUrl: bridge.url,
         bridgeToken,
         createdAt: new Date().toISOString()
@@ -4326,6 +4421,7 @@ export class TaskService {
         exportWorkspacePath,
         runtimeWorkspacePath,
         language,
+        groupContract: taskGroup?.contractedContext,
       }), 'utf8')
       const codexCommand = [
         shellQuote(codexPath),
@@ -4418,6 +4514,7 @@ export class TaskService {
         projectPrompt,
         language,
         effectiveAgent,
+        taskGroupContract: taskGroup ? this.queueStateDetails(taskGroup, access.data.task.id) : null,
         finishFilePath,
         terminalTitle: runTerminalTitle,
         executionMode,
@@ -5024,6 +5121,9 @@ export class TaskService {
     const promptShape = projectGatewayPromptShape(project)
     const reasoningEffort = projectGatewayReasoningEffort(project, 'plan', payload.reasoningEffort)
     const effectiveAgent = await this.effectiveAgentForTask(access.data.task, access.data.actorOrgId, project)
+    let taskGroup = await this.taskGroupForLaunch(access.data.task.id, payload.groupId)
+    if (taskGroup && taskGroup.projectId !== project.id) return errorResponse(ErrorCodes.Forbidden, 'Task group project mismatch')
+    taskGroup = await this.markTaskGroupQueue(taskGroup, 'planning', 'running', access.data.task.id)
 
     const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-gateway-planner-'))
     let bridge: { url: string; close: () => Promise<void> } | null = null
@@ -5088,6 +5188,7 @@ export class TaskService {
         workspaceRunPath,
         projectPrompt,
         effectiveAgent,
+        taskGroupContract: taskGroup ? this.queueStateDetails(taskGroup, access.data.task.id) : null,
         bridgeUrl: bridge.url,
         bridgeToken,
         createdAt: new Date().toISOString()
@@ -5102,7 +5203,8 @@ export class TaskService {
         helperRelativePath,
         contextRelativePath,
         plannedTaskRelativePath,
-        runtimeWorkspacePath
+        runtimeWorkspacePath,
+        groupContract: taskGroup?.contractedContext
       }), 'utf8')
       const taskId = access.data.task.id
       const transcript = taskActivityMessagesFromPayload(access.data.task.payload)
@@ -5114,7 +5216,8 @@ export class TaskService {
           promptShape,
           projectPrompt,
           effectiveAgent,
-          clarificationMode
+          clarificationMode,
+          groupContract: taskGroup?.contractedContext
         }),
         plannerClarificationPrompt({ conversationId, clarificationMessage, transcript, language, promptShape })
       ].join(' ')
@@ -5203,6 +5306,7 @@ export class TaskService {
         gitignoreUpdated,
         bridgeUrl: bridge.url,
         projectPrompt,
+        taskGroupContract: taskGroup ? this.queueStateDetails(taskGroup, access.data.task.id) : null,
         finishFilePath,
         terminalTitle: runTerminalTitle,
         executionMode,

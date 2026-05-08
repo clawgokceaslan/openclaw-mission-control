@@ -149,7 +149,8 @@ export const IPC_CHANNELS = {
   },
   taskGroups: {
     list: 'task-groups:list',
-    create: 'task-groups:create'
+    create: 'task-groups:create',
+    update: 'task-groups:update'
   },
   customFields: {
     list: 'custom-fields:list',
@@ -294,6 +295,7 @@ export interface PlanTaskGatewayRequest {
   actorToken?: string
   projectId?: string
   taskId?: string
+  groupId?: string
   gatewayId?: string
   model?: string
   language?: string
@@ -321,6 +323,14 @@ export interface TaskPlannerJsonRequest {
   json?: unknown
   createTaskGroup?: boolean
   taskGroupTitle?: string
+}
+
+export interface UpdateTaskGroupRequest {
+  actorToken?: string
+  groupId?: string
+  title?: string
+  orderedTaskIds?: string[]
+  activeTaskId?: string | null
 }
 
 export interface TaskPlannerAiFillRequest {
@@ -469,6 +479,11 @@ export interface ListPlannedGatewayTasksRequest {
 export interface PlannedGatewayTaskRow {
   taskId: string
   projectId: string
+  groupId?: string
+  orderedTaskIds?: string[]
+  activeTaskId?: string | null
+  groupContextMdPath?: string
+  contractedContext?: string
   taskTitle: string
   taskStatus: string
   projectName: string
@@ -503,6 +518,11 @@ export interface RunningGatewayGroupCounts {
 export interface RunningGatewayTaskRow {
   taskId: string
   projectId: string
+  groupId?: string
+  orderedTaskIds?: string[]
+  activeTaskId?: string | null
+  groupContextMdPath?: string
+  contractedContext?: string
   taskTitle: string
   taskStatus: string
   projectName: string
@@ -565,6 +585,7 @@ export interface RunTaskGatewayRequest {
   actorToken?: string
   taskId?: string
   projectId?: string
+  groupId?: string
   zipName?: string
   zipBytes?: ArrayBuffer | Uint8Array | number[]
   taskMarkdown?: string
@@ -710,7 +731,7 @@ export const SERVICE_MAP = {
   skills: ['list', 'listPage', 'create', 'update', 'remove', 'listPacks'],
   organization: ['me', 'listMembers', 'createInvite'],
   projectGroups: ['list', 'create', 'update', 'remove'],
-  taskGroups: ['list', 'create'],
+  taskGroups: ['list', 'create', 'update'],
   customFields: ['list', 'create', 'update', 'remove', 'tagsList', 'tagsCreate', 'tagsUpdate', 'tagsRemove'],
   outputFormats: ['list', 'create', 'update', 'remove'],
   jobs: ['list', 'metrics']
@@ -1541,6 +1562,13 @@ export const SERVICE_ROUTING: {
       action: 'create',
       method: 'create',
       channel: IPC_CHANNELS.taskGroups.create,
+      requiresAuth: true
+    },
+    update: {
+      domain: 'taskGroups',
+      action: 'update',
+      method: 'update',
+      channel: IPC_CHANNELS.taskGroups.update,
       requiresAuth: true
     }
   },

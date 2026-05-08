@@ -116,7 +116,7 @@ export async function createAppContext(): Promise<AppContext> {
     skills: new SkillService(auth, skillRepo, packRepo),
     organization: new OrganizationService(auth, orgRepo, authRepo),
     projectGroups: new ProjectGroupService(auth, groupRepo, projectRepo),
-    taskGroups: new TaskGroupService(auth, taskGroupRepo, projectRepo),
+    taskGroups: new TaskGroupService(auth, taskGroupRepo, projectRepo, taskRepo),
     customFields: new CustomFieldService(auth, customFieldRepo, tagRepo),
     outputFormats: new OutputFormatService(auth, outputFormatRepo),
     jobs: new JobService(auth, jobRepo),

@@ -27,6 +27,22 @@ export class TaskGroupRepository extends BaseRepository<TaskGroup> {
     return rows.map((row: any) => this.map(row))
   }
 
+  async listByTaskId(taskId: string): Promise<TaskGroup[]> {
+    const rows = await this.db
+      .prepare(
+        `SELECT *
+         FROM task_groups
+         WHERE EXISTS (
+           SELECT 1
+           FROM json_each(task_groups.ordered_task_ids_json) AS task_id
+           WHERE task_id.value = @taskId
+         )
+         ORDER BY updated_at DESC`
+      )
+      .all({ taskId })
+    return rows.map((row: any) => this.map(row))
+  }
+
   async get(id: string): Promise<TaskGroup | undefined> {
     const row = (await this.db.prepare('SELECT * FROM task_groups WHERE id = @id').get({ id })) as any
     return row ? this.map(row) : undefined
@@ -103,6 +119,43 @@ export class TaskGroupRepository extends BaseRepository<TaskGroup> {
       })
 
     return group
+  }
+
+  async update(id: string, patch: Partial<Pick<TaskGroup, 'title' | 'orderedTaskIds' | 'activeTaskId' | 'groupContextMdPath' | 'contractedContext' | 'planningQueueState' | 'executionQueueState'>>): Promise<TaskGroup | undefined> {
+    const current = await this.get(id)
+    if (!current) return undefined
+    const next: TaskGroup = {
+      ...current,
+      ...patch,
+      updatedAt: Date.now()
+    }
+
+    await this.db
+      .prepare(
+        `UPDATE task_groups
+         SET title = @title,
+             ordered_task_ids_json = @orderedTaskIdsJson,
+             active_task_id = @activeTaskId,
+             group_context_md_path = @groupContextMdPath,
+             contracted_context = @contractedContext,
+             planning_queue_state_json = @planningQueueStateJson,
+             execution_queue_state_json = @executionQueueStateJson,
+             updated_at = @updatedAt
+         WHERE id = @id`
+      )
+      .run({
+        id,
+        title: next.title,
+        orderedTaskIdsJson: this.toJson(next.orderedTaskIds),
+        activeTaskId: next.activeTaskId,
+        groupContextMdPath: next.groupContextMdPath,
+        contractedContext: next.contractedContext,
+        planningQueueStateJson: this.toJson(next.planningQueueState),
+        executionQueueStateJson: this.toJson(next.executionQueueState),
+        updatedAt: next.updatedAt
+      })
+
+    return next
   }
 
   private map(row: any): TaskGroup {

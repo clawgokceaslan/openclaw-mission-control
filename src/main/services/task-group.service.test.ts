@@ -41,23 +41,24 @@ describe('TaskGroupService', () => {
     const service = new TaskGroupService(
       { requireActor: vi.fn(async () => ({ user: { organizationId: 'org-1' } })) } as any,
       repo as any,
-      { get: vi.fn(async () => project()) } as any
+      { get: vi.fn(async () => project()) } as any,
+      { get: vi.fn() } as any
     )
 
     const response = await service.create({ actorToken: 'token', projectId: 'project-1', title: '  Release plan  ' })
 
     expect(response.ok).toBe(true)
-    expect(repo.create).toHaveBeenCalledWith({ projectId: 'project-1', title: 'Release plan' })
+    expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'project-1', title: 'Release plan' }))
     expect(response.data).toEqual(expect.objectContaining({
       projectId: 'project-1',
       groupId: 'group-1',
       title: 'Release plan',
       orderedTaskIds: [],
       activeTaskId: null,
-      groupContextMdPath: '',
-      contractedContext: '',
-      planningQueueState: { state: 'not_configured' },
-      executionQueueState: { state: 'not_configured' }
+      groupContextMdPath: expect.any(String),
+      contractedContext: expect.stringContaining('projectId: project-1'),
+      planningQueueState: expect.objectContaining({ state: 'idle' }),
+      executionQueueState: expect.objectContaining({ state: 'idle' })
     }))
   })
 
@@ -68,7 +69,8 @@ describe('TaskGroupService', () => {
     const service = new TaskGroupService(
       { requireActor: vi.fn(async () => ({ user: { organizationId: 'org-1' } })) } as any,
       repo as any,
-      { get: vi.fn(async () => project({ organizationId: 'org-2' })) } as any
+      { get: vi.fn(async () => project({ organizationId: 'org-2' })) } as any,
+      { get: vi.fn() } as any
     )
 
     const response = await service.create({ actorToken: 'token', projectId: 'project-2', title: 'Release plan' })
@@ -85,7 +87,8 @@ describe('TaskGroupService', () => {
     const service = new TaskGroupService(
       { requireActor: vi.fn(async () => ({ user: { organizationId: 'org-1' } })) } as any,
       repo as any,
-      { get: vi.fn(async () => project()) } as any
+      { get: vi.fn(async () => project()) } as any,
+      { get: vi.fn() } as any
     )
 
     const response = await service.list({ actorToken: 'token', projectId: 'project-1' })

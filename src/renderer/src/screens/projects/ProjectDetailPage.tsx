@@ -155,6 +155,7 @@ export function ProjectDetailPage() {
     detailRatio: loadInitialRatio()
   })
   const [isTaskPlannerOpen, setIsTaskPlannerOpen] = useState(false)
+  const [updatingTaskGroupId, setUpdatingTaskGroupId] = useState<string | null>(null)
   const projectDetailState = useProjectDetailDispatcher(projectDetailRawState, projectDetailDispatch)
   const {
     project,
@@ -1560,6 +1561,26 @@ export function ProjectDetailPage() {
 
     setTaskGroups((current) => [response.data as TaskGroup, ...current.filter((group) => group.groupId !== response.data?.groupId)])
     setTaskGroupTitleDraft('')
+  }
+
+  const updateTaskGroupTasks = async (groupId: string, orderedTaskIds: string[]) => {
+    setTaskGroupSaving(true)
+    setUpdatingTaskGroupId(groupId)
+    setTaskGroupError(null)
+    const response = await invokeBridge<TaskGroup>(IPC_CHANNELS.taskGroups.update, {
+      actorToken: token,
+      groupId,
+      orderedTaskIds
+    })
+    setTaskGroupSaving(false)
+    setUpdatingTaskGroupId(null)
+
+    if (!response.ok || !response.data) {
+      setTaskGroupError(response.error?.message ?? 'Task grubu güncellenemedi')
+      return
+    }
+
+    setTaskGroups((current) => current.map((group) => group.groupId === groupId ? response.data as TaskGroup : group))
   }
 
   const openCreateTask = (status: TaskEntity['status'] = defaultStatus) => {
@@ -3255,11 +3276,14 @@ export function ProjectDetailPage() {
         titleDraft={taskGroupTitleDraft}
         saving={taskGroupSaving}
         error={taskGroupError}
+        tasks={tasks}
+        updatingGroupId={updatingTaskGroupId}
         onTitleDraftChange={(value) => {
           setTaskGroupTitleDraft(value)
           if (taskGroupError) setTaskGroupError(null)
         }}
         onCreate={() => void createTaskGroup()}
+        onUpdate={(groupId, orderedTaskIds) => void updateTaskGroupTasks(groupId, orderedTaskIds)}
       />
 
       {isRecentChatsView ? (
@@ -3293,6 +3317,7 @@ export function ProjectDetailPage() {
         <ActiveProjectView
           statusColumns={statusColumns}
           tasksByStatus={tasksByStatus}
+          taskGroups={taskGroups}
           agents={agents}
           onDropStatus={(event, status) => {
             void onDropColumn(event, status)
