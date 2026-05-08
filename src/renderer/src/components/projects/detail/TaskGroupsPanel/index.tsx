@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { LuArrowDown, LuArrowUp, LuCircleDot, LuFileText, LuFolderTree, LuListChecks, LuPlus, LuRoute, LuTrash2, LuWorkflow } from 'react-icons/lu'
+import { LuArrowDown, LuArrowUp, LuCircleDot, LuFileText, LuPlus, LuRoute, LuTrash2 } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import type { TaskEntity, TaskGroup, TaskGroupQueueState } from '@shared/types/entities'
 import styles from './index.module.scss'
@@ -80,8 +80,8 @@ export function TaskGroupsPanel({
             <LuRoute size={16} />
           </span>
           <div className={styles.taskGroupsPanel__titleBlock}>
-            <h2 className={styles.taskGroupsPanel__title}>Task yürütme merkezi</h2>
-            <p className={styles.taskGroupsPanel__description}>Task Grubu, Plan Kuyruğu ve Çalışma Kuyruğu aynı bağlamda izlenir.</p>
+            <h2 className={styles.taskGroupsPanel__title}>Task Grubu Pipeline</h2>
+            <p className={styles.taskGroupsPanel__description}>Plan Kuyruğu ve Çalıştırma Kuyruğu aynı sırayı kullanır; her lane tek aktif task yürütür.</p>
           </div>
         </div>
         <div className={styles.taskGroupsPanel__summary}>
@@ -92,39 +92,6 @@ export function TaskGroupsPanel({
       </div>
 
       {error ? <p className={styles.taskGroupsPanel__error}>{error}</p> : null}
-
-      <div className={styles.taskGroupsPanel__model} aria-label="Temel kavramlar">
-        <div>
-          <LuFolderTree size={15} />
-          <strong>Task Grubu</strong>
-          <span>Ortak amaç ve sıra</span>
-        </div>
-        <div>
-          <LuWorkflow size={15} />
-          <strong>Plan Kuyruğu</strong>
-          <span>Planlama hazırlığı</span>
-        </div>
-        <div>
-          <LuListChecks size={15} />
-          <strong>Çalışma Kuyruğu</strong>
-          <span>Aktif uygulama sırası</span>
-        </div>
-      </div>
-
-      <div className={styles.taskGroupsPanel__scopeBoundary} aria-label="Fırsat kapsamı">
-        <div>
-          <strong>Temel davranış</strong>
-          <span>Kullanıcı seçili grubu, aktif kuyruğu ve sıradaki taskı aynı panelde görür.</span>
-        </div>
-        <div>
-          <strong>Kapsam sınırı</strong>
-          <span>Öneri motoru, favoriler ve otomasyonlar sonraki faza bırakıldı.</span>
-        </div>
-        <div>
-          <strong>Doğrulama</strong>
-          <span>Boş, hata, aktif ve tamamlanmış durumlar aksiyon ya da açıklanabilir bağlam üretir.</span>
-        </div>
-      </div>
 
       <div className={styles.taskGroupsPanel__list}>
         {groups.length > 0 ? (
@@ -156,7 +123,7 @@ export function TaskGroupsPanel({
                     <Link to={automationPath(APP_ROUTES.AUTO_PLANS, group.projectId, group.groupId)}>Bu grupla planla</Link>
                   </div>
                   <div className={`${styles.taskGroupsPanel__queueCard} ${styles[`taskGroupsPanel__queueCard_${group.executionQueueState.state}`] ?? ''}`}>
-                    <span>Çalışma Kuyruğu</span>
+                    <span>Çalıştırma Kuyruğu</span>
                     <strong>{queueStateLabel(group.executionQueueState.state)}</strong>
                     <small>{activeTask?.title ?? 'Aktif task seçilmedi'}</small>
                     <Link to={automationPath(APP_ROUTES.AUTO_RUN, group.projectId, group.groupId)}>Bu grupla çalıştır</Link>

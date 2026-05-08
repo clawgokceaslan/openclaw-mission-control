@@ -277,6 +277,57 @@
     }
   }
 
+  .pipelineSummary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+
+    div {
+      min-width: 0;
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 8px;
+      background: var(--omc-surface);
+      padding: 10px 12px;
+      display: grid;
+      gap: 3px;
+
+      span {
+        color: var(--omc-primary);
+        font-size: 0.72rem;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      strong {
+        overflow: hidden;
+        color: var(--omc-text-strong);
+        font-size: 0.98rem;
+        line-height: 1.22;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      small {
+        overflow: hidden;
+        color: var(--omc-text-muted);
+        font-size: 0.8rem;
+        line-height: 1.3;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+
+        a {
+          color: var(--omc-primary);
+          font-weight: 850;
+          text-decoration: none;
+
+          &:hover {
+            text-decoration: underline;
+          }
+        }
+      }
+    }
+  }
+
   .contextStrip {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -660,6 +711,33 @@
       .dropReady {
         border-color: var(--omc-primary);
         box-shadow: inset 0 0 0 1px var(--omc-primary);
+      }
+
+      .detailDrawer {
+        border: 1px solid var(--omc-border-subtle);
+        border-radius: 8px;
+        background: var(--omc-surface);
+        overflow: hidden;
+
+        summary {
+          cursor: pointer;
+          padding: 11px 14px;
+          color: var(--omc-text-strong);
+          font-weight: 850;
+          list-style: none;
+
+          &::-webkit-details-marker {
+            display: none;
+          }
+        }
+
+        > div {
+          border-top: 1px solid var(--omc-border-subtle);
+          padding: 10px;
+          background: var(--omc-surface-muted);
+          display: grid;
+          gap: 10px;
+        }
       }
     }
   }
@@ -1100,6 +1178,7 @@
     }
 
     .controls,
+    .pipelineSummary,
     .contextStrip,
     .layout {
       grid-template-columns: 1fr;

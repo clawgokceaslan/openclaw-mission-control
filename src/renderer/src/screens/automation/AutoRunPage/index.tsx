@@ -14,22 +14,13 @@ import { projectDefaultAgentId, projectDefaultSkillIds, projectGatewaySettings, 
 import { automationQueueSnapshot, enqueueAutomationQueue, subscribeAutomationQueue } from '@renderer/screens/automation/automationQueueCoordinator'
 import styles from './index.module.scss'
 
-type StepKey = 'scope' | 'tasks' | 'queue' | 'confirm'
+type StepKey = 'tasks' | 'queue' | 'confirm'
 type QueueState = 'waiting' | 'running' | 'completed' | 'failed' | 'stopped'
 type QueueItem = { id: string; taskId: string; projectId: string; groupId?: string | null; state: QueueState; message?: string; conversationId?: string }
 type GatewayRunResponse = { executionMode?: 'terminal' | 'exec'; runId?: string; conversationId?: string }
 type DefaultProjectResponse = { projectId: string | null; project?: Project | null; fallbackProject?: Project | null; invalidStoredProjectId?: string | null }
 
 const PAGE_SIZE = 60
-const stepLabels: Record<StepKey, string> = { scope: 'Kapsam', tasks: 'Tasklar', queue: 'Kuyruk', confirm: 'Kontrol' }
-const stepDescriptions: Record<StepKey, string> = {
-  scope: 'Proje sınırı',
-  tasks: 'Çalıştırılacak taskları seç',
-  queue: 'Çalıştırma sırasını düzenle',
-  confirm: 'Güvenle başlat'
-}
-const stepOrder: StepKey[] = ['scope', 'tasks', 'queue', 'confirm']
-
 function formatDate(value: number) {
   return new Date(value).toLocaleString()
 }
@@ -56,6 +47,14 @@ function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
+function queueStateLabel(state: QueueState) {
+  if (state === 'waiting') return 'Bekliyor'
+  if (state === 'running') return 'Aktif'
+  if (state === 'completed') return 'Tamamlandı'
+  if (state === 'failed') return 'Hata'
+  return 'Durduruldu'
+}
+
 function automationPath(path: string, projectId: string, groupId: string) {
   const params = new URLSearchParams()
   if (projectId) params.set('projectId', projectId)
@@ -67,7 +66,7 @@ function automationPath(path: string, projectId: string, groupId: string) {
 export function AutoRunPage() {
   const { token } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [activeStep, setActiveStep] = useState<StepKey>('scope')
+  const [activeStep, setActiveStep] = useState<StepKey>('tasks')
   const [projects, setProjects] = useState<Project[]>([])
   const [tasks, setTasks] = useState<TaskEntity[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
@@ -125,8 +124,6 @@ export function AutoRunPage() {
   const sameAutomationActive = automationSnapshot.active.run
   const otherAutomationActive = automationSnapshot.active.plan
   const activeAutomationLabel = sameAutomationActive ? 'Çalıştırma kuyruğu zaten çalışıyor' : otherAutomationActive ? 'Plan kuyruğu bağımsız ilerliyor' : null
-  const activeStepIndex = Math.max(0, stepOrder.indexOf(activeStep))
-  const stepProgress = `${Math.round(((activeStepIndex + 1) / stepOrder.length) * 100)}%`
   const requestedProjectId = searchParams.get('projectId') ?? ''
   const requestedGroupId = searchParams.get('groupId') ?? ''
   const queueSummary = useMemo(() => ({
@@ -275,17 +272,6 @@ export function AutoRunPage() {
       .slice(0, 80)
   }, [currentProjectId, groupOrderByTaskId, isInSelectedGroup, isRunCandidate, query, queryMatchesTask, selectedGroupId, tasks])
   const groupedCandidateCount = useMemo(() => filteredTasks.filter((task) => groupIdByTaskId.has(task.id)).length, [filteredTasks, groupIdByTaskId])
-  const selectedGroupStats = useMemo(() => {
-    if (!selectedTaskGroup) return null
-    const groupTasks = selectedTaskGroup.orderedTaskIds.map((taskId) => tasksById.get(taskId)).filter((task): task is TaskEntity => Boolean(task))
-    return {
-      total: selectedTaskGroup.orderedTaskIds.length,
-      visible: groupTasks.length,
-      ready: groupTasks.filter(isRunCandidate).length,
-      activeTask: selectedTaskGroup.activeTaskId ? tasksById.get(selectedTaskGroup.activeTaskId) : null
-    }
-  }, [isRunCandidate, selectedTaskGroup, tasksById])
-
   const otherTasks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
     return tasks
@@ -407,11 +393,14 @@ export function AutoRunPage() {
   const runTask = useCallback(async (item: QueueItem) => {
     const task = tasksById.get(item.taskId)
     const project = projectsById.get(item.projectId)
-    if (!task || !project) throw new Error('Task or project was not found.')
+    if (!task || !project) throw new Error('Task veya proje bulunamadı.')
+    if (!isTaskPlanned(task)) throw new Error('Plan terminal sonucu hazır değil. Önce Plan Kuyruğu ile taskı hazırla.')
+    if (isTaskWorking(task)) throw new Error('Bu taskta aktif bir planlama veya çalışma var.')
+    if (hasRunHistory(task)) throw new Error('Bu task daha önce çalıştırılmış.')
     const codex = projectGatewaySettings(project)
     const gatewayId = codex.gatewayId || ''
     const model = codex.runModel || codex.defaultModel || ''
-    if (!gatewayId || !model) throw new Error('Project gateway or run model is missing.')
+    if (!gatewayId || !model) throw new Error('Proje gateway veya çalıştırma modeli eksik.')
 
     const defaultSkillIds = new Set(projectDefaultSkillIds(project))
     const effectiveTask = {
@@ -458,9 +447,9 @@ export function AutoRunPage() {
       const zip = await buildTaskZipArchive(exportContext)
       response = await invokeBridge<GatewayRunResponse>(IPC_CHANNELS.tasks.runGateway, { ...basePayload, zipName: zip.fileName, zipBytes: zip.archive })
     }
-    if (!response.ok) throw new Error(response.error?.message ?? 'Codex run could not be started.')
+    if (!response.ok) throw new Error(response.error?.message ?? 'Çalıştırma başlatılamadı.')
     return response.data?.conversationId || response.data?.runId || ''
-  }, [agents, customFields, projectsById, skills, statusesByProject, tags, tasksById, token])
+  }, [agents, customFields, isTaskPlanned, projectsById, skills, statusesByProject, tags, tasksById, token])
 
   const waitForRunCompletion = useCallback(async (item: QueueItem, conversationId: string) => {
     if (!conversationId) return
@@ -473,7 +462,7 @@ export function AutoRunPage() {
       const activeRow = rows.find((row) => row.gatewayConversationId === conversationId || row.taskId === item.taskId)
       if (activeRow) {
         observedRunningRow = true
-        setQueue((current) => current.map((row) => row.id === item.id ? { ...row, message: `Active: ${activeRow.latestActivitySummary || activeRow.liveStatus}` } : row))
+        setQueue((current) => current.map((row) => row.id === item.id ? { ...row, message: `Aktif: ${activeRow.latestActivitySummary || activeRow.liveStatus}` } : row))
       }
       if (observedRunningRow && !activeRow) return
       if (!observedRunningRow && Date.now() - startedAt > 10000) return
@@ -490,14 +479,14 @@ export function AutoRunPage() {
       for (const item of queue) {
         if (stopRequestedRef.current) break
         if (item.state !== 'waiting') continue
-        setQueue((current) => current.map((row) => row.id === item.id ? { ...row, state: 'running', message: 'Active: starting with project defaults...' } : row))
+        setQueue((current) => current.map((row) => row.id === item.id ? { ...row, state: 'running', message: 'Aktif: proje varsayılanlarıyla başlıyor.' } : row))
         try {
           const conversationId = await runTask(item)
-          setQueue((current) => current.map((row) => row.id === item.id ? { ...row, conversationId, message: conversationId ? 'Active: run started, waiting for completion.' : 'Completed: run started without conversation tracking.' } : row))
+          setQueue((current) => current.map((row) => row.id === item.id ? { ...row, conversationId, message: conversationId ? 'Aktif: çalışma başladı, tamamlanması bekleniyor.' : 'Tamamlandı: çalışma takip kaydı olmadan başlatıldı.' } : row))
           await waitForRunCompletion(item, conversationId)
-          setQueue((current) => current.map((row) => row.id === item.id ? { ...row, state: stopRequestedRef.current ? 'stopped' : 'completed', conversationId, message: stopRequestedRef.current ? 'Stopped.' : 'Completed: run finished.' } : row))
+          setQueue((current) => current.map((row) => row.id === item.id ? { ...row, state: stopRequestedRef.current ? 'stopped' : 'completed', conversationId, message: stopRequestedRef.current ? 'Durduruldu.' : 'Tamamlandı: çalışma bitti.' } : row))
         } catch (runError) {
-          setQueue((current) => current.map((row) => row.id === item.id ? { ...row, state: 'failed', message: runError instanceof Error ? `Failed: ${runError.message}` : 'Failed: run start failed.' } : row))
+          setQueue((current) => current.map((row) => row.id === item.id ? { ...row, state: 'failed', message: runError instanceof Error ? `Hata: ${runError.message}` : 'Hata: çalışma başlatılamadı.' } : row))
         }
       }
       await loadData()
@@ -522,7 +511,7 @@ export function AutoRunPage() {
     if (active?.conversationId) {
       await invokeBridge(IPC_CHANNELS.tasks.gatewayChatStop, { actorToken: token, taskId: active.taskId, conversationId: active.conversationId })
     }
-    setQueue((current) => current.map((item) => item.state === 'waiting' || item.state === 'running' ? { ...item, state: 'stopped', message: 'Stopped.' } : item))
+    setQueue((current) => current.map((item) => item.state === 'waiting' || item.state === 'running' ? { ...item, state: 'stopped', message: 'Durduruldu.' } : item))
     setQueueBusy(false)
   }
 
@@ -553,7 +542,7 @@ export function AutoRunPage() {
           {selected ? <LuSquareCheck size={17} /> : <LuSquare size={17} />}
         </button>
         <div className={styles.taskCardBody}>
-          <span>{project?.name ?? 'No project'} · {status?.name ?? 'No status'}</span>
+          <span>{project?.name ?? 'Proje yok'} · {status?.name ?? 'Durum yok'}</span>
           <strong>{task.title}</strong>
           <small>{groupContextLabel(task.id)} · {missing || (queuedTaskIds.has(task.id) ? 'Zaten kuyrukta' : 'Çalıştırmaya hazır')}</small>
         </div>
@@ -579,14 +568,6 @@ export function AutoRunPage() {
     return ''
   }
 
-  const goToRelativeStep = (direction: -1 | 1) => {
-    const nextIndex = activeStepIndex + direction
-    const nextStep = stepOrder[nextIndex]
-    if (!nextStep) return
-    if ((nextStep === 'queue' || nextStep === 'confirm') && queue.length === 0) return
-    setActiveStep(nextStep)
-  }
-
   const chooseProject = (projectId: string) => {
     setCurrentProjectId(projectId)
     setSelectedGroupId('')
@@ -599,7 +580,7 @@ export function AutoRunPage() {
       <header className={styles.header}>
         <div>
           <h1>Çalıştırma Kuyruğu</h1>
-          <p>Tek task pipeline ana akıştır; birden fazla planlanmış taskı sırayla çalıştırmak için bu ikincil kuyruğu kullan.</p>
+          <p>Çalıştırma lane'i tek aktif task yürütür; planı hazır olmayan tasklar bu sıraya alınmaz.</p>
         </div>
         <button type="button" onClick={() => void loadData()} disabled={loading}><LuRefreshCw size={15} /> Yenile</button>
       </header>
@@ -644,59 +625,14 @@ export function AutoRunPage() {
         </div>
       </section>
 
-      <section className={styles.contextStrip} aria-label="Çalıştırma kuyruğu fırsat kapsamı">
-        <div>
-          <span>Task Grubu</span>
-          <strong>{selectedTaskGroup ? selectedTaskGroup.title : `${taskGroups.length} grup`} · {groupedCandidateCount} bağlı aday</strong>
-          <small>{selectedTaskGroup ? 'Liste seçili grubun P sırasına ve proje kapsamına göre daraltıldı.' : 'Grup sırası korunur; seçilen tasklar çalışma bağlamıyla başlar.'}</small>
-        </div>
-        <div>
-          <span>Çalıştırma Kuyruğu</span>
-          <strong>{queueSummary.waiting} bekliyor · {queueSummary.running} aktif · {queueSummary.completed} bitti</strong>
-          <small>{queueSummary.failed ? `${queueSummary.failed} hata var; kontrol adımından task detayına dön.` : 'Bu ekran yalnızca planı hazır taskların uygulama sırasını yönetir.'}</small>
-        </div>
-        <div>
-          <span>Plan Kuyruğu</span>
-          <strong>Hazırlık kaynağı</strong>
-          <small>Planı eksik tasklar aynı proje ve grup bağlamıyla plan kuyruğunda hazırlanır.</small>
-          <Link to={automationPath(APP_ROUTES.AUTO_PLANS, currentProjectId, selectedGroupId)}>Plan Kuyruğunu aç</Link>
-        </div>
-        <div>
-          <span>Sonraki faz</span>
-          <strong>Öneri ve otomasyon yok</strong>
-          <small>Kuyruk önerileri, favoriler ve otomasyon motoru bu teslimata dahil değildir.</small>
-        </div>
-      </section>
+      <div className={styles.pipelineSummary} aria-label="Çalıştırma kuyruğu özeti">
+        <div><span>Task Grubu</span><strong>{selectedTaskGroup ? selectedTaskGroup.title : `${taskGroups.length} grup`}</strong><small>{groupedCandidateCount} bağlı aday</small></div>
+        <div><span>Çalıştırma Lane</span><strong>{queueSummary.running ? 'Aktif' : queueSummary.waiting ? 'Sırada' : 'Hazır'}</strong><small>{queueSummary.waiting} bekliyor · {queueSummary.completed} bitti · {queueSummary.failed} hata</small></div>
+        <div><span>Hazırlık Lane</span><strong>Plan Kuyruğu</strong><small><Link to={automationPath(APP_ROUTES.AUTO_PLANS, currentProjectId, selectedGroupId)}>Aynı bağlamla aç</Link></small></div>
+      </div>
 
-      <section className={styles.stepperShell} aria-label="Çalıştırma kuyruğu ilerlemesi">
-        <header className={styles.stepperHeader}>
-          <div>
-            <span>Akış</span>
-            <strong>{stepLabels[activeStep]}</strong>
-            <small>{stepDescriptions[activeStep]}</small>
-          </div>
-          <p>{queue.length} kuyrukta · {filteredTasks.length} uygun</p>
-        </header>
-        <div className={styles.stepperTrack} aria-hidden="true">
-          <span style={{ width: stepProgress }} />
-        </div>
-        <div className={styles.stepper} role="tablist" aria-label="Çalıştırma kuyruğu adımları">
-          {stepOrder.map((step, index) => {
-            const isActive = activeStep === step
-            const isComplete = stepOrder.indexOf(step) < activeStepIndex
-            return (
-              <button key={step} type="button" className={`${isActive ? styles.stepActive : ''} ${isComplete ? styles.stepComplete : ''}`} onClick={() => setActiveStep(step)} disabled={(step === 'queue' || step === 'confirm') && queue.length === 0}>
-                <span>{index + 1}</span>
-                <b>{stepLabels[step]}</b>
-                <small>{stepDescriptions[step]}</small>
-              </button>
-            )
-          })}
-        </div>
-      </section>
-
-      <div className={`${styles.layout} ${activeStep === 'scope' || activeStep === 'queue' ? styles.layoutFull : ''}`}>
-        {activeStep === 'tasks' || activeStep === 'confirm' ? <aside className={styles.selector}>
+      <div className={styles.layout}>
+        <aside className={styles.selector}>
           <header>
             <div><strong>{activeStep === 'confirm' ? 'Seçimi kontrol et' : 'Çalıştırılacak tasklar'}</strong><span>Kartları sağdaki kuyruk alanına sürükle.</span></div>
             <button type="button" onClick={addSelectedToQueue} disabled={selectedTaskIds.length === 0}>Seçilenleri ekle</button>
@@ -724,43 +660,10 @@ export function AutoRunPage() {
               </details>
             ) : null}
           </div>
-        </aside> : null}
+        </aside>
 
         <section className={styles.workbench}>
-          {activeStep === 'scope' ? (
-            <div className={styles.panel}>
-              <header><div><strong>Kapsam</strong><span>Varsayılan listeler geçerli projeyle sınırlı kalır.</span></div></header>
-              <div className={styles.contextPanel}>
-                <div>
-                  <span>Seçili proje</span>
-                  <strong>{currentProject?.name ?? 'Proje seçilmedi'}</strong>
-                  <small>Çalıştırılacak tasklar ve başlatma aksiyonu bu proje ile sınırlanır.</small>
-                </div>
-                <div>
-                  <span>Seçili Task Grubu</span>
-                  <strong>{selectedTaskGroup?.title ?? 'Tüm task grupları'}</strong>
-                  <small>{selectedGroupStats ? `${selectedGroupStats.ready}/${selectedGroupStats.total} task çalıştırma kuyruğuna uygun.` : `${taskGroups.length} grup birlikte taranıyor.`}</small>
-                </div>
-                <div>
-                  <span>Ekrana etkisi</span>
-                  <strong>{selectedTaskGroup ? 'Liste P sırasına daralır' : 'Liste güncellenme sırasına döner'}</strong>
-                  <small>{selectedGroupStats?.activeTask ? `Aktif bağlam: ${selectedGroupStats.activeTask.title}` : 'Geçersiz seçimde grup filtresi temizlenir; task seçimi korunmaz.'}</small>
-                </div>
-              </div>
-              <div className={styles.queueList}>
-                <div className={`${styles.emptyState} ${styles.emptyStateActionable}`}>
-                  <strong>Seçim kapsamı hazır</strong>
-                  <span>Projeyi veya Task Grubunu değiştirdiğinde task listesi, seçili kayıtlar ve kuyruk kapsamı aynı bağlama göre güncellenir.</span>
-                  <div>
-                    <button type="button" onClick={() => setActiveStep('tasks')}>Tasklara geç</button>
-                    <button type="button" onClick={() => setProjectPickerOpen(true)}>Projeyi değiştir</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {activeStep === 'queue' || activeStep === 'confirm' ? (
+          {activeStep === 'tasks' || activeStep === 'queue' || activeStep === 'confirm' ? (
             <div className={`${styles.panel} ${draggingTaskId ? styles.dropReady : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={onQueuePanelDrop}>
               <header>
                 <div><strong>Çalıştırma kuyruğu</strong><span>{queueSummary.waiting} bekliyor · {queueSummary.running} aktif · {queueSummary.completed} tamamlandı · {queueSummary.failed} hatalı</span></div>
@@ -784,12 +687,12 @@ export function AutoRunPage() {
                       onDragEnd={() => setDraggingQueueId(null)}
                     >
                       <span className={styles.queueIndex}><LuGripVertical size={14} /> {index + 1}</span>
-                      <div><strong>{task?.title ?? item.taskId}</strong><span>{project?.name ?? item.projectId} - {groupContextLabel(item.taskId)} - {item.message ?? item.state}</span></div>
+                      <div><strong>{task?.title ?? item.taskId}</strong><span>{project?.name ?? item.projectId} - {groupContextLabel(item.taskId)} - {item.message ?? queueStateLabel(item.state)}</span></div>
                       <div className={styles.cardActions}>
-                        <button type="button" onClick={() => moveQueueItem(item.id, -1)} disabled={index === 0 || item.state === 'running'} title="Move up"><LuArrowUp size={15} /></button>
-                        <button type="button" onClick={() => moveQueueItem(item.id, 1)} disabled={index === queue.length - 1 || item.state === 'running'} title="Move down"><LuArrowDown size={15} /></button>
-                        <button type="button" onClick={() => setDetailTarget({ projectId: item.projectId, taskId: item.taskId })} title="Open task details"><LuExternalLink size={15} /></button>
-                        <button type="button" onClick={() => removeQueueItem(item.id)} disabled={item.state === 'running'} title="Remove from queue"><LuTrash2 size={15} /></button>
+                        <button type="button" onClick={() => moveQueueItem(item.id, -1)} disabled={index === 0 || item.state === 'running'} title="Yukarı taşı"><LuArrowUp size={15} /></button>
+                        <button type="button" onClick={() => moveQueueItem(item.id, 1)} disabled={index === queue.length - 1 || item.state === 'running'} title="Aşağı taşı"><LuArrowDown size={15} /></button>
+                        <button type="button" onClick={() => setDetailTarget({ projectId: item.projectId, taskId: item.taskId })} title="Task detayını aç"><LuExternalLink size={15} /></button>
+                        <button type="button" onClick={() => removeQueueItem(item.id)} disabled={item.state === 'running'} title="Kuyruktan çıkar"><LuTrash2 size={15} /></button>
                       </div>
                     </article>
                   )
@@ -805,7 +708,10 @@ export function AutoRunPage() {
             </div>
           ) : null}
 
-          {activeStep === 'confirm' ? (
+          {activeStep === 'tasks' || activeStep === 'queue' || activeStep === 'confirm' ? (
+            <details className={styles.detailDrawer}>
+              <summary>Detaylar ve sonuçlar</summary>
+              <div>
             <div className={styles.panel}>
               <header><div><strong>Çalışan aktivite</strong><span>{runningRows.length} aktif kayıt</span></div></header>
               <div className={styles.queueList}>
@@ -814,8 +720,8 @@ export function AutoRunPage() {
                     <span className={styles.queueIndex}>{row.conversationType}</span>
                     <div><strong>{row.taskTitle}</strong><span>{row.projectName} - {row.latestActivitySummary} - {formatDate(row.latestAt)}</span></div>
                     <div className={styles.cardActions}>
-                      <button type="button" onClick={() => setDetailTarget({ projectId: row.projectId, taskId: row.taskId })} title="Open task details"><LuExternalLink size={15} /></button>
-                      <button type="button" onClick={() => void stopRunningRow(row)} title="Stop"><LuCircleStop size={15} /></button>
+                      <button type="button" onClick={() => setDetailTarget({ projectId: row.projectId, taskId: row.taskId })} title="Task detayını aç"><LuExternalLink size={15} /></button>
+                      <button type="button" onClick={() => void stopRunningRow(row)} title="Durdur"><LuCircleStop size={15} /></button>
                     </div>
                   </article>
                 )) : <div className={`${styles.emptyState} ${styles.emptyStateActionable}`}>
@@ -828,9 +734,7 @@ export function AutoRunPage() {
                 </div>}
               </div>
             </div>
-          ) : null}
 
-          {activeStep === 'confirm' ? (
             <div className={styles.panel}>
               <header><div><strong>Planlı çalıştırma adayları</strong><span>{plannedRows.length} task</span></div></header>
               <div className={styles.queueList}>
@@ -839,7 +743,7 @@ export function AutoRunPage() {
                     <span className={styles.queueIndex}>{row.runnable ? 'Hazır' : 'Eksik'}</span>
                     <div><strong>{row.taskTitle}</strong><span>{row.projectName} - {row.runnable ? 'Task detayından kullanılabilir' : row.missing.join(', ')}</span></div>
                     <div className={styles.cardActions}>
-                      <button type="button" onClick={() => setDetailTarget({ projectId: row.projectId, taskId: row.taskId })} title="Open task details"><LuExternalLink size={15} /></button>
+                      <button type="button" onClick={() => setDetailTarget({ projectId: row.projectId, taskId: row.taskId })} title="Task detayını aç"><LuExternalLink size={15} /></button>
                     </div>
                   </article>
                 )) : <div className={`${styles.emptyState} ${styles.emptyStateActionable}`}>
@@ -852,15 +756,11 @@ export function AutoRunPage() {
                 </div>}
               </div>
             </div>
+              </div>
+            </details>
           ) : null}
         </section>
       </div>
-
-      <nav className={styles.flowNav} aria-label="Çalıştırma kuyruğu navigasyonu">
-        <button type="button" onClick={() => goToRelativeStep(-1)} disabled={activeStepIndex === 0}>Önceki</button>
-        <span>{stepLabels[activeStep]}</span>
-        <button type="button" onClick={() => goToRelativeStep(1)} disabled={activeStepIndex === stepOrder.length - 1 || ((stepOrder[activeStepIndex + 1] === 'queue' || stepOrder[activeStepIndex + 1] === 'confirm') && queue.length === 0)}>Sonraki</button>
-      </nav>
 
       {projectPickerOpen ? (
         <div className={styles.modalBackdrop} role="presentation">
@@ -873,7 +773,7 @@ export function AutoRunPage() {
               {projects.map((project) => (
                 <button key={project.id} type="button" className={project.id === currentProjectId ? styles.projectModalActive : ''} onClick={() => chooseProject(project.id)}>
                   <strong>{project.name}</strong>
-                  <span>{project.description?.trim() || 'No description'}</span>
+                  <span>{project.description?.trim() || 'Açıklama yok'}</span>
                 </button>
               ))}
             </div>

@@ -75,3 +75,11 @@ export function subscribeAutomationQueue(listener: () => void): () => void {
     listeners.delete(listener)
   }
 }
+
+export function resetAutomationQueueForTests() {
+  activeJobs.plan = null
+  activeJobs.run = null
+  pendingJobs.plan = []
+  pendingJobs.run = []
+  listeners.clear()
+}
