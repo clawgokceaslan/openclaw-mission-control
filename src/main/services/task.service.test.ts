@@ -553,6 +553,94 @@ describe('planner quality gate', () => {
     expect(importedJson).toHaveLength(2)
   })
 
+  it('creates a task group contract for batch planner output when requested', async () => {
+    const service = Object.create(TaskService.prototype) as TaskService & any
+    const workspace = await mkdtemp(join(tmpdir(), 'omc-task-group-test-'))
+    const previousCwd = process.cwd()
+    const createdGroups: any[] = []
+    service.auth = { requireActor: async () => ({ user: { organizationId: 'org-1' } }) }
+    service.findProjectOrg = async () => 'org-1'
+    service.agents = {}
+    service.tags = { list: async () => [] }
+    service.skills = {}
+    service.customFields = { list: async () => [] }
+    service.repo = { get: async () => undefined }
+    service.taskGroups = {
+      create: vi.fn(async (input: any) => {
+        const group = {
+          id: input.id,
+          groupId: input.id,
+          projectId: input.projectId,
+          title: input.title,
+          orderedTaskIds: input.orderedTaskIds,
+          activeTaskId: input.activeTaskId,
+          groupContextMdPath: input.groupContextMdPath,
+          contractedContext: input.contractedContext,
+          planningQueueState: input.planningQueueState,
+          executionQueueState: input.executionQueueState,
+          createdAt: 1,
+          updatedAt: 1
+        }
+        createdGroups.push(group)
+        return group
+      })
+    }
+    service.importJson = async (payload: any) => {
+      const index = payload.json.title.includes('Delivery') ? 2 : 1
+      return {
+        ok: true,
+        data: {
+          task: {
+            id: `task-${index}`,
+            projectId: payload.projectId,
+            title: payload.json.title,
+            status: 'active',
+            description: payload.json.description,
+            agenticInputs: payload.json.agenticInputs ?? {},
+            createdAt: 1,
+            updatedAt: 1
+          },
+          warnings: []
+        }
+      }
+    }
+
+    try {
+      process.chdir(workspace)
+      const response = await service.plannerCreateFromJson({
+        actorToken: 'actor',
+        projectId: 'project-1',
+        json: [
+          { title: 'Discovery task', description: 'Define scope.', agenticInputs: { acceptanceCriteria: '- Scope is clear.' } },
+          { title: 'Delivery task', description: 'Ship the UI.' }
+        ],
+        createTaskGroup: true,
+        taskGroupTitle: 'Release group'
+      })
+
+      expect(response.ok).toBe(true)
+      expect(response.data?.taskGroup).toEqual(expect.objectContaining({
+        projectId: 'project-1',
+        title: 'Release group',
+        orderedTaskIds: ['task-1', 'task-2'],
+        activeTaskId: 'task-1'
+      }))
+      expect(response.data?.taskGroup?.planningQueueState).toEqual(expect.objectContaining({ state: 'idle' }))
+      expect(response.data?.taskGroup?.executionQueueState.details).toEqual(expect.objectContaining({
+        projectId: 'project-1',
+        orderedTaskIds: ['task-1', 'task-2'],
+        activeTaskId: 'task-1'
+      }))
+      expect(createdGroups[0].contractedContext).toContain('orderedTaskIds: task-1, task-2')
+      const contextMd = await readFile(response.data?.taskGroup?.groupContextMdPath ?? '', 'utf8')
+      expect(contextMd).toContain('# Release group')
+      expect(contextMd).toContain('Discovery task')
+    } finally {
+      process.chdir(previousCwd)
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
   it('prevalidates every batch create item before importing any task', async () => {
     const service = Object.create(TaskService.prototype) as TaskService & any
     let importCount = 0

@@ -634,6 +634,63 @@
             }
           }
 
+          .groupCreatePanel {
+            display: grid;
+            grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
+            gap: 10px;
+            padding: 12px;
+            border: 1px solid var(--omc-border-subtle);
+            border-radius: 10px;
+            background: var(--omc-surface);
+
+            .groupToggle,
+            .groupTitleField {
+              min-width: 0;
+              display: grid;
+              gap: 7px;
+            }
+
+            .groupToggle {
+              align-content: center;
+              grid-template-columns: auto minmax(0, 1fr);
+              align-items: center;
+              cursor: pointer;
+
+              input {
+                width: 18px;
+                height: 18px;
+                padding: 0;
+                cursor: pointer;
+              }
+
+              span {
+                min-width: 0;
+                display: inline-flex;
+                align-items: center;
+                gap: 7px;
+                overflow: hidden;
+                color: var(--omc-text-strong);
+                font-size: 0.82rem;
+                font-weight: 900;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+
+                svg {
+                  color: var(--omc-primary);
+                }
+              }
+            }
+
+            .groupTitleField {
+              span {
+                color: var(--omc-text-soft);
+                font-size: 0.68rem;
+                font-weight: 900;
+                text-transform: uppercase;
+              }
+            }
+          }
+
           .draftList {
             display: grid;
             gap: 10px;
@@ -1029,6 +1086,10 @@
             .previewToolbar {
               align-items: stretch;
               flex-direction: column;
+            }
+
+            .groupCreatePanel {
+              grid-template-columns: 1fr;
             }
 
             .draftList {

@@ -220,6 +220,7 @@ export interface ProjectInstructionTemplate {
 export interface TaskJsonImportResult {
   task?: TaskEntity
   tasks?: TaskEntity[]
+  taskGroup?: TaskGroup
   template?: TaskTemplate
   warnings: string[]
 }

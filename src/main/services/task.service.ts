@@ -39,9 +39,10 @@ import type {
   UpdateTaskCommentRequest
 } from '../../shared/contracts/ipc.js'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
-import type { Agent, ProjectStatus, Skill, Tag, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask } from '../../shared/types/entities.js'
+import type { Agent, ProjectStatus, Skill, Tag, TaskChecklistItem, TaskComment, TaskEntity, TaskGroup, TaskJsonImportResult, TaskSubtask } from '../../shared/types/entities.js'
 import { AuthService } from './auth.service.js'
 import { TaskRepository, TaskSkillRepository, TaskSubtaskRepository, TaskTagRepository } from '../../db/repositories/task-repo.js'
+import { TaskGroupRepository } from '../../db/repositories/task-group-repo.js'
 import { ProjectRepository } from '../../db/repositories/project-repo.js'
 import { CustomFieldRepository, TagRepository } from '../../db/repositories/custom-field-repo.js'
 import { SkillRepository } from '../../db/repositories/skill-repo.js'
@@ -145,6 +146,68 @@ function batchTaskTraceComment(sourceTitle: string, tasks: TaskEntity[]): string
     `Bu geniş task "${sourceTitle}" çoklu planlama akışıyla ayrı tasklara bölündü:`,
     '',
     ...lines
+  ].join('\n')
+}
+
+function plannerTaskGroupTitle(payloadTitle: unknown, sourceTask: TaskEntity | undefined, firstTask: TaskEntity): string {
+  if (typeof payloadTitle === 'string' && payloadTitle.trim()) return payloadTitle.trim()
+  if (sourceTask?.title?.trim()) return `${sourceTask.title.trim()} grubu`
+  return `${firstTask.title.trim()} grubu`
+}
+
+function taskSummaryLine(task: TaskEntity, index: number): string {
+  const description = typeof task.description === 'string' ? task.description.trim().replace(/\s+/g, ' ') : ''
+  const acceptanceCriteria = typeof task.agenticInputs?.acceptanceCriteria === 'string'
+    ? task.agenticInputs.acceptanceCriteria.trim().replace(/\s+/g, ' ')
+    : ''
+  const details = [
+    description ? `Açıklama: ${description.slice(0, 260)}` : '',
+    acceptanceCriteria ? `Kabul: ${acceptanceCriteria.slice(0, 220)}` : ''
+  ].filter(Boolean).join(' | ')
+  return `${index + 1}. ${task.title} (${task.id})${details ? ` - ${details}` : ''}`
+}
+
+function buildTaskGroupContract(input: { projectId: string; groupId: string; title: string; tasks: TaskEntity[] }): string {
+  const orderedTaskIds = input.tasks.map((task) => task.id)
+  return [
+    `TaskGroup Contract: ${input.title}`,
+    `projectId: ${input.projectId}`,
+    `groupId: ${input.groupId}`,
+    `orderedTaskIds: ${orderedTaskIds.join(', ')}`,
+    `activeTaskId: ${orderedTaskIds[0] ?? ''}`,
+    'Sıra ve kapsam: Task oluşturma merkezindeki taslak sırası korunur; proje sınırı dışına çıkılmaz.',
+    'Task özeti:',
+    ...input.tasks.map(taskSummaryLine)
+  ].join('\n')
+}
+
+function buildTaskGroupContextMarkdown(input: { projectId: string; title: string; contractedContext: string; tasks: TaskEntity[] }): string {
+  return [
+    `# ${input.title}`,
+    '',
+    '## Contract',
+    '',
+    input.contractedContext,
+    '',
+    '## Queue State',
+    '',
+    '- planningQueueState: idle',
+    '- executionQueueState: idle',
+    '',
+    '## Ordered Tasks',
+    '',
+    ...input.tasks.map((task, index) => [
+      `### ${index + 1}. ${task.title}`,
+      '',
+      `- taskId: ${task.id}`,
+      `- projectId: ${input.projectId}`,
+      `- status: ${task.status}`,
+      task.description ? `- description: ${task.description.trim().slice(0, 600)}` : '- description: ',
+      typeof task.agenticInputs?.acceptanceCriteria === 'string' && task.agenticInputs.acceptanceCriteria.trim()
+        ? `- acceptanceCriteria: ${task.agenticInputs.acceptanceCriteria.trim().slice(0, 500)}`
+        : '- acceptanceCriteria: '
+    ].join('\n')),
+    ''
   ].join('\n')
 }
 
@@ -3120,7 +3183,8 @@ export class TaskService {
     private readonly workspaces: WorkspaceRepository,
     private readonly gateways: GatewayRepository,
     private readonly appSettings: AppSettingsRepository,
-    private readonly eventBus?: EventEmitter
+    private readonly eventBus?: EventEmitter,
+    private readonly taskGroups?: TaskGroupRepository
   ) { }
 
   private async findProjectOrg(projectId: string): Promise<string | undefined> {
@@ -3965,6 +4029,41 @@ export class TaskService {
     return okResponse({ warnings: Array.from(new Set(warnings)) })
   }
 
+  private async createPlannerTaskGroup(payload: TaskPlannerJsonRequest, tasks: TaskEntity[]): Promise<ServiceResponse<TaskGroup | null>> {
+    if (!payload.createTaskGroup || tasks.length === 0) return okResponse(null)
+    if (!this.taskGroups) return errorResponse(ErrorCodes.Internal, 'Task group repository is not configured')
+    if (!payload.projectId) return errorResponse(ErrorCodes.Validation, 'Project id required')
+    const sourceTask = payload.taskId ? await this.repo.get(payload.taskId) : undefined
+    const groupId = randomUUID()
+    const title = plannerTaskGroupTitle(payload.taskGroupTitle, sourceTask, tasks[0])
+    const orderedTaskIds = tasks.map((task) => task.id)
+    const groupContextMdPath = join(process.cwd(), '.omc', 'task-groups', groupId, 'groupContext.md')
+    const contractedContext = buildTaskGroupContract({ projectId: payload.projectId, groupId, title, tasks })
+    const now = Date.now()
+    const queueDetails = {
+      projectId: payload.projectId,
+      groupId,
+      orderedTaskIds,
+      activeTaskId: orderedTaskIds[0] ?? null,
+      groupContextMdPath,
+      contractedContext
+    }
+    const group = await this.taskGroups.create({
+      id: groupId,
+      projectId: payload.projectId,
+      title,
+      orderedTaskIds,
+      activeTaskId: orderedTaskIds[0] ?? null,
+      groupContextMdPath,
+      contractedContext,
+      planningQueueState: { state: 'idle', updatedAt: now, details: queueDetails },
+      executionQueueState: { state: 'idle', updatedAt: now, details: queueDetails }
+    })
+    await mkdir(dirname(groupContextMdPath), { recursive: true })
+    await writeFile(groupContextMdPath, buildTaskGroupContextMarkdown({ projectId: payload.projectId, title, contractedContext, tasks }), 'utf8')
+    return okResponse(group)
+  }
+
   async plannerCreateFromJson(payload: TaskPlannerJsonRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<TaskJsonImportResult>> {
     if (!payload?.projectId) return errorResponse(ErrorCodes.Validation, 'Project id required')
     let items: PlannerJsonItem[]
@@ -4005,7 +4104,13 @@ export class TaskService {
           }
         }
       }
-      return okResponse({ tasks: createdTasks, task: createdTasks[0], warnings: Array.from(new Set(warnings)) })
+      const groupResponse = await this.createPlannerTaskGroup(payload, createdTasks)
+      if (!groupResponse.ok) {
+        return errorResponse(groupResponse.error?.code ?? ErrorCodes.Validation, groupResponse.error?.message ?? 'Created tasks but task group could not be created', {
+          createdTaskIds: createdTasks.map((task) => task.id)
+        })
+      }
+      return okResponse({ tasks: createdTasks, task: createdTasks[0], taskGroup: groupResponse.data ?? undefined, warnings: Array.from(new Set(warnings)) })
     }
     return this.importJson({ actorToken: payload.actorToken, projectId: payload.projectId, json: payload.json })
   }

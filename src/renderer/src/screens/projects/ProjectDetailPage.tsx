@@ -3411,11 +3411,14 @@ export function ProjectDetailPage() {
         sourceTask={selectedTask}
         defaultStatus={defaultStatus}
         onClose={() => setIsTaskPlannerOpen(false)}
-        onCreated={(createdTasks) => {
+        onCreated={(createdTasks, taskGroup) => {
           if (createdTasks.length > 0) {
             const createdIds = new Set(createdTasks.map((task) => task.id))
             setTasks((current) => [...createdTasks, ...current.filter((task) => !createdIds.has(task.id))])
-            setProjectSyncMessage(`${createdTasks.length} yeni task oluşturuldu.`)
+            if (taskGroup) {
+              setTaskGroups((current) => [taskGroup, ...current.filter((group) => group.groupId !== taskGroup.groupId)])
+            }
+            setProjectSyncMessage(taskGroup ? `${createdTasks.length} yeni task "${taskGroup.title}" grubu altında oluşturuldu.` : `${createdTasks.length} yeni task oluşturuldu.`)
           }
         }}
       />

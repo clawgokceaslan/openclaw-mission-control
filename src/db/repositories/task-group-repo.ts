@@ -32,20 +32,30 @@ export class TaskGroupRepository extends BaseRepository<TaskGroup> {
     return row ? this.map(row) : undefined
   }
 
-  async create(input: { projectId: string; title: string }): Promise<TaskGroup> {
+  async create(input: {
+    id?: string
+    projectId: string
+    title: string
+    orderedTaskIds?: string[]
+    activeTaskId?: string | null
+    groupContextMdPath?: string
+    contractedContext?: string
+    planningQueueState?: TaskGroupQueueState
+    executionQueueState?: TaskGroupQueueState
+  }): Promise<TaskGroup> {
     const now = Date.now()
-    const id = randomUUID()
+    const id = input.id?.trim() || randomUUID()
     const group: TaskGroup = {
       id,
       groupId: id,
       projectId: input.projectId,
       title: input.title,
-      orderedTaskIds: [],
-      activeTaskId: null,
-      groupContextMdPath: '',
-      contractedContext: '',
-      planningQueueState: DEFAULT_QUEUE_STATE,
-      executionQueueState: DEFAULT_QUEUE_STATE,
+      orderedTaskIds: input.orderedTaskIds ?? [],
+      activeTaskId: input.activeTaskId ?? null,
+      groupContextMdPath: input.groupContextMdPath ?? '',
+      contractedContext: input.contractedContext ?? '',
+      planningQueueState: input.planningQueueState ?? DEFAULT_QUEUE_STATE,
+      executionQueueState: input.executionQueueState ?? DEFAULT_QUEUE_STATE,
       createdAt: now,
       updatedAt: now
     }

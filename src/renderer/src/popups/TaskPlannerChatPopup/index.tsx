@@ -27,7 +27,7 @@ import {
 } from 'react-icons/lu'
 import { IPC_CHANNELS, type TaskPlannerAiFillResult } from '@shared/contracts/ipc'
 import { GATEWAY_REASONING_EFFORT_OPTIONS, gatewayModelReasoningEfforts, normalizeGatewayReasoningEffort } from '@shared/utils/gateway-language'
-import type { CodexCliModel, Gateway, Project, TaskComment, TaskEntity, TaskJsonImportResult } from '@shared/types/entities'
+import type { CodexCliModel, Gateway, Project, TaskComment, TaskEntity, TaskGroup, TaskJsonImportResult } from '@shared/types/entities'
 import { invokeBridge } from '@renderer/utils/api'
 import styles from './index.module.scss'
 
@@ -88,7 +88,7 @@ interface TaskPlannerChatPopupProps {
   sourceTask?: TaskEntity | null
   defaultStatus?: string
   onClose: () => void
-  onCreated: (tasks: TaskEntity[]) => void
+  onCreated: (tasks: TaskEntity[], taskGroup?: TaskGroup) => void
 }
 
 const STEPS: Array<{ value: PlannerStep; label: string; hint: string; method: string }> = [
@@ -610,6 +610,10 @@ function batchTraceComment(sourceTitle: string, tasks: TaskEntity[]): string {
   ].join('\n')
 }
 
+function defaultTaskGroupTitle(project: Project, sourceTask?: TaskEntity | null): string {
+  return `${(sourceTask?.title || project.name).trim()} grubu`
+}
+
 function suggestionForStep(step: PlannerStep, project: Project, form: PlannerForm, sourceTask?: TaskEntity | null): Partial<PlannerForm> {
   const defaults = smartDefaults(project, form, sourceTask)
   const patch: Partial<PlannerForm> = {}
@@ -637,6 +641,8 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
   const [aiGatewayId, setAiGatewayId] = useState(() => projectGatewayValue(project, 'gatewayId'))
   const [aiModel, setAiModel] = useState(() => projectGatewayValue(project, 'planModel') || projectGatewayValue(project, 'defaultModel') || projectGatewayValue(project, 'runModel'))
   const [aiReasoningEffort, setAiReasoningEffort] = useState('xhigh')
+  const [createAsGroup, setCreateAsGroup] = useState(true)
+  const [taskGroupTitle, setTaskGroupTitle] = useState(() => defaultTaskGroupTitle(project, sourceTask))
   const draftStorageKey = useMemo(() => `omc-task-planner:${project.id}:${sourceTask?.id ?? 'new'}`, [project.id, sourceTask?.id])
   const selectedAiGateway = useMemo(() => gateways.find((gateway) => gateway.id === aiGatewayId) ?? gateways[0] ?? null, [aiGatewayId, gateways])
   const aiModelOptions = useMemo(() => codexModelsOf(selectedAiGateway), [selectedAiGateway])
@@ -660,6 +666,8 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
           aiGatewayId?: string
           aiModel?: string
           aiReasoningEffort?: string
+          createAsGroup?: boolean
+          taskGroupTitle?: string
         }
         setStep(safePlannerStep(parsed.step ?? 1))
         setForm({ ...initialForm, ...(parsed.form ?? {}) })
@@ -670,6 +678,8 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
         setAiGatewayId(typeof parsed.aiGatewayId === 'string' ? parsed.aiGatewayId : projectGatewayValue(project, 'gatewayId'))
         setAiModel(typeof parsed.aiModel === 'string' ? parsed.aiModel : projectGatewayValue(project, 'planModel') || projectGatewayValue(project, 'defaultModel') || projectGatewayValue(project, 'runModel'))
         setAiReasoningEffort(normalizeGatewayReasoningEffort(parsed.aiReasoningEffort || 'xhigh'))
+        setCreateAsGroup(typeof parsed.createAsGroup === 'boolean' ? parsed.createAsGroup : true)
+        setTaskGroupTitle(typeof parsed.taskGroupTitle === 'string' ? parsed.taskGroupTitle : defaultTaskGroupTitle(project, sourceTask))
       } else {
         setStep(1)
         setForm(initialForm)
@@ -680,6 +690,8 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
         setAiGatewayId(projectGatewayValue(project, 'gatewayId'))
         setAiModel(projectGatewayValue(project, 'planModel') || projectGatewayValue(project, 'defaultModel') || projectGatewayValue(project, 'runModel'))
         setAiReasoningEffort('xhigh')
+        setCreateAsGroup(true)
+        setTaskGroupTitle(defaultTaskGroupTitle(project, sourceTask))
       }
     } catch {
       setStep(1)
@@ -691,6 +703,8 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
       setAiGatewayId(projectGatewayValue(project, 'gatewayId'))
       setAiModel(projectGatewayValue(project, 'planModel') || projectGatewayValue(project, 'defaultModel') || projectGatewayValue(project, 'runModel'))
       setAiReasoningEffort('xhigh')
+      setCreateAsGroup(true)
+      setTaskGroupTitle(defaultTaskGroupTitle(project, sourceTask))
     }
     setMessage('')
     setError('')
@@ -698,8 +712,8 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
 
   useEffect(() => {
     if (!open || typeof localStorage === 'undefined') return
-    localStorage.setItem(draftStorageKey, JSON.stringify({ step, form, answers, aiQuestions, drafts, aiIntro, aiGatewayId, aiModel, aiReasoningEffort }))
-  }, [aiGatewayId, aiIntro, aiModel, aiQuestions, aiReasoningEffort, answers, draftStorageKey, drafts, form, open, step])
+    localStorage.setItem(draftStorageKey, JSON.stringify({ step, form, answers, aiQuestions, drafts, aiIntro, aiGatewayId, aiModel, aiReasoningEffort, createAsGroup, taskGroupTitle }))
+  }, [aiGatewayId, aiIntro, aiModel, aiQuestions, aiReasoningEffort, answers, createAsGroup, draftStorageKey, drafts, form, open, step, taskGroupTitle])
 
   useEffect(() => {
     if (!open || gateways.length === 0) return
@@ -736,6 +750,8 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
   const activePhase = STEP_PHASES.find((phase) => phase.steps.includes(step)) ?? STEP_PHASES[0]
   const currentQuestionIndex = Math.min(answers.length, questions.length - 1)
   const canCreate = sortedDrafts.some((draft) => draft.title.trim() && draft.description.trim())
+  const validDraftCount = sortedDrafts.filter((draft) => draft.title.trim() && draft.description.trim()).length
+  const shouldCreateGroup = createAsGroup && validDraftCount > 1
 
   if (!open) return null
   const target = typeof document === 'undefined' ? null : document.body
@@ -902,7 +918,8 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
         actorToken,
         projectId: project.id,
         ...(sourceTask?.id ? { taskId: sourceTask.id } : {}),
-        json: jsonPayload
+        json: jsonPayload,
+        ...(shouldCreateGroup ? { createTaskGroup: true, taskGroupTitle: taskGroupTitle.trim() || defaultTaskGroupTitle(project, sourceTask) } : {})
       })
       let created = response.data?.tasks ?? (response.data?.task ? [response.data.task] : [])
       if (!response.ok) {
@@ -939,7 +956,7 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
         return
       }
       if (typeof localStorage !== 'undefined') localStorage.removeItem(draftStorageKey)
-      onCreated(created)
+      onCreated(created, response.data?.taskGroup)
       onClose()
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Tasklar oluşturulamadı.')
@@ -1115,6 +1132,26 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
                     <button type="button" onClick={addDraft}><LuPlus size={15} /> Taslak</button>
                   </div>
                 </div>
+                <div className={styles.groupCreatePanel}>
+                  <label className={styles.groupToggle}>
+                    <input
+                      type="checkbox"
+                      checked={createAsGroup}
+                      onChange={(event) => setCreateAsGroup(event.target.checked)}
+                      disabled={validDraftCount < 2}
+                    />
+                    <span><LuUsers size={15} /> Grup olarak oluştur</span>
+                  </label>
+                  <label className={styles.groupTitleField}>
+                    <span>Grup adı</span>
+                    <input
+                      value={taskGroupTitle}
+                      onChange={(event) => setTaskGroupTitle(event.target.value)}
+                      disabled={!createAsGroup || validDraftCount < 2}
+                      placeholder={defaultTaskGroupTitle(project, sourceTask)}
+                    />
+                  </label>
+                </div>
                 <div className={styles.draftList}>
                   {sortedDrafts.map((draft) => (
                     <article key={draft.id} className={styles.draftItem}>
@@ -1196,7 +1233,7 @@ export function TaskPlannerChatPopup({ open, actorToken, project, gateways = [],
         <footer className={styles.footer}>
           <button type="button" onClick={() => setStep((current) => Math.max(1, current - 1) as PlannerStep)} disabled={step === 1 || busy || Boolean(aiBusy)}><LuArrowLeft size={15} /> Geri</button>
           <div className={styles.footerCenter}>
-            <span>{sourceTask ? 'Kaynak task korunur; yeni tasklar ayrı oluşturulur.' : 'Yeni tasklar proje merkezinde ayrı kayıtlar olarak açılır.'}</span>
+            <span>{shouldCreateGroup ? 'Yeni tasklar aynı TaskGroup contractı ve sıra bilgisiyle oluşturulur.' : sourceTask ? 'Kaynak task korunur; yeni tasklar ayrı oluşturulur.' : 'Yeni tasklar proje merkezinde ayrı kayıtlar olarak açılır.'}</span>
           </div>
           {step < 3 ? (
             <button type="button" className={styles.primaryButton} onClick={goNext} disabled={busy || Boolean(aiBusy)}>

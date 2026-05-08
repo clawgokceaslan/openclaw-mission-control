@@ -319,6 +319,8 @@ export interface TaskPlannerJsonRequest {
   projectId?: string
   taskId?: string
   json?: unknown
+  createTaskGroup?: boolean
+  taskGroupTitle?: string
 }
 
 export interface TaskPlannerAiFillRequest {
