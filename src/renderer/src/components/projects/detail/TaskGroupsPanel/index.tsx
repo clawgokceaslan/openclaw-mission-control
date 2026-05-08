@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { LuArrowDown, LuArrowUp, LuCircleDot, LuFileText, LuFolderTree, LuListChecks, LuPlus, LuRoute, LuTrash2, LuWorkflow } from 'react-icons/lu'
+import { APP_ROUTES } from '@shared/constants/ui-routes'
 import type { TaskEntity, TaskGroup, TaskGroupQueueState } from '@shared/types/entities'
 import styles from './index.module.scss'
 
@@ -36,6 +38,11 @@ function queueStateLabel(state: TaskGroupQueueState['state']): string {
 
 function isDoneStatus(status?: string): boolean {
   return ['done', 'closed', 'completed'].includes(String(status ?? '').toLowerCase())
+}
+
+function automationPath(path: string, projectId: string, groupId: string) {
+  const params = new URLSearchParams({ projectId, groupId })
+  return `${path}?${params.toString()}`
 }
 
 export function TaskGroupsPanel({
@@ -146,11 +153,13 @@ export function TaskGroupsPanel({
                     <span>Plan Kuyruğu</span>
                     <strong>{queueStateLabel(group.planningQueueState.state)}</strong>
                     <small>{group.planningQueueState.updatedAt ? formatGroupDate(group.planningQueueState.updatedAt) : 'Henüz çalışmadı'}</small>
+                    <Link to={automationPath(APP_ROUTES.AUTO_PLANS, group.projectId, group.groupId)}>Bu grupla planla</Link>
                   </div>
                   <div className={`${styles.taskGroupsPanel__queueCard} ${styles[`taskGroupsPanel__queueCard_${group.executionQueueState.state}`] ?? ''}`}>
                     <span>Çalışma Kuyruğu</span>
                     <strong>{queueStateLabel(group.executionQueueState.state)}</strong>
                     <small>{activeTask?.title ?? 'Aktif task seçilmedi'}</small>
+                    <Link to={automationPath(APP_ROUTES.AUTO_RUN, group.projectId, group.groupId)}>Bu grupla çalıştır</Link>
                   </div>
                 </div>
 

@@ -1,5 +1,5 @@
 import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { LuArrowDown, LuArrowUp, LuSquareCheck, LuCircleStop, LuExternalLink, LuGripVertical, LuListFilter, LuPlay, LuRefreshCw, LuSquare, LuTrash2 } from 'react-icons/lu'
 import { IPC_CHANNELS, type PaginatedResponse, type PlannedGatewayTaskRow, type RunningGatewayTaskRow, type RunningGatewayTasksResponse } from '@shared/contracts/ipc'
 import type { Agent, CustomField, Project, ProjectStatus, Skill, Tag, TaskEntity, TaskGroup } from '@shared/types/entities'
@@ -56,8 +56,17 @@ function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
+function automationPath(path: string, projectId: string, groupId: string) {
+  const params = new URLSearchParams()
+  if (projectId) params.set('projectId', projectId)
+  if (groupId) params.set('groupId', groupId)
+  const query = params.toString()
+  return query ? `${path}?${query}` : path
+}
+
 export function AutoRunPage() {
   const { token } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [activeStep, setActiveStep] = useState<StepKey>('scope')
   const [projects, setProjects] = useState<Project[]>([])
   const [tasks, setTasks] = useState<TaskEntity[]>([])
@@ -118,6 +127,8 @@ export function AutoRunPage() {
   const activeAutomationLabel = sameAutomationActive ? 'Çalıştırma kuyruğu zaten çalışıyor' : otherAutomationActive ? 'Plan kuyruğu bağımsız ilerliyor' : null
   const activeStepIndex = Math.max(0, stepOrder.indexOf(activeStep))
   const stepProgress = `${Math.round(((activeStepIndex + 1) / stepOrder.length) * 100)}%`
+  const requestedProjectId = searchParams.get('projectId') ?? ''
+  const requestedGroupId = searchParams.get('groupId') ?? ''
   const queueSummary = useMemo(() => ({
     waiting: queue.filter((item) => item.state === 'waiting').length,
     running: queue.filter((item) => item.state === 'running').length,
@@ -149,6 +160,7 @@ export function AutoRunPage() {
     const nextProjects = Array.isArray(projectResponse.data) ? projectResponse.data : []
     setProjects(nextProjects)
     setCurrentProjectId((current) => {
+      if (requestedProjectId && nextProjects.some((project) => project.id === requestedProjectId)) return requestedProjectId
       if (current && nextProjects.some((project) => project.id === current)) return current
       const defaultProjectId = defaultProjectResponse.ok ? defaultProjectResponse.data?.project?.id ?? defaultProjectResponse.data?.fallbackProject?.id ?? defaultProjectResponse.data?.projectId ?? '' : ''
       return defaultProjectId && nextProjects.some((project) => project.id === defaultProjectId) ? defaultProjectId : nextProjects[0]?.id ?? ''
@@ -168,7 +180,7 @@ export function AutoRunPage() {
     setStatusesByProject(Object.fromEntries(statusEntries))
     setError(!taskResponse.ok ? taskResponse.error?.message ?? 'Tasks could not be loaded.' : null)
     setLoading(false)
-  }, [token])
+  }, [requestedProjectId, token])
 
   useEffect(() => {
     void loadData()
@@ -199,6 +211,21 @@ export function AutoRunPage() {
       setSelectedGroupId('')
     }
   }, [selectedGroupId, taskGroups])
+
+  useEffect(() => {
+    if (!requestedGroupId || selectedGroupId || !taskGroups.some((group) => group.groupId === requestedGroupId)) return
+    setSelectedGroupId(requestedGroupId)
+    setActiveStep('tasks')
+  }, [requestedGroupId, selectedGroupId, taskGroups])
+
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams)
+    if (currentProjectId) next.set('projectId', currentProjectId)
+    else next.delete('projectId')
+    if (selectedGroupId) next.set('groupId', selectedGroupId)
+    else next.delete('groupId')
+    if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true })
+  }, [currentProjectId, searchParams, selectedGroupId, setSearchParams])
 
   useEffect(() => {
     const refresh = () => void loadData()
@@ -248,6 +275,16 @@ export function AutoRunPage() {
       .slice(0, 80)
   }, [currentProjectId, groupOrderByTaskId, isInSelectedGroup, isRunCandidate, query, queryMatchesTask, selectedGroupId, tasks])
   const groupedCandidateCount = useMemo(() => filteredTasks.filter((task) => groupIdByTaskId.has(task.id)).length, [filteredTasks, groupIdByTaskId])
+  const selectedGroupStats = useMemo(() => {
+    if (!selectedTaskGroup) return null
+    const groupTasks = selectedTaskGroup.orderedTaskIds.map((taskId) => tasksById.get(taskId)).filter((task): task is TaskEntity => Boolean(task))
+    return {
+      total: selectedTaskGroup.orderedTaskIds.length,
+      visible: groupTasks.length,
+      ready: groupTasks.filter(isRunCandidate).length,
+      activeTask: selectedTaskGroup.activeTaskId ? tasksById.get(selectedTaskGroup.activeTaskId) : null
+    }
+  }, [isRunCandidate, selectedTaskGroup, tasksById])
 
   const otherTasks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
@@ -587,7 +624,10 @@ export function AutoRunPage() {
         <label className={styles.groupScope}>
           <span>Task Grubu</span>
           <select value={selectedGroupId} onChange={(event) => {
-            setSelectedGroupId(event.target.value)
+            const nextGroupId = event.target.value
+            setSelectedGroupId(nextGroupId)
+            setSelectedTaskIds([])
+            setQueue((current) => current.filter((item) => !nextGroupId || item.groupId === nextGroupId))
             setActiveStep('tasks')
           }}>
             <option value="">Tüm task grupları</option>
@@ -619,7 +659,7 @@ export function AutoRunPage() {
           <span>Plan Kuyruğu</span>
           <strong>Hazırlık kaynağı</strong>
           <small>Planı eksik tasklar aynı proje ve grup bağlamıyla plan kuyruğunda hazırlanır.</small>
-          <Link to={APP_ROUTES.AUTO_PLANS}>Plan Kuyruğunu aç</Link>
+          <Link to={automationPath(APP_ROUTES.AUTO_PLANS, currentProjectId, selectedGroupId)}>Plan Kuyruğunu aç</Link>
         </div>
         <div>
           <span>Sonraki faz</span>
@@ -690,8 +730,32 @@ export function AutoRunPage() {
           {activeStep === 'scope' ? (
             <div className={styles.panel}>
               <header><div><strong>Kapsam</strong><span>Varsayılan listeler geçerli projeyle sınırlı kalır.</span></div></header>
+              <div className={styles.contextPanel}>
+                <div>
+                  <span>Seçili proje</span>
+                  <strong>{currentProject?.name ?? 'Proje seçilmedi'}</strong>
+                  <small>Çalıştırılacak tasklar ve başlatma aksiyonu bu proje ile sınırlanır.</small>
+                </div>
+                <div>
+                  <span>Seçili Task Grubu</span>
+                  <strong>{selectedTaskGroup?.title ?? 'Tüm task grupları'}</strong>
+                  <small>{selectedGroupStats ? `${selectedGroupStats.ready}/${selectedGroupStats.total} task çalıştırma kuyruğuna uygun.` : `${taskGroups.length} grup birlikte taranıyor.`}</small>
+                </div>
+                <div>
+                  <span>Ekrana etkisi</span>
+                  <strong>{selectedTaskGroup ? 'Liste P sırasına daralır' : 'Liste güncellenme sırasına döner'}</strong>
+                  <small>{selectedGroupStats?.activeTask ? `Aktif bağlam: ${selectedGroupStats.activeTask.title}` : 'Geçersiz seçimde grup filtresi temizlenir; task seçimi korunmaz.'}</small>
+                </div>
+              </div>
               <div className={styles.queueList}>
-                <div className={styles.emptyState}>Yalnızca başka bir projedeki tasklara geçmen gerekiyorsa proje seçiciyi kullan. Task seçimi sonraki adımda devam eder.</div>
+                <div className={`${styles.emptyState} ${styles.emptyStateActionable}`}>
+                  <strong>Seçim kapsamı hazır</strong>
+                  <span>Projeyi veya Task Grubunu değiştirdiğinde task listesi, seçili kayıtlar ve kuyruk kapsamı aynı bağlama göre güncellenir.</span>
+                  <div>
+                    <button type="button" onClick={() => setActiveStep('tasks')}>Tasklara geç</button>
+                    <button type="button" onClick={() => setProjectPickerOpen(true)}>Projeyi değiştir</button>
+                  </div>
+                </div>
               </div>
             </div>
           ) : null}

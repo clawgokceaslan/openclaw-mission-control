@@ -262,6 +262,19 @@
       white-space: nowrap;
     }
 
+    a {
+      width: fit-content;
+      color: var(--omc-primary-strong);
+      font-size: 11px;
+      font-weight: 850;
+      line-height: 1.2;
+      text-decoration: none;
+
+      &:hover {
+        text-decoration: underline;
+      }
+    }
+
     &_queued,
     &_running {
       border-color: color-mix(in srgb, var(--omc-primary) 36%, var(--omc-border));
