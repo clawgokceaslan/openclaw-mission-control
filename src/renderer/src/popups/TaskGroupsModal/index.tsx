@@ -12,7 +12,8 @@ interface TaskGroupsModalProps {
   error: string | null
   tasks: TaskEntity[]
   updatingGroupId: string | null
-  onUpdate: (groupId: string, orderedTaskIds: string[]) => void
+  onUpdate: (groupId: string, orderedTaskIds: string[], activeTaskId?: string | null) => void
+  onOpenTask?: (taskId: string) => void
   onClose: () => void
 }
 
@@ -24,6 +25,7 @@ export function TaskGroupsModal({
   tasks,
   updatingGroupId,
   onUpdate,
+  onOpenTask,
   onClose
 }: TaskGroupsModalProps) {
   useEffect(() => {
@@ -54,8 +56,8 @@ export function TaskGroupsModal({
             <LuRoute size={18} />
           </span>
           <div className={styles.taskGroupsModal__titleBlock}>
-            <h2 id="task-groups-title">Task grupları</h2>
-            <p>Gruplardaki task sırasını ve üyeliğini Kanban akışını daraltmadan yönet.</p>
+            <h2 id="task-groups-title">Task yürütme merkezi</h2>
+            <p>Task Grubu, Plan Kuyruğu ve Çalışma Kuyruğu bağlamını tek yerden izle.</p>
           </div>
           <button
             type="button"
@@ -77,6 +79,7 @@ export function TaskGroupsModal({
           tasks={tasks}
           updatingGroupId={updatingGroupId}
           onUpdate={onUpdate}
+          onOpenTask={onOpenTask}
         />
       </section>
     </div>

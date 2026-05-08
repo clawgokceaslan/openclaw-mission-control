@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { LuArrowDown, LuArrowUp, LuFileText, LuPlus, LuRoute, LuTrash2 } from 'react-icons/lu'
-import type { TaskEntity, TaskGroup } from '@shared/types/entities'
+import { LuArrowDown, LuArrowUp, LuCircleDot, LuFileText, LuFolderTree, LuListChecks, LuPlus, LuRoute, LuTrash2, LuWorkflow } from 'react-icons/lu'
+import type { TaskEntity, TaskGroup, TaskGroupQueueState } from '@shared/types/entities'
 import styles from './index.module.scss'
 
 interface TaskGroupsPanelProps {
@@ -10,7 +10,8 @@ interface TaskGroupsPanelProps {
   tasks: TaskEntity[]
   updatingGroupId: string | null
   className?: string
-  onUpdate: (groupId: string, orderedTaskIds: string[]) => void
+  onUpdate: (groupId: string, orderedTaskIds: string[], activeTaskId?: string | null) => void
+  onOpenTask?: (taskId: string) => void
 }
 
 function formatGroupDate(value: number): string {
@@ -22,6 +23,20 @@ function formatGroupDate(value: number): string {
   }).format(new Date(value))
 }
 
+function queueStateLabel(state: TaskGroupQueueState['state']): string {
+  if (state === 'not_configured') return 'Hazır değil'
+  if (state === 'idle') return 'Hazır'
+  if (state === 'queued') return 'Sırada'
+  if (state === 'running') return 'Aktif'
+  if (state === 'completed') return 'Tamamlandı'
+  if (state === 'failed') return 'Hata'
+  return state
+}
+
+function isDoneStatus(status?: string): boolean {
+  return ['done', 'closed', 'completed'].includes(String(status ?? '').toLowerCase())
+}
+
 export function TaskGroupsPanel({
   groups,
   saving,
@@ -29,13 +44,23 @@ export function TaskGroupsPanel({
   tasks,
   updatingGroupId,
   className,
-  onUpdate
+  onUpdate,
+  onOpenTask
 }: TaskGroupsPanelProps) {
   const [selectedTaskByGroup, setSelectedTaskByGroup] = useState<Record<string, string>>({})
   const tasksById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])
+  const totals = useMemo(() => {
+    const taskIds = new Set<string>()
+    let activeGroups = 0
+    for (const group of groups) {
+      group.orderedTaskIds.forEach((taskId) => taskIds.add(taskId))
+      if (group.activeTaskId) activeGroups += 1
+    }
+    return { taskCount: taskIds.size, activeGroups }
+  }, [groups])
 
-  const updateGroupTasks = (group: TaskGroup, orderedTaskIds: string[]) => {
-    onUpdate(group.groupId, orderedTaskIds)
+  const updateGroupTasks = (group: TaskGroup, orderedTaskIds: string[], activeTaskId = group.activeTaskId) => {
+    onUpdate(group.groupId, orderedTaskIds, activeTaskId)
   }
 
   return (
@@ -46,104 +71,167 @@ export function TaskGroupsPanel({
             <LuRoute size={16} />
           </span>
           <div className={styles.taskGroupsPanel__titleBlock}>
-            <h2 className={styles.taskGroupsPanel__title}>Task grupları</h2>
-            <p className={styles.taskGroupsPanel__description}>Proje detayına bağlı bağımsız iş paketleri.</p>
+            <h2 className={styles.taskGroupsPanel__title}>Task yürütme merkezi</h2>
+            <p className={styles.taskGroupsPanel__description}>Task Grubu, Plan Kuyruğu ve Çalışma Kuyruğu aynı bağlamda izlenir.</p>
           </div>
         </div>
-        <span className={styles.taskGroupsPanel__count}>{groups.length} grup</span>
+        <div className={styles.taskGroupsPanel__summary}>
+          <span>{groups.length} grup</span>
+          <span>{totals.taskCount} task</span>
+          <span>{totals.activeGroups} aktif bağlam</span>
+        </div>
       </div>
 
       {error ? <p className={styles.taskGroupsPanel__error}>{error}</p> : null}
 
+      <div className={styles.taskGroupsPanel__model} aria-label="Temel kavramlar">
+        <div>
+          <LuFolderTree size={15} />
+          <strong>Task Grubu</strong>
+          <span>Ortak amaç ve sıra</span>
+        </div>
+        <div>
+          <LuWorkflow size={15} />
+          <strong>Plan Kuyruğu</strong>
+          <span>Planlama hazırlığı</span>
+        </div>
+        <div>
+          <LuListChecks size={15} />
+          <strong>Çalışma Kuyruğu</strong>
+          <span>Aktif uygulama sırası</span>
+        </div>
+      </div>
+
       <div className={styles.taskGroupsPanel__list}>
         {groups.length > 0 ? (
-          groups.map((group) => (
-            <article key={group.groupId} className={styles.taskGroupsPanel__item}>
-              <div className={styles.taskGroupsPanel__itemHeader}>
-                <div className={styles.taskGroupsPanel__itemMain}>
-                  <h3 className={styles.taskGroupsPanel__itemTitle}>{group.title}</h3>
-                  <p className={styles.taskGroupsPanel__itemMeta}>Oluşturuldu {formatGroupDate(group.createdAt)}</p>
+          groups.map((group) => {
+            const activeTaskId = group.activeTaskId && group.orderedTaskIds.includes(group.activeTaskId) ? group.activeTaskId : group.orderedTaskIds[0] ?? null
+            const activeTask = activeTaskId ? tasksById.get(activeTaskId) : null
+            const doneCount = group.orderedTaskIds.filter((taskId) => isDoneStatus(tasksById.get(taskId)?.status)).length
+            const missingCount = group.orderedTaskIds.filter((taskId) => !tasksById.has(taskId)).length
+
+            return (
+              <article key={group.groupId} className={styles.taskGroupsPanel__item}>
+                <div className={styles.taskGroupsPanel__itemHeader}>
+                  <div className={styles.taskGroupsPanel__itemMain}>
+                    <h3 className={styles.taskGroupsPanel__itemTitle}>{group.title}</h3>
+                    <p className={styles.taskGroupsPanel__itemMeta}>Oluşturuldu {formatGroupDate(group.createdAt)}</p>
+                  </div>
+                  <div className={styles.taskGroupsPanel__contract}>
+                    <span>{doneCount}/{group.orderedTaskIds.length} tamam</span>
+                    <span>Aktif: {activeTask?.title ?? activeTaskId ?? 'yok'}</span>
+                    {missingCount ? <span>{missingCount} eksik kayıt</span> : null}
+                  </div>
                 </div>
-                <div className={styles.taskGroupsPanel__contract}>
-                  <span>{group.orderedTaskIds.length} task</span>
-                  <span>plan: {group.planningQueueState.state}</span>
-                  <span>run: {group.executionQueueState.state}</span>
+
+                <div className={styles.taskGroupsPanel__queueGrid}>
+                  <div className={`${styles.taskGroupsPanel__queueCard} ${styles[`taskGroupsPanel__queueCard_${group.planningQueueState.state}`] ?? ''}`}>
+                    <span>Plan Kuyruğu</span>
+                    <strong>{queueStateLabel(group.planningQueueState.state)}</strong>
+                    <small>{group.planningQueueState.updatedAt ? formatGroupDate(group.planningQueueState.updatedAt) : 'Henüz çalışmadı'}</small>
+                  </div>
+                  <div className={`${styles.taskGroupsPanel__queueCard} ${styles[`taskGroupsPanel__queueCard_${group.executionQueueState.state}`] ?? ''}`}>
+                    <span>Çalışma Kuyruğu</span>
+                    <strong>{queueStateLabel(group.executionQueueState.state)}</strong>
+                    <small>{activeTask?.title ?? 'Aktif task seçilmedi'}</small>
+                  </div>
                 </div>
-              </div>
 
-              <div className={styles.taskGroupsPanel__scope}>
-                <LuFileText size={14} />
-                <span>{group.groupContextMdPath || 'groupContext.md hazırlanıyor'}</span>
-              </div>
+                <div className={styles.taskGroupsPanel__scope}>
+                  <LuFileText size={14} />
+                  <span>{group.groupContextMdPath || 'groupContext.md hazırlanıyor'}</span>
+                </div>
 
-              <ol className={styles.taskGroupsPanel__taskList}>
-                {group.orderedTaskIds.map((taskId, index) => {
-                  const task = tasksById.get(taskId)
-                  return (
-                    <li key={taskId} className={styles.taskGroupsPanel__taskItem}>
-                      <span className={styles.taskGroupsPanel__taskOrder}>{index + 1}</span>
-                      <span className={styles.taskGroupsPanel__taskTitle}>{task?.title ?? taskId}</span>
-                      <span className={styles.taskGroupsPanel__taskStatus}>{task?.status ?? 'unknown'}</span>
-                      <div className={styles.taskGroupsPanel__taskActions}>
-                        <button type="button" onClick={() => {
-                          if (index <= 0) return
-                          const next = [...group.orderedTaskIds]
-                          const previous = next[index - 1]
-                          next[index - 1] = taskId
-                          next[index] = previous
-                          updateGroupTasks(group, next)
-                        }} disabled={saving || index === 0 || updatingGroupId === group.groupId} aria-label="Taskı yukarı taşı" title="Yukarı taşı">
-                          <LuArrowUp size={14} />
-                        </button>
-                        <button type="button" onClick={() => {
-                          if (index >= group.orderedTaskIds.length - 1) return
-                          const next = [...group.orderedTaskIds]
-                          const following = next[index + 1]
-                          next[index + 1] = taskId
-                          next[index] = following
-                          updateGroupTasks(group, next)
-                        }} disabled={saving || index === group.orderedTaskIds.length - 1 || updatingGroupId === group.groupId} aria-label="Taskı aşağı taşı" title="Aşağı taşı">
-                          <LuArrowDown size={14} />
-                        </button>
-                        <button type="button" onClick={() => updateGroupTasks(group, group.orderedTaskIds.filter((id) => id !== taskId))} disabled={saving || updatingGroupId === group.groupId} aria-label="Taskı gruptan çıkar" title="Gruptan çıkar">
-                          <LuTrash2 size={14} />
-                        </button>
-                      </div>
-                    </li>
-                  )
-                })}
-              </ol>
+                {group.orderedTaskIds.length > 0 ? (
+                  <ol className={styles.taskGroupsPanel__taskList}>
+                    {group.orderedTaskIds.map((taskId, index) => {
+                      const task = tasksById.get(taskId)
+                      const isActive = activeTaskId === taskId
+                      return (
+                        <li key={taskId} className={`${styles.taskGroupsPanel__taskItem} ${isActive ? styles.taskGroupsPanel__taskItem_active : ''}`}>
+                          <span className={styles.taskGroupsPanel__taskOrder}>P{index + 1}</span>
+                          <button
+                            type="button"
+                            className={styles.taskGroupsPanel__taskMainButton}
+                            onClick={() => task && onOpenTask?.(task.id)}
+                            disabled={!task || !onOpenTask}
+                            title={task ? 'Task detayını aç' : 'Task kaydı bulunamadı'}
+                          >
+                            <span className={styles.taskGroupsPanel__taskTitle}>{task?.title ?? taskId}</span>
+                            <span className={styles.taskGroupsPanel__taskMeta}>{isActive ? 'Aktif çalışma bağlamı' : 'Sıradaki bağlam'}</span>
+                          </button>
+                          <span className={styles.taskGroupsPanel__taskStatus}>{task?.status ?? 'unknown'}</span>
+                          <div className={styles.taskGroupsPanel__taskActions}>
+                            <button type="button" onClick={() => updateGroupTasks(group, group.orderedTaskIds, taskId)} disabled={saving || isActive || updatingGroupId === group.groupId} aria-label="Taskı aktif çalışma bağlamı yap" title="Aktif yap">
+                              <LuCircleDot size={14} />
+                            </button>
+                            <button type="button" onClick={() => {
+                              if (index <= 0) return
+                              const next = [...group.orderedTaskIds]
+                              const previous = next[index - 1]
+                              next[index - 1] = taskId
+                              next[index] = previous
+                              updateGroupTasks(group, next, activeTaskId)
+                            }} disabled={saving || index === 0 || updatingGroupId === group.groupId} aria-label="Taskı yukarı taşı" title="Yukarı taşı">
+                              <LuArrowUp size={14} />
+                            </button>
+                            <button type="button" onClick={() => {
+                              if (index >= group.orderedTaskIds.length - 1) return
+                              const next = [...group.orderedTaskIds]
+                              const following = next[index + 1]
+                              next[index + 1] = taskId
+                              next[index] = following
+                              updateGroupTasks(group, next, activeTaskId)
+                            }} disabled={saving || index === group.orderedTaskIds.length - 1 || updatingGroupId === group.groupId} aria-label="Taskı aşağı taşı" title="Aşağı taşı">
+                              <LuArrowDown size={14} />
+                            </button>
+                            <button type="button" onClick={() => {
+                              const next = group.orderedTaskIds.filter((id) => id !== taskId)
+                              updateGroupTasks(group, next, isActive ? next[0] ?? null : activeTaskId)
+                            }} disabled={saving || updatingGroupId === group.groupId} aria-label="Taskı gruptan çıkar" title="Gruptan çıkar">
+                              <LuTrash2 size={14} />
+                            </button>
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ol>
+                ) : (
+                  <p className={styles.taskGroupsPanel__emptyInline}>Bu grupta task yok. Plan ve çalışma kuyruğu için önce task ekle.</p>
+                )}
 
-              <div className={styles.taskGroupsPanel__addTask}>
-                <select
-                  value={selectedTaskByGroup[group.groupId] ?? ''}
-                  onChange={(event) => setSelectedTaskByGroup((current) => ({ ...current, [group.groupId]: event.target.value }))}
-                  disabled={saving || updatingGroupId === group.groupId}
-                  aria-label={`${group.title} grubuna task ekle`}
-                >
-                  <option value="">Task seç</option>
-                  {tasks.filter((task) => !group.orderedTaskIds.includes(task.id)).map((task) => (
-                    <option key={task.id} value={task.id}>{task.title}</option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  disabled={saving || updatingGroupId === group.groupId || !selectedTaskByGroup[group.groupId]}
-                  onClick={() => {
-                    const taskId = selectedTaskByGroup[group.groupId]
-                    if (!taskId) return
-                    updateGroupTasks(group, [...group.orderedTaskIds, taskId])
-                    setSelectedTaskByGroup((current) => ({ ...current, [group.groupId]: '' }))
-                  }}
-                >
-                  <LuPlus size={14} />
-                  <span>Ekle</span>
-                </button>
-              </div>
-            </article>
-          ))
+                <div className={styles.taskGroupsPanel__addTask}>
+                  <select
+                    value={selectedTaskByGroup[group.groupId] ?? ''}
+                    onChange={(event) => setSelectedTaskByGroup((current) => ({ ...current, [group.groupId]: event.target.value }))}
+                    disabled={saving || updatingGroupId === group.groupId}
+                    aria-label={`${group.title} grubuna task ekle`}
+                  >
+                    <option value="">Task seç</option>
+                    {tasks.filter((task) => !group.orderedTaskIds.includes(task.id)).map((task) => (
+                      <option key={task.id} value={task.id}>{task.title}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={saving || updatingGroupId === group.groupId || !selectedTaskByGroup[group.groupId]}
+                    onClick={() => {
+                      const taskId = selectedTaskByGroup[group.groupId]
+                      if (!taskId) return
+                      const next = [...group.orderedTaskIds, taskId]
+                      updateGroupTasks(group, next, activeTaskId ?? taskId)
+                      setSelectedTaskByGroup((current) => ({ ...current, [group.groupId]: '' }))
+                    }}
+                  >
+                    <LuPlus size={14} />
+                    <span>Ekle</span>
+                  </button>
+                </div>
+              </article>
+            )
+          })
         ) : (
-          <p className={styles.taskGroupsPanel__empty}>Bu projede henüz task grubu yok.</p>
+          <p className={styles.taskGroupsPanel__empty}>Bu projede henüz task grubu yok. Önce bir Task Grubu oluşturup plan ve çalışma kuyruğunu aynı bağlama bağla.</p>
         )}
       </div>
     </section>

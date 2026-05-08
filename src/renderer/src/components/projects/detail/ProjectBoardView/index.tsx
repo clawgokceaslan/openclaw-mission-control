@@ -44,6 +44,16 @@ function codexStatusClass(status: TaskGatewaySurfaceStatus) {
   return `${styles.taskGatewayStateBadge} ${styles[`taskGatewayTone_${status.tone}`] ?? ''}`
 }
 
+function queueLabel(state: TaskGroup['planningQueueState']['state']) {
+  if (state === 'not_configured') return 'hazır değil'
+  if (state === 'idle') return 'hazır'
+  if (state === 'queued') return 'sırada'
+  if (state === 'running') return 'aktif'
+  if (state === 'completed') return 'tamamlandı'
+  if (state === 'failed') return 'hata'
+  return state
+}
+
 export function ProjectBoardView({ columns, tasksByStatus, taskGroups, agents, onDropStatus, onReorder, onOpenTask, onOpenSubtask, onOpenCreateTask }: ProjectBoardViewProps) {
   const agentName = (task: TaskEntity) => agents.find((agent) => agent.id === task.agentId)?.name ?? 'Unassigned'
   const allTasks = useMemo(() => Object.values(tasksByStatus).flat(), [tasksByStatus])
@@ -148,8 +158,9 @@ export function ProjectBoardView({ columns, tasksByStatus, taskGroups, agents, o
                       </div>
                     </header>
                     <div className={styles.taskGroupBoardCard__contract}>
-                      <span>groupId: {group.groupId}</span>
-                      <span>active: {activeTask?.title ?? group.activeTaskId ?? 'yok'}</span>
+                      <span>Plan Kuyruğu: {queueLabel(group.planningQueueState.state)}</span>
+                      <span>Çalışma Kuyruğu: {queueLabel(group.executionQueueState.state)}</span>
+                      <span>Aktif task: {activeTask?.title ?? group.activeTaskId ?? 'yok'}</span>
                     </div>
                     <ol className={styles.taskGroupBoardCard__tasks}>
                       {group.orderedTaskIds.slice(0, 5).map((taskId, index) => {

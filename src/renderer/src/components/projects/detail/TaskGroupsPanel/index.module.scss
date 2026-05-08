@@ -1,6 +1,6 @@
 .taskGroupsPanel {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto;
   gap: 10px;
   min-height: 0;
   padding: 12px;
@@ -53,23 +53,29 @@
     line-height: 1.35;
   }
 
-  &__count {
-    min-height: 28px;
-    border: 1px solid var(--omc-pill-border);
-    border-radius: 999px;
-    padding: 4px 10px;
-    background: var(--omc-pill-bg);
-    color: var(--omc-text-muted);
-    align-items: center;
-    justify-content: center;
-    display: inline-flex;
-    font-size: 12px;
-    font-weight: 800;
-    white-space: nowrap;
+  &__summary {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+
+    span {
+      min-height: 28px;
+      border: 1px solid var(--omc-pill-border);
+      border-radius: 999px;
+      padding: 4px 10px;
+      background: var(--omc-pill-bg);
+      color: var(--omc-text-muted);
+      align-items: center;
+      justify-content: center;
+      display: inline-flex;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
   }
 
   &__error {
-    grid-row: 2;
     margin: 0;
     border: 1px solid var(--omc-danger-border);
     border-radius: 8px;
@@ -79,8 +85,49 @@
     font-size: 13px;
   }
 
+  &__model {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+
+    div {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 2px 7px;
+      min-width: 0;
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 8px;
+      padding: 8px;
+      background: var(--omc-surface-muted);
+
+      svg {
+        grid-row: 1 / span 2;
+        margin-top: 1px;
+        color: var(--omc-primary-strong);
+      }
+
+      strong {
+        overflow: hidden;
+        color: var(--omc-text-strong);
+        font-size: 12px;
+        font-weight: 850;
+        line-height: 1.2;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      span {
+        overflow: hidden;
+        color: var(--omc-text-muted);
+        font-size: 11px;
+        line-height: 1.25;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
+  }
+
   &__list {
-    grid-row: 3;
     min-height: 0;
     overflow-y: auto;
     display: grid;
@@ -142,6 +189,64 @@
     }
   }
 
+  &__queueGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  &__queueCard {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 8px;
+    padding: 8px 9px;
+    background: var(--omc-surface);
+
+    span {
+      color: var(--omc-text-muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    strong {
+      overflow: hidden;
+      color: var(--omc-text-strong);
+      font-size: 13px;
+      font-weight: 850;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    small {
+      overflow: hidden;
+      color: var(--omc-text-muted);
+      font-size: 11px;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    &_queued,
+    &_running {
+      border-color: color-mix(in srgb, var(--omc-primary) 36%, var(--omc-border));
+      background: color-mix(in srgb, var(--omc-primary) 8%, var(--omc-surface));
+    }
+
+    &_completed {
+      border-color: var(--omc-success-border);
+      background: var(--omc-success-bg);
+    }
+
+    &_failed {
+      border-color: var(--omc-danger-border);
+      background: var(--omc-danger-bg);
+    }
+  }
+
   &__scope {
     display: flex;
     align-items: center;
@@ -167,7 +272,7 @@
 
   &__taskItem {
     display: grid;
-    grid-template-columns: 24px minmax(0, 1fr) auto auto;
+    grid-template-columns: 34px minmax(0, 1fr) auto auto;
     align-items: center;
     gap: 8px;
     min-height: 34px;
@@ -175,11 +280,16 @@
     border-radius: 8px;
     padding: 5px 6px;
     background: var(--omc-surface);
+
+    &_active {
+      border-color: color-mix(in srgb, var(--omc-primary) 48%, var(--omc-border));
+      background: color-mix(in srgb, var(--omc-primary) 7%, var(--omc-surface));
+    }
   }
 
   &__taskOrder {
     display: inline-grid;
-    width: 22px;
+    width: 30px;
     height: 22px;
     place-items: center;
     border-radius: 999px;
@@ -189,11 +299,50 @@
     font-weight: 800;
   }
 
+  &__taskMainButton {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      .taskGroupsPanel__taskTitle {
+        color: var(--omc-primary-strong);
+      }
+    }
+
+    &:focus-visible {
+      outline: none;
+
+      .taskGroupsPanel__taskTitle {
+        text-decoration: underline;
+      }
+    }
+
+    &:disabled {
+      cursor: default;
+    }
+  }
+
   &__taskTitle {
     overflow: hidden;
     color: var(--omc-text-strong);
     font-size: 13px;
     font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__taskMeta {
+    overflow: hidden;
+    color: var(--omc-text-muted);
+    font-size: 11px;
+    line-height: 1.2;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -306,6 +455,17 @@
     background: var(--omc-surface-muted);
     font-size: 13px;
   }
+
+  &__emptyInline {
+    margin: 0;
+    border: 1px dashed var(--omc-border);
+    border-radius: 8px;
+    padding: 10px;
+    color: var(--omc-text-muted);
+    background: var(--omc-surface);
+    font-size: 12px;
+    line-height: 1.35;
+  }
 }
 
 @media (max-width: 860px) {
@@ -316,20 +476,29 @@
       flex-direction: column;
     }
 
-    &__count {
-      width: max-content;
+    &__summary {
+      justify-content: flex-start;
     }
 
     &__contract {
       justify-content: flex-start;
     }
 
-    &__taskItem,
+    &__model,
+    &__queueGrid {
+      grid-template-columns: 1fr;
+    }
+
     &__addTask {
       grid-template-columns: minmax(0, 1fr);
     }
 
+    &__taskItem {
+      grid-template-columns: 34px minmax(0, 1fr) auto;
+    }
+
     &__taskActions {
+      grid-column: 1 / -1;
       justify-content: flex-start;
     }
   }

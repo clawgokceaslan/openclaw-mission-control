@@ -1575,14 +1575,15 @@ export function ProjectDetailPage() {
     setTaskGroupError(null)
   }
 
-  const updateTaskGroupTasks = async (groupId: string, orderedTaskIds: string[]) => {
+  const updateTaskGroupTasks = async (groupId: string, orderedTaskIds: string[], activeTaskId?: string | null) => {
     setTaskGroupSaving(true)
     setUpdatingTaskGroupId(groupId)
     setTaskGroupError(null)
     const response = await invokeBridge<TaskGroup>(IPC_CHANNELS.taskGroups.update, {
       actorToken: token,
       groupId,
-      orderedTaskIds
+      orderedTaskIds,
+      ...(activeTaskId !== undefined ? { activeTaskId } : {})
     })
     setTaskGroupSaving(false)
     setUpdatingTaskGroupId(null)
@@ -3286,7 +3287,11 @@ export function ProjectDetailPage() {
         error={isTaskGroupCreateOpen ? null : taskGroupError}
         tasks={tasks}
         updatingGroupId={updatingTaskGroupId}
-        onUpdate={(groupId, orderedTaskIds) => void updateTaskGroupTasks(groupId, orderedTaskIds)}
+        onUpdate={(groupId, orderedTaskIds, activeTaskId) => void updateTaskGroupTasks(groupId, orderedTaskIds, activeTaskId)}
+        onOpenTask={(taskId) => {
+          setIsTaskGroupsOpen(false)
+          navigateToTaskDetail(taskId)
+        }}
         onClose={() => setIsTaskGroupsOpen(false)}
       />
 
