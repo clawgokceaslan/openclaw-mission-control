@@ -77,7 +77,7 @@ describe('chat conversation summaries', () => {
       message({ id: 'follow-up', runId: 'chat-1', conversationId: 'run-1', source: 'gateway-chat', role: 'user', createdAt: 2, body: 'Continue from the run output.' })
     ], 10)
 
-    expect(summaries[0].title).toBe('Run')
+    expect(summaries[0].title).toBe('Çalıştır')
     expect(summaries[0].source).toBe('gateway-run')
     expect(summaries[0].phase).toBe('RUN')
     expect(summaries[0].count).toBe(1)
