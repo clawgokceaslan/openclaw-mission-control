@@ -11,7 +11,17 @@ function createContext() {
       auth: {
         getSessionActor: async (token?: string) => token === 'access-token'
           ? { session: { token }, user: { id: 'user-1' } }
-          : undefined
+          : undefined,
+        login: async (payload: { email?: string; password?: string }) => payload.email === 'owner@mission.local' && payload.password === 'changeme'
+          ? { ok: true, data: { session: { token: 'access-token' }, refreshToken: 'refresh-token', user: { id: 'user-1' } } }
+          : { ok: false, error: { code: 'ERR_UNAUTHENTICATED', message: 'Invalid credentials' } },
+        refresh: async (payload: { refreshToken?: string }) => payload.refreshToken === 'refresh-token'
+          ? { ok: true, data: { session: { token: 'access-token' }, refreshToken: 'next-refresh-token', user: { id: 'user-1' } } }
+          : { ok: false, error: { code: 'ERR_UNAUTHENTICATED', message: 'Refresh token is invalid' } },
+        me: async (payload: { actorToken?: string }) => payload.actorToken === 'access-token'
+          ? { ok: true, data: { session: { token: payload.actorToken }, user: { id: 'user-1' } } }
+          : { ok: false, error: { code: 'ERR_UNAUTHENTICATED', message: 'No active session' } },
+        logout: async (payload: { actorToken?: string }) => ({ ok: true, data: { ok: true, actorToken: payload.actorToken } })
       },
       projects: {
         list: async (payload: { actorToken?: string }) => ({ ok: true, data: [{ id: 'project-1', actorToken: payload.actorToken }] })
@@ -55,6 +65,56 @@ describe('startInternalHttpServer', () => {
       expect(response.status).toBe(401)
       expect(json.ok).toBe(false)
       expect(json.error?.code).toBe('ERR_UNAUTHENTICATED')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('serves auth login and refresh through REST endpoints with direct JSON bodies', async () => {
+    const server = await startInternalHttpServer(createContext(), { preferredPort: 30140, host: '127.0.0.1' })
+    try {
+      const loginResponse = await fetch(`${server.url}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'owner@mission.local', password: 'changeme' })
+      })
+      const loginJson = await loginResponse.json() as { ok: boolean; data?: { session?: { token?: string }; refreshToken?: string } }
+      expect(loginResponse.status).toBe(200)
+      expect(loginJson.data?.session?.token).toBe('access-token')
+      expect(loginJson.data?.refreshToken).toBe('refresh-token')
+
+      const refreshResponse = await fetch(`${server.url}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: loginJson.data?.refreshToken })
+      })
+      const refreshJson = await refreshResponse.json() as { ok: boolean; data?: { refreshToken?: string } }
+      expect(refreshResponse.status).toBe(200)
+      expect(refreshJson.ok).toBe(true)
+      expect(refreshJson.data?.refreshToken).toBe('next-refresh-token')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('serves auth me and logout through REST endpoints with bearer auth', async () => {
+    const server = await startInternalHttpServer(createContext(), { preferredPort: 30160, host: '127.0.0.1' })
+    try {
+      const meResponse = await fetch(`${server.url}/api/auth/me`, {
+        method: 'GET',
+        headers: { Authorization: 'Bearer access-token' }
+      })
+      const meJson = await meResponse.json() as { ok: boolean; data?: { user?: { id?: string } } }
+      expect(meResponse.status).toBe(200)
+      expect(meJson.data?.user?.id).toBe('user-1')
+
+      const logoutResponse = await fetch(`${server.url}/api/auth/logout`, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer access-token' }
+      })
+      const logoutJson = await logoutResponse.json() as { ok: boolean; data?: { actorToken?: string } }
+      expect(logoutResponse.status).toBe(200)
+      expect(logoutJson.data?.actorToken).toBe('access-token')
     } finally {
       await server.close()
     }

@@ -28,6 +28,12 @@ export interface InternalHttpServerHandle {
 }
 
 const eventChannels = new Set<string>(Object.values(IPC_CHANNELS.events))
+const authRestRoutes = new Map<string, { channel: string; requiresAuth: boolean; readBody: boolean }>([
+  ['/api/auth/login', { channel: IPC_CHANNELS.auth.login, requiresAuth: false, readBody: true }],
+  ['/api/auth/refresh', { channel: IPC_CHANNELS.auth.refresh, requiresAuth: false, readBody: true }],
+  ['/api/auth/me', { channel: IPC_CHANNELS.auth.me, requiresAuth: true, readBody: false }],
+  ['/api/auth/logout', { channel: IPC_CHANNELS.auth.logout, requiresAuth: true, readBody: false }]
+])
 
 function sendCorsHeaders(response: ServerResponse): void {
   response.setHeader('Access-Control-Allow-Origin', '*')
@@ -79,6 +85,11 @@ function bearerToken(request: IncomingMessage): string | undefined {
   if (!header || Array.isArray(header)) return undefined
   const match = /^Bearer\s+(.+)$/i.exec(header)
   return match?.[1]
+}
+
+function requestHeader(request: IncomingMessage, key: string): string | undefined {
+  const value = request.headers[key.toLowerCase()]
+  return Array.isArray(value) ? value[0] : value
 }
 
 function contentType(pathname: string): string {
@@ -146,6 +157,33 @@ async function handleInternalCall(context: AppContext, request: IncomingMessage,
   const result = await dispatchInternalApi(context.services, {
     channel,
     request: body,
+    transport: 'http',
+    actorToken: typeof auth === 'string' ? auth : undefined
+  })
+  sendJson(response, statusForResult(result), result)
+}
+
+async function handleAuthRestCall(context: AppContext, request: IncomingMessage, response: ServerResponse, requestUrl: URL): Promise<void> {
+  const route = authRestRoutes.get(requestUrl.pathname)
+  if (!route) {
+    sendJson(response, 404, errorResponse(ErrorCodes.NotFound, 'Auth route not found'))
+    return
+  }
+
+  const auth = await authenticateHttpRequest(context, request, route.requiresAuth, requestUrl)
+  if (auth && typeof auth === 'object' && 'ok' in auth && !auth.ok) {
+    sendJson(response, statusForResult(auth), auth)
+    return
+  }
+
+  const body = route.readBody ? await readBody(request) : {}
+  const result = await dispatchInternalApi(context.services, {
+    channel: route.channel,
+    request: {
+      requestId: requestHeader(request, 'x-request-id'),
+      correlationId: requestHeader(request, 'x-correlation-id'),
+      payload: body
+    },
     transport: 'http',
     actorToken: typeof auth === 'string' ? auth : undefined
   })
@@ -229,6 +267,13 @@ export async function startInternalHttpServer(context: AppContext, config: Inter
         }
         if (request.method === 'GET' && requestUrl.pathname === '/api/events') {
           await handleEvents(context, request, response, requestUrl)
+          return
+        }
+        if (
+          ((request.method === 'GET' && requestUrl.pathname === '/api/auth/me') ||
+            (request.method === 'POST' && authRestRoutes.has(requestUrl.pathname)))
+        ) {
+          await handleAuthRestCall(context, request, response, requestUrl)
           return
         }
         if (request.method === 'POST' && requestUrl.pathname.startsWith('/api/internal/')) {

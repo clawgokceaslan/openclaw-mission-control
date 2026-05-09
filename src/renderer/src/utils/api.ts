@@ -1,3 +1,4 @@
+import axios, { AxiosError, type AxiosInstance, type AxiosRequestConfig } from 'axios'
 import { ErrorCodes } from '@shared/contracts/error-codes'
 import { BridgeResponse, IPC_CHANNELS, IpcChannel } from '@shared/contracts/ipc'
 
@@ -136,6 +137,8 @@ interface HttpAuthResult {
   refreshToken?: string
 }
 
+type AuthRestEndpoint = 'login' | 'refresh' | 'me' | 'logout'
+
 function persistAuthTokens(data: unknown): void {
   if (!data || typeof data !== 'object') return
   const auth = data as HttpAuthResult
@@ -143,15 +146,108 @@ function persistAuthTokens(data: unknown): void {
   if (auth.refreshToken) setRefreshToken(auth.refreshToken)
 }
 
-async function refreshHttpAccessToken(): Promise<string | null> {
-  const refreshToken = getRefreshToken()
-  if (!refreshToken) return null
-  const response = await fetch(`${apiBaseUrl()}/api/internal/${encodeURIComponent(IPC_CHANNELS.auth.refresh)}`, {
+let authHttpClient: AxiosInstance | null = null
+
+function getAuthHttpClient(): AxiosInstance {
+  if (!authHttpClient) {
+    authHttpClient = axios.create({
+      baseURL: apiBaseUrl(),
+      validateStatus: () => true
+    })
+  }
+  return authHttpClient
+}
+
+function authRestUrl(endpoint: AuthRestEndpoint): string {
+  return `/api/auth/${endpoint}`
+}
+
+function requestHeaders(token?: string | null): Record<string, string> {
+  const requestId = nextRequestId()
+  return {
+    'Content-Type': 'application/json',
+    'X-Request-Id': requestId,
+    'X-Correlation-Id': requestId,
+    ...(token ? { Authorization: `Bearer ${token}` } : {})
+  }
+}
+
+function normalizeHttpError(error: unknown): BridgeResult {
+  if (error instanceof AxiosError) {
+    const data = error.response?.data as BridgeResult | undefined
+    if (data?.error) return data
+    return errorResult(ErrorCodes.GatewayUnavailable, error.message || 'HTTP API unavailable')
+  }
+  return errorResult(ErrorCodes.GatewayUnavailable, error instanceof Error ? error.message : 'HTTP API unavailable')
+}
+
+async function requestAuthRest<T = unknown>(
+  endpoint: AuthRestEndpoint,
+  config: AxiosRequestConfig,
+  persistTokens = true
+): Promise<BridgeResult<T>> {
+  try {
+    const response = await getAuthHttpClient().request<BridgeResult<T>>({
+      url: authRestUrl(endpoint),
+      ...config
+    })
+    const result = response.data
+    if (!result || typeof result !== 'object' || typeof result.ok !== 'boolean') {
+      return errorResult(ErrorCodes.Internal, `Auth API returned ${response.status}`)
+    }
+    if (result.ok && persistTokens) persistAuthTokens(result.data)
+    return result
+  } catch (error) {
+    return normalizeHttpError(error) as BridgeResult<T>
+  }
+}
+
+export async function loginWithAuthApi<T = unknown>(payload: { email: string; password: string }): Promise<BridgeResult<T>> {
+  return requestAuthRest<T>('login', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ payload: { refreshToken } })
+    headers: requestHeaders(),
+    data: payload
   })
-  const result = await response.json().catch(() => null) as BridgeResult<HttpAuthResult> | null
+}
+
+export async function refreshWithAuthApi<T = unknown>(): Promise<BridgeResult<T>> {
+  const refreshToken = getRefreshToken()
+  if (!refreshToken) return errorResult(ErrorCodes.Unauthenticated, 'Refresh token required')
+  const result = await requestAuthRest<T>('refresh', {
+    method: 'POST',
+    headers: requestHeaders(),
+    data: { refreshToken }
+  })
+  if (!result.ok) clearSessionToken()
+  return result
+}
+
+export async function getMeWithAuthApi<T = unknown>(tokenOverride?: string | null, retryRefresh = true): Promise<BridgeResult<T>> {
+  const token = tokenOverride ?? getSessionToken()
+  if (!token) return errorResult(ErrorCodes.Unauthenticated, 'Access token required')
+  const response = await requestAuthRest<T>('me', {
+    method: 'GET',
+    headers: requestHeaders(token)
+  })
+  if (response.ok || !retryRefresh || response.error?.code !== ErrorCodes.Unauthenticated) return response
+
+  const refreshResult = await refreshWithAuthApi<HttpAuthResult>()
+  if (!refreshResult.ok || !refreshResult.data?.session?.token) return response
+  return getMeWithAuthApi<T>(refreshResult.data.session.token, false)
+}
+
+export async function logoutWithAuthApi<T = unknown>(tokenOverride?: string | null): Promise<BridgeResult<T>> {
+  const token = tokenOverride ?? getSessionToken()
+  const response = await requestAuthRest<T>('logout', {
+    method: 'POST',
+    headers: requestHeaders(token)
+  }, false)
+  clearSessionToken()
+  return response
+}
+
+async function refreshHttpAccessToken(): Promise<string | null> {
+  const result = await refreshWithAuthApi<HttpAuthResult>()
   if (!result?.ok || !result.data?.session?.token) {
     clearSessionToken()
     return null
@@ -216,6 +312,9 @@ export async function invokeBridge<T = unknown>(
   }
   const bridge = getIpcRenderer()
   if (!bridge) {
+    if (channel === IPC_CHANNELS.app.rendererHealth) {
+      return { ok: true, data: { skipped: true, reason: 'renderer-health-ipc-unavailable' } as T }
+    }
     if (!isElectronRuntime()) return invokeHttp<T>(channel, payload, requestId)
     return errorResult(
       ErrorCodes.GatewayUnavailable,

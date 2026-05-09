@@ -4,8 +4,13 @@ import type { Session, User } from '@shared/types/entities'
 import {
   clearSessionToken,
   getSessionToken,
+  getRefreshToken,
+  getMeWithAuthApi,
   invokeBridge,
   isElectronRuntime,
+  loginWithAuthApi,
+  logoutWithAuthApi,
+  refreshWithAuthApi,
   setRefreshToken,
   setSessionToken
 } from '@renderer/utils/api'
@@ -33,7 +38,7 @@ interface AuthResult {
 const getSafeToken = () => (typeof window === 'undefined' ? null : getSessionToken())
 
 const runBootstrapLogin = async () => {
-  const bootstrapResult = await invokeBridge<AuthResult>(IPC_CHANNELS.auth.login, {
+  const bootstrapResult = await loginWithAuthApi<AuthResult>({
     email: DEFAULT_BOOTSTRAP_USER.email,
     password: DEFAULT_BOOTSTRAP_USER.password
   })
@@ -54,6 +59,10 @@ export const refreshAuth = createAsyncThunk<AuthResult, void, { state: { auth: A
     const token = currentToken ?? getSafeToken()
 
     if (!token) {
+      if (getRefreshToken()) {
+        const refreshResponse = await refreshWithAuthApi<AuthResult>()
+        if (refreshResponse.ok && refreshResponse.data) return refreshResponse.data
+      }
       if (!isElectronRuntime()) {
         return rejectWithValue('Login required') as never
       }
@@ -62,7 +71,7 @@ export const refreshAuth = createAsyncThunk<AuthResult, void, { state: { auth: A
       })
     }
 
-    const response = await invokeBridge<AuthResult>(IPC_CHANNELS.auth.me, { actorToken: token })
+    const response = await getMeWithAuthApi<AuthResult>(token)
     if (response.ok && response.data) {
       setSessionToken(response.data.session.token)
       return response.data
@@ -79,7 +88,7 @@ export const refreshAuth = createAsyncThunk<AuthResult, void, { state: { auth: A
 export const loginAuth = createAsyncThunk<AuthResult, { email: string; password: string }>(
   'auth/login',
   async ({ email, password }) => {
-    const response = await invokeBridge<AuthResult>(IPC_CHANNELS.auth.login, { email, password })
+    const response = await loginWithAuthApi<AuthResult>({ email, password })
     if (!response.ok || !response.data) {
       throw new Error(response.error?.message || 'Login failed')
     }
@@ -138,7 +147,7 @@ export const logoutAuth = createAsyncThunk<void, void, { state: { auth: AuthStat
   async (_, { getState }) => {
     const { token } = getState().auth
     if (token) {
-      await invokeBridge(IPC_CHANNELS.auth.logout, { actorToken: token })
+      await logoutWithAuthApi(token)
     }
     clearSessionToken()
   }
