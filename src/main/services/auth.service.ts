@@ -19,11 +19,19 @@ type PasswordVerification = {
   needsRehash: boolean
 }
 
+type LoginAttemptState = {
+  count: number
+  windowStartedAt: number
+}
+
 export class AuthService {
   private readonly bootstrapEmail = 'owner@mission.local'
   private readonly bootstrapPassword = 'changeme'
   private readonly minPasswordLength = 8
+  private readonly loginAttemptLimit = 10
+  private readonly loginAttemptWindowMs = 15 * 60 * 1000
   private readonly roles: User['role'][] = ['owner', 'admin', 'member']
+  private readonly failedLoginAttempts = new Map<string, LoginAttemptState>()
   constructor(
     private readonly authRepo: AuthRepository,
     private readonly eventBus?: EventEmitter
@@ -88,6 +96,43 @@ export class AuthService {
     }
   }
 
+  private normalizeEmail(email?: string): string {
+    return email?.trim().toLowerCase() ?? ''
+  }
+
+  private loginAttemptSource(meta?: Record<string, unknown>): string {
+    const source = typeof meta?.clientSource === 'string' ? meta.clientSource.trim() : ''
+    if (source) return source
+    return meta?.transport === 'http' ? 'http:unknown' : 'ipc:local'
+  }
+
+  private loginAttemptKey(email: string, meta?: Record<string, unknown>): string {
+    return `${email}|${this.loginAttemptSource(meta)}`
+  }
+
+  private isLoginRateLimited(key: string, now = Date.now()): boolean {
+    const state = this.failedLoginAttempts.get(key)
+    if (!state) return false
+    if (now - state.windowStartedAt >= this.loginAttemptWindowMs) {
+      this.failedLoginAttempts.delete(key)
+      return false
+    }
+    return state.count >= this.loginAttemptLimit
+  }
+
+  private recordFailedLogin(key: string, now = Date.now()): void {
+    const state = this.failedLoginAttempts.get(key)
+    if (!state || now - state.windowStartedAt >= this.loginAttemptWindowMs) {
+      this.failedLoginAttempts.set(key, { count: 1, windowStartedAt: now })
+      return
+    }
+    state.count += 1
+  }
+
+  private clearFailedLogin(key: string): void {
+    this.failedLoginAttempts.delete(key)
+  }
+
   async getSessionActor(token?: string): Promise<{ session: Session; user: User } | undefined> {
     if (!token) return undefined
     const session = await this.authRepo.findSessionByToken(token)
@@ -145,29 +190,41 @@ export class AuthService {
       return this.issueOwnerDesktopSession()
     }
 
-    if (!payload?.email || !payload?.password) {
+    const email = this.normalizeEmail(payload?.email)
+    const password = payload?.password ?? ''
+    if (!email || !password) {
       return errorResponse(ErrorCodes.Validation, 'Missing credentials')
     }
 
-    let userRow = await this.authRepo.findByEmail(payload.email)
-    if (!userRow && payload.email === this.bootstrapEmail && payload.password === this.bootstrapPassword) {
-      userRow = await this.authRepo.ensureDefaultOwner(payload.email)
+    const attemptKey = this.loginAttemptKey(email, meta)
+    if (this.isLoginRateLimited(attemptKey)) {
+      return errorResponse(ErrorCodes.RateLimited, 'Too many failed login attempts. Please try again later.', {
+        retryAfterMs: this.loginAttemptWindowMs
+      })
+    }
+
+    let userRow = await this.authRepo.findByEmail(email)
+    if (!userRow && email === this.bootstrapEmail && password === this.bootstrapPassword) {
+      userRow = await this.authRepo.ensureDefaultOwner(email)
     }
 
     if (!userRow) {
+      this.recordFailedLogin(attemptKey)
       return errorResponse(ErrorCodes.Unauthenticated, 'Invalid credentials')
     }
     const isLegacyBootstrapHash = userRow.password_hash === 'pbkdf2:sha256:260000$local$changeme'
-      && payload.email === this.bootstrapEmail
-      && payload.password === this.bootstrapPassword
+      && email === this.bootstrapEmail
+      && password === this.bootstrapPassword
     const passwordVerification = isLegacyBootstrapHash
       ? { valid: true, needsRehash: true }
-      : this.verifyPassword(userRow.password_hash || '', payload.password)
+      : this.verifyPassword(userRow.password_hash || '', password)
     if (!passwordVerification.valid) {
+      this.recordFailedLogin(attemptKey)
       return errorResponse(ErrorCodes.Unauthenticated, 'Invalid credentials')
     }
+    this.clearFailedLogin(attemptKey)
     if (passwordVerification.needsRehash) {
-      await this.authRepo.setPasswordHash(userRow.id, this.hashBcryptPassword(payload.password))
+      await this.authRepo.setPasswordHash(userRow.id, this.hashBcryptPassword(password))
     }
     const tokens = await this.issueTokens(userRow.id)
     const user = this.mapUser({

@@ -91,6 +91,67 @@ describe('AuthService password hashing', () => {
     expect(wasDefaultOwnerEnsured()).toBe(false)
   })
 
+  it('logs in with a normalized edited profile email and does not fall back to the default owner', async () => {
+    const { service, wasDefaultOwnerEnsured } = authServiceWithPassword(bcrypt.hashSync('changed-password', 12), {
+      email: 'pilot@example.com'
+    })
+
+    const response = await service.login({ email: '  PILOT@EXAMPLE.COM  ', password: 'changed-password' }, { transport: 'http' })
+
+    expect(response.ok).toBe(true)
+    expect(response.data.user.email).toBe('pilot@example.com')
+    expect(wasDefaultOwnerEnsured()).toBe(false)
+  })
+
+  it('creates the default owner only for the default owner email and bootstrap password', async () => {
+    const { service, wasDefaultOwnerEnsured } = authServiceWithPassword(bcrypt.hashSync('changed-password', 12), {
+      email: 'pilot@example.com'
+    })
+
+    const response = await service.login({ email: 'owner@mission.local', password: 'not-bootstrap' }, { transport: 'http' })
+
+    expect(response.ok).toBe(false)
+    expect(wasDefaultOwnerEnsured()).toBe(false)
+  })
+
+  it('rate limits the same email and client source after ten failed logins in fifteen minutes', async () => {
+    const { service } = authServiceWithPassword(bcrypt.hashSync('changed-password', 12), {
+      email: 'pilot@example.com'
+    })
+    const meta = { transport: 'http', clientSource: 'http:203.0.113.10' }
+
+    for (let index = 0; index < 10; index += 1) {
+      const response = await service.login({ email: 'pilot@example.com', password: 'wrong-password' }, meta)
+      expect(response.ok).toBe(false)
+      expect(response.error?.code).toBe('ERR_UNAUTHENTICATED')
+    }
+
+    const limited = await service.login({ email: 'pilot@example.com', password: 'wrong-password' }, meta)
+
+    expect(limited.ok).toBe(false)
+    expect(limited.error?.code).toBe('ERR_RATE_LIMITED')
+  })
+
+  it('clears failed login attempts after a successful login for the same email and source', async () => {
+    const { service } = authServiceWithPassword('changed-password', {
+      email: 'pilot@example.com'
+    })
+    const meta = { transport: 'http', clientSource: 'http:203.0.113.10' }
+
+    for (let index = 0; index < 9; index += 1) {
+      const response = await service.login({ email: 'pilot@example.com', password: 'wrong-password' }, meta)
+      expect(response.ok).toBe(false)
+    }
+
+    const success = await service.login({ email: 'pilot@example.com', password: 'changed-password' }, meta)
+    expect(success.ok).toBe(true)
+
+    for (let index = 0; index < 2; index += 1) {
+      const response = await service.login({ email: 'pilot@example.com', password: 'wrong-password' }, meta)
+      expect(response.error?.code).toBe('ERR_UNAUTHENTICATED')
+    }
+  })
+
   it('upgrades a valid PBKDF2 password to bcrypt after login', async () => {
     const legacyHash = 'pbkdf2:sha256:260000$local$75d92a58383dd943d4868d010791b54d4ad8f2c5f02a7fd08096e83b08f633e6'
     const { service, getStoredPasswordHash } = authServiceWithPassword(legacyHash)

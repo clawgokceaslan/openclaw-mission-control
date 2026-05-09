@@ -13,9 +13,23 @@ function createContext() {
         getSessionActor: async (token?: string) => token === 'access-token'
           ? { session: { token }, user: { id: 'user-1' } }
           : undefined,
-        login: async (payload: { email?: string; password?: string }) => payload.email === 'owner@mission.local' && payload.password === 'changeme'
-          ? { ok: true, data: { session: { token: 'access-token' }, refreshToken: 'refresh-token', user: { id: 'user-1' } } }
-          : { ok: false, error: { code: 'ERR_UNAUTHENTICATED', message: 'Invalid credentials' } },
+        login: async (payload: { email?: string; password?: string }, meta?: Record<string, unknown>) => {
+          if (payload.email === 'blocked@example.com') {
+            return { ok: false, error: { code: 'ERR_RATE_LIMITED', message: 'Too many failed login attempts' } }
+          }
+          if ((payload.email === 'owner@mission.local' || payload.email === 'pilot@example.com') && payload.password === 'changeme') {
+            return {
+              ok: true,
+              data: {
+                session: { token: 'access-token' },
+                refreshToken: 'refresh-token',
+                user: { id: 'user-1', email: payload.email },
+                clientSource: meta?.clientSource
+              }
+            }
+          }
+          return { ok: false, error: { code: 'ERR_UNAUTHENTICATED', message: 'Invalid credentials' } }
+        },
         refresh: async (payload: { refreshToken?: string }) => payload.refreshToken === 'refresh-token'
           ? { ok: true, data: { session: { token: 'access-token' }, refreshToken: 'next-refresh-token', user: { id: 'user-1' } } }
           : { ok: false, error: { code: 'ERR_UNAUTHENTICATED', message: 'Refresh token is invalid' } },
@@ -245,6 +259,37 @@ describe('startInternalHttpServer', () => {
       expect(refreshResponse.status).toBe(200)
       expect(refreshJson.ok).toBe(true)
       expect(refreshJson.data?.refreshToken).toBe('next-refresh-token')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('passes the HTTP client source to auth REST login and maps rate limits to 429', async () => {
+    const server = await startInternalHttpServer(createContext(), { preferredPort: 30150, host: '127.0.0.1' })
+    try {
+      const loginResponse = await fetch(`${server.url}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Forwarded-For': '203.0.113.44, 10.0.0.10'
+        },
+        body: JSON.stringify({ email: 'pilot@example.com', password: 'changeme' })
+      })
+      const loginJson = await loginResponse.json() as { ok: boolean; data?: { clientSource?: string; user?: { email?: string } } }
+      expect(loginResponse.status).toBe(200)
+      expect(loginJson.ok).toBe(true)
+      expect(loginJson.data?.user?.email).toBe('pilot@example.com')
+      expect(loginJson.data?.clientSource).toBe('http:203.0.113.44')
+
+      const limitedResponse = await fetch(`${server.url}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'blocked@example.com', password: 'changeme' })
+      })
+      const limitedJson = await limitedResponse.json() as { ok: boolean; error?: { code?: string } }
+      expect(limitedResponse.status).toBe(429)
+      expect(limitedJson.ok).toBe(false)
+      expect(limitedJson.error?.code).toBe('ERR_RATE_LIMITED')
     } finally {
       await server.close()
     }

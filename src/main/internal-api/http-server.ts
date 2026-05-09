@@ -147,6 +147,8 @@ function statusForResult(result: ServiceResponse): number {
       return 404
     case ErrorCodes.Validation:
       return 400
+    case ErrorCodes.RateLimited:
+      return 429
     default:
       return 500
   }
@@ -179,6 +181,28 @@ function bearerToken(request: IncomingMessage): string | undefined {
 function requestHeader(request: IncomingMessage, key: string): string | undefined {
   const value = request.headers[key.toLowerCase()]
   return Array.isArray(value) ? value[0] : value
+}
+
+function requestClientSource(request: IncomingMessage): string {
+  const forwardedFor = requestHeader(request, 'x-forwarded-for')?.split(',')[0]?.trim()
+  const realIp = requestHeader(request, 'x-real-ip')?.trim()
+  const remoteAddress = request.socket.remoteAddress?.trim()
+  return `http:${forwardedFor || realIp || remoteAddress || 'unknown'}`
+}
+
+function withRequestMeta(body: unknown, request: IncomingMessage): unknown {
+  const meta = { clientSource: requestClientSource(request) }
+  if (body && typeof body === 'object' && 'payload' in body) {
+    const envelope = body as Record<string, unknown>
+    return {
+      ...envelope,
+      meta: {
+        ...(envelope.meta && typeof envelope.meta === 'object' ? envelope.meta : {}),
+        ...meta
+      }
+    }
+  }
+  return { payload: body, meta }
 }
 
 function contentType(pathname: string): string {
@@ -267,7 +291,7 @@ async function handleInternalCall(context: AppContext, config: InternalHttpServe
   const body = await readBody(request)
   const result = await dispatchInternalApi(context.services, {
     channel,
-    request: body,
+    request: withRequestMeta(body, request),
     transport: 'http',
     actorToken: typeof auth === 'string' ? auth : undefined
   })
@@ -293,6 +317,7 @@ async function handleAuthRestCall(context: AppContext, request: IncomingMessage,
     request: {
       requestId: requestHeader(request, 'x-request-id'),
       correlationId: requestHeader(request, 'x-correlation-id'),
+      meta: { clientSource: requestClientSource(request) },
       payload: body
     },
     transport: 'http',

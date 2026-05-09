@@ -6,8 +6,8 @@ import { useAuth } from '@renderer/providers/auth/auth-state'
 import { LuLockKeyhole, LuLogIn, LuMail } from 'react-icons/lu'
 
 export function SignInPage({ authNotice }: { authNotice?: string | null }) {
-  const [email, setEmail] = useState('owner@mission.local')
-  const [password, setPassword] = useState('changeme')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const { login } = useAuth()

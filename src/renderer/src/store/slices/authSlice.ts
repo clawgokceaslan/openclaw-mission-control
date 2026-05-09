@@ -16,11 +16,6 @@ import {
   setSessionToken
 } from '@renderer/utils/api'
 
-const DEFAULT_BOOTSTRAP_USER = {
-  email: 'owner@mission.local',
-  password: 'changeme'
-}
-
 export interface AuthState {
   user: User | null
   session: Session | null
@@ -39,14 +34,7 @@ interface AuthResult {
 const getSafeToken = () => (typeof window === 'undefined' ? null : getSessionToken())
 
 const runBootstrapLogin = async () => {
-  const bootstrapResult = await loginWithAuthApi<AuthResult>(
-    isElectronRuntime()
-      ? { desktopBootstrap: true }
-      : {
-          email: DEFAULT_BOOTSTRAP_USER.email,
-          password: DEFAULT_BOOTSTRAP_USER.password
-        }
-  )
+  const bootstrapResult = await loginWithAuthApi<AuthResult>({ desktopBootstrap: true })
 
   if (!bootstrapResult.ok || !bootstrapResult.data) {
     throw new Error(bootstrapResult.error?.message ?? 'Bootstrap login failed')
@@ -87,6 +75,10 @@ export const refreshAuth = createAsyncThunk<AuthResult, void, { state: { auth: A
     if (response.error?.code === ErrorCodes.Unauthenticated) {
       clearSessionToken()
       return rejectWithValue('Oturum doğrulanamadı. Lütfen tekrar giriş yapın.') as never
+    }
+
+    if (!isElectronRuntime()) {
+      return rejectWithValue(response.error?.message ?? 'Login required') as never
     }
 
     try {
