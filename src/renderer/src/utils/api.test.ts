@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { ErrorCodes } from '@shared/contracts/error-codes'
-import { getMeWithAuthApi, loginWithAuthApi, setRefreshToken, invokeBridge } from './api'
+import { apiBaseUrl, getMeWithAuthApi, loginWithAuthApi, setRefreshToken, invokeBridge } from './api'
 
 function stubElectronRenderer(invoke: ReturnType<typeof vi.fn>) {
   const store = new Map<string, string>()
@@ -29,6 +29,36 @@ function stubElectronRenderer(invoke: ReturnType<typeof vi.fn>) {
 }
 
 describe('renderer API bridge', () => {
+  it('targets the same DNS host on the internal API port when opened from Vite dev server', () => {
+    vi.stubGlobal('window', {
+      location: {
+        protocol: 'http:',
+        hostname: 'mission-control.internal',
+        port: '5173',
+        origin: 'http://mission-control.internal:5173'
+      }
+    })
+
+    expect(apiBaseUrl()).toBe('http://mission-control.internal:3000')
+
+    vi.unstubAllGlobals()
+  })
+
+  it('uses the current origin when opened through the internal web server', () => {
+    vi.stubGlobal('window', {
+      location: {
+        protocol: 'http:',
+        hostname: 'mission-control.internal',
+        port: '19219',
+        origin: 'http://mission-control.internal:19219'
+      }
+    })
+
+    expect(apiBaseUrl()).toBe('http://mission-control.internal:19219')
+
+    vi.unstubAllGlobals()
+  })
+
   it('does not fall back to HTTP internal API for renderer health without IPC', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)

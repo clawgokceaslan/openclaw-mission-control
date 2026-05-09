@@ -114,14 +114,15 @@ function normalizePayload(payload?: unknown, requestId?: string): Record<string,
   }
 }
 
-function apiBaseUrl(): string {
+export function apiBaseUrl(): string {
   const envBase = (import.meta.env.VITE_OMC_API_BASE_URL as string | undefined)?.trim()
   if (envBase) return envBase.replace(/\/$/, '')
   if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
     const hostname = window.location.hostname
     const port = window.location.port
-    if ((hostname === 'localhost' || hostname === '127.0.0.1') && (port === '5173' || port === '5174')) {
-      return 'http://127.0.0.1:3000'
+    if (port === '5173' || port === '5174') {
+      const apiHost = hostname || 'localhost'
+      return `${window.location.protocol}//${apiHost}:3000`
     }
     return window.location.origin
   }

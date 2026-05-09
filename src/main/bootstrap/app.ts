@@ -471,7 +471,7 @@ export async function bootstrapApp(): Promise<void> {
     schedulerRef = scheduler
     const internalHttpServerConfig: InternalHttpServerConfig = {
       preferredPort: Number(process.env.OMC_WEB_PORT ?? (isDev ? 3000 : 19219)),
-      host: process.env.OMC_WEB_HOST ?? '127.0.0.1',
+      host: process.env.OMC_WEB_HOST ?? '0.0.0.0',
       staticRoot: resolveFromCandidates([
         join(process.cwd(), 'dist', 'renderer'),
         join(app.getAppPath(), 'dist', 'renderer'),

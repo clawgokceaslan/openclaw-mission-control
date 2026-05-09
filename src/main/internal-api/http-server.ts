@@ -33,7 +33,7 @@ export interface InternalHttpServerHandle {
 
 let webServerStatus: WebServerStatusState = {
   status: 'stopped',
-  host: '127.0.0.1',
+  host: '0.0.0.0',
   preferredPort: 0,
   actualPort: null,
   url: null,
@@ -127,6 +127,7 @@ function sendCorsHeaders(response: ServerResponse): void {
   response.setHeader('Access-Control-Allow-Origin', '*')
   response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
   response.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Request-Id,X-Correlation-Id')
+  response.setHeader('Access-Control-Allow-Private-Network', 'true')
 }
 
 function sendJson(response: ServerResponse, statusCode: number, value: unknown): void {
@@ -371,7 +372,7 @@ export async function startInternalHttpServer(context: AppContext, config: Inter
           return
         }
 
-        const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? `${config.host}:${port}`}`)
+        const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? `localhost:${port}`}`)
         if (request.method === 'GET' && requestUrl.pathname === '/api/health') {
           sendJson(response, 200, okResponse({ ok: true, port, routes: listInternalApiRoutes().length }))
           return
@@ -432,7 +433,12 @@ export async function startInternalHttpServer(context: AppContext, config: Inter
   return {
     server: selectedServer,
     port: selectedPort,
-    url: `http://${config.host}:${selectedPort}`,
+    url: createWebServerStatusState({
+      status: 'running',
+      host: config.host,
+      preferredPort: config.preferredPort,
+      actualPort: selectedPort
+    }).url ?? `http://localhost:${selectedPort}`,
     close: () => new Promise((resolve, reject) => selectedServer?.close((error) => {
       if (error) {
         reject(error)

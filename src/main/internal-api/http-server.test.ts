@@ -1,4 +1,5 @@
 import EventEmitter from 'node:events'
+import { request as httpRequest } from 'node:http'
 import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 import { createWebServerStatusState, getInternalHttpServerStatus, startInternalHttpServer } from './http-server.js'
@@ -30,6 +31,43 @@ function createContext() {
   } as any
 }
 
+function requestJson(options: {
+  port: number
+  path: string
+  method?: string
+  headers?: Record<string, string>
+  body?: unknown
+}): Promise<{ statusCode: number; headers: Record<string, string | string[] | undefined>; body: any }> {
+  return new Promise((resolve, reject) => {
+    const rawBody = options.body === undefined ? undefined : JSON.stringify(options.body)
+    const request = httpRequest({
+      hostname: '127.0.0.1',
+      port: options.port,
+      path: options.path,
+      method: options.method ?? 'GET',
+      headers: {
+        ...(rawBody ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(rawBody).toString() } : {}),
+        ...options.headers
+      }
+    }, (response) => {
+      const chunks: Buffer[] = []
+      response.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
+      response.on('error', reject)
+      response.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8')
+        resolve({
+          statusCode: response.statusCode ?? 0,
+          headers: response.headers,
+          body: text ? JSON.parse(text) : null
+        })
+      })
+    })
+    request.on('error', reject)
+    if (rawBody) request.write(rawBody)
+    request.end()
+  })
+}
+
 describe('startInternalHttpServer', () => {
   it('marks localhost-bound LAN addresses as not externally reachable', () => {
     const status = createWebServerStatusState({
@@ -55,6 +93,60 @@ describe('startInternalHttpServer', () => {
     expect(status.lanReachable).toBe(true)
     expect(status.url).toBe('http://127.0.0.1:3001')
     expect(status.localUrl).toBe('http://localhost:3001')
+  })
+
+  it('accepts public health requests on all interfaces with a custom Host and Origin', async () => {
+    const server = await startInternalHttpServer(createContext(), { preferredPort: 30180, host: '0.0.0.0' })
+    try {
+      const response = await requestJson({
+        port: server.port,
+        path: '/api/health',
+        headers: {
+          Host: `mission-control.internal:${server.port}`,
+          Origin: 'http://mission-control.internal'
+        }
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body.ok).toBe(true)
+      expect(response.body.data?.ok).toBe(true)
+      expect(response.headers['access-control-allow-origin']).toBe('*')
+      expect(response.headers['access-control-allow-private-network']).toBe('true')
+      expect(server.url).toBe(`http://127.0.0.1:${server.port}`)
+      expect(getInternalHttpServerStatus()).toMatchObject({
+        status: 'running',
+        host: '0.0.0.0',
+        actualPort: server.port,
+        localUrl: `http://localhost:${server.port}`,
+        url: `http://127.0.0.1:${server.port}`,
+        lanReachable: true
+      })
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('keeps protected routes authenticated while accepting custom Host and Origin', async () => {
+    const server = await startInternalHttpServer(createContext(), { preferredPort: 30200, host: '0.0.0.0' })
+    try {
+      const response = await requestJson({
+        port: server.port,
+        path: `/api/internal/${encodeURIComponent(IPC_CHANNELS.projects.list)}`,
+        method: 'POST',
+        headers: {
+          Host: `ops-dns.internal:${server.port}`,
+          Origin: 'http://ops-dns.internal'
+        },
+        body: { payload: {} }
+      })
+
+      expect(response.statusCode).toBe(401)
+      expect(response.body.ok).toBe(false)
+      expect(response.body.error?.code).toBe('ERR_UNAUTHENTICATED')
+      expect(response.headers['access-control-allow-origin']).toBe('*')
+    } finally {
+      await server.close()
+    }
   })
 
   it('serves protected internal API calls through the shared dispatcher', async () => {

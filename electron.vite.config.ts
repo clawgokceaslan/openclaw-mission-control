@@ -11,6 +11,14 @@ export default defineConfig({
   renderer: {
     root: 'src/renderer',
     plugins: [react()],
+    server: {
+      host: '0.0.0.0',
+      allowedHosts: true
+    },
+    preview: {
+      host: '0.0.0.0',
+      allowedHosts: true
+    },
     resolve: {
       alias: {
         '@renderer': resolve(__dirname, 'src/renderer/src'),
