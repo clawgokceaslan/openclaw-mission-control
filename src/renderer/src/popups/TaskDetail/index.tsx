@@ -619,6 +619,24 @@ function SubtaskDetailBody({ scope }: { scope: Record<string, any> }) {
   )
 }
 
+function TaskDetailLoadingState({ error }: { error?: string | null }) {
+  return (
+    <div className={styles.popupFallback}>
+      {error ? (
+        <>
+          <strong>Task detail could not be loaded.</strong>
+          <span>{error}</span>
+        </>
+      ) : (
+        <>
+          <strong>Task detail yukleniyor.</strong>
+          <span>Guncel task verisi API'den aliniyor.</span>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function TaskDetailPopup({
   taskId,
   children,
@@ -691,6 +709,8 @@ export function TaskDetailPopup({
     isPlanWithGatewayRunning,
     isStopGatewayBusy
   } : null
+  const taskDetailError = bodyScope?.taskDetailError
+  const isTaskDetailPending = Boolean(bodyScope?.isTaskDetailLoading || (bodyScope && !bodyScope.selectedTask))
 
   const actions = (
     <>
@@ -804,5 +824,5 @@ export function TaskDetailPopup({
     </>
   )
 
-  return <><div className={`${styles.backdrop} ${nested ? styles.nestedBackdrop : ''}`} onClick={onClose} /><section className={`${styles.shell} ${nested ? styles.nestedShell : ''}`} role="dialog" aria-modal="true" aria-label={title} onDragEnter={(event: DragEvent<HTMLElement>) => { if (!onFilesDrop || !Array.from(event.dataTransfer.types).includes('Files')) return; event.preventDefault(); dragDepthRef.current += 1; setIsDraggingFiles(true) }} onDragOver={(event) => { if (!onFilesDrop) return; event.preventDefault(); event.dataTransfer.dropEffect = 'copy' }} onDragLeave={(event) => { if (!onFilesDrop) return; event.preventDefault(); dragDepthRef.current = Math.max(0, dragDepthRef.current - 1); if (dragDepthRef.current === 0) setIsDraggingFiles(false) }} onDrop={(event) => { if (!onFilesDrop) return; event.preventDefault(); dragDepthRef.current = 0; setIsDraggingFiles(false); const files = Array.from(event.dataTransfer.files ?? []); if (files.length > 0) onFilesDrop(files) }}>{isDraggingFiles ? <div className={styles.dropOverlay}>Drop files here</div> : null}<header className={styles.header}><div className={styles.headerLeft}><span className={styles.headerTitle}>{title}</span></div><div className={styles.headerActions}>{actions}</div></header><TaskDetailPopupBoundary onClose={onClose}>{bodyScope ? bodyScope.variant === 'subtask' ? <SubtaskDetailBody scope={bodyScope} /> : <TaskDetailBody scope={bodyScope} /> : children}</TaskDetailPopupBoundary></section></>
+  return <><div className={`${styles.backdrop} ${nested ? styles.nestedBackdrop : ''}`} onClick={onClose} /><section className={`${styles.shell} ${nested ? styles.nestedShell : ''}`} role="dialog" aria-modal="true" aria-label={title} onDragEnter={(event: DragEvent<HTMLElement>) => { if (!onFilesDrop || !Array.from(event.dataTransfer.types).includes('Files')) return; event.preventDefault(); dragDepthRef.current += 1; setIsDraggingFiles(true) }} onDragOver={(event) => { if (!onFilesDrop) return; event.preventDefault(); event.dataTransfer.dropEffect = 'copy' }} onDragLeave={(event) => { if (!onFilesDrop) return; event.preventDefault(); dragDepthRef.current = Math.max(0, dragDepthRef.current - 1); if (dragDepthRef.current === 0) setIsDraggingFiles(false) }} onDrop={(event) => { if (!onFilesDrop) return; event.preventDefault(); dragDepthRef.current = 0; setIsDraggingFiles(false); const files = Array.from(event.dataTransfer.files ?? []); if (files.length > 0) onFilesDrop(files) }}>{isDraggingFiles ? <div className={styles.dropOverlay}>Drop files here</div> : null}<header className={styles.header}><div className={styles.headerLeft}><span className={styles.headerTitle}>{title}</span></div><div className={styles.headerActions}>{actions}</div></header><TaskDetailPopupBoundary onClose={onClose}>{bodyScope ? taskDetailError || isTaskDetailPending ? <TaskDetailLoadingState error={taskDetailError} /> : bodyScope.variant === 'subtask' ? <SubtaskDetailBody scope={bodyScope} /> : <TaskDetailBody scope={bodyScope} /> : children}</TaskDetailPopupBoundary></section></>
 }

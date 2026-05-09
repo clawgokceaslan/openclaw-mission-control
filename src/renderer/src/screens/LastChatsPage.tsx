@@ -1,4 +1,4 @@
-import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LuRefreshCw } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { DEFAULT_GATEWAY_LANGUAGE } from '@shared/utils/gateway-language'
@@ -6,7 +6,6 @@ import { gatewayChatLifecycleStatusKey, gatewayLifecycleStatusMeta } from '@shar
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { createSerializedAsyncRunner } from '@renderer/utils/serializedAsync'
-import { ChatPopup } from '@renderer/popups/ChatPopup'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { LoadingState } from '@renderer/components/loading'
 import {
@@ -88,6 +87,7 @@ const GROUPS: GroupConfig[] = [
 ]
 
 const EMPTY_SLASH_COMMANDS: SlashCommand[] = []
+const ChatPopup = lazy(() => import('@renderer/popups/ChatPopup').then((module) => ({ default: module.ChatPopup })))
 const RESOLUTION_OPTIONS: AppSelectOption[] = [
   { value: 'stopped', label: 'Stopped' },
   { value: 'completed', label: 'Completed' },
@@ -955,17 +955,19 @@ export function LastChatsPage() {
       ) : null}
 
       {chatState ? (
-        <ChatPopup
-          chatState={chatState}
-          chatHandlers={chatHandlers}
-          chatOptions={{
-            title: 'Chat',
-            subtitle: `${selectedProjectName} > Chats`,
-            sidebarTitle: 'Chat',
-            sidebarSubtitle: `${selectedProjectName} > Chats`,
-            showRunActions: false
-          }}
-        />
+        <Suspense fallback={null}>
+          <ChatPopup
+            chatState={chatState}
+            chatHandlers={chatHandlers}
+            chatOptions={{
+              title: 'Chat',
+              subtitle: `${selectedProjectName} > Chats`,
+              sidebarTitle: 'Chat',
+              sidebarSubtitle: `${selectedProjectName} > Chats`,
+              showRunActions: false
+            }}
+          />
+        </Suspense>
       ) : null}
     </section>
   )

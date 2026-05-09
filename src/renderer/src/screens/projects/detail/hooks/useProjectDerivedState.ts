@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import type { Project, TaskEntity, TaskSubtask, Tag, ProjectStatus } from '@shared/types/entities'
 import type { ChatConversationSummary, DetailTab, DetailViewMode, TaskActivityMessage } from '../types'
 import { columnsFromProjectStatuses } from '../status'
@@ -9,6 +9,7 @@ import { buildChatConversationSummaries, activityMessagesFromTask } from '../cha
 export interface ProjectDerivedStateInput {
   project: Project | null
   tasks: TaskEntity[]
+  selectedTaskOverride?: TaskEntity | null
   tags: Tag[]
   projectStatuses: ProjectStatus[]
   selectedTaskId: string | null
@@ -40,6 +41,7 @@ export interface ProjectDerivedState {
 export function useProjectDerivedState({
   project,
   tasks,
+  selectedTaskOverride = null,
   tags,
   projectStatuses,
   selectedTaskId,
@@ -54,13 +56,19 @@ export function useProjectDerivedState({
     return map
   }, [tags])
 
-  const hydratedTasks = useMemo(() => tasks.map((task) => ({
+  const hydrateTask = useCallback((task: TaskEntity) => ({
     ...task,
     tags: (task.tags ?? []).map((taskTag) => {
       const source = normalizedTags.get(taskTag.id)
       return source ? { ...taskTag, ...source } : taskTag
     })
-  })), [normalizedTags, tasks])
+  }), [normalizedTags])
+
+  const hydratedTasks = useMemo(() => tasks.map(hydrateTask), [hydrateTask, tasks])
+
+  const hydratedSelectedTaskOverride = useMemo(() => (
+    selectedTaskOverride ? hydrateTask(selectedTaskOverride) : null
+  ), [hydrateTask, selectedTaskOverride])
 
   const statusColumns = useMemo(
     () => columnsFromProjectStatuses(projectStatuses),
@@ -69,8 +77,9 @@ export function useProjectDerivedState({
 
   const selectedTask = useMemo(() => {
     if (!selectedTaskId) return null
+    if (hydratedSelectedTaskOverride?.id === selectedTaskId) return hydratedSelectedTaskOverride
     return hydratedTasks.find((item) => item.id === selectedTaskId) ?? null
-  }, [hydratedTasks, selectedTaskId])
+  }, [hydratedSelectedTaskOverride, hydratedTasks, selectedTaskId])
 
   const selectedSubtask = useMemo<TaskSubtask | null>(() => {
     if (!selectedTask || !selectedSubtaskId) return null

@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react'
+import { memo, useCallback, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type UIEvent } from 'react'
 import { Card } from 'react-bootstrap'
 import { LuCalendarPlus, LuChevronDown, LuMessageSquare, LuPlus, LuUserPlus } from 'react-icons/lu'
 import type { Agent, Tag, TaskEntity } from '@shared/types/entities'
@@ -7,6 +7,10 @@ import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/stat
 import { formatTaskDate } from '@renderer/screens/projects/detail/status'
 import { taskGatewayActiveTone, taskGatewayLatestSurfaceStatus, type TaskGatewaySurfaceStatus, type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
+
+const BOARD_INITIAL_VISIBLE_TASKS = 36
+const BOARD_VISIBLE_TASK_STEP = 36
+const BOARD_LOAD_MORE_THRESHOLD_PX = 220
 
 interface ProjectBoardViewProps {
   columns: ProjectStatusColumn[]
@@ -70,36 +74,54 @@ const BoardTaskCard = memo(function BoardTaskCard({
   const activeTone = taskGatewayActiveTone(task)
   const chatStatus = taskGatewayLatestSurfaceStatus(task)
 
-  const openSubtaskFromCard = (event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>, subtaskId: string) => {
+  const openSubtaskFromCard = useCallback((event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>, subtaskId: string) => {
     event.preventDefault()
     event.stopPropagation()
     onOpenSubtask(task.id, subtaskId)
-  }
+  }, [onOpenSubtask, task.id])
+
+  const handleDragStart = useCallback((event: DragEvent<HTMLElement>) => {
+    event.dataTransfer.setData('text/plain', task.id)
+  }, [task.id])
+
+  const handleDragOver = useCallback((event: DragEvent<HTMLElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = 'move'
+    onDropTargetChange({ taskId: task.id, position: eventDropPosition(event) })
+  }, [onDropTargetChange, task.id])
+
+  const handleDragLeave = useCallback(() => {
+    if (dropPosition) onDropTargetChange(null)
+  }, [dropPosition, onDropTargetChange])
+
+  const handleDrop = useCallback((event: DragEvent<HTMLElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const sourceTaskId = event.dataTransfer.getData('text/plain')
+    const position = eventDropPosition(event)
+    onDropTargetChange(null)
+    if (sourceTaskId && sourceTaskId !== task.id) onReorder(sourceTaskId, task.id, position)
+  }, [onDropTargetChange, onReorder, task.id])
+
+  const handleDragEnd = useCallback(() => onDropTargetChange(null), [onDropTargetChange])
+  const handleOpenTask = useCallback(() => onOpenTask(task.id), [onOpenTask, task.id])
+  const handleToggleSubtasks = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onExpandToggle(task.id)
+  }, [onExpandToggle, task.id])
 
   return (
     <Card
       className={`${styles.taskCard} ${activeTaskClass(activeTone)} ${dropPosition ? dropPosition === 'before' ? styles.taskCardDropBefore : styles.taskCardDropAfter : ''}`}
       draggable
-      onDragStart={(event) => event.dataTransfer.setData('text/plain', task.id)}
-      onDragOver={(event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        event.dataTransfer.dropEffect = 'move'
-        onDropTargetChange({ taskId: task.id, position: eventDropPosition(event) })
-      }}
-      onDragLeave={() => {
-        if (dropPosition) onDropTargetChange(null)
-      }}
-      onDrop={(event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        const sourceTaskId = event.dataTransfer.getData('text/plain')
-        const position = eventDropPosition(event)
-        onDropTargetChange(null)
-        if (sourceTaskId && sourceTaskId !== task.id) onReorder(sourceTaskId, task.id, position)
-      }}
-      onDragEnd={() => onDropTargetChange(null)}
-      onClick={() => onOpenTask(task.id)}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      onDragEnd={handleDragEnd}
+      onClick={handleOpenTask}
     >
       <Card.Body>
         <div className={styles.taskTop}>
@@ -120,11 +142,7 @@ const BoardTaskCard = memo(function BoardTaskCard({
             <button
               type="button"
               className={styles.subtaskToggleButton}
-              onClick={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-                onExpandToggle(task.id)
-              }}
+              onClick={handleToggleSubtasks}
               aria-expanded={expanded}
             >
               <LuChevronDown size={13} className={expanded ? styles.subtaskToggleOpen : styles.subtaskToggleClosed} />
@@ -166,6 +184,7 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
   const panRef = useRef({ active: false, startX: 0, scrollLeft: 0 })
   const [dropTarget, setDropTarget] = useState<{ taskId: string; position: TaskDropPosition } | null>(null)
   const [expandedSubtasks, setExpandedSubtasks] = useState<Record<string, boolean>>({})
+  const [visibleTaskLimits, setVisibleTaskLimits] = useState<Record<string, number>>({})
   const agentNameById = useMemo(() => new Map(agents.map((agent) => [agent.id, agent.name])), [agents])
 
   const toggleExpandedSubtasks = useCallback((taskId: string) => {
@@ -177,6 +196,23 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
       current?.taskId === target?.taskId && current?.position === target?.position ? current : target
     ))
   }, [])
+
+  const expandVisibleTasks = useCallback((status: TaskEntity['status'], total: number) => {
+    setVisibleTaskLimits((current) => {
+      const currentLimit = current[status] ?? BOARD_INITIAL_VISIBLE_TASKS
+      if (currentLimit >= total) return current
+      return {
+        ...current,
+        [status]: Math.min(total, currentLimit + BOARD_VISIBLE_TASK_STEP)
+      }
+    })
+  }, [])
+
+  const handleColumnScroll = useCallback((event: UIEvent<HTMLDivElement>, status: TaskEntity['status'], total: number) => {
+    const target = event.currentTarget
+    if (target.scrollHeight - target.scrollTop - target.clientHeight > BOARD_LOAD_MORE_THRESHOLD_PX) return
+    expandVisibleTasks(status, total)
+  }, [expandVisibleTasks])
 
   const canStartPan = (event: PointerEvent<HTMLElement>) => {
     const target = event.target as HTMLElement
@@ -208,6 +244,9 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
     >
       {columns.map((column) => {
         const rows = tasksByStatus[column.status] ?? []
+        const visibleLimit = Math.min(rows.length, visibleTaskLimits[column.status] ?? BOARD_INITIAL_VISIBLE_TASKS)
+        const visibleRows = rows.slice(0, visibleLimit)
+        const hiddenCount = rows.length - visibleRows.length
         return (
           <article
             key={column.key}
@@ -239,8 +278,8 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
                 <span className={styles.reviewBadge}>Blocked · 0</span>
               </div>
             ) : null}
-            <div className={styles.columnBody}>
-              {rows.map((task) => (
+            <div className={styles.columnBody} onScroll={(event) => handleColumnScroll(event, column.status, rows.length)}>
+              {visibleRows.map((task) => (
                 <BoardTaskCard
                   key={task.id}
                   task={task}
@@ -254,6 +293,15 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
                   onOpenSubtask={onOpenSubtask}
                 />
               ))}
+              {hiddenCount > 0 ? (
+                <button
+                  type="button"
+                  className={styles.columnLoadMore}
+                  onClick={() => expandVisibleTasks(column.status, rows.length)}
+                >
+                  {hiddenCount} more task{hiddenCount === 1 ? '' : 's'}
+                </button>
+              ) : null}
             </div>
             <div className={styles.projectAddRow}>
               <button type="button" onClick={() => onOpenCreateTask(column.status)}>

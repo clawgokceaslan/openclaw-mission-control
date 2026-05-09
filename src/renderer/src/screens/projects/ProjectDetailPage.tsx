@@ -8,7 +8,7 @@ import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS, type AppNavigateState } from '@shared/contracts/ipc'
 import { GATEWAY_REASONING_EFFORT_OPTIONS, DEFAULT_GATEWAY_LANGUAGE, gatewayModelReasoningEfforts, gatewayModelSupportsReasoning } from '@shared/utils/gateway-language'
 import { gatewayChatLifecycleStatusKey, gatewayChatPhaseActionLabel, gatewayLifecycleStatusMeta, inferGatewayChatPhase, type GatewayChatPhase } from '@shared/utils/gateway-chat-phase'
-import { invokeBridge } from '@renderer/utils/api'
+import { invokeBridge, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { clearRendererDiagnosticContext, setRendererDiagnosticContext } from '@renderer/utils/rendererResilience'
 import { Agent, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, CustomField } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
@@ -37,7 +37,7 @@ import {
   buildGeneratedContextEntries,
   buildLatestGeneratedFollowUpContext,
   formatChatTime,
-  userMessageCount
+  appendActivityMessageToTasks
 } from './detail/chat/chatUtils'
 import {
   codexConfigOf,
@@ -52,6 +52,7 @@ import {
   reorderTasksForDrop,
   taskGatewayId,
   taskGatewayRunModel,
+  withTaskMeta,
   type TaskDropPosition
 } from './detail/projectDetailUtils'
 import {
@@ -114,6 +115,49 @@ function projectRecentChatPreview(value: string, max = 118): string {
   const normalized = value.trim().replace(/\s+/g, ' ')
   if (!normalized) return 'Mesaj yok'
   return normalized.length <= max ? normalized : `${normalized.slice(0, max - 1)}…`
+}
+
+function buildProjectRecentChats(tasks: TaskEntity[], limit = 10): ProjectRecentChatRow[] {
+  const rows: ProjectRecentChatRow[] = []
+  for (const task of tasks) {
+    const grouped = new Map<string, {
+      last: TaskActivityMessage
+      phaseMessage: TaskActivityMessage
+      count: number
+    }>()
+
+    for (const message of activityMessagesFromTask(task)) {
+      const conversationId = message.conversationId || message.runId
+      if (!conversationId) continue
+      const current = grouped.get(conversationId)
+      const createdAt = message.createdAt ?? 0
+      const currentLastAt = current?.last ? current.last.createdAt ?? 0 : -1
+      const phase = inferGatewayChatPhase(message)
+      const shouldReplacePhase = !current || (inferGatewayChatPhase(current.phaseMessage) === 'FOLLOW UP' && phase !== 'FOLLOW UP')
+      grouped.set(conversationId, {
+        last: !current || createdAt >= currentLastAt ? message : current.last,
+        phaseMessage: current && !shouldReplacePhase ? current.phaseMessage : message,
+        count: (current?.count ?? 0) + (message.role === 'user' ? 1 : 0)
+      })
+    }
+
+    grouped.forEach((conversation, conversationId) => {
+      const last = conversation.last
+      rows.push({
+        id: `${task.id}:${conversationId}`,
+        taskId: task.id,
+        taskTitle: task.title,
+        conversationId,
+        phase: inferGatewayChatPhase(conversation.phaseMessage),
+        status: last.status ?? 'event',
+        at: last.updatedAt ?? last.createdAt,
+        count: conversation.count,
+        model: typeof last.metadata?.model === 'string' ? last.metadata.model : undefined,
+        preview: projectRecentChatPreview(last.body)
+      })
+    })
+  }
+  return rows.sort((a, b) => b.at - a.at).slice(0, limit)
 }
 
 function resizeTitleTextarea(element: HTMLTextAreaElement | null) {
@@ -444,6 +488,10 @@ export function ProjectDetailPage() {
   const [pendingChatOpen, setPendingChatOpen] = useState<{ taskId: string; conversationId: string } | null>(null)
   const [defaultAgentId, setDefaultAgentId] = useState<string>('')
   const [gatewayLanguage, setGatewayLanguage] = useState<string>(DEFAULT_GATEWAY_LANGUAGE)
+  const [selectedTaskDetail, setSelectedTaskDetail] = useState<TaskEntity | null>(null)
+  const [selectedTaskDetailLoading, setSelectedTaskDetailLoading] = useState(false)
+  const [selectedTaskDetailError, setSelectedTaskDetailError] = useState<string | null>(null)
+  const selectedTaskDetailRequestIdRef = useRef(0)
   const {
     refresh,
     projectLoadError
@@ -452,6 +500,68 @@ export function ProjectDetailPage() {
     projectId,
     state: projectDetailState
   })
+
+  const refreshSelectedTaskDetail = useCallback(async (
+    taskId = selectedTaskId,
+    options: { silent?: boolean } = {}
+  ) => {
+    if (!taskId) {
+      selectedTaskDetailRequestIdRef.current += 1
+      setSelectedTaskDetail(null)
+      setSelectedTaskDetailLoading(false)
+      setSelectedTaskDetailError(null)
+      return
+    }
+
+    const requestId = ++selectedTaskDetailRequestIdRef.current
+    if (!options.silent) {
+      setSelectedTaskDetail(null)
+      setSelectedTaskDetailLoading(true)
+    }
+    setSelectedTaskDetailError(null)
+
+    try {
+      const response = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.get, { actorToken: token, id: taskId })
+      if (selectedTaskDetailRequestIdRef.current !== requestId) return
+      if (!response.ok || !response.data) {
+        setSelectedTaskDetail(null)
+        setSelectedTaskDetailError(response.error?.message ?? 'Task detail could not be loaded.')
+        return
+      }
+      setSelectedTaskDetail(withTaskMeta(response.data))
+    } catch (error) {
+      if (selectedTaskDetailRequestIdRef.current !== requestId) return
+      setSelectedTaskDetail(null)
+      setSelectedTaskDetailError(error instanceof Error ? error.message : 'Task detail could not be loaded.')
+    } finally {
+      if (selectedTaskDetailRequestIdRef.current === requestId) setSelectedTaskDetailLoading(false)
+    }
+  }, [selectedTaskId, token])
+
+  const refreshProjectAndSelectedTask = useCallback(async () => {
+    await Promise.all([
+      refresh(),
+      refreshSelectedTaskDetail(selectedTaskId, { silent: true })
+    ])
+  }, [refresh, refreshSelectedTaskDetail, selectedTaskId])
+
+  useEffect(() => {
+    void refreshSelectedTaskDetail(selectedTaskId)
+  }, [refreshSelectedTaskDetail, selectedTaskId])
+
+  useEffect(() => {
+    const onTaskActivity = (...args: unknown[]) => {
+      const payload = (args[1] ?? args[0]) as { projectId?: string; taskId?: string; message?: TaskActivityMessage } | undefined
+      if (!payload?.projectId || payload.projectId !== projectId || !payload.taskId || !payload.message) return
+      setSelectedTaskDetail((current) => {
+        if (!current || current.id !== payload.taskId) return current
+        return appendActivityMessageToTasks([current], payload.taskId ?? '', payload.message as TaskActivityMessage)[0] ?? current
+      })
+    }
+
+    subscribeToChannel(IPC_CHANNELS.events.taskActivity, onTaskActivity)
+    return () => unsubscribeFromChannel(IPC_CHANNELS.events.taskActivity, onTaskActivity)
+  }, [projectId])
 
   const { openTask, clearSelection } = useProjectSelection({
     state: {
@@ -586,6 +696,7 @@ export function ProjectDetailPage() {
   } = useProjectDerivedState({
     project,
     tasks,
+    selectedTaskOverride: selectedTaskDetail,
     tags,
     projectStatuses,
     selectedTaskId,
@@ -750,6 +861,17 @@ export function ProjectDetailPage() {
   }
 
   useEffect(() => {
+    return () => {
+      clearDescriptionAutosaveTimer()
+      clearSubtaskDescriptionAutosaveTimer()
+      if (subtaskClickTimerRef.current) {
+        window.clearTimeout(subtaskClickTimerRef.current)
+        subtaskClickTimerRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
     if (isChatPopupOpen) return
     setChatDragDepth((value) => value === 0 ? value : 0)
     setSlashCommandIndex((value) => value === 0 ? value : 0)
@@ -876,7 +998,7 @@ export function ProjectDetailPage() {
           inputFormatId: '',
           outputFormatId: ''
         }
-      }).then(() => refresh())
+      }).then(() => refreshProjectAndSelectedTask())
     }
   }, [selectedTask?.id])
 
@@ -934,7 +1056,7 @@ export function ProjectDetailPage() {
           inputFormatId: '',
           outputFormatId: ''
         }
-      }).then(() => refresh())
+      }).then(() => refreshProjectAndSelectedTask())
     }
   }, [selectedSubtask?.id])
 
@@ -1246,41 +1368,7 @@ export function ProjectDetailPage() {
 
   const chatConversations = derivedChatConversations
   const projectRecentChats = useMemo<ProjectRecentChatRow[]>(() => {
-    const rows: ProjectRecentChatRow[] = []
-    for (const task of tasks) {
-      const messages = activityMessagesFromTask(task)
-      if (messages.length === 0) continue
-      const grouped = new Map<string, TaskActivityMessage[]>()
-      for (const message of messages) {
-        const conversationId = message.conversationId || message.runId
-        if (!conversationId) continue
-        const bucket = grouped.get(conversationId)
-        if (bucket) {
-          bucket.push(message)
-        } else {
-          grouped.set(conversationId, [message])
-        }
-      }
-      grouped.forEach((conversationMessages, conversationId) => {
-        const ordered = [...conversationMessages].sort((a, b) => a.createdAt - b.createdAt)
-        const last = ordered[ordered.length - 1]
-        if (!last) return
-        const phaseMessage = ordered.find((message) => inferGatewayChatPhase(message) !== 'FOLLOW UP') ?? last
-        rows.push({
-          id: `${task.id}:${conversationId}`,
-          taskId: task.id,
-          taskTitle: task.title,
-          conversationId,
-          phase: inferGatewayChatPhase(phaseMessage),
-          status: last.status ?? 'event',
-          at: last.updatedAt ?? last.createdAt,
-          count: userMessageCount(ordered),
-          model: typeof last.metadata?.model === 'string' ? last.metadata.model : undefined,
-          preview: projectRecentChatPreview(last.body)
-        })
-      })
-    }
-    return rows.sort((a, b) => b.at - a.at).slice(0, 10)
+    return buildProjectRecentChats(tasks)
   }, [tasks])
   const taskContextSkills = selectedTaskSkills
 
@@ -1501,7 +1589,7 @@ export function ProjectDetailPage() {
     const failed = responses.find((response) => !response.ok)
     if (failed) {
       setError(failed.error?.message ?? 'Unable to save task order')
-      await refresh()
+      await refreshProjectAndSelectedTask()
     }
   }
 
@@ -1536,7 +1624,7 @@ export function ProjectDetailPage() {
       return
     }
     setTaskTitle('')
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const openCreateTask = (status: TaskEntity['status'] = defaultStatus) => {
@@ -1591,7 +1679,7 @@ export function ProjectDetailPage() {
       setIsCreateTaskOpen(false)
       setCreateTaskInitialTitle('')
       setCreateTaskInitialTemplateId(null)
-      await refresh()
+      await refreshProjectAndSelectedTask()
       openTask(result.task.id)
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Task create failed')
@@ -1629,10 +1717,10 @@ export function ProjectDetailPage() {
     })
     if (!response.ok) {
       setError(response.error?.message ?? 'Unable to update task status')
-      await refresh()
+      await refreshProjectAndSelectedTask()
       return
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const openStatusEditor = () => {
@@ -1818,7 +1906,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update acceptance criteria')
       return
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const saveTaskAttachments = async (attachments: TaskAttachment[]) => {
@@ -1835,7 +1923,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update attachments')
       return
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const uploadTaskAttachments = async (files: File[]) => {
@@ -1868,7 +1956,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update subtask attachments')
       return
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const saveSubtaskAttachments = async (attachments: TaskAttachment[]) => {
@@ -1916,7 +2004,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to remove subtask attachment')
       return
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const removeTaskAttachment = async (row: AttachmentRow) => {
@@ -1946,7 +2034,7 @@ export function ProjectDetailPage() {
         setError(response.error?.message ?? 'Unable to remove subtask attachment')
         return
       }
-      await refresh()
+      await refreshProjectAndSelectedTask()
       return
     }
     if (row.origin === 'stored') {
@@ -1967,7 +2055,7 @@ export function ProjectDetailPage() {
       return
     }
     setIsDescriptionEditing(false)
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const setTaskTags = async (nextTagIds: string[]) => {
@@ -1981,7 +2069,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update task tags')
       return
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const setTaskSkills = async (nextSkillIds: string[]) => {
@@ -1995,7 +2083,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update task skills')
       return
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const setTaskAgent = async (agentId: string | null) => {
@@ -2009,7 +2097,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update task agent')
       return
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const setTaskGatewaySelection = async (patch: { gatewayId?: string | null; model?: string | null; planModel?: string | null; runModel?: string | null; planReasoningEffort?: string | null; runReasoningEffort?: string | null }) => {
@@ -2055,7 +2143,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update task model')
       return
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const setSubtaskAgent = async (agentId: string | null) => {
@@ -2075,7 +2163,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update subtask agent')
       return
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const setSubtaskSkills = async (nextSkillIds: string[]) => {
@@ -2092,7 +2180,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update subtask skills')
       return
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const setSubtaskTags = async (nextTagIds: string[]) => {
@@ -2109,7 +2197,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update subtask tags')
       return
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const setTaskDataFormat = async (role: DataFormatRole, formatId: string | null) => {
@@ -2127,7 +2215,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update task data format')
       return false
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
     return true
   }
 
@@ -2206,7 +2294,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update subtask data format')
       return false
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
     return true
   }
 
@@ -2272,7 +2360,7 @@ export function ProjectDetailPage() {
     setSelectedCustomFieldOption(null)
     setCustomFieldDraft('')
     setIsCustomFieldModalOpen(false)
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const openCustomFieldModal = () => {
@@ -2355,7 +2443,7 @@ export function ProjectDetailPage() {
     setCustomFieldError(null)
     setIsCustomFieldModalOpen(false)
     setCustomFieldRows([{ id: createLocalId(), field: null, value: '' }])
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const removeCustomFieldValue = async (fieldId: string) => {
@@ -2383,7 +2471,7 @@ export function ProjectDetailPage() {
       setCustomFieldError(response.error?.message ?? 'Unable to remove custom field')
       return
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const createTagAndAttach = async (inputValue: string) => {
@@ -2450,7 +2538,7 @@ export function ProjectDetailPage() {
       }
     }
     setIsAddSubtaskOpen(false)
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const createSubtasks = async (inputs: Array<{
@@ -2477,7 +2565,7 @@ export function ProjectDetailPage() {
     }
     setIsAddSubtaskOpen(false)
     setSubtaskRows([{ id: createLocalId(), title: '' }])
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const importSelectedTaskJson = async (jsonText: string) => {
@@ -2495,7 +2583,7 @@ export function ProjectDetailPage() {
     }
     setIsTaskImportOpen(false)
     if (response.data.warnings.length > 0) setError(response.data.warnings.join(' '))
-    await refresh()
+    await refreshProjectAndSelectedTask()
     navigateToTaskDetail(response.data.task.id, { replace: true })
     setDetailViewMode('task')
     setSelectedSubtaskId(null)
@@ -2512,7 +2600,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update checklist')
       return
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const saveSubtaskChecklistItems = async (items: TaskChecklistItem[]) => {
@@ -2529,7 +2617,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update subtask checklist')
       return
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const addChecklistItem = async () => {
@@ -2629,7 +2717,7 @@ export function ProjectDetailPage() {
       return
     }
     setIsTitleEditing(false)
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const saveSubtaskTitle = async () => {
@@ -2658,7 +2746,7 @@ export function ProjectDetailPage() {
     }
     setEditingSubtaskId(null)
     setSubtaskDraft('')
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const saveSubtaskDetail = async (options: { finalize?: boolean } = {}) => {
@@ -2803,7 +2891,7 @@ export function ProjectDetailPage() {
     }
     setSelectedSubtaskIds((prev) => prev.filter((item) => item !== subtaskId))
     if (refreshAfter) {
-      await refresh()
+      await refreshProjectAndSelectedTask()
     }
     return true
   }
@@ -2819,7 +2907,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? 'Unable to update subtask status')
       return
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const removeSelectedSubtasks = async () => {
@@ -2830,7 +2918,7 @@ export function ProjectDetailPage() {
       if (!ok) return
     }
     setSelectedSubtaskIds([])
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const submitComment = async () => {
@@ -2861,7 +2949,7 @@ export function ProjectDetailPage() {
       ]))
       setCommentDraft('')
       setEditingCommentId(null)
-      await refresh()
+      await refreshProjectAndSelectedTask()
       return
     }
 
@@ -2888,7 +2976,7 @@ export function ProjectDetailPage() {
       }
     ]))
     setCommentDraft('')
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const startEditComment = (comment: TaskComment) => {
@@ -2928,7 +3016,7 @@ export function ProjectDetailPage() {
       setEditingCommentId(null)
       setCommentDraft('')
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const updateSubtaskComments = async (nextComments: TaskComment[], errorMessage: string) => {
@@ -2945,7 +3033,7 @@ export function ProjectDetailPage() {
       setError(response.error?.message ?? errorMessage)
       return false
     }
-    await refresh()
+    await refreshProjectAndSelectedTask()
     return true
   }
 
@@ -3011,7 +3099,7 @@ export function ProjectDetailPage() {
     clearSelection()
     setSelectedSubtaskId(null)
     setDetailViewMode('task')
-    await refresh()
+    await refreshProjectAndSelectedTask()
   }
 
   const renderDataFormatPanel = () => {
@@ -3384,13 +3472,14 @@ export function ProjectDetailPage() {
         </Suspense>
       ) : null}
 
-      {selectedTask && !isChatPopupOpen ? (
+      {selectedTaskId && !isChatPopupOpen ? (
         <Suspense fallback={<ProjectDetailLazyFallback />}>
           <TaskDetailPopup
-            taskId={selectedTask.id}
+            taskId={selectedTaskId}
             onClose={closeSelectedTaskDetail}
             onOpenChat={() => setIsChatPopupOpen(true)}
             onEditTitle={() => {
+              if (!selectedTask) return
               setDetailViewMode('task')
               setSelectedSubtaskId(null)
               setTitleDraft(selectedTask.title)
@@ -3408,7 +3497,7 @@ export function ProjectDetailPage() {
               if (selectedTaskExportContext) downloadTextFile('Task.json', buildTaskJson(selectedTaskExportContext), 'application/json;charset=utf-8')
             }}
             onExportTaskJson={() => {
-              if (selectedTaskExportContext) downloadTextFile(`${selectedTask.title || 'Task'}.json`, buildTaskImportJson(selectedTaskExportContext), 'application/json;charset=utf-8')
+              if (selectedTaskExportContext) downloadTextFile(`${selectedTask?.title || 'Task'}.json`, buildTaskImportJson(selectedTaskExportContext), 'application/json;charset=utf-8')
             }}
             onDownloadTaskToon={() => {
               if (selectedTaskExportContext) downloadTextFile('Task.toon', buildTaskToon(selectedTaskExportContext), 'text/plain;charset=utf-8')
@@ -3428,6 +3517,8 @@ export function ProjectDetailPage() {
             isStopGatewayBusy={chatStopping}
             onImportJson={() => setIsTaskImportOpen(true)}
             scope={{
+              isTaskDetailLoading: selectedTaskDetailLoading,
+              taskDetailError: selectedTaskDetailError,
               project,
               selectedTask,
               detailTab,

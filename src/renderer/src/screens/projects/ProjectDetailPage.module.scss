@@ -748,6 +748,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  contain: layout paint style;
 
   @media (width <= 900px) {
     scroll-snap-align: start;
@@ -833,10 +834,28 @@
   align-content: start;
   overflow-y: auto;
   scrollbar-width: thin;
+  overscroll-behavior: contain;
 
   @media (width <= 560px) {
     padding: 6px;
     gap: 6px;
+  }
+}
+
+.columnLoadMore {
+  width: 100%;
+  min-height: 34px;
+  border: 1px dashed color-mix(in srgb, var(--column-accent) 28%, var(--omc-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--column-accent) 8%, var(--omc-surface));
+  color: var(--omc-text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+
+  &:hover {
+    border-style: solid;
+    color: var(--omc-text-strong);
+    background: var(--omc-hover-bg);
   }
 }
 
@@ -881,6 +900,9 @@
 .taskCard {
   position: relative;
   overflow: visible;
+  contain: layout paint style;
+  content-visibility: auto;
+  contain-intrinsic-size: 156px;
   border: 1px solid color-mix(in srgb, var(--column-accent) 16%, var(--omc-border-subtle)) !important;
   border-radius: 8px !important;
   background: color-mix(in srgb, var(--omc-surface) 86%, transparent) !important;
@@ -906,6 +928,7 @@
   --task-active-glow-radius: 8px;
   border-color: color-mix(in srgb, var(--task-active-accent) 58%, var(--omc-border-strong)) !important;
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--task-active-accent) 12%, transparent) !important;
+  will-change: box-shadow;
 
   &::before {
     content: '';
@@ -914,9 +937,7 @@
     border-radius: inherit;
     pointer-events: none;
     border: 1px solid color-mix(in srgb, var(--task-active-accent) 72%, transparent);
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--task-active-accent) 12%, transparent),
-      0 0 18px color-mix(in srgb, var(--task-active-accent) 18%, transparent);
+    opacity: 0.8;
     animation: taskBorderActivePulse 1.8s ease-in-out infinite;
   }
 
@@ -940,10 +961,23 @@
         transparent 82%
       );
     filter: blur(0.3px);
-    box-shadow:
-      0 0 11px color-mix(in srgb, var(--task-active-accent) 46%, transparent),
-      0 0 18px color-mix(in srgb, var(--task-active-accent) 22%, transparent);
+    will-change: transform;
     animation: taskBorderLightOrbit 2.8s linear infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .taskCardActive {
+    will-change: auto;
+
+    &::before,
+    &::after {
+      animation: none;
+    }
+
+    &::after {
+      display: none;
+    }
   }
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { Agent, OutputFormat, Project, ProjectStatus, Tag, TaskTemplate } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
@@ -7,7 +7,8 @@ import { CreateTaskPopup } from '@renderer/popups/CreateTask'
 import { createTaskWithTemplate, type CreateTaskInput } from '@renderer/screens/projects/detail/createTaskWithTemplate'
 import { PROJECT_STATUS_COLUMNS, columnsFromProjectStatuses } from '@renderer/screens/projects/detail/status'
 import type { GlobalTaskCreateInitial } from './UniversalCommand'
-import { GlobalTaskDetailModal } from './GlobalTaskDetailModal'
+
+const GlobalTaskDetailModal = lazy(() => import('./GlobalTaskDetailModal').then((module) => ({ default: module.GlobalTaskDetailModal })))
 
 interface GlobalCreateTaskModalProps {
   open: boolean
@@ -167,11 +168,15 @@ export function GlobalCreateTaskModal({ open, initial, onClose }: GlobalCreateTa
         onProjectChange={handleProjectChange}
         onCreate={(input) => void handleCreate(input)}
       />
-      <GlobalTaskDetailModal
-        taskId={createdDetail?.taskId ?? null}
-        projectId={createdDetail?.projectId ?? null}
-        onClose={() => setCreatedDetail(null)}
-      />
+      {createdDetail ? (
+        <Suspense fallback={null}>
+          <GlobalTaskDetailModal
+            taskId={createdDetail.taskId}
+            projectId={createdDetail.projectId}
+            onClose={() => setCreatedDetail(null)}
+          />
+        </Suspense>
+      ) : null}
     </>
   )
 }

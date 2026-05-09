@@ -1,11 +1,9 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { Suspense, createContext, lazy, useCallback, useContext, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS, type RunningGatewayConversationType } from '@shared/contracts/ipc'
 import type { CustomField, Gateway, Project, ProjectStatus, Skill, Tag, TaskEntity, Workspace, Agent } from '@shared/types/entities'
 import { DEFAULT_GATEWAY_LANGUAGE } from '@shared/utils/gateway-language'
-import { ChatPopup } from '@renderer/popups/ChatPopup'
-import { GlobalTaskDetailModal } from '@renderer/components/navigation/GlobalTaskDetailModal'
 import { useConfirmation } from '@renderer/components/confirmation'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
@@ -46,6 +44,8 @@ type GatewayRunResponse = {
 }
 
 const GlobalGatewayChatContext = createContext<GlobalGatewayChatContextValue | null>(null)
+const ChatPopup = lazy(() => import('@renderer/popups/ChatPopup').then((module) => ({ default: module.ChatPopup })))
+const GlobalTaskDetailModal = lazy(() => import('@renderer/components/navigation/GlobalTaskDetailModal').then((module) => ({ default: module.GlobalTaskDetailModal })))
 
 export function useGlobalGatewayChat(): GlobalGatewayChatContextValue {
   const value = useContext(GlobalGatewayChatContext)
@@ -407,23 +407,27 @@ export function GlobalGatewayChatProvider({ children }: { children: ReactNode })
     <GlobalGatewayChatContext.Provider value={value}>
       {children}
       {popupOpen && task ? (
-        <ChatPopup
-          chatState={chatState}
-          chatHandlers={chatHandlers}
-          chatOptions={{ title: 'Codex run', sidebarTitle: 'Global chat', showRunActions: false }}
-        />
+        <Suspense fallback={null}>
+          <ChatPopup
+            chatState={chatState}
+            chatHandlers={chatHandlers}
+            chatOptions={{ title: 'Codex run', sidebarTitle: 'Global chat', showRunActions: false }}
+          />
+        </Suspense>
       ) : null}
       {!popupOpen && taskDetailTarget ? (
-        <GlobalTaskDetailModal
-          taskId={taskDetailTarget.taskId}
-          projectId={taskDetailTarget.projectId}
-          onClose={() => {
-            setTaskDetailTarget(null)
-            setTask(null)
-            setProject(null)
-            setSelectedConversationId('')
-          }}
-        />
+        <Suspense fallback={null}>
+          <GlobalTaskDetailModal
+            taskId={taskDetailTarget.taskId}
+            projectId={taskDetailTarget.projectId}
+            onClose={() => {
+              setTaskDetailTarget(null)
+              setTask(null)
+              setProject(null)
+              setSelectedConversationId('')
+            }}
+          />
+        </Suspense>
       ) : null}
     </GlobalGatewayChatContext.Provider>
   )
