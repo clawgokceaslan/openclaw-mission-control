@@ -6,6 +6,7 @@ export const APP_ROUTES = {
   DASHBOARD_DETAIL: '/dashboard/detail',
   PROJECTS: '/projects',
   PLAN_PIPELINE: '/plan-pipeline',
+  PLAN_PIPELINE_RUNS: '/plan-pipeline/runs',
   PROJECTS_NEW: '/projects/new',
   PROJECT_DETAIL: '/projects/:projectId',
   PROJECT_TASK_DETAIL: '/projects/:projectId/tasks/:taskId',

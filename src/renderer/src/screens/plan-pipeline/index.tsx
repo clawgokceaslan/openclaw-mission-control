@@ -1,10 +1,12 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   LuArrowDown,
   LuArrowUp,
   LuCheck,
   LuChevronRight,
   LuCirclePause,
+  LuExternalLink,
   LuGripVertical,
   LuListRestart,
   LuLoader,
@@ -17,6 +19,7 @@ import {
   LuTriangleAlert,
   LuX
 } from 'react-icons/lu'
+import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { PlanPipelineRecord, Project, ProjectStatus, TaskEntity } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
@@ -158,6 +161,7 @@ function statusTone(status: QueueStatus | RunItemStatus) {
 
 export function PlanPipelinePage() {
   const { token, user } = useAuth()
+  const navigate = useNavigate()
   const [activeStep, setActiveStep] = useState<StepKey>('basic')
   const [projects, setProjects] = useState<Project[]>([])
   const [tasks, setTasks] = useState<TaskEntity[]>([])
@@ -170,11 +174,13 @@ export function PlanPipelinePage() {
   const [taskQuery, setTaskQuery] = useState('')
   const [groupQuery, setGroupQuery] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
+  const [detailModalGroupId, setDetailModalGroupId] = useState<string | null>(null)
   const [groupName, setGroupName] = useState('')
   const [groupDescription, setGroupDescription] = useState('')
   const [saveFeedback, setSaveFeedback] = useState<{ kind: 'success' | 'error'; message: string } | null>(null)
   const [saving, setSaving] = useState(false)
   const [dragData, setDragData] = useState<string | null>(null)
+  const [startingGroupIds, setStartingGroupIds] = useState<Set<string>>(() => new Set())
   const [selectedDetailGroupId, setSelectedDetailGroupId] = useState<string | null>(draft.currentGroupId ?? null)
   const modalCloseRef = useRef<HTMLButtonElement | null>(null)
 
@@ -230,14 +236,15 @@ export function PlanPipelinePage() {
   }, [draft])
 
   useEffect(() => {
-    if (!modalOpen) return undefined
+    if (!modalOpen && !detailModalGroupId) return undefined
     window.setTimeout(() => modalCloseRef.current?.focus(), 0)
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setModalOpen(false)
+      if (event.key === 'Escape') setDetailModalGroupId(null)
     }
     window.addEventListener('keydown', closeOnEscape)
     return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [modalOpen])
+  }, [modalOpen, detailModalGroupId])
 
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects])
   const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])
@@ -479,6 +486,38 @@ export function PlanPipelinePage() {
     }))
   }
 
+  const startGroup = async (groupId: string) => {
+    const savedPipeline = savedPipelines.find((pipeline) => pipeline.id === groupId)
+    const draftGroup = draft.groups.find((group) => group.id === groupId)
+    const currentStatus = savedPipeline?.status ?? draftGroup?.status
+    if (currentStatus !== 'pending' && currentStatus !== 'waiting') return
+
+    setStartingGroupIds((current) => new Set(current).add(groupId))
+    if (savedPipeline) {
+      const updated = await updateSavedPipelineState(groupId, {
+        status: 'running',
+        progress: savedPipeline.progress
+      })
+      if (updated) {
+        setSelectedDetailGroupId(groupId)
+      }
+    } else {
+      updateDraft((current) => ({
+        ...current,
+        queueStatus: 'running',
+        currentGroupId: groupId,
+        waitingApprovalGroupId: undefined,
+        groups: current.groups.map((group) => group.id === groupId ? { ...group, status: 'running' } : group)
+      }))
+      setSelectedDetailGroupId(groupId)
+    }
+    setStartingGroupIds((current) => {
+      const next = new Set(current)
+      next.delete(groupId)
+      return next
+    })
+  }
+
   const approveGroup = (groupId: string) => {
     updateDraft((current) => ({
       ...current,
@@ -539,7 +578,7 @@ export function PlanPipelinePage() {
         status: savedPipeline.runMode === 'questioned' ? 'waiting' : 'running',
         progress: 0,
         retryCount: savedPipeline.retryCount + 1,
-        lastError: null
+        lastError: undefined
       })
       return
     }
@@ -569,9 +608,10 @@ export function PlanPipelinePage() {
     })
     if (!response.ok || !response.data) {
       setSaveFeedback({ kind: 'error', message: response.error?.message ?? 'Pipeline durumu güncellenemedi' })
-      return
+      return null
     }
     setSavedPipelines((current) => current.map((pipeline) => pipeline.id === id ? response.data! : pipeline))
+    return response.data
   }
 
   const savePipeline = async () => {
@@ -711,6 +751,7 @@ export function PlanPipelinePage() {
   const startedRows = dashboardGroups.filter((group) => ['running', 'completed', 'failed', 'skipped'].includes(group.status))
   const waitingRows = dashboardGroups.filter((group) => group.status === 'pending' || group.status === 'waiting')
   const detailGroup = dashboardGroups.find((group) => group.id === selectedDetailGroupId) ?? currentGroup ?? dashboardGroups[0] ?? draft.groups[0]
+  const detailModalGroup = detailModalGroupId ? dashboardGroups.find((group) => group.id === detailModalGroupId) : undefined
   const activeStepIndex = STEPS.findIndex((step) => step.key === activeStep)
   const stageCompletionCount = dashboardGroups.filter((group) => group.status === 'completed').length
   const failedGroupCount = dashboardGroups.filter((group) => group.status === 'failed').length
@@ -725,6 +766,7 @@ export function PlanPipelinePage() {
       failed: taskStates.filter((status) => status === 'failed').length
     }
   }, [draft.groups, draft.taskRunState, dashboardGroups])
+  const totalRetryCount = dashboardGroups.reduce((sum, group) => sum + group.retryCount, 0)
   const stepValidity: Record<StepKey, boolean> = {
     basic: draft.name.trim().length > 0,
     projects: draft.selectedProjectIds.length > 0,
@@ -775,6 +817,10 @@ export function PlanPipelinePage() {
             <LuRefreshCw size={15} />
             Yenile
           </button>
+          <button className={styles.secondaryButton} type="button" onClick={() => navigate(APP_ROUTES.PLAN_PIPELINE_RUNS)}>
+            <LuExternalLink size={15} />
+            Çalışan detayları
+          </button>
           <button className={styles.primaryButton} type="button" onClick={() => setModalOpen(true)}>
             <LuPlus size={16} />
             Pipeline oluştur
@@ -802,50 +848,50 @@ export function PlanPipelinePage() {
         <p>Kayıtlı pipeline kayıtları bu ekranda listelenir; açık taslak ise yalnızca oluşturma akışında ara durum olarak localStorage içinde tutulur. Pipeline oluştururken taskları gruplara atamak yeterlidir; Kaydet sonrası her dolu grup ayrı pipeline satırı olur.</p>
       </section>
 
-      <section className={styles.commandCenter}>
-        <aside className={styles.pipelineSummary}>
-          <div className={styles.summaryHead}>
-            <span>Aktif plan</span>
-            <strong>{draft.name}</strong>
-            <small>{formatTime(draft.createdAt)} · {runnerName}</small>
+      <section className={styles.overviewStrip}>
+        <div className={styles.summaryHead}>
+          <span>Aktif plan</span>
+          <strong>{draft.name}</strong>
+          <small>{formatTime(draft.createdAt)} · {runnerName}</small>
+        </div>
+        <div className={styles.summaryMetrics}>
+          <div>
+            <span>Planlanan grup</span>
+            <strong>{dashboardGroups.length}</strong>
           </div>
-          <div className={styles.summaryMetrics}>
-            <div>
-              <span>Planlanan grup</span>
-              <strong>{dashboardGroups.length}</strong>
-            </div>
-            <div>
-              <span>Başlatılan</span>
-              <strong>{startedRows.length}</strong>
-            </div>
-            <div>
-              <span>Bekleyen</span>
-              <strong>{waitingRows.length}</strong>
-            </div>
+          <div>
+            <span>Başlatılan</span>
+            <strong>{startedRows.length}</strong>
           </div>
-          <div className={styles.queuePanel}>
-            <div className={styles.queuePanelHead}>
-              <span>Kuyruk durumu</span>
-              <strong className={styles[`tone-${statusTone(dashboardQueueStatus)}`]}>{statusText(dashboardQueueStatus)}</strong>
-            </div>
-            <div className={styles.progressTrack}>
-              <i style={{ width: `${dashboardProgress}%` }} />
-            </div>
-            <small>{dashboardProgress}% kalıcı ilerleme · {dashboardTaskCount || groupedTaskCount} task kapsamda</small>
+          <div>
+            <span>Bekleyen</span>
+            <strong>{waitingRows.length}</strong>
           </div>
-          <div className={styles.queueControls}>
-            <button className={styles.primaryButton} type="button" disabled={!dashboardCanStart || dashboardQueueStatus === 'running'} onClick={startQueue}>
-              <LuPlay size={15} />
-              Başlat
-            </button>
-            {dashboardQueueStatus === 'paused' ? (
-              <button className={styles.secondaryButton} type="button" onClick={resumeQueue}><LuPlay size={15} /> Sürdür</button>
-            ) : (
-              <button className={styles.secondaryButton} type="button" disabled={dashboardQueueStatus !== 'running'} onClick={pauseQueue}><LuPause size={15} /> Duraklat</button>
-            )}
+        </div>
+        <div className={styles.queuePanel}>
+          <div className={styles.queuePanelHead}>
+            <span>Kuyruk durumu</span>
+            <strong className={styles[`tone-${statusTone(dashboardQueueStatus)}`]}>{statusText(dashboardQueueStatus)}</strong>
           </div>
-        </aside>
+          <div className={styles.progressTrack}>
+            <i style={{ width: `${dashboardProgress}%` }} />
+          </div>
+          <small>{dashboardProgress}% kalıcı ilerleme · {dashboardTaskCount || groupedTaskCount} task kapsamda</small>
+        </div>
+        <div className={styles.queueControls}>
+          <button className={styles.primaryButton} type="button" disabled={!dashboardCanStart || dashboardQueueStatus === 'running'} onClick={startQueue}>
+            <LuPlay size={15} />
+            Sıradakini başlat
+          </button>
+          {dashboardQueueStatus === 'paused' ? (
+            <button className={styles.secondaryButton} type="button" onClick={resumeQueue}><LuPlay size={15} /> Sürdür</button>
+          ) : (
+            <button className={styles.secondaryButton} type="button" disabled={dashboardQueueStatus !== 'running'} onClick={pauseQueue}><LuPause size={15} /> Duraklat</button>
+          )}
+        </div>
+      </section>
 
+      <section className={styles.commandCenter}>
         <main className={styles.pipelineDashboard}>
           <section className={styles.tableSection}>
             <div className={styles.sectionHead}>
@@ -862,20 +908,57 @@ export function PlanPipelinePage() {
                 <span>Çalıştıran</span>
                 <span>Durum</span>
                 <span>Progress</span>
+                <span>Aksiyon</span>
               </div>
               {dashboardGroups.length > 0 ? dashboardGroups.map((group, index) => (
-                <button
+                <article
                   key={group.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   className={`${styles.tableRow} ${detailGroup?.id === group.id ? styles.tableRowActive : ''}`}
-                  onClick={() => setSelectedDetailGroupId(group.id)}
+                  onClick={() => {
+                    setSelectedDetailGroupId(group.id)
+                    setDetailModalGroupId(group.id)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      setSelectedDetailGroupId(group.id)
+                      setDetailModalGroupId(group.id)
+                    }
+                  }}
                 >
                   <span>#{index + 1}</span>
                   <strong>{group.name}<small>{group.taskIds.length} task · Retry {group.retryCount}</small></strong>
                   <span>{runnerName}</span>
                   <em className={`${styles.statusBadge} ${styles[`tone-${statusTone(group.status)}`]}`}>{statusText(group.status)}</em>
                   <span>{group.progress}%</span>
-                </button>
+                  <span className={styles.rowActions}>
+                    <button
+                      className={styles.inlineActionButton}
+                      type="button"
+                      disabled={(group.status !== 'pending' && group.status !== 'waiting') || startingGroupIds.has(group.id)}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void startGroup(group.id)
+                      }}
+                    >
+                      <LuPlay size={13} />
+                      {startingGroupIds.has(group.id) ? 'Başlatılıyor' : 'Başlat'}
+                    </button>
+                    <button
+                      className={styles.iconLinkButton}
+                      type="button"
+                      aria-label={`${group.name} çalışan detay sayfası`}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        navigate(`${APP_ROUTES.PLAN_PIPELINE_RUNS}?pipeline=${encodeURIComponent(group.id)}`)
+                      }}
+                    >
+                      <LuExternalLink size={14} />
+                    </button>
+                  </span>
+                </article>
               )) : (
                 <div className={styles.emptyState}>Henüz planlanmış grup yok. Oluştur akışından proje, task ve grup seçimi yap.</div>
               )}
@@ -936,7 +1019,7 @@ export function PlanPipelinePage() {
               </div>
               <div>
                 <span>Retry / hata</span>
-                <strong>{draft.groups.reduce((sum, group) => sum + group.retryCount, 0)} / {failedGroupCount}</strong>
+                <strong>{totalRetryCount} / {failedGroupCount}</strong>
               </div>
               <div>
                 <span>Task durumu</span>
@@ -1012,6 +1095,105 @@ export function PlanPipelinePage() {
           </section>
         </main>
       </section>
+
+      {detailModalGroup ? (
+        <>
+          <button className={styles.modalBackdrop} type="button" aria-label="Detay modalını kapat" onClick={() => setDetailModalGroupId(null)} />
+          <section className={`${styles.modal} ${styles.detailModal}`} role="dialog" aria-modal="true" aria-labelledby="plan-pipeline-detail-title">
+            <header>
+              <div>
+                <h2 id="plan-pipeline-detail-title">{detailModalGroup.name}</h2>
+                <p>{detailModalGroup.description || 'Grup ve task çalıştırma detayı'}</p>
+              </div>
+              <button ref={modalCloseRef} type="button" aria-label="Detay modalını kapat" onClick={() => setDetailModalGroupId(null)}><LuX size={16} /></button>
+            </header>
+            <section className={styles.detailModalBody}>
+              <div className={styles.detailMetrics}>
+                <div>
+                  <span>Durum</span>
+                  <strong>{statusText(detailModalGroup.status)}</strong>
+                </div>
+                <div>
+                  <span>Progress</span>
+                  <strong>{detailModalGroup.progress}%</strong>
+                </div>
+                <div>
+                  <span>Retry</span>
+                  <strong>{detailModalGroup.retryCount}</strong>
+                </div>
+                <div>
+                  <span>Task</span>
+                  <strong>{detailModalGroup.taskIds.length}</strong>
+                </div>
+                <div>
+                  <span>Tamamlanma</span>
+                  <strong>{formatTime(detailModalGroup.completedAt)}</strong>
+                </div>
+                <div>
+                  <span>Hata</span>
+                  <strong>{detailModalGroup.lastError ? 'Var' : 'Yok'}</strong>
+                </div>
+              </div>
+              <div className={styles.progressTrack}>
+                <i style={{ width: `${detailModalGroup.progress}%` }} />
+              </div>
+              {detailModalGroup.lastError ? <p className={styles.errorText}>{detailModalGroup.lastError}</p> : null}
+              <div className={styles.stageMap} aria-label="Modal stage akışı">
+                {dashboardGroups.map((group, index) => (
+                  <button
+                    key={group.id}
+                    type="button"
+                    className={`${styles.stageNode} ${detailModalGroup.id === group.id ? styles.stageNodeActive : ''}`}
+                    onClick={() => setDetailModalGroupId(group.id)}
+                  >
+                    <span className={`${styles.stageMarker} ${styles[`tone-${statusTone(group.status)}`]}`}>{index + 1}</span>
+                    <strong>{group.name}</strong>
+                    <small>{group.taskIds.length} task · {group.progress}%</small>
+                  </button>
+                ))}
+              </div>
+              <div className={styles.pipelineDetail}>
+                {detailModalGroup.taskIds.map((taskId, index) => {
+                  const task = taskById.get(taskId)
+                  const state = draft.taskRunState[taskId] ?? {
+                    status: detailModalGroup.status,
+                    progress: detailModalGroup.status === 'completed' ? 100 : detailModalGroup.status === 'running' ? detailModalGroup.progress : 0,
+                    retryCount: detailModalGroup.retryCount,
+                    lastError: detailModalGroup.lastError
+                  }
+                  return (
+                    <article key={taskId} className={`${styles.detailStage} ${styles[`detailStage-${statusTone(state.status)}`]}`}>
+                      <span>{index + 1}</span>
+                      <div>
+                        <strong>{task?.title ?? taskId}</strong>
+                        <small>{projectById.get(task?.projectId ?? '')?.name ?? 'Proje yok'} · {task ? summarizeTask(task) : 'Task detayı yok'} · Retry {state.retryCount}</small>
+                      </div>
+                      <em className={`${styles.statusBadge} ${styles[`tone-${statusTone(state.status)}`]}`}>{statusText(state.status)}</em>
+                      <div className={styles.progressTrack}>
+                        <i style={{ width: `${state.progress}%` }} />
+                      </div>
+                      {state.lastError ? <p>{state.lastError}</p> : null}
+                    </article>
+                  )
+                })}
+                {detailModalGroup.taskIds.length === 0 ? <div className={styles.emptyState}>Bu gruba bağlı task bulunamadı.</div> : null}
+              </div>
+              <div className={styles.runActions}>
+                <button type="button" disabled={detailModalGroup.status !== 'pending' && detailModalGroup.status !== 'waiting'} onClick={() => void startGroup(detailModalGroup.id)}>
+                  <LuPlay size={14} />
+                  Başlat
+                </button>
+                <button type="button" disabled={detailModalGroup.status !== 'running'} onClick={() => failGroup(detailModalGroup.id)}>Hata simüle et</button>
+                <button type="button" disabled={detailModalGroup.status !== 'failed'} onClick={() => retryGroup(detailModalGroup.id)}><LuListRestart size={14} /> Yeniden dene</button>
+                <button type="button" onClick={() => navigate(`${APP_ROUTES.PLAN_PIPELINE_RUNS}?pipeline=${encodeURIComponent(detailModalGroup.id)}`)}>
+                  <LuExternalLink size={14} />
+                  Detay sayfası
+                </button>
+              </div>
+            </section>
+          </section>
+        </>
+      ) : null}
 
       {modalOpen ? (
         <>

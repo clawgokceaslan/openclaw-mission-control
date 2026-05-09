@@ -18,6 +18,7 @@ import { ProjectsPage } from '@renderer/screens/projects/ProjectsPage'
 import { ProjectNewPage } from '@renderer/screens/projects/ProjectNewPage'
 import { ProjectDetailPage } from '@renderer/screens/projects/ProjectDetailPage'
 import { PlanPipelinePage } from '@renderer/screens/plan-pipeline'
+import { PlanPipelineRunsPage } from '@renderer/screens/plan-pipeline-runs'
 import { AgentsPage } from '@renderer/screens/agents/AgentsPage'
 import { AgentNewPage } from '@renderer/screens/agents/AgentNewPage'
 import { SettingsPage } from '@renderer/screens/settings/SettingsPage'
@@ -67,6 +68,7 @@ const SIGNED_IN_ROUTES: RouteConfig[] = [
   { path: APP_ROUTES.PROFILE, element: <ProfilePage /> },
   { path: APP_ROUTES.PROJECTS, element: <ProjectsPage /> },
   { path: APP_ROUTES.PLAN_PIPELINE, element: <PlanPipelinePage /> },
+  { path: APP_ROUTES.PLAN_PIPELINE_RUNS, element: <PlanPipelineRunsPage /> },
   { path: APP_ROUTES.PROJECTS_NEW, element: <ProjectNewPage /> },
   { path: APP_ROUTES.PROJECT_DETAIL, element: <ProjectDetailPage /> },
   { path: APP_ROUTES.PROJECT_TASK_DETAIL, element: <ProjectDetailPage /> },

@@ -14,6 +14,7 @@ import {
   LuBookMarked,
   LuLayers,
   LuMessageSquare,
+  LuMonitorPlay,
   LuWorkflow
 } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
@@ -37,7 +38,8 @@ export const NAV_BY_GROUP: Record<NavGroupKey, NavItem[]> = {
   Projects: [
     { label: 'Project groups', path: APP_ROUTES.PROJECT_GROUPS, group: 'Projects', icon: LuFolderKanban },
     { label: 'Projects', path: APP_ROUTES.PROJECTS, group: 'Projects', icon: LuFolder },
-    { label: 'Plan Pipeline', path: APP_ROUTES.PLAN_PIPELINE, group: 'Projects', icon: LuWorkflow }
+    { label: 'Plan Pipeline', path: APP_ROUTES.PLAN_PIPELINE, group: 'Projects', icon: LuWorkflow },
+    { label: 'Pipeline Runs', path: APP_ROUTES.PLAN_PIPELINE_RUNS, group: 'Projects', icon: LuMonitorPlay }
   ],
   Templates: [
     { label: 'Statuses', path: APP_ROUTES.STATUSES, group: 'Templates', icon: LuListTodo },
