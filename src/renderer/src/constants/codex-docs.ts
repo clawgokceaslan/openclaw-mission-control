@@ -125,104 +125,130 @@ codex --remote wss://codex.example.com:4500
 Agent sync is removed. Agent definitions stay in Open Mission Control until a future Codex CLI execution flow is implemented.`
   },
   {
-    id: 'codex-planning-workflows',
-    title: 'Codex Planning Workflows',
+    id: 'task-planning-features',
+    title: 'Task Planning Features',
     category: 'Planning',
-    summary: 'User-facing Codex planning flow from task planning launch through clarification, model settings, JSON validation, and task update.',
+    summary: 'User-facing planning features for preparing tasks before execution, including plan status, plan-ready tasks, project guidance, model settings, and planner questions.',
     sourceFiles: [
-      'src/renderer/src/screens/projects/ProjectDetailPage.tsx',
-      'src/renderer/src/screens/projects/detail/hooks/useProjectGatewayFlow.ts',
-      'src/renderer/src/popups/PlanChoiceModal/index.tsx',
+      'src/renderer/src/popups/TaskDetail/index.tsx',
+      'src/renderer/src/components/navigation/PlannedTasksMenu/index.tsx',
+      'src/renderer/src/components/navigation/TopHeader.tsx',
       'src/renderer/src/components/planner/PlannerQuestionHost.tsx',
       'src/renderer/src/components/planner/plannerQuestionQueue.ts',
+      'src/renderer/src/popups/PlanChoiceModal/index.tsx',
+      'src/renderer/src/popups/ProjectPromptSettings/index.tsx',
       'src/renderer/src/popups/ProjectDetailSettingsPopup/index.tsx',
-      'src/renderer/src/popups/TaskDetail/index.tsx',
-      'src/main/services/task.service.ts',
+      'src/renderer/src/screens/projects/detail/hooks/useProjectGatewayFlow.ts',
+      'src/renderer/src/screens/projects/detail/projectDetailUtils.ts',
+      'src/shared/constants/project-instruction-templates.ts',
       'src/shared/contracts/ipc.ts'
     ],
     terms: [
-      { term: 'Plan launch', description: 'Starts a Codex planning conversation for the selected task from the project detail chat controls.' },
-      { term: 'Ask-first mode', description: 'Planner must ask clarification questions before writing or applying planned-task JSON.' },
-      { term: 'Direct mode', description: 'Planner skips clarification and updates the current task plan from existing project and task context.' },
-      { term: 'Plan model', description: 'The Codex model used for planning; it can come from project settings or a task-level override.' },
-      { term: 'Planner JSON', description: 'The planned task payload that is validated and then applied to the scoped source task.' }
+      { term: 'Task planning', description: 'The product workflow that turns a task into an implementation-ready work item before run execution.' },
+      { term: 'Plan status', description: 'The task lifecycle state that shows whether planning is pending, running, ready, blocked, failed, paused, or stale.' },
+      { term: 'Plan guide', description: 'Project-level instructions that shape how future planning updates task descriptions, subtasks, checklist items, comments, and acceptance criteria.' },
+      { term: 'Planner questions', description: 'Clarification prompts that wait globally until the user answers them or opens the related task chat.' },
+      { term: 'Plan-ready task', description: 'A task whose planning phase has completed and can appear in the header menu for execution or missing-setting repair.' }
     ],
-    markdown: `# Codex Planning Workflows
+    markdown: `# Task Planning Features
 
-Codex planning turns a selected Open Mission Control task into a clearer execution plan. The flow updates task planning content; it does not run implementation work.
+Planning is the preparation layer for task execution in Open Mission Control. It helps users turn rough tasks into implementation-ready work by clarifying scope, shaping subtasks, recording acceptance criteria, and surfacing the task as ready to run.
 
-This document covers normal user planning flows only. Plan Pipeline and Pipeline Runs are separate automation surfaces and are intentionally outside this feature scope.
+This document covers user-facing planning features in project and task workflows. Plan Pipeline and Pipeline Runs are separate automation surfaces and are intentionally outside this scope.
 
-## Start a plan
+## Task lifecycle panel
 
-1. Open a project and select a task.
-2. Configure the Codex gateway, runtime workspace, and plan model if the task cannot already inherit them from the project.
-3. Use the task chat planning action.
-4. Choose how the planner should proceed in the planning checkpoint modal.
+Each task detail view includes a lifecycle panel with four stages:
 
-The planning launch requires a Codex gateway and a plan model. If either is missing, the app opens the model settings area so the user can complete the setup before retrying.
+- Planla: shows whether the task still needs planning, is currently being planned, has a ready plan, or needs attention.
+- Çalıştır: becomes available after a plan is ready, or when run history already exists.
+- Doğrula: summarizes post-run verification state after execution.
+- Tamamla: guides the user to close the task only after the result and acceptance criteria are checked.
 
-## Ask-first planning
+The planning stage can show states such as Plan bekliyor, Planlanıyor, Plan hazır, Onay bekliyor, Duraklatıldı, Kontrol gerekiyor, Bloke, or Müdahale gerekiyor. The same panel provides Planla, Yeniden dene, or Duraklat actions depending on the current state.
 
-Ask-first mode is for planning decisions where user input can materially change the task. The planner reads the current task and project context, then writes a questions file and runs the OMC helper's ask command.
+## Plan action
 
-Expected behavior:
+Users can start planning from the task detail primary action or from the task chat planning action. Planning is disabled until the task can resolve a gateway and plan model from project settings or task-level overrides.
 
-- the planner asks 1-3 concise root questions;
-- options may include recommended choices and nested follow-up questions;
-- the planner must not write \`planned-task.json\`;
-- the planner must not validate or update the task until the answer is submitted.
+When a plan is started, the app asks whether the planner should first ask clarification questions or proceed directly from the available task context. Clarification-first planning is useful when product decisions, scope boundaries, or acceptance criteria are not obvious. Direct planning is useful when the existing task data is already enough.
 
-The app shows unanswered planner questions through the global planner question modal. After the user chooses options and adds notes, the answer is sent back into the same planning conversation as a clarification message. That follow-up run continues in direct mode because the required clarification has already been supplied.
+Planning updates the task plan only. Implementation work remains a separate run step.
 
-## Direct planning
+## Plan-ready tasks menu
 
-Direct mode is for fast plan updates when the existing context is enough. The planner does not ask questions and does not run the ask command.
+The top navigation includes a plan-ready tasks menu. It lists tasks whose planning phase has produced a runnable plan or tasks that are nearly runnable but still miss required execution settings.
 
-Expected behavior:
+Rows show:
 
-- the planner uses the exported \`currentTaskJson\` as the starting shape;
-- the planner writes \`planned-task.json\`;
-- the OMC helper validates the JSON;
-- the OMC helper updates the scoped source task;
-- the planning run finishes after the update.
+- task title;
+- project name;
+- readiness label such as Çalıştırmaya hazır, Gateway gerekli, Çalışma modeli gerekli, or Gateway ve çalışma modeli gerekli;
+- a play action when the task is runnable;
+- a settings action when required gateway or model configuration is missing.
 
-Direct mode still respects planner quality rules: subtasks should be action-oriented, ordered for execution, and specific enough to guide a later Codex Run.
+The menu refreshes when task activity or task updates change planning or run readiness. It supports pagination so users can work through many planned tasks without opening each project first.
 
-## Plan model and effort
+## Planner questions
 
-Planning uses the plan model rather than the run model. The effective plan model is resolved in this order:
+Planner questions are clarification prompts created during planning. The global planner question control in the top header shows how many unanswered question batches are waiting.
 
-1. task-level plan model override;
-2. project-level plan model;
-3. project default Codex model.
+Opening a question shows the related task, project, summary, visible question path, recommended options, optional notes, and an action to open the related chat. Follow-up questions appear only when their parent option is selected, and hidden branch answers are pruned before submission.
 
-Reasoning effort follows the same split between plan and run settings. If the selected model supports reasoning, the plan reasoning effort is sent with the planning launch; otherwise the reasoning field is omitted. This lets users tune planning depth separately from implementation speed.
+When the user submits an answer, the app sends the selected options and notes back into the same planning conversation. If a question includes first-option defaults, the user can skip with those first answers. Questions that already have later clarification answers are removed from the queue.
 
-## Answer planner questions
+## Project plan guide
 
-Planner questions are collected from gateway activity metadata and from existing unanswered task history. The modal keeps the active project, task, gateway, plan model, language, and reasoning effort attached to the question.
+Project prompt settings include a Plan guide tab. This is the main place to define how task planning should behave for the project.
 
-When the user submits an answer:
+The standard plan guide tells planning to:
 
-- selected options and notes are formatted into a clarification message;
-- stale answers from hidden follow-up branches are pruned;
-- the same task and conversation are resumed with \`planWithGateway\`;
-- the answered question is removed from the queue after a successful response.
+- inspect all task fields before changing the task;
+- make the task implementation-ready;
+- preserve useful user-provided details;
+- rewrite the subtask list into a clearer execution plan when needed;
+- keep subtasks ordered by dependency;
+- fill missing or incomplete acceptance criteria;
+- avoid marking the task complete during planning.
 
-If available, the user can skip with the first options; this submits the default first-option path without free-form notes.
+The plan guide is exported with task context, so future planning updates can follow project-specific expectations instead of relying only on generic behavior.
 
-## Task update result
+## Project planning settings
 
-Planner JSON is validated before it changes task data. Validation normalizes tags, skills, custom fields, checklist items, comments, and subtasks, then checks planner quality for single-task updates.
+Project Codex settings provide the default planning configuration:
 
-When validation succeeds, \`plannerUpdateFromJson\` imports the planned JSON into the scoped source task. The result can change the task title, description, tags, checklist, comments, custom fields, and the full subtask array. Existing user comments are preserved by planner instructions, while planner decisions and assumptions should be added as Planner-authored comments when they matter for execution.
+- gateway;
+- runtime workspace;
+- plan model;
+- plan reasoning effort when supported by the selected model;
+- run model and run reasoning effort for the later execution stage;
+- language and prompt shape settings.
 
-After the update, the task becomes the execution plan that later appears in exported \`Task.md\` for Codex Run.
+Planning specifically uses the project plan model, falling back to the project default model when appropriate. It does not use the run model unless the user is starting execution rather than planning.
+
+## Task planning overrides
+
+Individual tasks can override project-level planning configuration in the task detail Model tab. A task can set its own gateway, plan model, and plan reasoning effort while still inheriting project defaults for fields left blank.
+
+Changing the task gateway also rechecks available models. If the current task model selection is not available on the newly selected gateway, the task-level model override is cleared so the task can fall back to a valid project setting.
+
+## Task plan content
+
+A planned task can include updates to:
+
+- title and description;
+- acceptance criteria;
+- subtasks and subtask descriptions;
+- checklist items;
+- comments and decision notes;
+- tags, skills, agent assignment, and custom fields when relevant;
+- gateway and model context used by later task export and run workflows.
+
+The resulting task plan is what users review before execution and what later appears in exported task context for a run.
 
 ## Out of scope
 
-The Planning category does not document Plan Pipeline creation, saved pipeline groups, pipeline dashboards, or Pipeline Runs execution history. Those screens can use the same underlying task planning concepts, but they are separate product areas and should be documented independently.`
+This Planning documentation does not cover Plan Pipeline creation, saved pipeline groups, pipeline dashboards, Pipeline Runs, or pipeline execution history. Those features have their own navigation, state model, and documentation needs.`
   },
   {
     id: 'codex-cli-interactive',

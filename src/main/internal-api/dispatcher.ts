@@ -122,7 +122,13 @@ export async function dispatchInternalApi(services: AppServices, input: Internal
   }
 
   const normalized = normalizeInternalRequest(input.request)
-  const actorToken = input.actorToken ?? normalized.actorToken
+  let actorToken = input.actorToken ?? normalized.actorToken
+  if (input.transport === 'ipc' && route.requiresAuth && !actorToken) {
+    const desktopSession = await services.auth.createDesktopSession()
+    if (!desktopSession.ok) return desktopSession
+    const data = desktopSession.data as { session?: { token?: string } } | undefined
+    actorToken = data?.session?.token
+  }
   const payload = injectActorToken(normalized.payload, actorToken)
   const meta = {
     requestId: normalized.requestId,

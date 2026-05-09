@@ -216,7 +216,7 @@ function AppRouter() {
         />
       </>
     )
-  } else if (isElectron && isRuntimeError) {
+  } else if (isElectron && (isRuntimeError || !user)) {
     appContent = (
       <div className={styles.pageState}>
         <h2>Uygulama baslatilamadi</h2>

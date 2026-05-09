@@ -66,7 +66,8 @@ export function resolveMigrations(basePath: string): MigrationPlan[] {
     '018_remove_agent_steps_reasoning_config.sql',
     '020_drop_task_groups.sql',
     '021_plan_pipeline_records.sql',
-    '022_web_refresh_tokens.sql'
+    '022_web_refresh_tokens.sql',
+    '023_remove_owner_default_email.sql'
   ]
   return filenames.map((filename) => {
     const searchPaths = [

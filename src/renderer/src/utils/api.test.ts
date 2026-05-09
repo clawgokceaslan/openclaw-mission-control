@@ -84,12 +84,12 @@ describe('renderer API bridge', () => {
     vi.stubGlobal('fetch', fetchMock)
     stubElectronRenderer(invoke)
 
-    const response = await loginWithAuthApi({ email: 'owner@mission.local', password: 'changeme' })
+    const response = await loginWithAuthApi({ email: 'pilot@example.com', password: 'changed-password' })
 
     expect(response.ok).toBe(true)
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.auth.login, expect.objectContaining({
-      email: 'owner@mission.local',
-      password: 'changeme'
+      email: 'pilot@example.com',
+      password: 'changed-password'
     }))
     expect(fetchMock).not.toHaveBeenCalled()
 

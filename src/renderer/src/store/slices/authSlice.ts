@@ -6,6 +6,7 @@ import {
   clearSessionToken,
   getSessionToken,
   getRefreshToken,
+  isElectronRuntime,
   getMeWithAuthApi,
   invokeBridge,
   loginWithAuthApi,
@@ -37,6 +38,15 @@ export const refreshAuth = createAsyncThunk<AuthResult, void, { state: { auth: A
   async (_, { getState, rejectWithValue }) => {
     const { token: currentToken } = getState().auth
     const token = currentToken ?? getSafeToken()
+
+    if (!token && isElectronRuntime()) {
+      const response = await getMeWithAuthApi<AuthResult>(null)
+      if (response.ok && response.data) {
+        setSessionToken(response.data.session.token)
+        return response.data
+      }
+      return rejectWithValue(response.error?.message ?? 'Desktop session could not be initialized') as never
+    }
 
     if (!token) {
       if (getRefreshToken()) {

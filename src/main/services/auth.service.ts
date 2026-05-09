@@ -25,8 +25,6 @@ type LoginAttemptState = {
 }
 
 export class AuthService {
-  private readonly bootstrapEmail = 'owner@mission.local'
-  private readonly bootstrapPassword = 'changeme'
   private readonly minPasswordLength = 8
   private readonly loginAttemptLimit = 10
   private readonly loginAttemptWindowMs = 15 * 60 * 1000
@@ -161,13 +159,12 @@ export class AuthService {
     return actor
   }
 
-  private async issueOwnerDesktopSession(): Promise<ServiceResponse> {
+  async createDesktopSession(): Promise<ServiceResponse> {
     const userRow = await this.authRepo.findDefaultWorkspaceUser()
-      ?? await this.authRepo.findByEmail(this.bootstrapEmail)
-      ?? await this.authRepo.ensureDefaultOwner(this.bootstrapEmail)
+      ?? await this.authRepo.ensureLocalUser()
 
     if (!userRow) {
-      return errorResponse(ErrorCodes.Unauthenticated, 'Desktop session could not be initialized')
+      return errorResponse(ErrorCodes.Unauthenticated, 'Local desktop session could not be initialized')
     }
 
     const tokens = await this.issueTokens(userRow.id)
@@ -185,11 +182,7 @@ export class AuthService {
     return okResponse(response, { requestId: undefined })
   }
 
-  async login(payload: { email?: string; password?: string; desktopBootstrap?: boolean }, meta?: Record<string, unknown>): Promise<ServiceResponse> {
-    if (payload?.desktopBootstrap === true && meta?.transport === 'ipc') {
-      return this.issueOwnerDesktopSession()
-    }
-
+  async login(payload: { email?: string; password?: string }, meta?: Record<string, unknown>): Promise<ServiceResponse> {
     const email = this.normalizeEmail(payload?.email)
     const password = payload?.password ?? ''
     if (!email || !password) {
@@ -203,21 +196,13 @@ export class AuthService {
       })
     }
 
-    let userRow = await this.authRepo.findByEmail(email)
-    if (!userRow && email === this.bootstrapEmail && password === this.bootstrapPassword) {
-      userRow = await this.authRepo.ensureDefaultOwner(email)
-    }
+    const userRow = await this.authRepo.findByEmail(email)
 
     if (!userRow) {
       this.recordFailedLogin(attemptKey)
       return errorResponse(ErrorCodes.Unauthenticated, 'Invalid credentials')
     }
-    const isLegacyBootstrapHash = userRow.password_hash === 'pbkdf2:sha256:260000$local$changeme'
-      && email === this.bootstrapEmail
-      && password === this.bootstrapPassword
-    const passwordVerification = isLegacyBootstrapHash
-      ? { valid: true, needsRehash: true }
-      : this.verifyPassword(userRow.password_hash || '', password)
+    const passwordVerification = this.verifyPassword(userRow.password_hash || '', password)
     if (!passwordVerification.valid) {
       this.recordFailedLogin(attemptKey)
       return errorResponse(ErrorCodes.Unauthenticated, 'Invalid credentials')

@@ -208,7 +208,7 @@ async function requestAuthRest<T = unknown>(
   }
 }
 
-export async function loginWithAuthApi<T = unknown>(payload: { email?: string; password?: string; desktopBootstrap?: boolean }): Promise<BridgeResult<T>> {
+export async function loginWithAuthApi<T = unknown>(payload: { email?: string; password?: string }): Promise<BridgeResult<T>> {
   if (isElectronRuntime()) {
     const result = await invokeBridge<T>(IPC_CHANNELS.auth.login, payload)
     if (result.ok) persistAuthTokens(result.data)
@@ -241,15 +241,15 @@ export async function refreshWithAuthApi<T = unknown>(): Promise<BridgeResult<T>
 
 export async function getMeWithAuthApi<T = unknown>(tokenOverride?: string | null, retryRefresh = true): Promise<BridgeResult<T>> {
   const token = tokenOverride ?? getSessionToken()
-  if (!token) return errorResult(ErrorCodes.Unauthenticated, 'Access token required')
   if (isElectronRuntime()) {
-    const response = await invokeBridge<T>(IPC_CHANNELS.auth.me, { actorToken: token })
+    const response = await invokeBridge<T>(IPC_CHANNELS.auth.me, token ? { actorToken: token } : {})
     if (response.ok || !retryRefresh || response.error?.code !== ErrorCodes.Unauthenticated) return response
 
     const refreshResult = await refreshWithAuthApi<HttpAuthResult>()
     if (!refreshResult.ok || !refreshResult.data?.session?.token) return response
     return getMeWithAuthApi<T>(refreshResult.data.session.token, false)
   }
+  if (!token) return errorResult(ErrorCodes.Unauthenticated, 'Access token required')
   const response = await requestAuthRest<T>('me', {
     method: 'GET',
     headers: requestHeaders(token)

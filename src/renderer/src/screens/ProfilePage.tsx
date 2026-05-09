@@ -145,6 +145,7 @@ export function ProfilePage() {
   const [cropZoom, setCropZoom] = useState(1)
   const [croppedPreview, setCroppedPreview] = useState<string | null>(null)
   const fullName = `${firstName} ${lastName}`.trim() || user?.name?.trim() || 'Mission Operator'
+  const accountEmail = email.trim() || user?.email || '-'
   const activeAvatarUrl = avatarUrl ?? croppedPreview
   const displayScale = cropImageSize ? getBaseScale(cropImageSize) * cropZoom : 1
   const cropImageStyle = cropImageSize
@@ -351,7 +352,7 @@ export function ProfilePage() {
           </div>
           <div className={styles.summaryIdentity}>
             <h2>{fullName}</h2>
-            <p>{email || user?.email || 'owner@mission.local'}</p>
+            <p>{accountEmail}</p>
           </div>
           <div className={styles.summaryMeta}>
             <span className={styles.roleBadge}>{role}</span>
@@ -575,7 +576,7 @@ export function ProfilePage() {
                   <LuMail size={16} />
                   <div>
                     <span>E-posta</span>
-                    <strong>{email || user?.email || 'owner@mission.local'}</strong>
+                    <strong>{accountEmail}</strong>
                   </div>
                 </div>
                 <div className={styles.infoRow}>

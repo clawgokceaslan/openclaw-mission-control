@@ -17,7 +17,7 @@ function createContext() {
           if (payload.email === 'blocked@example.com') {
             return { ok: false, error: { code: 'ERR_RATE_LIMITED', message: 'Too many failed login attempts' } }
           }
-          if ((payload.email === 'owner@mission.local' || payload.email === 'pilot@example.com') && payload.password === 'changeme') {
+          if (payload.email === 'pilot@example.com' && payload.password === 'changeme') {
             return {
               ok: true,
               data: {
@@ -243,7 +243,7 @@ describe('startInternalHttpServer', () => {
       const loginResponse = await fetch(`${server.url}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'owner@mission.local', password: 'changeme' })
+        body: JSON.stringify({ email: 'pilot@example.com', password: 'changeme' })
       })
       const loginJson = await loginResponse.json() as { ok: boolean; data?: { session?: { token?: string }; refreshToken?: string } }
       expect(loginResponse.status).toBe(200)

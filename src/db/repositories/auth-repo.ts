@@ -16,7 +16,8 @@ export interface RefreshTokenRecord {
 export class AuthRepository extends BaseRepository<User & { passwordHash: string }> {
   private readonly defaultOrgId = '00000000-0000-4000-8000-000000000001'
   private readonly defaultOrgName = 'Default Organization'
-  private readonly defaultPasswordHash = '$2b$12$42NmjQ.8tLD3O5pYRn.acuvLjpnTbPAGLEnzResDNGwU/CuinF8VS'
+  private readonly localUserEmail = 'local@open-mission-control.invalid'
+  private readonly localPasswordHash = '$2b$12$42NmjQ.8tLD3O5pYRn.acuvLjpnTbPAGLEnzResDNGwU/CuinF8VS'
 
   private users = this.db.prepare(
     `SELECT id, organization_id, email, name, password_hash, role, created_at FROM users WHERE lower(email) = lower(@email)`
@@ -91,7 +92,7 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
     await this.updateUserPasswordHash.run({ userId, passwordHash })
   }
 
-  async ensureDefaultOwner(email: string): Promise<{ id: string; organization_id: string; email: string; name: string; password_hash: string; role: string } | undefined> {
+  async ensureLocalUser(): Promise<{ id: string; organization_id: string; email: string; name: string; password_hash: string; role: string } | undefined> {
     const now = Date.now()
     const organizationId = this.defaultOrgId
 
@@ -104,22 +105,19 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
       })
     }
 
-    let user = await this.findByEmail(email)
+    let user = await this.findByEmail(this.localUserEmail)
     if (!user) {
       const userId = randomUUID()
       await this.insertUser.run({
         id: userId,
         organizationId,
-        email,
+        email: this.localUserEmail,
         name: '',
-        passwordHash: this.defaultPasswordHash,
+        passwordHash: this.localPasswordHash,
         role: 'owner',
         createdAt: now
       })
-      user = await this.findByEmail(email)
-    } else if (user.password_hash !== this.defaultPasswordHash) {
-      await this.setPasswordHash(user.id, this.defaultPasswordHash)
-      user = await this.findByEmail(email)
+      user = await this.findByEmail(this.localUserEmail)
     }
 
     if (user) {

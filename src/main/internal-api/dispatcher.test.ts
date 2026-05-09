@@ -38,4 +38,26 @@ describe('dispatchInternalApi', () => {
     expect(response.error?.code).toBe('ERR_FORBIDDEN')
     expect(response.error?.details).toEqual(expect.objectContaining({ supported: false }))
   })
+
+  it('injects a local desktop session for authenticated IPC calls without renderer login', async () => {
+    const list = vi.fn(async (payload) => ({ ok: true, data: payload }))
+    const createDesktopSession = vi.fn(async () => ({
+      ok: true,
+      data: { session: { token: 'desktop-token' }, user: { id: 'user-1' } }
+    }))
+    const services = { auth: { createDesktopSession }, projects: { list } } as any
+
+    const response = await dispatchInternalApi(services, {
+      channel: IPC_CHANNELS.projects.list,
+      transport: 'ipc',
+      request: { payload: {} }
+    })
+
+    expect(response.ok).toBe(true)
+    expect(createDesktopSession).toHaveBeenCalled()
+    expect(list).toHaveBeenCalledWith(
+      { actorToken: 'desktop-token' },
+      expect.objectContaining({ transport: 'ipc' })
+    )
+  })
 })
