@@ -183,6 +183,7 @@ async function refreshSingleFlight(): Promise<BridgeResult<HttpAuthResult>> {
 }
 
 let authHttpClient: AxiosInstance | null = null
+let httpRefreshPromise: Promise<BridgeResult<HttpAuthResult>> | null = null
 
 function getAuthHttpClient(): AxiosInstance {
   if (!authHttpClient) {
@@ -258,15 +259,19 @@ export async function refreshWithAuthApi<T = unknown>(): Promise<BridgeResult<T>
     if (!result.ok) clearSessionToken()
     return result
   }
+  const result = await requestHttpRefresh<T>()
+  if (!result.ok) clearSessionToken()
+  return result
+}
+
+async function requestHttpRefresh<T = unknown>(): Promise<BridgeResult<T>> {
   const refreshToken = getRefreshToken()
   if (!refreshToken) return errorResult(ErrorCodes.Unauthenticated, 'Refresh token required')
-  const result = await requestAuthRest<T>('refresh', {
+  return requestAuthRest<T>('refresh', {
     method: 'POST',
     headers: requestHeaders(),
     data: { refreshToken }
   })
-  if (!result.ok) clearSessionToken()
-  return result
 }
 
 export async function getMeWithAuthApi<T = unknown>(tokenOverride?: string | null, retryRefresh = true): Promise<BridgeResult<T>> {
@@ -286,7 +291,7 @@ export async function getMeWithAuthApi<T = unknown>(tokenOverride?: string | nul
   })
   if (response.ok || !retryRefresh || response.error?.code !== ErrorCodes.Unauthenticated) return response
 
-  const refreshResult = await refreshSingleFlight()
+  const refreshResult = await refreshHttpSingleFlight()
   if (!refreshResult.ok || !refreshResult.data?.session?.token) return response
   return getMeWithAuthApi<T>(refreshResult.data.session.token, false)
 }
@@ -307,13 +312,36 @@ export async function logoutWithAuthApi<T = unknown>(tokenOverride?: string | nu
 }
 
 async function refreshHttpAccessToken(): Promise<string | null> {
-  const result = await refreshWithAuthApi<HttpAuthResult>()
+  const result = await refreshHttpSingleFlight()
   if (!result?.ok || !result.data?.session?.token) {
     clearSessionToken()
     return null
   }
   persistAuthTokens(result.data)
   return result.data.session.token
+}
+
+async function refreshHttpSingleFlight(): Promise<BridgeResult<HttpAuthResult>> {
+  if (!httpRefreshPromise) {
+    httpRefreshPromise = refreshHttpWithSilentRetry().finally(() => {
+      httpRefreshPromise = null
+    })
+  }
+  return httpRefreshPromise
+}
+
+async function refreshHttpWithSilentRetry(): Promise<BridgeResult<HttpAuthResult>> {
+  const first = await requestHttpRefresh<HttpAuthResult>()
+  if (first.ok) return first
+  return requestHttpRefresh<HttpAuthResult>()
+}
+
+function isAuthRefreshChannel(channel: IpcChannel | string): boolean {
+  return channel === IPC_CHANNELS.auth.login || channel === IPC_CHANNELS.auth.refresh || channel === IPC_CHANNELS.auth.logout
+}
+
+function isUnauthenticatedHttpResult(status: number, result: BridgeResult | null): boolean {
+  return status === 401 || result?.error?.code === ErrorCodes.Unauthenticated
 }
 
 async function invokeHttp<T = unknown>(
@@ -335,10 +363,9 @@ async function invokeHttp<T = unknown>(
     })
     const result = await response.json().catch(() => null) as BridgeResult<T> | null
     if (
-      response.status === 401 &&
+      isUnauthenticatedHttpResult(response.status, result) &&
       retryRefresh &&
-      channel !== IPC_CHANNELS.auth.login &&
-      channel !== IPC_CHANNELS.auth.refresh
+      !isAuthRefreshChannel(channel)
     ) {
       const refreshedToken = await refreshHttpAccessToken()
       if (refreshedToken) {

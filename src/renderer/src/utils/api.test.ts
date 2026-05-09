@@ -1,7 +1,24 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { ErrorCodes } from '@shared/contracts/error-codes'
-import { apiBaseUrl, getMeWithAuthApi, loginWithAuthApi, setRefreshToken, invokeBridge } from './api'
+import { apiBaseUrl, getMeWithAuthApi, loginWithAuthApi, setRefreshToken, setSessionToken, invokeBridge } from './api'
+
+const axiosRequestMock = vi.hoisted(() => vi.fn())
+
+vi.mock('axios', () => {
+  class AxiosError extends Error {
+    response?: unknown
+  }
+
+  return {
+    default: {
+      create: vi.fn(() => ({
+        request: axiosRequestMock
+      }))
+    },
+    AxiosError
+  }
+})
 
 function stubElectronRenderer(invoke: ReturnType<typeof vi.fn>) {
   const store = new Map<string, string>()
@@ -44,7 +61,37 @@ function stubElectronRenderer(invoke: ReturnType<typeof vi.fn>) {
   }))
 }
 
+function stubWebRuntime() {
+  const store = new Map<string, string>()
+  const localStorage = {
+    getItem: vi.fn((key: string) => store.get(key) ?? null),
+    setItem: vi.fn((key: string, value: string) => {
+      store.set(key, value)
+    }),
+    removeItem: vi.fn((key: string) => {
+      store.delete(key)
+    })
+  }
+  vi.stubGlobal('window', {
+    localStorage,
+    location: {
+      protocol: 'http:',
+      hostname: 'mission-control.internal',
+      port: '19219',
+      origin: 'http://mission-control.internal:19219'
+    },
+    dispatchEvent: vi.fn()
+  })
+  vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 Test Browser' })
+  vi.stubGlobal('localStorage', localStorage)
+}
+
 describe('renderer API bridge', () => {
+  beforeEach(() => {
+    axiosRequestMock.mockReset()
+    vi.unstubAllGlobals()
+  })
+
   it('targets the same DNS host on the internal API port when opened from Vite dev server', () => {
     vi.stubGlobal('window', {
       location: {
@@ -176,6 +223,142 @@ describe('renderer API bridge', () => {
     expect(second.ok).toBe(true)
     expect(invoke.mock.calls.filter(([channel]) => channel === IPC_CHANNELS.auth.refresh)).toHaveLength(1)
     expect(invoke.mock.calls.filter(([channel, payload]) => channel === IPC_CHANNELS.projects.list && payload.actorToken === 'fresh-access-token')).toHaveLength(2)
+
+    vi.unstubAllGlobals()
+  })
+
+  it('sends web HTTP calls with the stale access token before refreshing and retries once with the fresh token', async () => {
+    stubWebRuntime()
+    setSessionToken('stale-access-token')
+    setRefreshToken('stored-refresh-token')
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 401,
+        json: vi.fn(async () => ({
+          ok: false,
+          error: { code: ErrorCodes.Unauthenticated, message: 'Access token is invalid or expired' }
+        }))
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        json: vi.fn(async () => ({ ok: true, data: [{ id: 'project-1' }] }))
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    axiosRequestMock.mockResolvedValueOnce({
+      status: 200,
+      data: {
+        ok: true,
+        data: {
+          session: { token: 'fresh-access-token' },
+          refreshToken: 'fresh-refresh-token',
+          user: { id: 'user-1' }
+        }
+      }
+    })
+
+    const response = await invokeBridge(IPC_CHANNELS.projects.list, { actorToken: 'stale-access-token', workspaceId: 'workspace-1' }, 'request-1')
+
+    expect(response.ok).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(axiosRequestMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer stale-access-token')
+    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe('Bearer fresh-access-token')
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual(expect.objectContaining({
+      requestId: 'request-1',
+      correlationId: 'request-1',
+      actorToken: 'fresh-access-token',
+      workspaceId: 'workspace-1'
+    }))
+
+    vi.unstubAllGlobals()
+  })
+
+  it('uses one web refresh request for concurrent unauthenticated HTTP responses', async () => {
+    stubWebRuntime()
+    setSessionToken('stale-access-token')
+    setRefreshToken('stored-refresh-token')
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 401,
+        json: vi.fn(async () => ({
+          ok: false,
+          error: { code: ErrorCodes.Unauthenticated, message: 'No active session' }
+        }))
+      })
+      .mockResolvedValueOnce({
+        status: 401,
+        json: vi.fn(async () => ({
+          ok: false,
+          error: { code: ErrorCodes.Unauthenticated, message: 'No active session' }
+        }))
+      })
+      .mockResolvedValue({
+        status: 200,
+        json: vi.fn(async () => ({ ok: true, data: [{ actorToken: 'fresh-access-token' }] }))
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    axiosRequestMock.mockResolvedValueOnce({
+      status: 200,
+      data: {
+        ok: true,
+        data: {
+          session: { token: 'fresh-access-token' },
+          refreshToken: 'fresh-refresh-token',
+          user: { id: 'user-1' }
+        }
+      }
+    })
+
+    const [first, second] = await Promise.all([
+      invokeBridge(IPC_CHANNELS.projects.list, { actorToken: 'stale-access-token' }, 'request-1'),
+      invokeBridge(IPC_CHANNELS.projects.list, { actorToken: 'stale-access-token' }, 'request-2')
+    ])
+
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    expect(axiosRequestMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(fetchMock.mock.calls.slice(2).every(([, init]) => init.headers.Authorization === 'Bearer fresh-access-token')).toBe(true)
+
+    vi.unstubAllGlobals()
+  })
+
+  it('tries one extra silent web refresh and does not retry the original request when refresh keeps failing', async () => {
+    stubWebRuntime()
+    setSessionToken('stale-access-token')
+    setRefreshToken('stored-refresh-token')
+    const fetchMock = vi.fn(async () => ({
+      status: 401,
+      json: vi.fn(async () => ({
+        ok: false,
+        error: { code: ErrorCodes.Unauthenticated, message: 'Access token is invalid or expired' }
+      }))
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    axiosRequestMock
+      .mockResolvedValueOnce({
+        status: 401,
+        data: {
+          ok: false,
+          error: { code: ErrorCodes.Unauthenticated, message: 'Refresh token is invalid' }
+        }
+      })
+      .mockResolvedValueOnce({
+        status: 401,
+        data: {
+          ok: false,
+          error: { code: ErrorCodes.Unauthenticated, message: 'Refresh token is invalid' }
+        }
+      })
+
+    const response = await invokeBridge(IPC_CHANNELS.projects.list, { actorToken: 'stale-access-token' })
+
+    expect(response.ok).toBe(false)
+    expect(response.error?.code).toBe(ErrorCodes.Unauthenticated)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(axiosRequestMock).toHaveBeenCalledTimes(2)
 
     vi.unstubAllGlobals()
   })
