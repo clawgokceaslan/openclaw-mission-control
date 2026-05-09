@@ -1,6 +1,41 @@
+.chatPopupShell {
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow: hidden;
+}
+
+.chatMain {
+  overflow: hidden;
+}
+
+.chatTopbar {
+  min-width: 0;
+}
+
+.chatTopbarTitle {
+  min-width: 0;
+}
+
+.chatPipelineStrip {
+  min-width: 0;
+}
+
+.chatWorkspace {
+  min-width: 0;
+}
+
+.chatComposer {
+  min-width: 0;
+}
+
 .chatTopbarActions {
   .chatHeaderMoreWrap {
     display: none;
+  }
+
+  .mobilePrimaryAction,
+  .mobileOverflowAction {
+    flex: 0 0 auto;
   }
 }
 
@@ -46,6 +81,11 @@
       background: var(--omc-surface-muted);
     }
 
+    &:focus-visible {
+      outline: 2px solid color-mix(in srgb, var(--omc-primary) 48%, transparent);
+      outline-offset: 2px;
+    }
+
     &:disabled {
       cursor: not-allowed;
       opacity: 0.55;
@@ -70,6 +110,15 @@
 }
 
 @media (max-width: 1120px) and (min-width: 861px) {
+  .chatPopupShell {
+    inset: 12px;
+    grid-template-columns: minmax(220px, 270px) minmax(0, 1fr);
+  }
+
+  .chatPipelineStrip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .chatTopbarActions {
     max-width: 320px;
     flex-wrap: wrap;
@@ -87,9 +136,41 @@
 }
 
 @media (max-width: 860px) {
+  .chatPopupShell {
+    width: 100dvw;
+    max-width: 100dvw;
+    overflow: hidden;
+  }
+
+  .chatMain {
+    min-height: 0;
+    max-width: 100dvw;
+  }
+
+  .chatTopbar {
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .chatTopbarTitle {
+    overflow: hidden;
+  }
+
+  .chatPipelineStrip {
+    display: none;
+  }
+
+  .chatWorkspace {
+    overflow: hidden;
+  }
+
+  .chatComposer {
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  }
+
   .chatTopbarActions {
     display: grid;
-    grid-template-columns: repeat(2, 44px) 44px 44px;
+    grid-template-columns: repeat(4, 44px);
     gap: 4px;
 
     button {
@@ -115,8 +196,12 @@
 }
 
 @media (max-width: 480px) {
+  .chatTopbar {
+    gap: 6px;
+  }
+
   .chatTopbarActions {
-    grid-template-columns: repeat(2, 42px) 42px 42px;
+    grid-template-columns: repeat(4, 42px);
     gap: 3px;
 
     button {

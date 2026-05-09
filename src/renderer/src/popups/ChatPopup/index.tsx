@@ -202,6 +202,7 @@ type ChatHeaderAction = {
 function ChatHeaderOverflowMenu({ actions }: { actions: ChatHeaderAction[] }) {
   const [isOpen, setIsOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const buttonRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
     if (!isOpen) return
@@ -210,7 +211,10 @@ function ChatHeaderOverflowMenu({ actions }: { actions: ChatHeaderAction[] }) {
       setIsOpen(false)
     }
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setIsOpen(false)
+      if (event.key === 'Escape') {
+        setIsOpen(false)
+        buttonRef.current?.focus()
+      }
     }
     window.addEventListener('mousedown', close)
     window.addEventListener('keydown', closeOnEscape)
@@ -225,6 +229,7 @@ function ChatHeaderOverflowMenu({ actions }: { actions: ChatHeaderAction[] }) {
   return (
     <div className={popupStyles.chatHeaderMoreWrap} ref={menuRef}>
       <button
+        ref={buttonRef}
         type="button"
         className={`${styles.chatIconAction} ${popupStyles.chatHeaderMoreButton} ${isOpen ? styles.chatActionActive : ''}`}
         onClick={() => setIsOpen((value) => !value)}
@@ -246,6 +251,8 @@ function ChatHeaderOverflowMenu({ actions }: { actions: ChatHeaderAction[] }) {
                 role="menuitem"
                 className={`${action.active ? popupStyles.chatHeaderMenuActive : ''} ${action.danger ? popupStyles.chatHeaderMenuDanger : ''}`}
                 disabled={action.disabled}
+                aria-label={action.ariaLabel}
+                title={action.title}
                 onClick={() => {
                   if (action.disabled) return
                   setIsOpen(false)
@@ -608,7 +615,7 @@ export function ChatPopup({
   return (
     <>
       <div className={styles.chatBackdrop} onClick={onClose} />
-      <section className={`${styles.modalShell} ${styles.chatPopupShell}`} role="dialog" aria-modal="true" aria-label="Codex chat" onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
+      <section className={`${styles.modalShell} ${styles.chatPopupShell} ${popupStyles.chatPopupShell}`} role="dialog" aria-modal="true" aria-label="Codex chat" onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
         {chatDragDepth > 0 ? (
           <div className={styles.chatDropOverlay}>
             <LuCloudUpload size={30} />
@@ -673,9 +680,9 @@ export function ChatPopup({
           {conversations.length === 0 ? <p>No Codex conversations yet.</p> : null}
           {chatHistoryCount > 0 ? <div className={styles.chatHistoryNote}><span>Task history</span><b>{chatHistoryCount}</b></div> : null}
         </aside>
-        <main className={styles.chatMain}>
-          <header className={styles.chatTopbar}>
-            <div className={styles.chatTopbarTitle}>
+        <main className={`${styles.chatMain} ${popupStyles.chatMain}`}>
+          <header className={`${styles.chatTopbar} ${popupStyles.chatTopbar}`}>
+            <div className={`${styles.chatTopbarTitle} ${popupStyles.chatTopbarTitle}`}>
               <span className={styles.chatTopbarTitleRow}>
                 <h2>{title}</h2>
                 {selectedChatStatusMeta ? <b className={`${styles.chatStatusBadge} ${styles[`chatStatus_${selectedChatStatusMeta.tone}`] ?? ''}`}>{selectedChatStatusMeta.label}</b> : null}
@@ -710,7 +717,7 @@ export function ChatPopup({
             </div>
           </header>
           {showRunActions ? (
-            <section className={styles.chatPipelineStrip} aria-label="Task yaşam döngüsü">
+            <section className={`${styles.chatPipelineStrip} ${popupStyles.chatPipelineStrip}`} aria-label="Task yaşam döngüsü">
               {pipelineRows.map((item) => {
                 const Icon = item.icon
                 return (
@@ -727,7 +734,7 @@ export function ChatPopup({
               })}
             </section>
           ) : null}
-          <div className={styles.chatWorkspace}>
+          <div className={`${styles.chatWorkspace} ${popupStyles.chatWorkspace}`}>
             <div className={styles.chatTranscript} ref={chatFeedRef} onScroll={onChatScroll}>
               {visibleMessages.length > 0 ? (
                 <div className={styles.chatMessageList}>
@@ -836,7 +843,7 @@ export function ChatPopup({
               </aside>
             ) : null}
           </div>
-          <footer className={styles.chatComposer}>
+          <footer className={`${styles.chatComposer} ${popupStyles.chatComposer}`}>
             {attachments.length > 0 ? (
               <div className={styles.chatAttachmentChips}>
                 {attachments.map((attachment) => (
