@@ -2,20 +2,25 @@ import bcrypt from 'bcryptjs'
 import { describe, expect, it } from 'vitest'
 import { AuthService } from './auth.service.js'
 
-function authServiceWithPassword(passwordHash: string) {
+function authServiceWithPassword(passwordHash: string, options?: { email?: string }) {
   const user = {
     id: 'user-1',
     organization_id: 'org-1',
     organizationId: 'org-1',
-    email: 'owner@mission.local',
+    email: options?.email ?? 'owner@mission.local',
     name: 'Owner',
     password_hash: passwordHash,
     role: 'owner'
   }
   let storedPasswordHash = passwordHash
+  let ensuredDefaultOwner = false
   const repo = {
-    findByEmail: async () => ({ ...user, password_hash: storedPasswordHash }),
-    ensureDefaultOwner: async () => ({ ...user, password_hash: storedPasswordHash }),
+    findDefaultWorkspaceUser: async () => ({ ...user, password_hash: storedPasswordHash }),
+    findByEmail: async (email: string) => email === user.email ? { ...user, password_hash: storedPasswordHash } : undefined,
+    ensureDefaultOwner: async () => {
+      ensuredDefaultOwner = true
+      return { ...user, email: 'owner@mission.local', password_hash: storedPasswordHash }
+    },
     setPasswordHash: async (_userId: string, nextHash: string) => {
       storedPasswordHash = nextHash
     },
@@ -50,11 +55,42 @@ function authServiceWithPassword(passwordHash: string) {
 
   return {
     service: new AuthService(repo as any),
-    getStoredPasswordHash: () => storedPasswordHash
+    getStoredPasswordHash: () => storedPasswordHash,
+    wasDefaultOwnerEnsured: () => ensuredDefaultOwner
   }
 }
 
 describe('AuthService password hashing', () => {
+  it('issues desktop bootstrap sessions over IPC without checking or resetting the password', async () => {
+    const changedPasswordHash = bcrypt.hashSync('changed-password', 12)
+    const { service, getStoredPasswordHash } = authServiceWithPassword(changedPasswordHash)
+
+    const response = await service.login({ desktopBootstrap: true }, { transport: 'ipc' })
+
+    expect(response.ok).toBe(true)
+    expect(getStoredPasswordHash()).toBe(changedPasswordHash)
+  })
+
+  it('does not allow desktop bootstrap through the HTTP transport', async () => {
+    const { service } = authServiceWithPassword(bcrypt.hashSync('changed-password', 12))
+
+    const response = await service.login({ desktopBootstrap: true }, { transport: 'http' })
+
+    expect(response.ok).toBe(false)
+  })
+
+  it('uses the edited profile email for desktop bootstrap sessions', async () => {
+    const { service, wasDefaultOwnerEnsured } = authServiceWithPassword(bcrypt.hashSync('changed-password', 12), {
+      email: 'pilot@example.com'
+    })
+
+    const response = await service.login({ desktopBootstrap: true }, { transport: 'ipc' })
+
+    expect(response.ok).toBe(true)
+    expect(response.data.user.email).toBe('pilot@example.com')
+    expect(wasDefaultOwnerEnsured()).toBe(false)
+  })
+
   it('upgrades a valid PBKDF2 password to bcrypt after login', async () => {
     const legacyHash = 'pbkdf2:sha256:260000$local$75d92a58383dd943d4868d010791b54d4ad8f2c5f02a7fd08096e83b08f633e6'
     const { service, getStoredPasswordHash } = authServiceWithPassword(legacyHash)

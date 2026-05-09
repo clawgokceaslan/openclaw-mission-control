@@ -39,10 +39,14 @@ interface AuthResult {
 const getSafeToken = () => (typeof window === 'undefined' ? null : getSessionToken())
 
 const runBootstrapLogin = async () => {
-  const bootstrapResult = await loginWithAuthApi<AuthResult>({
-    email: DEFAULT_BOOTSTRAP_USER.email,
-    password: DEFAULT_BOOTSTRAP_USER.password
-  })
+  const bootstrapResult = await loginWithAuthApi<AuthResult>(
+    isElectronRuntime()
+      ? { desktopBootstrap: true }
+      : {
+          email: DEFAULT_BOOTSTRAP_USER.email,
+          password: DEFAULT_BOOTSTRAP_USER.password
+        }
+  )
 
   if (!bootstrapResult.ok || !bootstrapResult.data) {
     throw new Error(bootstrapResult.error?.message ?? 'Bootstrap login failed')

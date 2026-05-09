@@ -116,7 +116,35 @@ export class AuthService {
     return actor
   }
 
-  async login(payload: { email?: string; password?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse> {
+  private async issueOwnerDesktopSession(): Promise<ServiceResponse> {
+    const userRow = await this.authRepo.findDefaultWorkspaceUser()
+      ?? await this.authRepo.findByEmail(this.bootstrapEmail)
+      ?? await this.authRepo.ensureDefaultOwner(this.bootstrapEmail)
+
+    if (!userRow) {
+      return errorResponse(ErrorCodes.Unauthenticated, 'Desktop session could not be initialized')
+    }
+
+    const tokens = await this.issueTokens(userRow.id)
+    const user = this.mapUser({
+      id: userRow.id,
+      organizationId: userRow.organization_id,
+      email: userRow.email,
+      name: userRow.name,
+      role: userRow.role
+    })
+    const response = { session: tokens.session, refreshToken: tokens.refreshToken, refreshTokenExpiresAt: tokens.refreshTokenExpiresAt, user }
+    if (this.eventBus) {
+      this.eventBus.emit('auth:session-established', { userId: user.id })
+    }
+    return okResponse(response, { requestId: undefined })
+  }
+
+  async login(payload: { email?: string; password?: string; desktopBootstrap?: boolean }, meta?: Record<string, unknown>): Promise<ServiceResponse> {
+    if (payload?.desktopBootstrap === true && meta?.transport === 'ipc') {
+      return this.issueOwnerDesktopSession()
+    }
+
     if (!payload?.email || !payload?.password) {
       return errorResponse(ErrorCodes.Validation, 'Missing credentials')
     }

@@ -118,6 +118,11 @@ function apiBaseUrl(): string {
   const envBase = (import.meta.env.VITE_OMC_API_BASE_URL as string | undefined)?.trim()
   if (envBase) return envBase.replace(/\/$/, '')
   if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
+    const hostname = window.location.hostname
+    const port = window.location.port
+    if ((hostname === 'localhost' || hostname === '127.0.0.1') && (port === '5173' || port === '5174')) {
+      return 'http://127.0.0.1:3000'
+    }
     return window.location.origin
   }
   return 'http://127.0.0.1:3000'
@@ -202,7 +207,7 @@ async function requestAuthRest<T = unknown>(
   }
 }
 
-export async function loginWithAuthApi<T = unknown>(payload: { email: string; password: string }): Promise<BridgeResult<T>> {
+export async function loginWithAuthApi<T = unknown>(payload: { email?: string; password?: string; desktopBootstrap?: boolean }): Promise<BridgeResult<T>> {
   if (isElectronRuntime()) {
     const result = await invokeBridge<T>(IPC_CHANNELS.auth.login, payload)
     if (result.ok) persistAuthTokens(result.data)

@@ -21,6 +21,14 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
   private users = this.db.prepare(
     `SELECT id, organization_id, email, name, password_hash, role, created_at FROM users WHERE email = @email`
   )
+  private defaultWorkspaceUser = this.db.prepare(
+    `SELECT u.id, u.organization_id, u.email, u.name, u.password_hash, u.role, u.created_at
+     FROM users u
+     LEFT JOIN memberships m ON m.user_id = u.id AND m.organization_id = @orgId
+     WHERE u.organization_id = @orgId
+     ORDER BY CASE WHEN m.role = 'owner' OR u.role = 'owner' THEN 0 ELSE 1 END, u.created_at ASC
+     LIMIT 1`
+  )
   private updateUserName = this.db.prepare('UPDATE users SET name = @name WHERE id = @userId')
   private updateUserProfile = this.db.prepare('UPDATE users SET name = @name, email = @email, role = @role WHERE id = @userId')
   private updateUserPasswordHash = this.db.prepare('UPDATE users SET password_hash = @passwordHash WHERE id = @userId')
@@ -62,6 +70,12 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
 
   async findByEmail(email: string) {
     return (await this.users.get({ email })) as any | undefined
+  }
+
+  async findDefaultWorkspaceUser(): Promise<{ id: string; organization_id: string; email: string; name: string; password_hash: string; role: string } | undefined> {
+    return (await this.defaultWorkspaceUser.get({ orgId: this.defaultOrgId })) as
+      | { id: string; organization_id: string; email: string; name: string; password_hash: string; role: string }
+      | undefined
   }
 
   async setName(userId: string, name: string): Promise<void> {
