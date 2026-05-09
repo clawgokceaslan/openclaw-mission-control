@@ -11,6 +11,7 @@ import { ConfirmationProvider } from '@renderer/components/confirmation'
 import { subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { ProtectedRoute } from '@renderer/components/routes/ProtectedRoute'
 import { AppShell } from '@renderer/layout/AppShell'
+import { useRouteMetadata } from '@renderer/hooks/useRouteMetadata'
 import { DashboardPage, DetailedDashboardPage } from '@renderer/screens/DashboardPage'
 import { ProfilePage } from '@renderer/screens/ProfilePage'
 import { ProfileSetupPage } from '@renderer/screens/ProfileSetupPage'
@@ -140,6 +141,7 @@ function SignedInRouter() {
 function AppRouter() {
   const { initialized, user, errorMessage, refresh } = useAuth()
   const navigate = useNavigate()
+  useRouteMetadata()
   const [taskCreateInitial, setTaskCreateInitial] = useState<GlobalTaskCreateInitial | null>(null)
   const isElectron = typeof navigator !== 'undefined' && /Electron/.test(navigator.userAgent)
   const [autoRetried, setAutoRetried] = useState(false)
