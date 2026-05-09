@@ -246,7 +246,8 @@ function normalizePlannerQuestionOptions(value: unknown): PlannerQuestionOption[
     if (!label) return []
     const id = typeof record.id === 'string' && record.id.trim() ? record.id.trim() : `option-${index + 1}`
     const description = typeof record.description === 'string' && record.description.trim() ? record.description.trim() : undefined
-    const nextQuestions = normalizePlannerQuestions(record.nextQuestion === undefined ? [] : [record.nextQuestion])
+    const rawNextQuestion = record.nextQuestion ?? record.next_question ?? record.followUpQuestion ?? record.follow_up_question
+    const nextQuestions = normalizePlannerQuestions(rawNextQuestion === undefined ? [] : [rawNextQuestion])
     const nextQuestion = nextQuestions[0]
     return [{ id, label, description, ...(nextQuestion ? { nextQuestion } : {}) }]
   })

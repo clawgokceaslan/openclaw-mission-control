@@ -229,6 +229,71 @@ describe('planner question helpers', () => {
     expect(answer).not.toContain('Do not include stale branch.')
   })
 
+  it('keeps a three-level planner question branch visible and prunes hidden sibling answers', () => {
+    const prompt = plannerQuestionPromptFromMessages([
+      message({
+        id: 'question-1',
+        source: 'gateway-plan',
+        role: 'assistant',
+        createdAt: 10,
+        metadata: {
+          gatewayBlock: 'planner-question',
+          questions: [
+            {
+              id: 'entry',
+              question: 'Start with questions?',
+              options: [
+                {
+                  id: 'ask',
+                  label: 'Ask first',
+                  next_question: {
+                    id: 'depth',
+                    question: 'How deep should questions go?',
+                    options: [
+                      {
+                        id: 'guided',
+                        label: 'Guided',
+                        followUpQuestion: {
+                          id: 'branch',
+                          question: 'Which branch should be explored?',
+                          options: [{ id: 'ui', label: 'UI flow' }]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  id: 'direct',
+                  label: 'Direct',
+                  nextQuestion: { id: 'direct-scope', question: 'Direct scope?' }
+                }
+              ]
+            }
+          ]
+        }
+      })
+    ])!
+
+    expect(visiblePlannerQuestionPath(prompt.questions, { entry: 'ask', depth: 'guided' }).map((question) => question.id)).toEqual(['entry', 'depth', 'branch'])
+
+    const pruned = prunePlannerQuestionPathAnswers(
+      prompt.questions,
+      { entry: 'ask', depth: 'guided', branch: 'ui', 'direct-scope': 'stale' },
+      { branch: 'Explore popup behavior.', 'direct-scope': 'Do not include.' }
+    )
+    const answer = formatPlannerClarificationAnswer({
+      prompt,
+      selectedOptionIds: pruned.selectedOptionIds,
+      notes: pruned.notes
+    })
+
+    expect(answer).toContain('Question: Which branch should be explored?')
+    expect(answer).toContain('Answer: UI flow')
+    expect(answer).toContain('Extra answer: Explore popup behavior.')
+    expect(answer).not.toContain('Direct scope?')
+    expect(answer).not.toContain('Do not include.')
+  })
+
   it('builds first-option answers for every available planner question path', () => {
     const prompt = plannerQuestionPromptFromMessages([
       message({
