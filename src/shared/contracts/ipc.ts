@@ -13,6 +13,8 @@ export const IPC_CHANNELS = {
     me: 'auth:me',
     inviteValidate: 'auth:invite-validate',
     updateProfile: 'auth:update-profile',
+    updateAvatar: 'auth:update-avatar',
+    removeAvatar: 'auth:remove-avatar',
     changePassword: 'auth:change-password'
   },
   projects: {
@@ -685,7 +687,7 @@ export interface ServiceMapEntry<TDomain extends ServiceDomain = ServiceDomain, 
 }
 
 export const SERVICE_MAP = {
-  auth: ['login', 'refresh', 'logout', 'me', 'inviteValidate', 'updateProfile', 'changePassword'],
+  auth: ['login', 'refresh', 'logout', 'me', 'inviteValidate', 'updateProfile', 'updateAvatar', 'removeAvatar', 'changePassword'],
   projects: ['list', 'get', 'create', 'update', 'moveWorkspace', 'exportWorkspace', 'remove'],
   workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
   appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent', 'getDefaultAddTaskProject', 'setDefaultAddTaskProject', 'getGatewayLanguage', 'setGatewayLanguage', 'getPlannerQuestionAttention', 'setPlannerQuestionAttention', 'getDatabaseLocation', 'getWebServerStatus', 'openWebServerUrl', 'pickDatabaseFolder', 'pickDatabaseFile', 'moveDatabaseLocation', 'revealDatabaseLocation'],
@@ -752,6 +754,20 @@ export const SERVICE_ROUTING: {
       action: 'updateProfile',
       method: 'updateProfile',
       channel: IPC_CHANNELS.auth.updateProfile,
+      requiresAuth: true
+    },
+    updateAvatar: {
+      domain: 'auth',
+      action: 'updateAvatar',
+      method: 'updateAvatar',
+      channel: IPC_CHANNELS.auth.updateAvatar,
+      requiresAuth: true
+    },
+    removeAvatar: {
+      domain: 'auth',
+      action: 'removeAvatar',
+      method: 'removeAvatar',
+      channel: IPC_CHANNELS.auth.removeAvatar,
       requiresAuth: true
     },
     changePassword: {

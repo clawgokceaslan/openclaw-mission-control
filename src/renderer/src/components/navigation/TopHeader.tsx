@@ -5,7 +5,7 @@ import { LuArrowRight, LuMenu, LuMessageCircleQuestion, LuPlus, LuSearch, LuX } 
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import type { User } from '@shared/types/entities'
 import { UserAvatar } from '@renderer/components/avatar/UserAvatar'
-import { useLocalAvatar } from '@renderer/components/avatar/localAvatar'
+import { apiBaseUrl } from '@renderer/utils/api'
 import { RunningGatewayMenu } from './RunningCodexMenu'
 import { usePlannerQuestions } from '@renderer/components/planner/PlannerQuestionHost'
 import { useOutsidePointerDown } from './useOutsidePointerDown'
@@ -15,6 +15,12 @@ import { PlannedTasksMenu } from './PlannedTasksMenu'
 import { UniversalCommand, type GlobalTaskCreateInitial } from './UniversalCommand'
 
 const appIconSrc = new URL('../../../../../app-icon.png', import.meta.url).href
+
+function resolveAvatarUrl(avatarUrl: string | null | undefined): string | null {
+  if (!avatarUrl) return null
+  if (/^https?:\/\//i.test(avatarUrl) || avatarUrl.startsWith('data:')) return avatarUrl
+  return `${apiBaseUrl()}${avatarUrl.startsWith('/') ? avatarUrl : `/${avatarUrl}`}`
+}
 
 function hasMacWindowControlsInset(): boolean {
   const isElectron = typeof navigator !== 'undefined' && /Electron/.test(navigator.userAgent)
@@ -38,7 +44,7 @@ export function TopHeader({ user, sidebarOpen, onToggleSidebar }: TopHeaderProps
   const [questionPanelOpen, setQuestionPanelOpen] = useState(false)
   const questionPanelRef = useRef<HTMLDivElement | null>(null)
   const { queue: plannerQuestions, hasConfigurationWarning, openQuestion } = usePlannerQuestions()
-  const { avatarUrl } = useLocalAvatar(user?.id)
+  const avatarUrl = resolveAvatarUrl(user?.avatarUrl)
   const brandAreaClassName = `${styles.brandArea} ${hasMacWindowControlsInset() ? styles.brandAreaMacInset : ''}`
 
   useEffect(() => {
@@ -173,7 +179,7 @@ export function TopHeader({ user, sidebarOpen, onToggleSidebar }: TopHeaderProps
           ) : null}
           </div>
           <Link className={styles.userArea} to={APP_ROUTES.PROFILE} aria-label="Open profile">
-            <UserAvatar name={userName} imageUrl={avatarUrl ?? null} alt="Open Mission Control avatar" className={styles.userAvatar} />
+            <UserAvatar name={userName} imageUrl={avatarUrl} alt="Open Mission Control avatar" className={styles.userAvatar} />
           </Link>
         </div>
       </Container>

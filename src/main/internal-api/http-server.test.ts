@@ -1,5 +1,9 @@
 import EventEmitter from 'node:events'
+import { createReadStream } from 'node:fs'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 import { createWebServerStatusState, getInternalHttpServerStatus, startInternalHttpServer } from './http-server.js'
@@ -36,13 +40,27 @@ function createContext() {
         me: async (payload: { actorToken?: string }) => payload.actorToken === 'access-token'
           ? { ok: true, data: { session: { token: payload.actorToken }, user: { id: 'user-1' } } }
           : { ok: false, error: { code: 'ERR_UNAUTHENTICATED', message: 'No active session' } },
-        logout: async (payload: { actorToken?: string }) => ({ ok: true, data: { ok: true, actorToken: payload.actorToken } })
+        logout: async (payload: { actorToken?: string }) => ({ ok: true, data: { ok: true, actorToken: payload.actorToken } }),
+        getActiveAvatarFile: async () => null
       },
       projects: {
         list: async (payload: { actorToken?: string }) => ({ ok: true, data: [{ id: 'project-1', actorToken: payload.actorToken }] })
       }
     }
   } as any
+}
+
+function createContextWithAvatar(avatarPath: string, body: Buffer) {
+  const context = createContext()
+  context.services.auth.getActiveAvatarFile = async () => ({
+    path: avatarPath,
+    mimeType: 'image/png',
+    etag: '"avatar-test"',
+    size: body.length,
+    mtimeMs: Date.now(),
+    stream: createReadStream(avatarPath)
+  })
+  return context
 }
 
 function requestJson(options: {
@@ -313,6 +331,29 @@ describe('startInternalHttpServer', () => {
       const logoutJson = await logoutResponse.json() as { ok: boolean; data?: { actorToken?: string } }
       expect(logoutResponse.status).toBe(200)
       expect(logoutJson.data?.actorToken).toBe('access-token')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('serves only the active profile avatar through the dedicated image endpoint', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'omc-avatar-test-'))
+    const avatarPath = join(tempDir, 'avatar.png')
+    const body = Buffer.from('avatar-image')
+    await writeFile(avatarPath, body)
+
+    const server = await startInternalHttpServer(createContextWithAvatar(avatarPath, body), { preferredPort: 30170, host: '127.0.0.1' })
+    try {
+      const response = await fetch(`${server.url}/api/profile/avatar?path=../../secret`)
+      const buffer = Buffer.from(await response.arrayBuffer())
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toBe('image/png')
+      expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+      expect(buffer.equals(body)).toBe(true)
+
+      const missing = await fetch(`${server.url}/api/profile/avatar/../../secret`)
+      expect(missing.status).toBe(404)
     } finally {
       await server.close()
     }

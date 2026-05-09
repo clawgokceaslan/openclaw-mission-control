@@ -4,6 +4,7 @@ export interface User {
   name?: string | null
   role: 'owner' | 'admin' | 'member'
   organizationId: string
+  avatarUrl?: string | null
 }
 
 export interface Session {

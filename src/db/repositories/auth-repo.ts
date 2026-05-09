@@ -20,10 +20,10 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
   private readonly localPasswordHash = '$2b$12$42NmjQ.8tLD3O5pYRn.acuvLjpnTbPAGLEnzResDNGwU/CuinF8VS'
 
   private users = this.db.prepare(
-    `SELECT id, organization_id, email, name, password_hash, role, created_at FROM users WHERE lower(email) = lower(@email)`
+    `SELECT id, organization_id, email, name, password_hash, role, avatar_path, created_at FROM users WHERE lower(email) = lower(@email)`
   )
   private defaultWorkspaceUser = this.db.prepare(
-    `SELECT u.id, u.organization_id, u.email, u.name, u.password_hash, u.role, u.created_at
+    `SELECT u.id, u.organization_id, u.email, u.name, u.password_hash, u.role, u.avatar_path, u.created_at
      FROM users u
      LEFT JOIN memberships m ON m.user_id = u.id AND m.organization_id = @orgId
      WHERE u.organization_id = @orgId
@@ -32,6 +32,7 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
   )
   private updateUserName = this.db.prepare('UPDATE users SET name = @name WHERE id = @userId')
   private updateUserProfile = this.db.prepare('UPDATE users SET name = @name, email = @email, role = @role WHERE id = @userId')
+  private updateUserAvatarPath = this.db.prepare('UPDATE users SET avatar_path = @avatarPath WHERE id = @userId')
   private updateUserPasswordHash = this.db.prepare('UPDATE users SET password_hash = @passwordHash WHERE id = @userId')
   private updateMembershipRole = this.db.prepare('UPDATE memberships SET role = @role WHERE organization_id = @orgId AND user_id = @userId')
   private sessionsInsert = this.db.prepare(
@@ -73,9 +74,9 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
     return (await this.users.get({ email })) as any | undefined
   }
 
-  async findDefaultWorkspaceUser(): Promise<{ id: string; organization_id: string; email: string; name: string; password_hash: string; role: string } | undefined> {
+  async findDefaultWorkspaceUser(): Promise<{ id: string; organization_id: string; email: string; name: string; password_hash: string; role: string; avatar_path?: string | null } | undefined> {
     return (await this.defaultWorkspaceUser.get({ orgId: this.defaultOrgId })) as
-      | { id: string; organization_id: string; email: string; name: string; password_hash: string; role: string }
+      | { id: string; organization_id: string; email: string; name: string; password_hash: string; role: string; avatar_path?: string | null }
       | undefined
   }
 
@@ -92,7 +93,11 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
     await this.updateUserPasswordHash.run({ userId, passwordHash })
   }
 
-  async ensureLocalUser(): Promise<{ id: string; organization_id: string; email: string; name: string; password_hash: string; role: string } | undefined> {
+  async setAvatarPath(userId: string, avatarPath: string | null): Promise<void> {
+    await this.updateUserAvatarPath.run({ userId, avatarPath })
+  }
+
+  async ensureLocalUser(): Promise<{ id: string; organization_id: string; email: string; name: string; password_hash: string; role: string; avatar_path?: string | null } | undefined> {
     const now = Date.now()
     const organizationId = this.defaultOrgId
 
@@ -136,7 +141,7 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
     }
 
     return user as
-      | { id: string; organization_id: string; email: string; name: string; password_hash: string; role: string }
+      | { id: string; organization_id: string; email: string; name: string; password_hash: string; role: string; avatar_path?: string | null }
       | undefined
   }
 
@@ -233,9 +238,9 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
   }
 
   async findUserById(userId: string): Promise<User | undefined> {
-    const row = (await this.db.prepare('SELECT id, organization_id as organizationId, email, name, role FROM users WHERE id = @userId').get({
+    const row = (await this.db.prepare('SELECT id, organization_id as organizationId, email, name, role, avatar_path as avatarPath FROM users WHERE id = @userId').get({
       userId
-    })) as User | undefined
+    })) as (User & { avatarPath?: string | null }) | undefined
     return row
   }
 

@@ -1,5 +1,8 @@
 import EventEmitter from 'node:events'
-import { timingSafeEqual, pbkdf2Sync } from 'node:crypto'
+import { randomUUID, timingSafeEqual, pbkdf2Sync } from 'node:crypto'
+import { createReadStream } from 'node:fs'
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
+import { basename, dirname, extname, join, resolve } from 'node:path'
 import bcrypt from 'bcryptjs'
 import { AppError } from '../../shared/errors/index.js'
 import { ErrorCodes } from '../../shared/contracts/error-codes.js'
@@ -7,6 +10,7 @@ import { errorResponse, okResponse, ServiceResponse } from '../../shared/contrac
 import { Session, User } from '../../shared/types/entities.js'
 import { ACCESS_TOKEN_TTL_MS, REFRESH_TOKEN_TTL_MS } from '../../shared/constants/config.js'
 import { AuthRepository } from '../../db/repositories/auth-repo.js'
+import { electronRuntime } from '../utils/electron-runtime.js'
 import { desktopRefreshTokenStore } from './desktop-refresh-token-store.js'
 
 interface AuthTokenPair {
@@ -25,26 +29,136 @@ type LoginAttemptState = {
   windowStartedAt: number
 }
 
+type UserRow = {
+  id: string
+  organization_id?: string
+  organizationId?: string
+  email: string
+  name?: string | null
+  role: string
+  avatar_path?: string | null
+  avatarPath?: string | null
+}
+
+export interface ActiveAvatarFile {
+  path: string
+  mimeType: string
+  etag: string
+  size: number
+  mtimeMs: number
+  stream: ReturnType<typeof createReadStream>
+}
+
+const PROFILE_AVATAR_ROUTE = '/api/profile/avatar'
+const AVATAR_DIRECTORY_NAME = 'profile-avatars'
+const AVATAR_MIME_BY_EXTENSION = new Map([
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+  ['.webp', 'image/webp'],
+  ['.gif', 'image/gif']
+])
+
 export class AuthService {
   private readonly minPasswordLength = 8
   private readonly loginAttemptLimit = 10
   private readonly loginAttemptWindowMs = 15 * 60 * 1000
   private readonly roles: User['role'][] = ['owner', 'admin', 'member']
   private readonly failedLoginAttempts = new Map<string, LoginAttemptState>()
+  private activeUserId: string | null = null
   constructor(
     private readonly authRepo: AuthRepository,
     private readonly eventBus?: EventEmitter
   ) {}
 
-  private mapUser(row: { id: string; organization_id?: string; organizationId?: string; email: string; name?: string | null; role: string }): User {
+  private mapUser(row: UserRow): User {
+    const avatarVersion = this.avatarVersion(row.avatar_path ?? row.avatarPath ?? null)
     return {
       id: row.id,
       organizationId: row.organization_id ?? row.organizationId,
       email: row.email,
       name: row.name ?? undefined,
       role: row.role as User['role'],
+      avatarUrl: avatarVersion ? `${PROFILE_AVATAR_ROUTE}?v=${encodeURIComponent(avatarVersion)}` : null
       // placeholder role normalization
     } as User
+  }
+
+  private markActiveUser(userId: string): void {
+    this.activeUserId = userId
+  }
+
+  private avatarRoot(): string {
+    const userData = electronRuntime.app?.getPath('userData') ?? process.cwd()
+    return join(userData, AVATAR_DIRECTORY_NAME)
+  }
+
+  private userAvatarDirectory(userId: string): string {
+    return join(this.avatarRoot(), userId)
+  }
+
+  private safeAvatarPath(userId: string, filename: string): string {
+    const root = resolve(this.userAvatarDirectory(userId))
+    const filePath = resolve(root, basename(filename))
+    if (!filePath.startsWith(`${root}${process.platform === 'win32' ? '\\' : '/'}`)) {
+      throw new AppError(ErrorCodes.Validation, 'Invalid avatar path')
+    }
+    return filePath
+  }
+
+  private avatarVersion(avatarPath: string | null): string | null {
+    if (!avatarPath) return null
+    return basename(avatarPath).replace(/[^a-zA-Z0-9._-]/g, '')
+  }
+
+  private parseAvatarDataUrl(dataUrl?: string): { buffer: Buffer; extension: string } | string {
+    const value = dataUrl?.trim() ?? ''
+    const match = /^data:(image\/(?:png|jpeg|jpg|webp|gif));base64,([a-zA-Z0-9+/=]+)$/i.exec(value)
+    if (!match) return 'Avatar must be a PNG, JPG, WEBP, or GIF data URL'
+    const mimeType = match[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : match[1].toLowerCase()
+    const extension = mimeType === 'image/jpeg' ? '.jpg' : `.${mimeType.split('/')[1]}`
+    const buffer = Buffer.from(match[2], 'base64')
+    if (buffer.length === 0) return 'Avatar image is empty'
+    if (buffer.length > 5 * 1024 * 1024) return 'Avatar image must be 5 MB or smaller'
+    return { buffer, extension }
+  }
+
+  private async removeStoredAvatar(avatarPath?: string | null): Promise<void> {
+    if (!avatarPath) return
+    const resolvedPath = resolve(avatarPath)
+    const root = resolve(this.avatarRoot())
+    if (!resolvedPath.startsWith(`${root}${process.platform === 'win32' ? '\\' : '/'}`)) return
+    await rm(resolvedPath, { force: true }).catch(() => undefined)
+    await rm(dirname(resolvedPath), { force: true, recursive: false }).catch(() => undefined)
+  }
+
+  private async getStoredAvatarFile(userId: string | null): Promise<ActiveAvatarFile | null> {
+    if (!userId) return null
+    const row = await this.authRepo.findUserById(userId)
+    const avatarPath = row && 'avatarPath' in row ? row.avatarPath : null
+    if (!avatarPath) return null
+
+    const extension = extname(avatarPath).toLowerCase()
+    const mimeType = AVATAR_MIME_BY_EXTENSION.get(extension)
+    if (!mimeType) return null
+
+    const expectedPath = this.safeAvatarPath(row.id, basename(avatarPath))
+    if (resolve(avatarPath) !== expectedPath) return null
+
+    try {
+      const fileStat = await stat(expectedPath)
+      if (!fileStat.isFile()) return null
+      return {
+        path: expectedPath,
+        mimeType,
+        etag: `"${basename(expectedPath)}-${fileStat.size}-${Math.floor(fileStat.mtimeMs)}"`,
+        size: fileStat.size,
+        mtimeMs: fileStat.mtimeMs,
+        stream: createReadStream(expectedPath)
+      }
+    } catch {
+      return null
+    }
   }
 
   private hashBcryptPassword(password: string): string {
@@ -155,8 +269,10 @@ export class AuthService {
       organizationId: row.organizationId,
       email: row.email,
       name: row.name,
-      role: row.role
+      role: row.role,
+      avatarPath: row.avatarPath
     })
+    this.markActiveUser(user.id)
     return { session, user }
   }
 
@@ -189,8 +305,10 @@ export class AuthService {
       organizationId: userRow.organization_id,
       email: userRow.email,
       name: userRow.name,
-      role: userRow.role
+      role: userRow.role,
+      avatar_path: userRow.avatar_path
     })
+    this.markActiveUser(user.id)
     const response = { session: tokens.session, refreshToken: tokens.refreshToken, refreshTokenExpiresAt: tokens.refreshTokenExpiresAt, user }
     await desktopRefreshTokenStore.set(tokens.refreshToken)
     if (this.eventBus) {
@@ -235,8 +353,10 @@ export class AuthService {
       organizationId: userRow.organization_id,
       email: userRow.email,
       name: userRow.name,
-      role: userRow.role
+      role: userRow.role,
+      avatar_path: userRow.avatar_path
     })
+    this.markActiveUser(user.id)
     const response = { session: tokens.session, refreshToken: tokens.refreshToken, refreshTokenExpiresAt: tokens.refreshTokenExpiresAt, user }
     if (this.eventBus) {
       this.eventBus.emit('auth:session-established', { userId: user.id })
@@ -272,14 +392,17 @@ export class AuthService {
       organizationId: row.organizationId,
       email: row.email,
       name: row.name,
-      role: row.role
+      role: row.role,
+      avatarPath: row.avatarPath
     })
+    this.markActiveUser(user.id)
     return okResponse({ session: next.session, refreshToken: next.refreshToken, refreshTokenExpiresAt: next.refreshTokenExpiresAt, user })
   }
 
   async me(payload: { actorToken?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse> {
     const actor = await this.getSessionActor(payload?.actorToken)
     if (!actor) return errorResponse(ErrorCodes.Unauthenticated, 'No active session')
+    this.markActiveUser(actor.user.id)
     return okResponse({ session: actor.session, user: actor.user })
   }
 
@@ -326,6 +449,59 @@ export class AuthService {
         role
       }
     })
+  }
+
+  async updateAvatar(
+    payload: { actorToken?: string; dataUrl?: string },
+    _meta?: Record<string, unknown>
+  ): Promise<ServiceResponse> {
+    const actor = await this.requireActor(payload?.actorToken)
+    const parsed = this.parseAvatarDataUrl(payload?.dataUrl)
+    if (typeof parsed === 'string') return errorResponse(ErrorCodes.Validation, parsed)
+
+    const row = await this.authRepo.findUserById(actor.user.id)
+    const oldAvatarPath = row && 'avatarPath' in row ? row.avatarPath : null
+    const avatarDirectory = this.userAvatarDirectory(actor.user.id)
+    await mkdir(avatarDirectory, { recursive: true })
+    const avatarPath = this.safeAvatarPath(actor.user.id, `${randomUUID()}${parsed.extension}`)
+    await writeFile(avatarPath, parsed.buffer, { flag: 'wx' })
+    await this.authRepo.setAvatarPath(actor.user.id, avatarPath)
+    await this.removeStoredAvatar(oldAvatarPath)
+
+    this.markActiveUser(actor.user.id)
+    const user = this.mapUser({
+      ...actor.user,
+      organizationId: actor.user.organizationId,
+      avatarPath
+    })
+    return okResponse({ session: actor.session, user })
+  }
+
+  async removeAvatar(payload: { actorToken?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse> {
+    const actor = await this.requireActor(payload?.actorToken)
+    const row = await this.authRepo.findUserById(actor.user.id)
+    const oldAvatarPath = row && 'avatarPath' in row ? row.avatarPath : null
+    await this.authRepo.setAvatarPath(actor.user.id, null)
+    await this.removeStoredAvatar(oldAvatarPath)
+    this.markActiveUser(actor.user.id)
+    return okResponse({
+      session: actor.session,
+      user: {
+        ...actor.user,
+        avatarUrl: null
+      }
+    })
+  }
+
+  async getActiveAvatarFile(): Promise<ActiveAvatarFile | null> {
+    if (this.activeUserId) {
+      const activeAvatar = await this.getStoredAvatarFile(this.activeUserId)
+      if (activeAvatar) return activeAvatar
+    }
+
+    const defaultUser = await this.authRepo.findDefaultWorkspaceUser()
+    if (!defaultUser) return null
+    return this.getStoredAvatarFile(defaultUser.id)
   }
 
   async changePassword(

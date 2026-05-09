@@ -6,8 +6,10 @@ import {
   changePassword as changePasswordThunk,
   loginAuth,
   logoutAuth,
+  removeAvatar as removeAvatarThunk,
   refreshAuth,
   setToken as setAuthToken,
+  updateAvatar as updateAvatarThunk,
   updateProfile as updateProfileThunk
 } from '@renderer/store/slices/authSlice'
 
@@ -19,6 +21,8 @@ interface AuthContextValue {
   errorMessage: string | null
   login: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>
   updateProfile: (firstName: string, lastName: string, options?: { email?: string; role?: User['role'] }) => Promise<{ ok: boolean; message?: string }>
+  updateAvatar: (dataUrl: string) => Promise<{ ok: boolean; message?: string }>
+  removeAvatar: () => Promise<{ ok: boolean; message?: string }>
   changePassword: (newPassword: string, confirmPassword: string) => Promise<{ ok: boolean; message?: string }>
   logout: () => Promise<void>
   refresh: () => Promise<void>
@@ -97,6 +101,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const updateAvatar = async (dataUrl: string) => {
+    try {
+      await dispatch(updateAvatarThunk({ dataUrl })).unwrap()
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Avatar update failed' }
+    }
+  }
+
+  const removeAvatar = async () => {
+    try {
+      await dispatch(removeAvatarThunk()).unwrap()
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Avatar remove failed' }
+    }
+  }
+
   const logout = async () => {
     await dispatch(logoutAuth())
       .unwrap()
@@ -117,6 +139,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       errorMessage,
       login,
       updateProfile,
+      updateAvatar,
+      removeAvatar,
       changePassword,
       logout,
       refresh

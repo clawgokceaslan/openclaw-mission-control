@@ -26,10 +26,10 @@ import {
   LuZoomIn
 } from 'react-icons/lu'
 import type { User } from '@shared/types/entities'
-import { useLocalAvatar } from '@renderer/components/avatar/localAvatar'
 import { UserAvatar } from '@renderer/components/avatar/UserAvatar'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { useTheme, type ThemeMode } from '@renderer/providers/theme/theme-state'
+import { apiBaseUrl } from '@renderer/utils/api'
 import styles from './ProfilePage.module.scss'
 
 const TITLE_OPTIONS: User['role'][] = ['owner', 'admin', 'member']
@@ -117,8 +117,14 @@ function loadImage(file: File): Promise<{ dataUrl: string; image: HTMLImageEleme
   })
 }
 
+function resolveAvatarUrl(avatarUrl: string | null | undefined): string | null {
+  if (!avatarUrl) return null
+  if (/^https?:\/\//i.test(avatarUrl) || avatarUrl.startsWith('data:')) return avatarUrl
+  return `${apiBaseUrl()}${avatarUrl.startsWith('/') ? avatarUrl : `/${avatarUrl}`}`
+}
+
 export function ProfilePage() {
-  const { user, updateProfile, changePassword, refresh } = useAuth()
+  const { user, updateProfile, updateAvatar, removeAvatar: removeProfileAvatar, changePassword, refresh } = useAuth()
   const { mode, resolvedMode, paletteId, backgroundId, palettes, backgrounds, setMode, setPaletteId, setBackgroundId } = useTheme()
   const initialName = useMemo(() => splitName(user?.name), [user?.name])
   const [firstName, setFirstName] = useState(initialName.firstName)
@@ -136,9 +142,9 @@ export function ProfilePage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const cropImageRef = useRef<HTMLImageElement | null>(null)
   const dragStartRef = useRef<{ pointerId: number; startX: number; startY: number; offset: CropOffset } | null>(null)
-  const { avatarUrl, saveAvatar, clearAvatar } = useLocalAvatar(user?.id)
   const [avatarStatus, setAvatarStatus] = useState<string | null>(null)
   const [avatarError, setAvatarError] = useState<string | null>(null)
+  const [avatarPending, setAvatarPending] = useState(false)
   const [cropImageUrl, setCropImageUrl] = useState<string | null>(null)
   const [cropImageSize, setCropImageSize] = useState<ImageSize | null>(null)
   const [cropOffset, setCropOffset] = useState<CropOffset>({ x: 0, y: 0 })
@@ -146,7 +152,7 @@ export function ProfilePage() {
   const [croppedPreview, setCroppedPreview] = useState<string | null>(null)
   const fullName = `${firstName} ${lastName}`.trim() || user?.name?.trim() || 'Mission Operator'
   const accountEmail = email.trim() || user?.email || '-'
-  const activeAvatarUrl = avatarUrl ?? croppedPreview
+  const activeAvatarUrl = croppedPreview ?? resolveAvatarUrl(user?.avatarUrl)
   const displayScale = cropImageSize ? getBaseScale(cropImageSize) * cropZoom : 1
   const cropImageStyle = cropImageSize
     ? ({
@@ -318,19 +324,31 @@ export function ProfilePage() {
     )
   }
 
-  const saveCroppedAvatar = () => {
+  const saveCroppedAvatar = async () => {
     if (!croppedPreview) {
       setAvatarError('Choose an image before saving.')
       return
     }
-    saveAvatar(croppedPreview)
+    setAvatarPending(true)
+    const response = await updateAvatar(croppedPreview)
+    setAvatarPending(false)
+    if (!response.ok) {
+      setAvatarError(response.message ?? 'Avatar could not be saved.')
+      return
+    }
     resetCrop()
-    setAvatarStatus('Avatar updated on this device.')
+    setAvatarStatus('Avatar saved and published through the web endpoint.')
     setAvatarError(null)
   }
 
-  const removeAvatar = () => {
-    clearAvatar()
+  const removeAvatar = async () => {
+    setAvatarPending(true)
+    const response = await removeProfileAvatar()
+    setAvatarPending(false)
+    if (!response.ok) {
+      setAvatarError(response.message ?? 'Avatar could not be removed.')
+      return
+    }
     resetCrop()
     setAvatarStatus('Avatar removed. Initials are shown again.')
     setAvatarError(null)
@@ -376,7 +394,7 @@ export function ProfilePage() {
                   <input ref={fileInputRef} type="file" accept={SUPPORTED_IMAGE_TYPES.join(',')} onChange={onFileChange} />
                   <button type="button" onClick={() => fileInputRef.current?.click()}>
                     <LuCamera size={15} />
-                    {avatarUrl ? 'Replace image' : 'Choose image'}
+                    {user?.avatarUrl ? 'Replace image' : 'Choose image'}
                   </button>
                   {cropImageUrl ? (
                     <button type="button" className={styles.secondaryButton} onClick={resetCrop}>
@@ -384,7 +402,7 @@ export function ProfilePage() {
                       Cancel
                     </button>
                   ) : null}
-                  {avatarUrl ? (
+                  {user?.avatarUrl ? (
                     <button type="button" className={styles.dangerButton} onClick={removeAvatar}>
                       <LuTrash2 size={15} />
                       Remove
@@ -440,9 +458,9 @@ export function ProfilePage() {
                   <div className={styles.cropPreviewPanel}>
                     <span>Preview</span>
                     <UserAvatar name={fullName} imageUrl={croppedPreview} alt="Cropped avatar preview" size={96} radius={24} />
-                    <button type="button" onClick={saveCroppedAvatar}>
+                    <button type="button" onClick={saveCroppedAvatar} disabled={avatarPending}>
                       <LuSave size={15} />
-                      Save avatar
+                      {avatarPending ? 'Saving...' : 'Save avatar'}
                     </button>
                   </div>
                 </div>

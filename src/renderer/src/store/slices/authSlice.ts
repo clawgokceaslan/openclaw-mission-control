@@ -109,6 +109,45 @@ export const updateProfile = createAsyncThunk<
   return response.data
 })
 
+export const updateAvatar = createAsyncThunk<
+  AuthResult,
+  { dataUrl: string },
+  { state: { auth: AuthState } }
+>('auth/updateAvatar', async ({ dataUrl }, { getState }) => {
+  const { token } = getState().auth
+  if (!token) {
+    throw new Error('No active session')
+  }
+
+  const response = await invokeBridge<{ user: User; session: Session }>(IPC_CHANNELS.auth.updateAvatar, {
+    actorToken: token,
+    dataUrl
+  })
+  if (!response.ok || !response.data) {
+    throw new Error(response.error?.message || 'Avatar update failed')
+  }
+  return response.data
+})
+
+export const removeAvatar = createAsyncThunk<
+  AuthResult,
+  void,
+  { state: { auth: AuthState } }
+>('auth/removeAvatar', async (_, { getState }) => {
+  const { token } = getState().auth
+  if (!token) {
+    throw new Error('No active session')
+  }
+
+  const response = await invokeBridge<{ user: User; session: Session }>(IPC_CHANNELS.auth.removeAvatar, {
+    actorToken: token
+  })
+  if (!response.ok || !response.data) {
+    throw new Error(response.error?.message || 'Avatar remove failed')
+  }
+  return response.data
+})
+
 export const changePassword = createAsyncThunk<
   { ok: true },
   { newPassword: string; confirmPassword: string },
@@ -209,6 +248,32 @@ export const authSlice = createSlice({
     builder.addCase(updateProfile.rejected, (state, action) => {
       state.status = 'failed'
       state.errorMessage = action.error.message ?? 'Profile update failed'
+    })
+
+    builder.addCase(updateAvatar.pending, (state) => {
+      state.status = 'loading'
+    })
+    builder.addCase(updateAvatar.fulfilled, (state, action) => {
+      state.status = 'succeeded'
+      state.user = action.payload.user
+      state.session = action.payload.session
+    })
+    builder.addCase(updateAvatar.rejected, (state, action) => {
+      state.status = 'failed'
+      state.errorMessage = action.error.message ?? 'Avatar update failed'
+    })
+
+    builder.addCase(removeAvatar.pending, (state) => {
+      state.status = 'loading'
+    })
+    builder.addCase(removeAvatar.fulfilled, (state, action) => {
+      state.status = 'succeeded'
+      state.user = action.payload.user
+      state.session = action.payload.session
+    })
+    builder.addCase(removeAvatar.rejected, (state, action) => {
+      state.status = 'failed'
+      state.errorMessage = action.error.message ?? 'Avatar remove failed'
     })
 
     builder.addCase(changePassword.pending, (state) => {

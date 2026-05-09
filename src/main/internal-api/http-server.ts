@@ -136,6 +136,43 @@ function sendJson(response: ServerResponse, statusCode: number, value: unknown):
   response.end(JSON.stringify(value))
 }
 
+async function serveActiveProfileAvatar(context: AppContext, request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const avatar = await context.services.auth.getActiveAvatarFile()
+  if (!avatar) {
+    response.writeHead(404, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store'
+    })
+    response.end(JSON.stringify(errorResponse(ErrorCodes.NotFound, 'Active profile avatar not found')))
+    return
+  }
+
+  const requestEtag = requestHeader(request, 'if-none-match')
+  if (requestEtag === avatar.etag) {
+    response.writeHead(304, {
+      ETag: avatar.etag,
+      'Cache-Control': 'private, max-age=60'
+    })
+    response.end()
+    return
+  }
+
+  response.writeHead(200, {
+    'Content-Type': avatar.mimeType,
+    'Content-Length': avatar.size,
+    'Cache-Control': 'private, max-age=60',
+    ETag: avatar.etag,
+    'Last-Modified': new Date(avatar.mtimeMs).toUTCString(),
+    'X-Content-Type-Options': 'nosniff'
+  })
+  if (request.method === 'HEAD') {
+    response.end()
+    avatar.stream.destroy()
+    return
+  }
+  avatar.stream.pipe(response)
+}
+
 function statusForResult(result: ServiceResponse): number {
   if (result.ok) return 200
   switch (result.error?.code) {
@@ -404,6 +441,10 @@ export async function startInternalHttpServer(context: AppContext, config: Inter
         }
         if (request.method === 'GET' && requestUrl.pathname === '/api/capabilities') {
           sendJson(response, 200, okResponse(INTERNAL_API_CAPABILITIES))
+          return
+        }
+        if ((request.method === 'GET' || request.method === 'HEAD') && requestUrl.pathname === '/api/profile/avatar') {
+          await serveActiveProfileAvatar(context, request, response)
           return
         }
         if (request.method === 'GET' && requestUrl.pathname === '/api/events') {
