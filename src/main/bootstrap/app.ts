@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { createAppContext } from '../services/service-container.js'
 import { registerIpcRoutes } from '../ipc/router.js'
 import { JobScheduler } from '../services/scheduler/index.js'
+import { startInternalHttpServer, type InternalHttpServerHandle } from '../internal-api/http-server.js'
 import { electronRuntime } from '../utils/electron-runtime.js'
 import { createRendererHealthMonitor, type RendererHealthMonitor, type RendererHealthPayload } from '../utils/renderer-health.js'
 import { safeConsole } from '../utils/safe-output.js'
@@ -117,6 +118,7 @@ let windowRef: Electron.BrowserWindow | null = null
 let companionWindowRef: Electron.BrowserWindow | null = null
 let trayRef: Electron.Tray | null = null
 let schedulerRef: JobScheduler | null = null
+let internalHttpServerRef: InternalHttpServerHandle | null = null
 let ipcRoutesRegistered = false
 const rendererHealthMonitors = new Map<number, RendererHealthMonitor>()
 
@@ -422,6 +424,21 @@ export async function bootstrapApp(): Promise<void> {
     const scheduler = new JobScheduler(context.services.jobs.repository, context.eventBus, 1500)
     scheduler.start()
     schedulerRef = scheduler
+    void startInternalHttpServer(context, {
+      preferredPort: Number(process.env.OMC_WEB_PORT ?? (isDev ? 3000 : 19219)),
+      host: process.env.OMC_WEB_HOST ?? '127.0.0.1',
+      staticRoot: resolveFromCandidates([
+        join(process.cwd(), 'dist', 'renderer'),
+        join(app.getAppPath(), 'dist', 'renderer'),
+        join(currentModuleDir(), '..', '..', 'renderer')
+      ]),
+      devRendererUrl: isDev ? resolveRendererSource() : undefined
+    }).then((server) => {
+      internalHttpServerRef = server
+      safeConsole.log('[main] Internal web API listening', { url: server.url })
+    }).catch((error) => {
+      safeConsole.error('[main] Internal web API failed', { message: error instanceof Error ? error.message : String(error) })
+    })
     windowRef = createMainWindow()
     createCompanionTray()
     setTimeout(() => requestFullDiskAccessIfNeeded(windowRef), 1500)
@@ -438,5 +455,6 @@ export async function bootstrapApp(): Promise<void> {
 
   app.on('before-quit', () => {
     schedulerRef?.stop()
+    void internalHttpServerRef?.close().catch(() => undefined)
   })
 }

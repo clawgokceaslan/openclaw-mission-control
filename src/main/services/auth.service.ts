@@ -1,10 +1,17 @@
 import EventEmitter from 'node:events'
+import { timingSafeEqual, pbkdf2Sync, randomBytes } from 'node:crypto'
 import { AppError } from '../../shared/errors/index.js'
 import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
 import { Session, User } from '../../shared/types/entities.js'
-import { SESSION_TTL_MS } from '../../shared/constants/config.js'
+import { ACCESS_TOKEN_TTL_MS, REFRESH_TOKEN_TTL_MS } from '../../shared/constants/config.js'
 import { AuthRepository } from '../../db/repositories/auth-repo.js'
+
+interface AuthTokenPair {
+  session: Session
+  refreshToken: string
+  refreshTokenExpiresAt: number
+}
 
 export class AuthService {
   private readonly bootstrapEmail = 'owner@mission.local'
@@ -26,13 +33,36 @@ export class AuthService {
     } as User
   }
 
-  private getDefaultPasswordAcceptance(storedHash: string, password: string): boolean {
-    if (!password) return false
-    if (storedHash === password) return true
-    if (storedHash.startsWith('pbkdf2')) {
-      return password.length >= 6
+  private hashPassword(password: string, salt = randomBytes(16).toString('base64url')): string {
+    const iterations = 260000
+    const digest = pbkdf2Sync(password, salt, iterations, 32, 'sha256').toString('hex')
+    return `pbkdf2:sha256:${iterations}$${salt}$${digest}`
+  }
+
+  private verifyPassword(storedHash: string, password: string): boolean {
+    if (!password || !storedHash) return false
+    if (!storedHash.startsWith('pbkdf2:')) {
+      const expected = Buffer.from(storedHash)
+      const candidate = Buffer.from(password)
+      return expected.length === candidate.length && timingSafeEqual(expected, candidate)
     }
-    return true
+    const [algorithmPart, salt, digest] = storedHash.split('$')
+    const [, algorithm, iterationsRaw] = algorithmPart.split(':')
+    const iterations = Number(iterationsRaw)
+    if (algorithm !== 'sha256' || !salt || !digest || !Number.isFinite(iterations)) return false
+    const candidate = pbkdf2Sync(password, salt, iterations, Buffer.from(digest, 'hex').length, 'sha256')
+    const expected = Buffer.from(digest, 'hex')
+    return candidate.length === expected.length && timingSafeEqual(candidate, expected)
+  }
+
+  private async issueTokens(userId: string): Promise<AuthTokenPair> {
+    const session = await this.authRepo.createSession(userId, ACCESS_TOKEN_TTL_MS)
+    const refresh = await this.authRepo.createRefreshToken(userId, REFRESH_TOKEN_TTL_MS)
+    return {
+      session,
+      refreshToken: refresh.token,
+      refreshTokenExpiresAt: refresh.expiresAt
+    }
   }
 
   async getSessionActor(token?: string): Promise<{ session: Session; user: User } | undefined> {
@@ -76,10 +106,16 @@ export class AuthService {
     if (!userRow) {
       return errorResponse(ErrorCodes.Unauthenticated, 'Invalid credentials')
     }
-    if (!this.getDefaultPasswordAcceptance(userRow.password_hash || '', payload.password)) {
+    const isLegacyBootstrapHash = userRow.password_hash === 'pbkdf2:sha256:260000$local$changeme'
+      && payload.email === this.bootstrapEmail
+      && payload.password === this.bootstrapPassword
+    if (!isLegacyBootstrapHash && !this.verifyPassword(userRow.password_hash || '', payload.password)) {
       return errorResponse(ErrorCodes.Unauthenticated, 'Invalid credentials')
     }
-    const session = await this.authRepo.createSession(userRow.id, SESSION_TTL_MS)
+    if (isLegacyBootstrapHash || !userRow.password_hash?.startsWith('pbkdf2:')) {
+      await this.authRepo.setPasswordHash(userRow.id, this.hashPassword(payload.password))
+    }
+    const tokens = await this.issueTokens(userRow.id)
     const user = this.mapUser({
       id: userRow.id,
       organizationId: userRow.organization_id,
@@ -87,11 +123,33 @@ export class AuthService {
       name: userRow.name,
       role: userRow.role
     })
-    const response = { session, user }
+    const response = { session: tokens.session, refreshToken: tokens.refreshToken, refreshTokenExpiresAt: tokens.refreshTokenExpiresAt, user }
     if (this.eventBus) {
       this.eventBus.emit('auth:session-established', { userId: user.id })
     }
     return okResponse(response, { requestId: undefined })
+  }
+
+  async refresh(payload: { refreshToken?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse> {
+    const token = payload?.refreshToken?.trim()
+    if (!token) return errorResponse(ErrorCodes.Unauthenticated, 'Refresh token required')
+    const stored = await this.authRepo.findRefreshToken(token)
+    if (!stored || stored.revokedAt || stored.expiresAt <= Date.now()) {
+      return errorResponse(ErrorCodes.Unauthenticated, 'Refresh token is invalid')
+    }
+    const row = await this.authRepo.findUserById(stored.userId)
+    if (!row) return errorResponse(ErrorCodes.Unauthenticated, 'Refresh token user is invalid')
+
+    const next = await this.issueTokens(stored.userId)
+    await this.authRepo.rotateRefreshToken(token, next.refreshToken)
+    const user = this.mapUser({
+      id: row.id,
+      organizationId: row.organizationId,
+      email: row.email,
+      name: row.name,
+      role: row.role
+    })
+    return okResponse({ session: next.session, refreshToken: next.refreshToken, refreshTokenExpiresAt: next.refreshTokenExpiresAt, user })
   }
 
   async me(payload: { actorToken?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse> {
@@ -102,7 +160,9 @@ export class AuthService {
 
   async logout(payload: { actorToken?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse> {
     if (payload?.actorToken) {
+      const actor = await this.getSessionActor(payload.actorToken)
       await this.authRepo.revokeSession(payload.actorToken)
+      if (actor) await this.authRepo.revokeUserRefreshTokens(actor.user.id)
     }
     return okResponse({ ok: true })
   }

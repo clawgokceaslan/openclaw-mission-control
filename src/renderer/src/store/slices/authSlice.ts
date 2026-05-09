@@ -1,7 +1,14 @@
 import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/toolkit'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { Session, User } from '@shared/types/entities'
-import { clearSessionToken, getSessionToken, invokeBridge, setSessionToken } from '@renderer/utils/api'
+import {
+  clearSessionToken,
+  getSessionToken,
+  invokeBridge,
+  isElectronRuntime,
+  setRefreshToken,
+  setSessionToken
+} from '@renderer/utils/api'
 
 const DEFAULT_BOOTSTRAP_USER = {
   email: 'owner@mission.local',
@@ -20,12 +27,13 @@ export interface AuthState {
 interface AuthResult {
   user: User
   session: Session
+  refreshToken?: string
 }
 
 const getSafeToken = () => (typeof window === 'undefined' ? null : getSessionToken())
 
 const runBootstrapLogin = async () => {
-  const bootstrapResult = await invokeBridge<{ user: User; session: Session }>(IPC_CHANNELS.auth.login, {
+  const bootstrapResult = await invokeBridge<AuthResult>(IPC_CHANNELS.auth.login, {
     email: DEFAULT_BOOTSTRAP_USER.email,
     password: DEFAULT_BOOTSTRAP_USER.password
   })
@@ -35,6 +43,7 @@ const runBootstrapLogin = async () => {
   }
 
   setSessionToken(bootstrapResult.data.session.token)
+  if (bootstrapResult.data.refreshToken) setRefreshToken(bootstrapResult.data.refreshToken)
   return bootstrapResult.data
 }
 
@@ -45,12 +54,15 @@ export const refreshAuth = createAsyncThunk<AuthResult, void, { state: { auth: A
     const token = currentToken ?? getSafeToken()
 
     if (!token) {
+      if (!isElectronRuntime()) {
+        return rejectWithValue('Login required') as never
+      }
       return runBootstrapLogin().catch((error) => {
         return rejectWithValue(error instanceof Error ? error.message : 'Auth bootstrap failed') as never
       })
     }
 
-    const response = await invokeBridge<{ user: User; session: Session }>(IPC_CHANNELS.auth.me, { actorToken: token })
+    const response = await invokeBridge<AuthResult>(IPC_CHANNELS.auth.me, { actorToken: token })
     if (response.ok && response.data) {
       setSessionToken(response.data.session.token)
       return response.data
@@ -67,11 +79,12 @@ export const refreshAuth = createAsyncThunk<AuthResult, void, { state: { auth: A
 export const loginAuth = createAsyncThunk<AuthResult, { email: string; password: string }>(
   'auth/login',
   async ({ email, password }) => {
-    const response = await invokeBridge<{ user: User; session: Session }>(IPC_CHANNELS.auth.login, { email, password })
+    const response = await invokeBridge<AuthResult>(IPC_CHANNELS.auth.login, { email, password })
     if (!response.ok || !response.data) {
       throw new Error(response.error?.message || 'Login failed')
     }
     setSessionToken(response.data.session.token)
+    if (response.data.refreshToken) setRefreshToken(response.data.refreshToken)
     return response.data
   }
 )

@@ -1,18 +1,29 @@
 import { BaseRepository } from './base-repo.js'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { SqliteAdapter } from '../adapter/sqlite.js'
 import type { Session, User } from '../../shared/types/entities.js'
+
+export interface RefreshTokenRecord {
+  id: string
+  userId: string
+  tokenHash: string
+  expiresAt: number
+  createdAt: number
+  revokedAt?: number | null
+  replacedByHash?: string | null
+}
 
 export class AuthRepository extends BaseRepository<User & { passwordHash: string }> {
   private readonly defaultOrgId = '00000000-0000-4000-8000-000000000001'
   private readonly defaultOrgName = 'Default Organization'
-  private readonly defaultPasswordHash = 'pbkdf2:sha256:260000$local$changeme'
+  private readonly defaultPasswordHash = 'pbkdf2:sha256:260000$local$75d92a58383dd943d4868d010791b54d4ad8f2c5f02a7fd08096e83b08f633e6'
 
   private users = this.db.prepare(
     `SELECT id, organization_id, email, name, password_hash, role, created_at FROM users WHERE email = @email`
   )
   private updateUserName = this.db.prepare('UPDATE users SET name = @name WHERE id = @userId')
   private updateUserProfile = this.db.prepare('UPDATE users SET name = @name, email = @email, role = @role WHERE id = @userId')
+  private updateUserPasswordHash = this.db.prepare('UPDATE users SET password_hash = @passwordHash WHERE id = @userId')
   private updateMembershipRole = this.db.prepare('UPDATE memberships SET role = @role WHERE organization_id = @orgId AND user_id = @userId')
   private sessionsInsert = this.db.prepare(
     `INSERT INTO sessions (id, user_id, token, expires_at, created_at) VALUES (@id, @userId, @token, @expiresAt, @createdAt)`
@@ -21,6 +32,15 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
   private sessionsByUser = this.db.prepare('SELECT * FROM sessions WHERE user_id = @userId')
   private sessionsDeleteByUser = this.db.prepare('DELETE FROM sessions WHERE user_id = @userId')
   private sessionsDeleteByToken = this.db.prepare('DELETE FROM sessions WHERE token = @token')
+  private refreshTokensInsert = this.db.prepare(
+    `INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, created_at)
+     VALUES (@id, @userId, @tokenHash, @expiresAt, @createdAt)`
+  )
+  private refreshTokenByHash = this.db.prepare('SELECT * FROM refresh_tokens WHERE token_hash = @tokenHash')
+  private refreshTokenRevoke = this.db.prepare(
+    'UPDATE refresh_tokens SET revoked_at = @revokedAt, replaced_by_hash = @replacedByHash WHERE token_hash = @tokenHash AND revoked_at IS NULL'
+  )
+  private refreshTokensDeleteByUser = this.db.prepare('UPDATE refresh_tokens SET revoked_at = @revokedAt WHERE user_id = @userId AND revoked_at IS NULL')
   private findOrganizationById = this.db.prepare('SELECT id, name, created_at FROM organizations WHERE id = @orgId')
   private insertOrganization = this.db.prepare(
     'INSERT OR IGNORE INTO organizations (id, name, created_at) VALUES (@id, @name, @createdAt)'
@@ -33,7 +53,7 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
     'SELECT id, organization_id, user_id, role FROM memberships WHERE organization_id = @orgId AND user_id = @userId'
   )
   private insertMembership = this.db.prepare(
-    'INSERT OR IGNORE INTO memberships (id, organization_id, user_id, role, created_at) VALUES (@id, @orgId, @userId, @role, @createdAt)'
+    'INSERT OR IGNORE INTO memberships (id, organization_id, user_id, role) VALUES (@id, @orgId, @userId, @role)'
   )
 
   constructor(db: SqliteAdapter) {
@@ -51,6 +71,10 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
   async setProfile(userId: string, orgId: string, input: { name: string; email: string; role: User['role'] }): Promise<void> {
     await this.updateUserProfile.run({ userId, name: input.name, email: input.email, role: input.role })
     await this.updateMembershipRole.run({ userId, orgId, role: input.role })
+  }
+
+  async setPasswordHash(userId: string, passwordHash: string): Promise<void> {
+    await this.updateUserPasswordHash.run({ userId, passwordHash })
   }
 
   async ensureDefaultOwner(email: string): Promise<{ id: string; organization_id: string; email: string; name: string; password_hash: string; role: string } | undefined> {
@@ -80,10 +104,7 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
       })
       user = await this.findByEmail(email)
     } else if (user.password_hash !== this.defaultPasswordHash) {
-      await this.db.prepare('UPDATE users SET password_hash = @passwordHash WHERE id = @userId').run({
-        passwordHash: this.defaultPasswordHash,
-        userId: user.id
-      })
+      await this.setPasswordHash(user.id, this.defaultPasswordHash)
       user = await this.findByEmail(email)
     }
 
@@ -97,8 +118,7 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
           id: randomUUID(),
           orgId: organizationId,
           userId: user.id,
-          role: 'owner',
-          createdAt: now
+          role: 'owner'
         })
       }
     }
@@ -125,6 +145,47 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
       createdAt: session.createdAt
     })
     return session
+  }
+
+  hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex')
+  }
+
+  async createRefreshToken(userId: string, ttlMs: number): Promise<{ token: string; expiresAt: number }> {
+    const now = Date.now()
+    const token = randomBytes(48).toString('base64url')
+    const tokenHash = this.hashToken(token)
+    const expiresAt = now + ttlMs
+    await this.refreshTokensInsert.run({
+      id: randomUUID(),
+      userId,
+      tokenHash,
+      expiresAt,
+      createdAt: now
+    })
+    return { token, expiresAt }
+  }
+
+  async findRefreshToken(token: string): Promise<RefreshTokenRecord | undefined> {
+    const row = (await this.refreshTokenByHash.get({ tokenHash: this.hashToken(token) })) as any
+    if (!row) return undefined
+    return {
+      id: row.id,
+      userId: row.user_id,
+      tokenHash: row.token_hash,
+      expiresAt: row.expires_at,
+      createdAt: row.created_at,
+      revokedAt: row.revoked_at,
+      replacedByHash: row.replaced_by_hash
+    }
+  }
+
+  async rotateRefreshToken(token: string, nextToken: string): Promise<void> {
+    await this.refreshTokenRevoke.run({
+      tokenHash: this.hashToken(token),
+      revokedAt: Date.now(),
+      replacedByHash: this.hashToken(nextToken)
+    })
   }
 
   async findSessionByToken(token: string): Promise<Session | undefined> {
@@ -164,5 +225,9 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
 
   async revokeUserSessions(userId: string): Promise<void> {
     await this.sessionsDeleteByUser.run({ userId })
+  }
+
+  async revokeUserRefreshTokens(userId: string): Promise<void> {
+    await this.refreshTokensDeleteByUser.run({ userId, revokedAt: Date.now() })
   }
 }

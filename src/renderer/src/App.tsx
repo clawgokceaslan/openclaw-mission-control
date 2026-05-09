@@ -14,6 +14,7 @@ import { AppShell } from '@renderer/layout/AppShell'
 import { DashboardPage, DetailedDashboardPage } from '@renderer/screens/DashboardPage'
 import { ProfilePage } from '@renderer/screens/ProfilePage'
 import { ProfileSetupPage } from '@renderer/screens/ProfileSetupPage'
+import { SignInPage } from '@renderer/screens/SignInPage'
 import { ProjectsPage } from '@renderer/screens/projects/ProjectsPage'
 import { ProjectNewPage } from '@renderer/screens/projects/ProjectNewPage'
 import { ProjectDetailPage } from '@renderer/screens/projects/ProjectDetailPage'
@@ -215,19 +216,20 @@ function AppRouter() {
       </>
     )
   } else {
-    appContent = (
+    appContent = isElectron ? (
       <div className={styles.pageState}>
         <h2>Uygulama baslatilamadi</h2>
         {errorMessage && <p className={styles.errorText}>{errorMessage}</p>}
         {isRuntimeError && !manualRetried && <p className={styles.helpText}>Tekrar deneme baslatildi...</p>}
         {retryExhausted && <p className={styles.helpText}>Tekrar deneme tamamlanamadi. Uygulamayi kapatip yeniden baslatin.</p>}
         <button className={styles.retryButton} onClick={handleRetry} disabled={retryExhausted}>Tekrar Dene</button>
-        <p className={styles.helpText}>
-          {isElectron
-            ? 'Renderer IPC baslatilamadi. Uygulamayi kapatip tekrar baslatin.'
-            : 'Tarayicida actiysaniz bu mesaj normaldir; uygulamayi Electron ile calistirin.'}
-        </p>
+        <p className={styles.helpText}>Renderer IPC baslatilamadi. Uygulamayi kapatip tekrar baslatin.</p>
       </div>
+    ) : (
+      <Routes>
+        <Route path={APP_ROUTES.SIGN_IN} element={<SignInPage />} />
+        <Route path="*" element={<Navigate to={APP_ROUTES.SIGN_IN} replace />} />
+      </Routes>
     )
   }
 

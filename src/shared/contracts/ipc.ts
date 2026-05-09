@@ -8,6 +8,7 @@ export const IPC_CHANNELS = {
   },
   auth: {
     login: 'auth:login',
+    refresh: 'auth:refresh',
     logout: 'auth:logout',
     me: 'auth:me',
     inviteValidate: 'auth:invite-validate',
@@ -656,7 +657,7 @@ export interface ServiceMapEntry<TDomain extends ServiceDomain = ServiceDomain, 
 }
 
 export const SERVICE_MAP = {
-  auth: ['login', 'logout', 'me', 'inviteValidate', 'updateProfile'],
+  auth: ['login', 'refresh', 'logout', 'me', 'inviteValidate', 'updateProfile'],
   projects: ['list', 'get', 'create', 'update', 'moveWorkspace', 'exportWorkspace', 'remove'],
   workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
   appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent', 'getDefaultAddTaskProject', 'setDefaultAddTaskProject', 'getGatewayLanguage', 'setGatewayLanguage', 'getPlannerQuestionAttention', 'setPlannerQuestionAttention', 'getDatabaseLocation', 'pickDatabaseFolder', 'pickDatabaseFile', 'moveDatabaseLocation', 'revealDatabaseLocation'],
@@ -688,6 +689,13 @@ export const SERVICE_ROUTING: {
       action: 'login',
       method: 'login',
       channel: IPC_CHANNELS.auth.login,
+      requiresAuth: false
+    },
+    refresh: {
+      domain: 'auth',
+      action: 'refresh',
+      method: 'refresh',
+      channel: IPC_CHANNELS.auth.refresh,
       requiresAuth: false
     },
     logout: {
