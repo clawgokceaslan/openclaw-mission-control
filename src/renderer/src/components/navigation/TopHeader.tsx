@@ -96,7 +96,13 @@ export function TopHeader({ user, sidebarOpen, onToggleSidebar }: TopHeaderProps
           </div>
         </div>
 
-        <button type="button" className={styles.universalSearchButton} onClick={() => setOpen(true)}>
+        <button
+          type="button"
+          className={styles.universalSearchButton}
+          onClick={() => setOpen(true)}
+          aria-label="Open universal search"
+          title="Search or create"
+        >
           <LuSearch size={15} />
           <span>Search or create...</span>
           <kbd>⌘K</kbd>

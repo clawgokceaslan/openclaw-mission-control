@@ -1829,3 +1829,73 @@
     }
   }
 }
+
+@media (width < 768px) {
+  .topbarInner {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas: "brand search user";
+    min-height: 56px;
+    padding: 8px 10px;
+    gap: 8px;
+
+    .brandArea {
+      grid-area: brand;
+      min-width: 0;
+      gap: 8px;
+
+      .brandMark {
+        display: none;
+      }
+
+      .brandText {
+        .brandTitle {
+          max-width: clamp(92px, 24vw, 190px);
+        }
+      }
+    }
+
+    .universalSearchButton {
+      grid-area: search;
+      justify-self: end;
+      width: 36px;
+      min-width: 36px;
+      height: 36px;
+      min-height: 36px;
+      grid-template-columns: 1fr;
+      place-items: center;
+      gap: 0;
+      padding: 0;
+      text-align: center;
+      border-radius: 999px;
+
+      span,
+      kbd {
+        display: none;
+      }
+
+      svg {
+        flex: 0 0 auto;
+      }
+    }
+
+    .userCluster {
+      grid-area: user;
+      justify-self: end;
+      gap: 4px;
+    }
+  }
+
+  .appFrame {
+    grid-template-rows: auto 1fr;
+  }
+}
+
+@media (width <= 380px) {
+  .topbarInner {
+    .brandArea {
+      .brandText {
+        display: none;
+      }
+    }
+  }
+}
