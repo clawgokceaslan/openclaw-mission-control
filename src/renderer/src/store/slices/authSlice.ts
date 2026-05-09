@@ -1,4 +1,5 @@
 import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/toolkit'
+import { ErrorCodes } from '@shared/contracts/error-codes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { Session, User } from '@shared/types/entities'
 import {
@@ -62,6 +63,8 @@ export const refreshAuth = createAsyncThunk<AuthResult, void, { state: { auth: A
       if (getRefreshToken()) {
         const refreshResponse = await refreshWithAuthApi<AuthResult>()
         if (refreshResponse.ok && refreshResponse.data) return refreshResponse.data
+        clearSessionToken()
+        return rejectWithValue(refreshResponse.error?.message ?? 'Login required') as never
       }
       if (!isElectronRuntime()) {
         return rejectWithValue('Login required') as never
@@ -75,6 +78,11 @@ export const refreshAuth = createAsyncThunk<AuthResult, void, { state: { auth: A
     if (response.ok && response.data) {
       setSessionToken(response.data.session.token)
       return response.data
+    }
+
+    if (response.error?.code === ErrorCodes.Unauthenticated) {
+      clearSessionToken()
+      return rejectWithValue('Oturum doğrulanamadı. Lütfen tekrar giriş yapın.') as never
     }
 
     try {

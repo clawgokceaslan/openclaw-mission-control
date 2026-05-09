@@ -5,7 +5,7 @@ import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { LuLockKeyhole, LuLogIn, LuMail } from 'react-icons/lu'
 
-export function SignInPage() {
+export function SignInPage({ authNotice }: { authNotice?: string | null }) {
   const [email, setEmail] = useState('owner@mission.local')
   const [password, setPassword] = useState('changeme')
   const [error, setError] = useState<string | null>(null)
@@ -65,7 +65,7 @@ export function SignInPage() {
             </div>
           </label>
 
-          {error && <p className={styles.error}>{error}</p>}
+          {(error || authNotice) && <p className={styles.error}>{error ?? authNotice}</p>}
 
           <button type="submit" disabled={pending}>
             <LuLogIn size={17} />

@@ -145,6 +145,7 @@ function AppRouter() {
   const [autoRetried, setAutoRetried] = useState(false)
   const [manualRetried, setManualRetried] = useState(false)
   const isRuntimeError = isElectron && typeof errorMessage === 'string' && /IPC|ipc|bridge|runtime|renderer/i.test(errorMessage)
+  const authNotice = errorMessage && !isRuntimeError ? errorMessage : null
   const retryExhausted = autoRetried && manualRetried
   const splashReady = initialized || Boolean(errorMessage)
 
@@ -215,8 +216,8 @@ function AppRouter() {
         />
       </>
     )
-  } else {
-    appContent = isElectron ? (
+  } else if (isElectron && isRuntimeError) {
+    appContent = (
       <div className={styles.pageState}>
         <h2>Uygulama baslatilamadi</h2>
         {errorMessage && <p className={styles.errorText}>{errorMessage}</p>}
@@ -225,9 +226,11 @@ function AppRouter() {
         <button className={styles.retryButton} onClick={handleRetry} disabled={retryExhausted}>Tekrar Dene</button>
         <p className={styles.helpText}>Renderer IPC baslatilamadi. Uygulamayi kapatip tekrar baslatin.</p>
       </div>
-    ) : (
+    )
+  } else {
+    appContent = (
       <Routes>
-        <Route path={APP_ROUTES.SIGN_IN} element={<SignInPage />} />
+        <Route path={APP_ROUTES.SIGN_IN} element={<SignInPage authNotice={authNotice} />} />
         <Route path="*" element={<Navigate to={APP_ROUTES.SIGN_IN} replace />} />
       </Routes>
     )

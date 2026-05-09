@@ -203,6 +203,11 @@ async function requestAuthRest<T = unknown>(
 }
 
 export async function loginWithAuthApi<T = unknown>(payload: { email: string; password: string }): Promise<BridgeResult<T>> {
+  if (isElectronRuntime()) {
+    const result = await invokeBridge<T>(IPC_CHANNELS.auth.login, payload)
+    if (result.ok) persistAuthTokens(result.data)
+    return result
+  }
   return requestAuthRest<T>('login', {
     method: 'POST',
     headers: requestHeaders(),
@@ -213,6 +218,12 @@ export async function loginWithAuthApi<T = unknown>(payload: { email: string; pa
 export async function refreshWithAuthApi<T = unknown>(): Promise<BridgeResult<T>> {
   const refreshToken = getRefreshToken()
   if (!refreshToken) return errorResult(ErrorCodes.Unauthenticated, 'Refresh token required')
+  if (isElectronRuntime()) {
+    const result = await invokeBridge<T>(IPC_CHANNELS.auth.refresh, { refreshToken })
+    if (result.ok) persistAuthTokens(result.data)
+    if (!result.ok) clearSessionToken()
+    return result
+  }
   const result = await requestAuthRest<T>('refresh', {
     method: 'POST',
     headers: requestHeaders(),
@@ -225,6 +236,14 @@ export async function refreshWithAuthApi<T = unknown>(): Promise<BridgeResult<T>
 export async function getMeWithAuthApi<T = unknown>(tokenOverride?: string | null, retryRefresh = true): Promise<BridgeResult<T>> {
   const token = tokenOverride ?? getSessionToken()
   if (!token) return errorResult(ErrorCodes.Unauthenticated, 'Access token required')
+  if (isElectronRuntime()) {
+    const response = await invokeBridge<T>(IPC_CHANNELS.auth.me, { actorToken: token })
+    if (response.ok || !retryRefresh || response.error?.code !== ErrorCodes.Unauthenticated) return response
+
+    const refreshResult = await refreshWithAuthApi<HttpAuthResult>()
+    if (!refreshResult.ok || !refreshResult.data?.session?.token) return response
+    return getMeWithAuthApi<T>(refreshResult.data.session.token, false)
+  }
   const response = await requestAuthRest<T>('me', {
     method: 'GET',
     headers: requestHeaders(token)
@@ -238,6 +257,11 @@ export async function getMeWithAuthApi<T = unknown>(tokenOverride?: string | nul
 
 export async function logoutWithAuthApi<T = unknown>(tokenOverride?: string | null): Promise<BridgeResult<T>> {
   const token = tokenOverride ?? getSessionToken()
+  if (isElectronRuntime()) {
+    const response = await invokeBridge<T>(IPC_CHANNELS.auth.logout, { actorToken: token })
+    clearSessionToken()
+    return response
+  }
   const response = await requestAuthRest<T>('logout', {
     method: 'POST',
     headers: requestHeaders(token)
