@@ -612,44 +612,47 @@ export function ChatPopup({
               )}
             </div>
             {chatSettingsOpen ? (
-              <aside className={styles.chatSettingsPanel}>
-                <div className={styles.chatSettingsHeader}>
-                  <div><span>Otomatik ilerletme</span><h3>Model ayarları</h3></div>
-                  <button type="button" onClick={onSettingsClose} aria-label="Close run settings" title="Close"><LuX size={15} /></button>
-                </div>
-                <div className={styles.chatSettingsCard}>
-                  <div className={styles.chatSettingTitle}><span><LuSignal size={14} /></span><div><b>Gateway</b><small>{chatGateway?.name ?? 'Select a gateway'}</small></div></div>
-                  <AppSelect mode="single" value={chatGatewayOption} options={chatGatewayOptions} onChange={(option) => { if (!Array.isArray(option)) onGatewayChange(option) }} placeholder="Select gateway" />
-                </div>
-                <div className={styles.chatSettingsCard}>
-                  <div className={styles.chatSettingTitle}><span><LuBot size={14} /></span><div><b>Plan model</b><small>{chatPlanModel || chatModel || 'Select a plan model'}</small></div></div>
-                  <AppSelect mode="single" value={chatPlanModelOption} options={chatModelOptions} onChange={(option) => { if (!Array.isArray(option)) onPlanModelChange(option) }} placeholder="Select plan model" isDisabled={!chatGatewayOption} />
-                </div>
-                {chatPlanReasoningOptions.length > 0 ? (
-                  <div className={styles.chatSettingsCard}>
-                    <div className={styles.chatSettingTitle}><span><LuSparkles size={14} /></span><div><b>Plan reasoning</b><small>{chatPlanReasoningEffort || 'Select reasoning'}</small></div></div>
-                    <AppSelect mode="single" value={chatPlanReasoningOptions.find((option) => option.value === chatPlanReasoningEffort) ?? null} options={chatPlanReasoningOptions} onChange={(option) => { if (!Array.isArray(option)) onPlanReasoningChange(option) }} placeholder="Select plan reasoning" />
+              <>
+                <button type="button" className={styles.chatSettingsScrim} aria-label="Close model settings" onMouseDown={onSettingsClose} />
+                <aside className={styles.chatSettingsPanel}>
+                  <div className={styles.chatSettingsHeader}>
+                    <div><span>Otomatik ilerletme</span><h3>Model ayarları</h3></div>
+                    <button type="button" onClick={onSettingsClose} aria-label="Close run settings" title="Close"><LuX size={15} /></button>
                   </div>
-                ) : null}
-                <div className={styles.chatSettingsCard}>
-                  <div className={styles.chatSettingTitle}><span><LuBot size={14} /></span><div><b>Run / chat model</b><small>{chatRunModel || chatModel || 'Select a run model'}</small></div></div>
-                  <AppSelect mode="single" value={chatRunModelOption ?? chatModelOption} options={chatModelOptions} onChange={(option) => { if (!Array.isArray(option)) onRunModelChange(option) }} placeholder="Select run model" isDisabled={!chatGatewayOption} />
-                </div>
-                {chatRunReasoningOptions.length > 0 ? (
                   <div className={styles.chatSettingsCard}>
-                    <div className={styles.chatSettingTitle}><span><LuSparkles size={14} /></span><div><b>Run reasoning</b><small>{chatRunReasoningEffort || 'Select reasoning'}</small></div></div>
-                    <AppSelect mode="single" value={chatRunReasoningOptions.find((option) => option.value === chatRunReasoningEffort) ?? null} options={chatRunReasoningOptions} onChange={(option) => { if (!Array.isArray(option)) onRunReasoningChange(option) }} placeholder="Select run reasoning" />
+                    <div className={styles.chatSettingTitle}><span><LuSignal size={14} /></span><div><b>Gateway</b><small>{chatGateway?.name ?? 'Select a gateway'}</small></div></div>
+                    <AppSelect mode="single" value={chatGatewayOption} options={chatGatewayOptions} onChange={(option) => { if (!Array.isArray(option)) onGatewayChange(option) }} placeholder="Select gateway" />
                   </div>
-                ) : null}
-                <div className={styles.chatSettingsMetaGrid}>
-                  <div className={styles.chatSettingReadout}><span>Mode</span><b>{chatGatewayConfig.executionMode === 'exec' ? 'Exec' : 'Terminal'}</b></div>
-                  <div className={styles.chatSettingReadout}><span>Workspace</span><b>{chatRuntimeWorkspace?.name ?? runtimeWorkspaceId ?? 'Not configured'}</b></div>
-                </div>
-                <label className={styles.chatSettingsToggle}>
-                  <input type="checkbox" checked={chatIncludeContext} onChange={(event) => onIncludeContextChange(event.target.checked)} />
-                  <span><b>Task context</b><small>Include current task details in the next run.</small></span>
-                </label>
-              </aside>
+                  <div className={styles.chatSettingsCard}>
+                    <div className={styles.chatSettingTitle}><span><LuBot size={14} /></span><div><b>Plan model</b><small>{chatPlanModel || chatModel || 'Select a plan model'}</small></div></div>
+                    <AppSelect mode="single" value={chatPlanModelOption} options={chatModelOptions} onChange={(option) => { if (!Array.isArray(option)) onPlanModelChange(option) }} placeholder="Select plan model" isDisabled={!chatGatewayOption} />
+                  </div>
+                  {chatPlanReasoningOptions.length > 0 ? (
+                    <div className={styles.chatSettingsCard}>
+                      <div className={styles.chatSettingTitle}><span><LuSparkles size={14} /></span><div><b>Plan reasoning</b><small>{chatPlanReasoningEffort || 'Select reasoning'}</small></div></div>
+                      <AppSelect mode="single" value={chatPlanReasoningOptions.find((option) => option.value === chatPlanReasoningEffort) ?? null} options={chatPlanReasoningOptions} onChange={(option) => { if (!Array.isArray(option)) onPlanReasoningChange(option) }} placeholder="Select plan reasoning" />
+                    </div>
+                  ) : null}
+                  <div className={styles.chatSettingsCard}>
+                    <div className={styles.chatSettingTitle}><span><LuBot size={14} /></span><div><b>Run / chat model</b><small>{chatRunModel || chatModel || 'Select a run model'}</small></div></div>
+                    <AppSelect mode="single" value={chatRunModelOption ?? chatModelOption} options={chatModelOptions} onChange={(option) => { if (!Array.isArray(option)) onRunModelChange(option) }} placeholder="Select run model" isDisabled={!chatGatewayOption} />
+                  </div>
+                  {chatRunReasoningOptions.length > 0 ? (
+                    <div className={styles.chatSettingsCard}>
+                      <div className={styles.chatSettingTitle}><span><LuSparkles size={14} /></span><div><b>Run reasoning</b><small>{chatRunReasoningEffort || 'Select reasoning'}</small></div></div>
+                      <AppSelect mode="single" value={chatRunReasoningOptions.find((option) => option.value === chatRunReasoningEffort) ?? null} options={chatRunReasoningOptions} onChange={(option) => { if (!Array.isArray(option)) onRunReasoningChange(option) }} placeholder="Select run reasoning" />
+                    </div>
+                  ) : null}
+                  <div className={styles.chatSettingsMetaGrid}>
+                    <div className={styles.chatSettingReadout}><span>Mode</span><b>{chatGatewayConfig.executionMode === 'exec' ? 'Exec' : 'Terminal'}</b></div>
+                    <div className={styles.chatSettingReadout}><span>Workspace</span><b>{chatRuntimeWorkspace?.name ?? runtimeWorkspaceId ?? 'Not configured'}</b></div>
+                  </div>
+                  <label className={styles.chatSettingsToggle}>
+                    <input type="checkbox" checked={chatIncludeContext} onChange={(event) => onIncludeContextChange(event.target.checked)} />
+                    <span><b>Task context</b><small>Include current task details in the next run.</small></span>
+                  </label>
+                </aside>
+              </>
             ) : null}
             {isContextDrawerOpen ? (
               <aside className={styles.chatContextDrawer} aria-label="Context history">

@@ -116,6 +116,7 @@ interface ChatPopupHandlers {
 
 const LOCAL_CHAT_STATUS_RUN_ID = 'local-chat-status'
 const CHAT_BOTTOM_STICKY_THRESHOLD = 96
+const CHAT_COMPACT_VIEWPORT_QUERY = '(max-width: 860px)'
 const slashCommands: SlashCommand[] = [
   { id: 'plan', label: '/plan', hint: 'Draft a plan in this chat' },
   { id: 'run', label: '/run', hint: 'Start a Codex run for the task' },
@@ -127,6 +128,10 @@ const slashCommands: SlashCommand[] = [
 
 function isNoRunningStopFeedback(feedback: ChatOperationFeedbackData | null): boolean {
   return feedback?.state === 'error' && /no running codex chat/i.test(feedback.message)
+}
+
+function isCompactChatViewport(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia(CHAT_COMPACT_VIEWPORT_QUERY).matches
 }
 
 function settledIdsFromMessages(messages: TaskActivityMessage[]): { runIds: Set<string>; conversationIds: Set<string> } {
@@ -443,6 +448,22 @@ export function useProjectChatPopup({
   }, [isChatModalMounted, slashQuery, slashMenuOpen])
 
   useEffect(() => {
+    if (!isChatModalMounted || typeof window === 'undefined') return
+    const media = window.matchMedia(CHAT_COMPACT_VIEWPORT_QUERY)
+    if (media.matches) setChatSettingsOpen(false)
+
+    const handleViewportChange = (event: MediaQueryListEvent) => {
+      if (event.matches) setChatSettingsOpen(false)
+    }
+    media.addEventListener('change', handleViewportChange)
+    return () => media.removeEventListener('change', handleViewportChange)
+  }, [isChatModalMounted, selectedTask?.id, setChatSettingsOpen])
+
+  const closeSettingsOnCompactViewport = () => {
+    if (isCompactChatViewport()) setChatSettingsOpen(false)
+  }
+
+  useEffect(() => {
     const textarea = chatDraftTextareaRef.current
     if (!isChatModalMounted || !textarea) return
     textarea.style.height = 'auto'
@@ -612,10 +633,12 @@ export function useProjectChatPopup({
       setIsStartingNewChat(true)
       setChatComposerMode('chat')
       setGatewayRunFeedback(null)
+      closeSettingsOnCompactViewport()
     },
     onConversationSelect: (conversationId) => {
       setIsStartingNewChat(false)
       setSelectedChatConversationId(conversationId)
+      closeSettingsOnCompactViewport()
     },
     onSettingsToggle: () => setChatSettingsOpen((value) => !value),
     onSettingsClose: () => setChatSettingsOpen(false),
@@ -637,10 +660,19 @@ export function useProjectChatPopup({
           })
         })
     },
-    onPlan: () => void planSelectedTaskWithCodex(),
+    onPlan: () => {
+      closeSettingsOnCompactViewport()
+      void planSelectedTaskWithCodex()
+    },
     onPlanChoiceClose: () => closePlanChoice(),
-    onPlanChoiceSelect: (clarificationMode) => void confirmPlanWithGateway(clarificationMode),
-    onRun: () => void runSelectedTaskWithCodex(),
+    onPlanChoiceSelect: (clarificationMode) => {
+      closeSettingsOnCompactViewport()
+      void confirmPlanWithGateway(clarificationMode)
+    },
+    onRun: () => {
+      closeSettingsOnCompactViewport()
+      void runSelectedTaskWithCodex()
+    },
     onLoadEarlier: () => setChatVisibleLimit((value) => Math.min(visibleChatMessages.length, value + CHAT_MESSAGE_LOAD_STEP)),
     onChatScroll,
     onGatewayChange: (option) => {
@@ -648,17 +680,34 @@ export function useProjectChatPopup({
       setChatModel('')
       setChatPlanModel('')
       setChatRunModel('')
+      closeSettingsOnCompactViewport()
     },
-    onModelChange: (option) => setChatModel(option?.value ?? ''),
-    onPlanModelChange: (option) => setChatPlanModel(option?.value ?? ''),
+    onModelChange: (option) => {
+      setChatModel(option?.value ?? '')
+      closeSettingsOnCompactViewport()
+    },
+    onPlanModelChange: (option) => {
+      setChatPlanModel(option?.value ?? '')
+      closeSettingsOnCompactViewport()
+    },
     onRunModelChange: (option) => {
       const next = option?.value ?? ''
       setChatRunModel(next)
       setChatModel(next)
+      closeSettingsOnCompactViewport()
     },
-    onPlanReasoningChange: (option) => setChatPlanReasoningEffort(option?.value ?? 'medium'),
-    onRunReasoningChange: (option) => setChatRunReasoningEffort(option?.value ?? 'medium'),
-    onIncludeContextChange: setChatIncludeContext,
+    onPlanReasoningChange: (option) => {
+      setChatPlanReasoningEffort(option?.value ?? 'medium')
+      closeSettingsOnCompactViewport()
+    },
+    onRunReasoningChange: (option) => {
+      setChatRunReasoningEffort(option?.value ?? 'medium')
+      closeSettingsOnCompactViewport()
+    },
+    onIncludeContextChange: (value) => {
+      setChatIncludeContext(value)
+      closeSettingsOnCompactViewport()
+    },
     onAttachmentRemove: (attachmentId) => setChatAttachments((current) => current.filter((item) => item.id !== attachmentId)),
     onAttachFilesClick: () => chatFileInputRef.current?.click(),
     onFilesSelected: (files) => {
@@ -676,8 +725,14 @@ export function useProjectChatPopup({
     onSlashCommandApply: applySlashCommand,
     onSlashCommandIndexChange: (updater) => setSlashCommandIndex((value) => updater(value)),
     onClearSlashDraft: () => setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, '')),
-    onSend: () => void sendGatewayChatMessage(),
-    onPlannerQuestionAnswer: (answer) => void sendPlannerClarification(answer)
+    onSend: () => {
+      closeSettingsOnCompactViewport()
+      void sendGatewayChatMessage()
+    },
+    onPlannerQuestionAnswer: (answer) => {
+      closeSettingsOnCompactViewport()
+      void sendPlannerClarification(answer)
+    }
   }
 
   return { chatState, chatHandlers, selectedChatSummary }

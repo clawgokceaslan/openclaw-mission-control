@@ -2830,6 +2830,10 @@
   }
 }
 
+.chatSettingsScrim {
+  display: none;
+}
+
 .chatSettingsHeader {
   display: flex;
   justify-content: space-between;
@@ -8066,10 +8070,11 @@
 
   .chatMain {
     grid-template-rows: auto minmax(0, 1fr) auto;
+    --chat-content-width: 100%;
   }
 
   .chatTopbar {
-    align-items: center;
+    align-items: start;
     flex-direction: row;
     min-height: calc(54px + env(safe-area-inset-top, 0px));
     padding: env(safe-area-inset-top, 0px) max(8px, env(safe-area-inset-right, 0px)) 7px max(10px, env(safe-area-inset-left, 0px));
@@ -8077,6 +8082,7 @@
   }
 
   .chatTopbarTitle {
+    padding-top: 9px;
     gap: 0;
 
     h2 {
@@ -8096,6 +8102,8 @@
   .chatTopbarActions {
     flex: 0 0 auto;
     justify-content: flex-end;
+    display: grid;
+    grid-template-columns: repeat(3, 38px);
     gap: 4px;
     overflow: visible;
     scrollbar-width: none;
@@ -8133,18 +8141,30 @@
 
   .chatTranscript {
     height: 100%;
-    padding: 12px max(10px, env(safe-area-inset-right, 0px)) 14px max(10px, env(safe-area-inset-left, 0px));
+    padding: 10px max(10px, env(safe-area-inset-right, 0px)) 12px max(10px, env(safe-area-inset-left, 0px));
     overscroll-behavior: contain;
     scrollbar-gutter: auto;
+  }
+
+  .chatSettingsScrim {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    border: 0;
+    border-radius: 0;
+    background: color-mix(in srgb, var(--omc-bg) 30%, transparent);
+    display: block;
+    padding: 0;
   }
 
   .chatSettingsPanel {
     top: auto;
     left: max(10px, env(safe-area-inset-left, 0px));
     right: max(10px, env(safe-area-inset-right, 0px));
-    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+    z-index: 6;
     width: auto;
-    max-height: min(420px, 58dvh);
+    max-height: min(380px, 52dvh);
     border-radius: 16px;
   }
 
@@ -8179,19 +8199,19 @@
   }
 
   .chatComposer {
-    padding: 6px max(10px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px));
+    padding: 5px max(10px, env(safe-area-inset-right, 0px)) max(7px, env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px));
     border-top: 1px solid color-mix(in srgb, var(--omc-border-subtle) 66%, transparent);
   }
 
   .chatComposerBox {
     grid-template-columns: 38px minmax(0, 1fr) 38px;
-    grid-template-rows: auto 38px auto;
+    grid-template-rows: minmax(44px, auto) 38px;
     gap: 4px 6px;
     padding: 7px;
 
     textarea {
-      min-height: 54px;
-      max-height: min(132px, 24dvh);
+      min-height: 44px;
+      max-height: min(104px, 20dvh);
       padding: 7px 6px 3px;
     }
 
@@ -8208,6 +8228,7 @@
   }
 
   .chatComposerBox .chatConfigurationButton {
+    max-width: min(220px, calc(100vw - 118px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
     height: 38px;
     min-height: 38px;
     padding: 0 9px;
@@ -8276,6 +8297,18 @@
     gap: 8px;
   }
 
+  .chatTopbarActions {
+    grid-template-columns: repeat(3, 34px);
+    gap: 3px;
+
+    button {
+      width: 34px;
+      height: 34px;
+      min-width: 34px;
+      border-radius: 9px;
+    }
+  }
+
   .chatTopbarTitleRow {
     gap: 6px;
   }
@@ -8306,9 +8339,19 @@
   }
 
   .chatComposerBox {
+    grid-template-columns: 34px minmax(0, 1fr) 34px;
+    grid-template-rows: minmax(40px, auto) 34px;
+    padding: 6px;
+
     textarea {
-      min-height: 46px;
-      max-height: min(108px, 22dvh);
+      min-height: 40px;
+      max-height: min(92px, 18dvh);
+    }
+
+    > button {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
     }
   }
 
@@ -8360,7 +8403,7 @@
   .chatComposerBox {
     textarea {
       min-height: 42px;
-      max-height: min(94px, 20dvh);
+      max-height: min(82px, 18dvh);
     }
   }
 }
