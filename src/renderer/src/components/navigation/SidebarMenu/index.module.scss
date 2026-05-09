@@ -1,132 +1,65 @@
 .sidebar {
-  width: 280px;
-  max-width: 280px;
+  width: 260px;
+  max-width: 260px;
   border-right: 1px solid var(--omc-border);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--omc-surface) 92%, var(--omc-active-bg) 8%) 0%, var(--omc-surface) 42%),
-    var(--omc-surface);
+  background: var(--omc-surface);
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  box-shadow: inset -1px 0 0 color-mix(in srgb, var(--omc-surface) 76%, var(--omc-border) 24%);
-
-  .sidebarHeader {
-    min-width: 0;
-    padding: 18px 16px 14px;
-    border-bottom: 1px solid var(--omc-border-subtle);
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-
-    .sidebarEyebrow {
-      color: var(--omc-text-soft);
-      font-size: 0.66rem;
-      font-weight: 850;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
-    .sidebarTitle {
-      overflow: hidden;
-      color: var(--omc-text-strong);
-      font-size: 0.96rem;
-      font-weight: 850;
-      line-height: 1.2;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-  }
 
   .sidebarScroll {
     min-height: 0;
-    padding: 14px 12px 18px;
+    padding: 12px 10px;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 14px;
     scrollbar-gutter: stable;
   }
 
   .navGroup {
     display: flex;
     flex-direction: column;
-    gap: 7px;
+    gap: 6px;
 
-    .navGroupHeader {
-      min-height: 22px;
-      margin: 0 8px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-
-      .navGroupTitle {
-        margin: 0;
-        color: var(--omc-text-soft);
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        font-size: 0.66rem;
-        font-weight: 850;
-      }
-
-      .navGroupCount {
-        min-width: 20px;
-        height: 20px;
-        border: 1px solid var(--omc-border-subtle);
-        border-radius: 7px;
-        background: var(--omc-surface-muted);
-        color: var(--omc-text-soft);
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.68rem;
-        font-weight: 850;
-      }
+    .navGroupTitle {
+      margin: 0 10px 6px;
+      color: var(--omc-text-soft);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      font-size: 0.68rem;
+      font-weight: 700;
+      opacity: 0.92;
     }
 
     .navList {
       display: flex;
       flex-direction: column;
-      gap: 3px;
+      gap: 2px;
 
       .navLink {
-        position: relative;
-        min-height: 40px;
+        min-height: 34px;
         display: flex;
         align-items: center;
-        gap: 10px;
-        padding: 7px 10px 7px 8px !important;
+        gap: 9px;
+        padding: 6px 10px !important;
         width: 100%;
-        border-radius: 10px;
+        border-radius: 8px;
         color: var(--omc-text-muted) !important;
-        font-size: 0.88rem;
-        font-weight: 700;
+        font-size: 0.92rem;
+        font-weight: 500;
         border: 1px solid transparent;
-        transition: background-color 0.16s ease, color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+        transition: background-color 0.16s ease, color 0.16s ease, border-color 0.16s ease;
         background-color: transparent !important;
         text-decoration: none !important;
-        white-space: normal;
-
-        &::before {
-          content: "";
-          position: absolute;
-          left: -5px;
-          top: 9px;
-          bottom: 9px;
-          width: 3px;
-          border-radius: 999px;
-          background: transparent;
-          transition: background-color 0.16s ease, opacity 0.16s ease;
-        }
+        white-space: nowrap;
 
         &:hover {
           background-color: var(--omc-nav-hover-bg) !important;
-          border-color: color-mix(in srgb, var(--omc-primary) 32%, var(--omc-border) 68%) !important;
-          color: var(--omc-text-strong) !important;
-          box-shadow: 0 8px 18px rgba(24, 43, 77, 0.06);
-          transform: translateX(1px);
+          border-color: var(--omc-primary) !important;
+          color: var(--omc-nav-accent) !important;
         }
 
         &:focus-visible {
@@ -135,62 +68,38 @@
         }
 
         .navIcon {
-          width: 28px;
-          height: 28px;
-          border: 1px solid var(--omc-border-subtle);
-          border-radius: 9px;
-          background: var(--omc-surface-muted);
+          width: 14px;
+          height: 14px;
           display: inline-flex;
           align-items: center;
           justify-content: center;
           color: var(--omc-text-soft);
-          flex: 0 0 28px;
-          transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+          flex: 0 0 14px;
         }
 
         .navLabel {
           min-width: 0;
           flex: 1 1 auto;
           overflow: hidden;
-          line-height: 1.25;
+          line-height: 1.2;
           text-overflow: ellipsis;
         }
       }
 
       .navLinkActive {
-        background:
-          linear-gradient(135deg, color-mix(in srgb, var(--omc-primary) 14%, var(--omc-surface) 86%), var(--omc-surface)) !important;
+        background-color: var(--omc-nav-active-bg) !important;
         border-color: var(--omc-primary) !important;
         color: var(--omc-nav-accent) !important;
-        font-weight: 850;
-        box-shadow: 0 10px 24px rgba(45, 95, 218, 0.12);
-
-        &::before {
-          background: var(--omc-primary);
-        }
-
-        .navIcon {
-          border-color: color-mix(in srgb, var(--omc-primary) 42%, var(--omc-border) 58%);
-          background: var(--omc-primary);
-          color: var(--omc-inverse-text);
-        }
+        font-weight: 600;
       }
     }
   }
 }
 
-@media (width <= 1200px) {
+@media (width <= 1180px) {
   .sidebar {
-    width: 240px;
-    max-width: 240px;
-
-    .sidebarHeader {
-      padding-inline: 14px;
-    }
-
-    .sidebarScroll {
-      padding-inline: 10px;
-    }
+    width: 220px;
+    max-width: 220px;
   }
 }
 
@@ -199,52 +108,29 @@
     width: 100%;
     max-width: none;
     height: auto;
-    max-height: 38vh;
+    max-height: 36vh;
     border-right: none;
     border-bottom: 1px solid var(--omc-border);
     min-height: auto;
-    box-shadow: 0 10px 20px rgba(24, 43, 77, 0.05);
-
-    .sidebarHeader {
-      display: none;
-    }
 
     .sidebarScroll {
-      padding: 10px 12px;
-      gap: 10px;
+      padding: 10px;
+      gap: 12px;
     }
 
     .navGroup {
-      gap: 5px;
-
-      .navGroupHeader {
-        margin-inline: 4px;
+      .navGroupTitle {
+        margin: 0 10px 4px;
       }
 
       .navList {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 6px;
+        gap: 2px;
 
         .navLink {
-          min-height: 38px;
-          padding: 6px 8px !important;
-          border-radius: 9px;
-          font-size: 0.8rem;
+          white-space: normal;
 
-          &::before {
-            left: 7px;
-            top: auto;
-            right: 7px;
-            bottom: -1px;
-            width: auto;
-            height: 3px;
-          }
-
-          .navIcon {
-            width: 26px;
-            height: 26px;
-            flex-basis: 26px;
+          .navLabel {
+            overflow-wrap: anywhere;
           }
         }
       }
@@ -254,16 +140,10 @@
 
 @media (width <= 560px) {
   .sidebar {
-    max-height: 44vh;
+    max-height: 42vh;
 
     .sidebarScroll {
-      padding-inline: 10px;
-    }
-
-    .navGroup {
-      .navList {
-        grid-template-columns: 1fr;
-      }
+      padding: 8px;
     }
   }
 }
