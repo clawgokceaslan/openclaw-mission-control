@@ -1,17 +1,16 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import hljs from 'highlight.js/lib/core'
+import typescript from 'highlight.js/lib/languages/typescript'
 import styles from './index.module.scss'
 import { getBootMotivation, splashConfig } from './splashContent'
 
-const appIconSrc = new URL('../../../../../../app-icon.png', import.meta.url).href
+import appIconSrc from './app-icon-splash.png'
 
-interface CodeToken {
-  value: string
-  tone: 'keyword' | 'function' | 'string' | 'property' | 'number' | 'operator' | 'plain'
-}
+hljs.registerLanguage('typescript', typescript)
 
 interface CodeLine {
   lane: number
-  tokens: CodeToken[]
+  html: string
 }
 
 interface CodeBlock {
@@ -19,181 +18,31 @@ interface CodeBlock {
   lines: CodeLine[]
 }
 
-const codeRain: CodeLine[] = [
-  {
-    lane: 2,
-    tokens: [
-      { value: 'const ', tone: 'keyword' },
-      { value: 'missionRuntime ', tone: 'property' },
-      { value: '= await ', tone: 'keyword' },
-      { value: 'loadWorkspace', tone: 'function' },
-      { value: '({ projectId: ', tone: 'plain' },
-      { value: '"open-mission-control"', tone: 'string' },
-      { value: ', hydrate: ', tone: 'plain' },
-      { value: 'true', tone: 'keyword' },
-      { value: ' })', tone: 'plain' }
-    ]
-  },
-  {
-    lane: 9,
-    tokens: [
-      { value: 'const ', tone: 'keyword' },
-      { value: 'visibleTasks ', tone: 'property' },
-      { value: '= ', tone: 'operator' },
-      { value: 'taskGraph', tone: 'property' },
-      { value: '.filter', tone: 'function' },
-      { value: '(task => task.status !== ', tone: 'plain' },
-      { value: '"closed"', tone: 'string' },
-      { value: ').sort', tone: 'function' },
-      { value: '((a, b) => a.priority - b.priority)', tone: 'plain' }
-    ]
-  },
-  {
-    lane: 18,
-    tokens: [
-      { value: 'gateway', tone: 'property' },
-      { value: '.stream', tone: 'function' },
-      { value: '({ channel: ', tone: 'plain' },
-      { value: '"codex:activity"', tone: 'string' },
-      { value: ', mode: ', tone: 'plain' },
-      { value: '"plan-and-run"', tone: 'string' },
-      { value: ', heartbeatMs: ', tone: 'plain' },
-      { value: '1200', tone: 'number' },
-      { value: ' })', tone: 'plain' }
-    ]
-  },
-  {
-    lane: 29,
-    tokens: [
-      { value: 'await ', tone: 'keyword' },
-      { value: 'agent', tone: 'property' },
-      { value: '.applyProjectRules', tone: 'function' },
-      { value: '({ scssModules: ', tone: 'plain' },
-      { value: 'true', tone: 'keyword' },
-      { value: ', nestedSelectors: ', tone: 'plain' },
-      { value: 'true', tone: 'keyword' },
-      { value: ', scope: ', tone: 'plain' },
-      { value: '"renderer/splash"', tone: 'string' },
-      { value: ' })', tone: 'plain' }
-    ]
-  },
-  {
-    lane: 40,
-    tokens: [
-      { value: 'const ', tone: 'keyword' },
-      { value: 'reviewPayload ', tone: 'property' },
-      { value: '= ', tone: 'operator' },
-      { value: 'serializeTask', tone: 'function' },
-      { value: '({ title, status: ', tone: 'plain' },
-      { value: '"Review"', tone: 'string' },
-      { value: ', checklist: completedItems, comments })', tone: 'plain' }
-    ]
-  },
-  {
-    lane: 51,
-    tokens: [
-      { value: 'if ', tone: 'keyword' },
-      { value: '(', tone: 'plain' },
-      { value: 'build', tone: 'property' },
-      { value: '.typecheck', tone: 'property' },
-      { value: ' === ', tone: 'operator' },
-      { value: '"green"', tone: 'string' },
-      { value: ') ', tone: 'plain' },
-      { value: 'await ', tone: 'keyword' },
-      { value: 'git', tone: 'property' },
-      { value: '.push', tone: 'function' },
-      { value: '({ branch: ', tone: 'plain' },
-      { value: '"main"', tone: 'string' },
-      { value: ', includeDirtyFiles: ', tone: 'plain' },
-      { value: 'false', tone: 'keyword' },
-      { value: ' })', tone: 'plain' }
-    ]
-  },
-  {
-    lane: 63,
-    tokens: [
-      { value: 'dispatch', tone: 'function' },
-      { value: '(', tone: 'plain' },
-      { value: 'missionSlice', tone: 'property' },
-      { value: '.actions', tone: 'property' },
-      { value: '.setSplashReady', tone: 'function' },
-      { value: '({ minimumElapsed: ', tone: 'plain' },
-      { value: 'true', tone: 'keyword' },
-      { value: ', rendererReady: ', tone: 'plain' },
-      { value: 'Boolean', tone: 'function' },
-      { value: '(user || errorMessage) }))', tone: 'plain' }
-    ]
-  },
-  {
-    lane: 76,
-    tokens: [
-      { value: 'const ', tone: 'keyword' },
-      { value: 'timeline ', tone: 'property' },
-      { value: '= ', tone: 'operator' },
-      { value: 'activityMessages', tone: 'property' },
-      { value: '.map', tone: 'function' },
-      { value: '(({ phase, body }) => ', tone: 'plain' },
-      { value: 'formatEvent', tone: 'function' },
-      { value: '({ phase, body, colorize: ', tone: 'plain' },
-      { value: 'true', tone: 'keyword' },
-      { value: ' }))', tone: 'plain' }
-    ]
-  },
-  {
-    lane: 4,
-    tokens: [
-      { value: 'renderer', tone: 'property' },
-      { value: '.mount', tone: 'function' },
-      { value: '(<', tone: 'plain' },
-      { value: 'SplashOverlay', tone: 'function' },
-      { value: ' ready={initialized || Boolean(errorMessage)} intensity=', tone: 'plain' },
-      { value: '"cinematic"', tone: 'string' },
-      { value: ' />)', tone: 'plain' }
-    ]
-  },
-  {
-    lane: 34,
-    tokens: [
-      { value: 'const ', tone: 'keyword' },
-      { value: 'diffSummary ', tone: 'property' },
-      { value: '= ', tone: 'operator' },
-      { value: 'changedFiles', tone: 'property' },
-      { value: '.reduce', tone: 'function' },
-      { value: '((summary, file) => summary.add(file.path, file.insertions, file.deletions), ', tone: 'plain' },
-      { value: 'new ', tone: 'keyword' },
-      { value: 'DiffSummary', tone: 'function' },
-      { value: '())', tone: 'plain' }
-    ]
-  },
-  {
-    lane: 57,
-    tokens: [
-      { value: 'await ', tone: 'keyword' },
-      { value: 'omc', tone: 'property' },
-      { value: '.readyForReview', tone: 'function' },
-      { value: '({ taskId, status: ', tone: 'plain' },
-      { value: '"Review"', tone: 'string' },
-      { value: ', verification: ', tone: 'plain' },
-      { value: '"npm run build"', tone: 'string' },
-      { value: ', pushedCommit })', tone: 'plain' }
-    ]
-  },
-  {
-    lane: 84,
-    tokens: [
-      { value: 'queue', tone: 'property' },
-      { value: '.schedule', tone: 'function' },
-      { value: '({ kind: ', tone: 'plain' },
-      { value: '"subtask"', tone: 'string' },
-      { value: ', owner: activeAgent.name, dueAt: ', tone: 'plain' },
-      { value: 'Date', tone: 'function' },
-      { value: '.now', tone: 'function' },
-      { value: '() + ', tone: 'plain' },
-      { value: '60000', tone: 'number' },
-      { value: ' })', tone: 'plain' }
-    ]
-  }
+const codeSamples = [
+  'const missionRuntime = await loadWorkspace({ projectId: "open-mission-control", hydrate: true })',
+  'const visibleTasks = taskGraph.filter(task => task.status !== "closed").sort(byPriority)',
+  'gateway.stream({ channel: "codex:activity", mode: "plan-and-run", heartbeatMs: 1200 })',
+  'await agent.applyProjectRules({ scssModules: true, nestedSelectors: true, scope: "renderer/splash" })',
+  'const reviewPayload = serializeTask({ title, status: "Review", checklist: completedItems, comments })',
+  'if (build.typecheck === "green") await git.push({ branch: "main", includeDirtyFiles: false })',
+  'dispatch(missionSlice.actions.setSplashReady({ minimumElapsed: true, rendererReady: Boolean(user) }))',
+  'const timeline = activityMessages.map(({ phase, body }) => formatEvent({ phase, body, colorize: true }))',
+  'renderer.mount(<SplashOverlay ready={initialized || Boolean(errorMessage)} intensity="cinematic" />)',
+  'const diffSummary = changedFiles.reduce((summary, file) => summary.add(file.path, file.insertions), new DiffSummary())',
+  'await omc.readyForReview({ taskId, status: "Review", verification: "npm run build", pushedCommit })',
+  'queue.schedule({ kind: "subtask", owner: activeAgent.name, dueAt: Date.now() + 60000 })',
+  'const checklistRatio = Math.round((doneItems / Math.max(totalItems, 1)) * 100)',
+  'notifyOperators({ tag: "renderer", signal: "desktop-and-mobile-splash-balanced" })'
 ]
+
+function highlightStaticCode(code: string): string {
+  return hljs.highlight(code, { language: 'typescript', ignoreIllegals: true }).value
+}
+
+const codeRain: CodeLine[] = codeSamples.map((code, index) => ({
+  lane: index * 7,
+  html: highlightStaticCode(code)
+}))
 
 const codeBlocks: CodeBlock[] = [
   { lane: -8, lines: [codeRain[0], codeRain[1], codeRain[2], codeRain[3], codeRain[4], codeRain[5], codeRain[6], codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11]] },
@@ -206,25 +55,102 @@ const codeBlocks: CodeBlock[] = [
   { lane: 88, lines: [codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11], codeRain[0], codeRain[1], codeRain[2], codeRain[3], codeRain[4], codeRain[5], codeRain[6]] }
 ]
 
-const taskTitles = [
-  'App Splash Loader',
-  'Renderer Overlay Polish',
-  'Gateway Context Sync',
-  'Mission Timeline Review',
-  'Task Detail Flow',
-  'Agent Runtime Check',
-  'Build Verification',
-  'Command Palette Sweep',
-  'Project Signal Cleanup',
-  'Review Handoff'
+interface TaskRainTemplate {
+  status: string
+  title: string
+  tag: string
+  agent: string
+  subtasks: string
+  checklist: string
+  signal: string
+  progress: number
+}
+
+const taskTemplates: TaskRainTemplate[] = [
+  {
+    status: 'Running',
+    title: 'Splash Loader Gelistir',
+    tag: 'renderer',
+    agent: 'ElectoVite Pilot',
+    subtasks: '4 subtasks',
+    checklist: '6/8 checklist',
+    signal: 'icon crop + motion pass',
+    progress: 76
+  },
+  {
+    status: 'Review',
+    title: 'Task Detail Flow',
+    tag: 'ux',
+    agent: 'Control Reviewer',
+    subtasks: '5 subtasks',
+    checklist: '9/10 checklist',
+    signal: 'handoff ready',
+    progress: 91
+  },
+  {
+    status: 'Queued',
+    title: 'Gateway Context Sync',
+    tag: 'gateway',
+    agent: 'Runtime Agent',
+    subtasks: '3 subtasks',
+    checklist: '2/6 checklist',
+    signal: 'workspace hydrate',
+    progress: 38
+  },
+  {
+    status: 'Active',
+    title: 'Mission Timeline Review',
+    tag: 'planner',
+    agent: 'Plan Scout',
+    subtasks: '7 subtasks',
+    checklist: '11/14 checklist',
+    signal: 'comment digest',
+    progress: 68
+  },
+  {
+    status: 'Ready',
+    title: 'Build Verification',
+    tag: 'build',
+    agent: 'Electron Guard',
+    subtasks: '2 subtasks',
+    checklist: '4/4 checklist',
+    signal: 'typecheck green',
+    progress: 100
+  },
+  {
+    status: 'Running',
+    title: 'Command Palette Sweep',
+    tag: 'navigation',
+    agent: 'UX Pilot',
+    subtasks: '6 subtasks',
+    checklist: '5/9 checklist',
+    signal: 'shortcuts aligned',
+    progress: 57
+  },
+  {
+    status: 'Active',
+    title: 'Project Signal Cleanup',
+    tag: 'data',
+    agent: 'Schema Pilot',
+    subtasks: '4 subtasks',
+    checklist: '3/7 checklist',
+    signal: 'stale rows pruned',
+    progress: 49
+  },
+  {
+    status: 'Review',
+    title: 'Agent Runtime Check',
+    tag: 'agent',
+    agent: 'Codex Operator',
+    subtasks: '3 subtasks',
+    checklist: '7/7 checklist',
+    signal: 'ready-for-review',
+    progress: 96
+  }
 ]
 
-const taskStatuses = ['Running', 'Review', 'Queued', 'Active', 'Ready', 'Done']
-const taskTags = ['renderer', 'electron', 'ux', 'build', 'gateway', 'planner']
-const taskOwners = ['Pilot', 'Agent', 'Control', 'Runtime', 'Review']
-const taskPoints = [2, 3, 5, 8, 13]
 const taskAccents = ['blue', 'green', 'violet', 'amber']
-const taskLanes = [0, 1, 2, 3, 4]
+const taskLanes = [0, 1, 2, 3, 4, 5]
 const statusNodes = ['CONTEXT', 'TASKS', 'GATEWAY', 'AGENTS', 'BUILD', 'REVIEW']
 
 function pickRandom<T>(items: T[]): T {
@@ -232,16 +158,12 @@ function pickRandom<T>(items: T[]): T {
 }
 
 function buildTaskRain() {
-  return Array.from({ length: 36 }, (_, index) => ({
+  return Array.from({ length: 30 }, (_, index) => ({
+    ...pickRandom(taskTemplates),
     id: `${index}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    status: pickRandom(taskStatuses),
-    title: pickRandom(taskTitles),
-    tag: pickRandom(taskTags),
-    owner: pickRandom(taskOwners),
-    points: pickRandom(taskPoints),
     accent: pickRandom(taskAccents),
     lane: pickRandom(taskLanes),
-    progress: 32 + Math.floor(Math.random() * 62)
+    progress: 34 + Math.floor(Math.random() * 63)
   }))
 }
 
@@ -297,18 +219,14 @@ export function SplashOverlay({ ready }: SplashOverlayProps) {
                 '--block-lane': block.lane
               } as CSSProperties}
             >
-              <div className={styles.codeBlockChrome}>workspace://open-mission-control/src/renderer/runtime.tsx</div>
               <div className={styles.codeBlockBody}>
                 {block.lines.map((line, lineIndex) => (
                   <code
                     key={`${blockIndex}-${lineIndex}-${line.lane}`}
                     className={styles.codeLine}
                     style={{ '--line-index': lineIndex } as CSSProperties}
-                  >
-                    {line.tokens.map((token, tokenIndex) => (
-                      <span key={`${token.value}-${tokenIndex}`} data-tone={token.tone}>{token.value}</span>
-                    ))}
-                  </code>
+                    dangerouslySetInnerHTML={{ __html: line.html }}
+                  />
                 ))}
               </div>
             </div>
@@ -328,12 +246,16 @@ export function SplashOverlay({ ready }: SplashOverlayProps) {
             >
               <div className={styles.taskCardHeader}>
                 <span>{task.status}</span>
-                <small>{task.points}p</small>
+                <small>{task.tag}</small>
               </div>
               <strong>{task.title}</strong>
               <div className={styles.taskCardMeta}>
-                <span>{task.owner}</span>
-                <span>{task.tag}</span>
+                <span>{task.agent}</span>
+                <span>{task.subtasks}</span>
+              </div>
+              <div className={styles.taskCardSignal}>
+                <span>{task.checklist}</span>
+                <span>{task.signal}</span>
               </div>
               <div className={styles.taskCardProgress} />
             </article>
@@ -364,6 +286,7 @@ export function SplashOverlay({ ready }: SplashOverlayProps) {
             <span />
             <span />
             <span />
+            <img src={appIconSrc} alt="" />
           </div>
           <span>{splashConfig.spinnerLabel}</span>
         </div>
