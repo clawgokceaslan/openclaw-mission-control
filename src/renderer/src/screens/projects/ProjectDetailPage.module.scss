@@ -7936,23 +7936,68 @@
   }
 
   .chatPopupShell {
-    inset: 9px;
-    width: auto;
-    height: auto;
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
     min-height: 0;
+    border: 0;
+    border-radius: 0;
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
   }
 
   .chatSidebar {
-    max-height: 180px;
+    max-height: 126px;
     border-right: 0;
     border-bottom: 1px solid var(--omc-border-subtle);
+    padding: max(8px, env(safe-area-inset-top, 0px)) max(10px, env(safe-area-inset-right, 0px)) 8px max(10px, env(safe-area-inset-left, 0px));
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+
+    .chatNewConversationButton,
+    .chatConversationButton {
+      flex: 0 0 min(238px, 72vw);
+      padding: 9px;
+    }
+
+    p,
+    .chatHistoryNote {
+      flex: 0 0 auto;
+      min-width: 150px;
+      margin: 0;
+      align-self: stretch;
+    }
+  }
+
+  .chatBrand {
+    flex: 0 0 min(210px, 58vw);
+    margin: 0;
+    padding: 6px 10px;
+    border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 64%, transparent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--omc-surface) 72%, transparent);
   }
 
   .chatTopbar {
     align-items: center;
     flex-direction: row;
+    min-height: 52px;
+    padding: 8px max(10px, env(safe-area-inset-right, 0px)) 8px max(12px, env(safe-area-inset-left, 0px));
+  }
+
+  .chatTopbarTitle {
+    p {
+      max-width: 100%;
+    }
   }
 
   .chatPillRow {
@@ -7961,30 +8006,131 @@
 
   .chatTopbarActions {
     justify-content: flex-end;
+    overflow-x: auto;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+
+    button {
+      flex: 0 0 auto;
+      width: 36px;
+      height: 36px;
+    }
+  }
+
+  .chatLabeledAction {
+    min-width: 36px;
+    padding: 0 8px !important;
+
+    span {
+      display: none;
+    }
   }
 
   .chatPipelineStrip {
-    grid-template-columns: 1fr;
-    padding: 8px 12px;
-    max-height: 210px;
-    overflow: auto;
+    display: flex;
+    gap: 8px;
+    padding: 8px max(10px, env(safe-area-inset-right, 0px)) 8px max(10px, env(safe-area-inset-left, 0px));
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
 
     .chatPipelineStep {
+      flex: 0 0 min(250px, 78vw);
       grid-template-columns: auto minmax(0, 1fr) auto;
     }
   }
 
   .chatWorkspace {
-    overflow: visible;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .chatTranscript {
+    height: 100%;
+    padding: 14px max(10px, env(safe-area-inset-right, 0px)) 16px max(10px, env(safe-area-inset-left, 0px));
+    overscroll-behavior: contain;
   }
 
   .chatSettingsPanel {
     top: auto;
-    left: 12px;
-    right: 12px;
-    bottom: 10px;
+    left: max(10px, env(safe-area-inset-left, 0px));
+    right: max(10px, env(safe-area-inset-right, 0px));
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
     width: auto;
-    max-height: 260px;
+    max-height: min(420px, 58dvh);
+    border-radius: 16px;
+  }
+
+  .chatContextDrawer {
+    top: auto;
+    width: 100%;
+    height: min(620px, 72dvh);
+    border-top: 1px solid color-mix(in srgb, var(--omc-border) 72%, transparent);
+    border-left: 0;
+    border-radius: 18px 18px 0 0;
+  }
+
+  .chatContextDrawerBody {
+    grid-template-rows: minmax(100px, 0.75fr) minmax(150px, 1fr);
+  }
+
+  .chatComposer {
+    padding: 7px max(10px, env(safe-area-inset-right, 0px)) max(9px, env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px));
+    border-top: 1px solid color-mix(in srgb, var(--omc-border-subtle) 66%, transparent);
+  }
+
+  .chatComposerBox {
+    grid-template-columns: 38px minmax(0, 1fr) 38px;
+    grid-template-rows: auto 38px auto;
+    gap: 4px 6px;
+    padding: 7px;
+
+    textarea {
+      min-height: 54px;
+      max-height: min(132px, 24dvh);
+      padding: 7px 6px 3px;
+    }
+
+    > button {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+    }
+  }
+
+  .chatComposerFooter {
+    min-height: 38px;
+    gap: 6px;
+  }
+
+  .chatComposerBox .chatConfigurationButton {
+    height: 38px;
+    min-height: 38px;
+    padding: 0 9px;
+  }
+
+  .chatAttachmentChips {
+    max-height: 58px;
+    overflow-y: auto;
+  }
+
+  .chatConfigModalOverlay {
+    position: fixed;
+    padding: 10px;
+  }
+
+  .chatConfigModal {
+    width: 100%;
+    max-height: calc(100dvh - 20px);
+    border-radius: 14px;
   }
 
   .chatRole_user {
@@ -8001,5 +8147,117 @@
 
   .dataFormatControls {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .chatSidebar {
+    max-height: 102px;
+
+    .chatNewConversationButton,
+    .chatConversationButton {
+      flex-basis: min(218px, 78vw);
+
+      small {
+        display: none;
+      }
+    }
+  }
+
+  .chatBrand {
+    flex-basis: min(180px, 60vw);
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .chatTopbar {
+    gap: 8px;
+  }
+
+  .chatTopbarTitleRow {
+    gap: 6px;
+  }
+
+  .chatPipelineStrip {
+    .chatPipelineStep {
+      flex-basis: min(210px, 82vw);
+      grid-template-columns: auto minmax(0, 1fr);
+
+      button {
+        grid-column: 1 / -1;
+      }
+
+      .chatPipelineCopy {
+        p {
+          display: none;
+        }
+      }
+    }
+  }
+
+  .chatMessageList {
+    gap: 14px;
+  }
+
+  .chatMessageBody {
+    font-size: 0.9rem;
+  }
+
+  .chatComposerBox {
+    textarea {
+      min-height: 46px;
+      max-height: min(108px, 22dvh);
+    }
+  }
+
+  .chatConfigurationButton {
+    span {
+      display: none;
+    }
+  }
+
+  .chatConfigDetailList {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-height: 760px) and (max-width: 860px) {
+  .chatSidebar {
+    max-height: 84px;
+
+    .chatNewConversationButton,
+    .chatConversationButton {
+      align-content: center;
+
+      small {
+        display: none;
+      }
+    }
+  }
+
+  .chatBrand {
+    align-content: center;
+
+    span:not(.chatBrandIcon) {
+      display: none;
+    }
+  }
+
+  .chatPipelineStrip {
+    .chatPipelineStep {
+      padding: 7px;
+
+      .chatPipelineCopy {
+        p {
+          display: none;
+        }
+      }
+    }
+  }
+
+  .chatComposerBox {
+    textarea {
+      min-height: 42px;
+      max-height: min(94px, 20dvh);
+    }
   }
 }
