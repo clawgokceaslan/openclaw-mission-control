@@ -152,11 +152,11 @@
   }
 }
 
-@media (width <= 560px) {
-  .sidebar {
-    top: 104px;
+.sidebar {
+  @media (width <= 560px) {
+    top: 92px;
     width: min(300px, calc(100vw - 36px));
-    height: calc(100dvh - 104px);
+    height: calc(100dvh - 92px);
 
     .sidebarScroll {
       padding: 12px 8px max(12px, env(safe-area-inset-bottom));

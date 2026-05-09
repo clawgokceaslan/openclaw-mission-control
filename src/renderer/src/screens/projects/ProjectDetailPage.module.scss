@@ -8,6 +8,14 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+
+  @media (width <= 900px) {
+    gap: 10px;
+  }
+
+  @media (width <= 560px) {
+    gap: 10px;
+  }
 }
 
 .projectRecentChatsView {
@@ -154,28 +162,83 @@
 .header {
   margin: -22px -30px 0;
   border-bottom: 1px solid var(--omc-border);
-  padding: 18px 30px 0;
+  padding: 16px 30px 0;
   display: grid;
-  gap: 16px;
+  gap: 12px;
+  background: var(--omc-surface);
+
+  @media (width <= 900px) {
+    margin: -18px -18px 0;
+    padding: 14px 18px 0;
+    gap: 10px;
+  }
+
+  @media (width <= 560px) {
+    margin: -14px -12px 0;
+    padding: 12px 12px 0;
+    gap: 8px;
+  }
 }
 
 .headerTop {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  gap: 16px;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 46px;
+
+  @media (width <= 900px) {
+    gap: 8px;
+  }
+
+  @media (width <= 720px) {
+    flex-direction: column;
+    align-items: stretch;
+    min-height: 0;
+  }
+}
+
+.headerIdentity {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+
+  @media (width <= 560px) {
+    gap: 2px;
+  }
 }
 
 .title {
   margin: 0;
   color: var(--omc-text-strong);
-  font-size: 2rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1.72rem;
   font-weight: 800;
+  line-height: 1.12;
+
+  @media (width <= 900px) {
+    font-size: 1.36rem;
+  }
+
+  @media (width <= 560px) {
+    font-size: 1.16rem;
+  }
 }
 
 .subtitle {
-  margin: 6px 0 0;
+  margin: 0;
   color: var(--omc-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+  line-height: 1.25;
+
+  @media (width <= 560px) {
+    font-size: 0.82rem;
+  }
 }
 
 .workspaceInline {
@@ -442,13 +505,41 @@
 .headerActions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+
+  @media (width <= 900px) {
+    width: auto;
+  }
+
+  @media (width <= 720px) {
+    width: 100%;
+    justify-content: flex-start;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) repeat(5, 36px);
+    gap: 6px;
+  }
+
+  @media (width <= 420px) {
+    grid-template-columns: minmax(0, 1fr) repeat(5, 32px);
+    gap: 5px;
+  }
 }
 
 .viewSwitch {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+
+  @media (width <= 560px) {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
 }
 
 .viewBtnActive,
@@ -463,10 +554,23 @@
   align-items: center;
   gap: 6px;
   position: relative;
+
+  @media (width <= 560px) {
+    justify-content: center;
+    min-height: 32px;
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 8px;
+    background: var(--omc-surface);
+  }
 }
 
 .viewBtnActive {
   color: var(--omc-text-strong);
+
+  @media (width <= 560px) {
+    border-color: color-mix(in srgb, var(--omc-primary) 36%, var(--omc-border-subtle));
+    background: var(--omc-active-bg);
+  }
 
   &::after {
     content: '';
@@ -477,6 +581,10 @@
     height: 2px;
     border-radius: 999px;
     background: var(--omc-text-strong);
+
+    @media (width <= 560px) {
+      display: none;
+    }
   }
 }
 
@@ -500,9 +608,19 @@
 }
 
 .viewBar {
-  min-height: 42px;
+  min-height: 34px;
   display: flex;
   align-items: flex-end;
+
+  @media (width <= 900px) {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  @media (width <= 560px) {
+    min-height: 32px;
+    overflow: visible;
+  }
 }
 
 .viewGlyphBoard {
@@ -522,35 +640,54 @@
 }
 
 .quickInput {
-  min-width: 200px;
-  min-height: 38px;
+  width: clamp(190px, 22vw, 260px);
+  min-width: 180px;
+  min-height: 36px;
   border: 1px solid var(--omc-border);
   border-radius: 10px;
   padding: 0 10px;
+
+  @media (width <= 720px) {
+    width: 100%;
+    min-width: 0;
+    min-height: 36px;
+  }
 }
 
 .plusBtn {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border: none;
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--omc-primary);
   color: var(--omc-inverse-text);
   display: inline-flex;
   align-items: center;
   justify-content: center;
+
+  @media (width <= 420px) {
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+  }
 }
 
 .iconBtn {
-  width: 40px;
-  height: 40px;
-  border-radius: 14px;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
   border: 1px solid var(--omc-border);
   background: var(--omc-surface);
   color: var(--omc-text-muted);
   display: inline-flex;
   align-items: center;
   justify-content: center;
+
+  @media (width <= 420px) {
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+  }
 }
 
 .error {
@@ -567,15 +704,32 @@
   min-height: 0;
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(300px, 340px);
+  grid-auto-columns: minmax(286px, 316px);
   align-items: stretch;
-  gap: 12px;
+  gap: 10px;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 2px 2px 18px;
+  padding: 2px 2px 12px;
   scrollbar-color: var(--omc-border-strong) transparent;
   cursor: grab;
   user-select: none;
+
+  @media (width <= 1400px) {
+    grid-auto-columns: minmax(278px, 310px);
+  }
+
+  @media (width <= 900px) {
+    grid-auto-columns: minmax(268px, 78vw);
+    gap: 8px;
+    padding: 0 2px 10px;
+    scroll-snap-type: x proximity;
+  }
+
+  @media (width <= 560px) {
+    grid-auto-columns: minmax(252px, calc(100vw - 48px));
+    gap: 8px;
+    padding-bottom: 8px;
+  }
 }
 
 .kanbanPanning {
@@ -594,14 +748,24 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+
+  @media (width <= 900px) {
+    scroll-snap-align: start;
+  }
 }
 
 .columnHeader {
   border-bottom: 1px solid color-mix(in srgb, var(--column-accent) 15%, var(--omc-border-subtle));
-  padding: 10px 10px 8px;
+  min-height: 42px;
+  padding: 8px 8px 7px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+
+  @media (width <= 560px) {
+    min-height: 38px;
+    padding: 7px;
+  }
 }
 
 .columnTitle {
@@ -618,6 +782,12 @@
     color: color-mix(in srgb, var(--column-accent) 68%, var(--omc-text));
     font-size: 0.92rem;
   }
+
+  @media (width <= 560px) {
+    gap: 6px;
+    min-height: 24px;
+    font-size: 0.78rem;
+  }
 }
 
 .columnHeaderAdd,
@@ -632,6 +802,12 @@
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
+
+  @media (width <= 560px) {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+  }
 
   &:hover {
     border-color: var(--column-accent, var(--omc-primary));
@@ -651,12 +827,17 @@
   flex: 1 1 auto;
   min-height: 0;
   max-height: 100%;
-  padding: 8px;
+  padding: 7px;
   display: grid;
-  gap: 8px;
+  gap: 7px;
   align-content: start;
   overflow-y: auto;
   scrollbar-width: thin;
+
+  @media (width <= 560px) {
+    padding: 6px;
+    gap: 6px;
+  }
 }
 
 .reviewFilters {
@@ -664,7 +845,12 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  padding: 8px 10px 0;
+  padding: 7px 8px 0;
+
+  @media (width <= 560px) {
+    gap: 5px;
+    padding: 6px 7px 0;
+  }
 }
 
 .reviewBadge {
@@ -702,7 +888,11 @@
   cursor: pointer;
 
   :global(.card-body) {
-    padding: 11px 12px !important;
+    padding: 9px 10px !important;
+
+    @media (width <= 560px) {
+      padding: 8px !important;
+    }
   }
 
   &:hover {
@@ -797,6 +987,10 @@
     color: var(--omc-text-strong);
     line-height: 1.3;
     font-weight: 750;
+
+    @media (width <= 560px) {
+      font-size: 0.9rem;
+    }
   }
 }
 
@@ -1191,6 +1385,11 @@
   border-top: 1px solid color-mix(in srgb, var(--column-accent) 14%, var(--omc-border-subtle));
   padding: 8px;
 
+  @media (width <= 560px) {
+    min-height: 34px;
+    padding: 6px;
+  }
+
   button {
     border: none;
     background: transparent;
@@ -1201,6 +1400,11 @@
     font-size: 0.9rem;
     font-weight: 750;
     padding: 0 6px;
+
+    @media (width <= 560px) {
+      font-size: 0.82rem;
+      gap: 5px;
+    }
   }
 
   input {
@@ -6508,40 +6712,12 @@
 }
 
 @media (width <= 1400px) {
-  .kanbanWrap {
-    grid-auto-columns: minmax(292px, 330px);
-  }
-
   .modalShell {
     inset: 1.8vh 1.4vw;
   }
 }
 
 @media (width <= 900px) {
-  .header {
-    margin: -18px -18px 0;
-    padding: 14px 18px 0;
-  }
-
-  .headerTop {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .headerActions {
-    width: 100%;
-    flex-wrap: wrap;
-  }
-
-  .viewBar {
-    width: 100%;
-    overflow-x: auto;
-  }
-
-  .kanbanWrap {
-    grid-auto-columns: minmax(280px, 86vw);
-  }
-
   .modalShell {
     inset: 1.5vh 1.5vw;
     min-height: 0;

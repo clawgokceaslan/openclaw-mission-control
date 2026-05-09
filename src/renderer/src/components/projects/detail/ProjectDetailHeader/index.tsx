@@ -41,7 +41,7 @@ export function ProjectDetailHeader({
   return (
     <header className={styles.header}>
       <div className={styles.headerTop}>
-        <div>
+        <div className={styles.headerIdentity}>
           <h1 className={styles.title}>{project.name}</h1>
           <p className={styles.subtitle}>{project.description ?? 'Keep tasks moving through your workflow.'}</p>
         </div>
