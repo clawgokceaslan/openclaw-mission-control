@@ -24,7 +24,12 @@
 
   &.sidebarOpen {
     @media (width <= 900px) {
-      transform: translateX(0);
+      transform: translate(-50%, 0);
+      box-shadow: var(--omc-shadow-large);
+    }
+
+    @media (max-width: 900px) {
+      transform: translate(-50%, 0);
       box-shadow: var(--omc-shadow-large);
     }
   }
@@ -118,22 +123,25 @@
   .sidebar {
     position: fixed;
     z-index: 900;
-    top: 108px;
-    left: 0;
-    width: min(320px, calc(100vw - 48px));
-    max-width: calc(100vw - 48px);
-    height: calc(100dvh - 108px);
-    max-height: none;
-    border-right: 1px solid var(--omc-border);
-    border-bottom: none;
+    top: auto;
+    right: auto;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: 50%;
+    width: min(640px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+    height: auto;
+    max-height: min(72dvh, calc(100dvh - 132px));
+    border: 1px solid var(--omc-border);
+    border-radius: 18px;
     min-height: 0;
-    padding-top: env(safe-area-inset-top);
-    transform: translateX(-105%);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    padding-top: 0;
+    transform: translate(-50%, calc(100% + 28px));
+    transition: transform 0.22s ease, box-shadow 0.2s ease;
 
     .sidebarScroll {
-      padding: 14px 10px max(14px, env(safe-area-inset-bottom));
-      gap: 12px;
+      max-height: inherit;
+      padding: 14px 12px;
+      gap: 10px;
     }
 
     .navGroup {
@@ -160,22 +168,25 @@
   .sidebar {
     position: fixed;
     z-index: 900;
-    top: 108px;
-    left: 0;
-    width: min(320px, calc(100vw - 48px));
-    max-width: calc(100vw - 48px);
-    height: calc(100dvh - 108px);
-    max-height: none;
-    border-right: 1px solid var(--omc-border);
-    border-bottom: none;
+    top: auto;
+    right: auto;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: 50%;
+    width: min(640px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+    height: auto;
+    max-height: min(72dvh, calc(100dvh - 132px));
+    border: 1px solid var(--omc-border);
+    border-radius: 18px;
     min-height: 0;
-    padding-top: env(safe-area-inset-top);
-    transform: translateX(-105%);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    padding-top: 0;
+    transform: translate(-50%, calc(100% + 28px));
+    transition: transform 0.22s ease, box-shadow 0.2s ease;
 
     .sidebarScroll {
-      padding: 14px 10px max(14px, env(safe-area-inset-bottom));
-      gap: 12px;
+      max-height: inherit;
+      padding: 14px 12px;
+      gap: 10px;
     }
 
     .navGroup {
@@ -200,24 +211,26 @@
 
 .sidebar {
   @media (width <= 560px) {
-    top: 92px;
-    width: min(300px, calc(100vw - 36px));
-    max-width: calc(100vw - 36px);
-    height: calc(100dvh - 92px);
+    bottom: max(8px, env(safe-area-inset-bottom));
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    max-height: min(76dvh, calc(100dvh - 116px));
+    border-radius: 16px;
 
     .sidebarScroll {
-      padding: 12px 8px max(12px, env(safe-area-inset-bottom));
+      padding: 12px 8px;
     }
   }
 
   @media (max-width: 560px) {
-    top: 92px;
-    width: min(300px, calc(100vw - 36px));
-    max-width: calc(100vw - 36px);
-    height: calc(100dvh - 92px);
+    bottom: max(8px, env(safe-area-inset-bottom));
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    max-height: min(76dvh, calc(100dvh - 116px));
+    border-radius: 16px;
 
     .sidebarScroll {
-      padding: 12px 8px max(12px, env(safe-area-inset-bottom));
+      padding: 12px 8px;
     }
   }
 }

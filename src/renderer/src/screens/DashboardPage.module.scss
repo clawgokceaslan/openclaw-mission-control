@@ -36,8 +36,8 @@
 }
 
 .refreshBtn {
-  min-width: 108px;
   min-height: 42px;
+  min-width: 0;
   border-color: var(--omc-input-border) !important;
   border-radius: 11px !important;
   background: var(--omc-surface) !important;
@@ -66,10 +66,15 @@
   align-items: center;
   gap: 10px;
   min-width: 0;
+
+  > * {
+    min-width: 0;
+  }
 }
 
 .primaryLink {
   min-height: 42px;
+  min-width: 0;
   border-radius: 11px;
   background: var(--omc-primary);
   color: var(--omc-inverse-text);
@@ -313,11 +318,13 @@
   }
 
   .headerActions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
     width: 100%;
-    flex-wrap: wrap;
 
     > * {
-      flex: 1 1 180px;
+      width: 100%;
+      min-height: 42px;
     }
   }
 }
@@ -544,14 +551,36 @@
   .pageHead,
   .headerActions {
     align-items: flex-start;
-    flex-direction: column;
   }
 
   .headerActions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
     width: 100%;
 
     > * {
-      flex: 0 0 auto;
+      width: 100%;
+      min-height: 42px;
+    }
+  }
+
+  .chartCard canvas {
+    max-height: 280px !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .pageHead,
+  .headerActions {
+    align-items: flex-start;
+  }
+
+  .headerActions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+    width: 100%;
+
+    > * {
       width: 100%;
       min-height: 42px;
     }
