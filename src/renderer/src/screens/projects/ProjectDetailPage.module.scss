@@ -6719,13 +6719,29 @@
 
 @media (width <= 900px) {
   .modalShell {
-    inset: 1.5vh 1.5vw;
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
     min-height: 0;
-    border-radius: 12px;
+    border-width: 0;
+    border-radius: 0;
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .modalBody {
-    grid-template-columns: 1fr !important;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: minmax(0, 1fr) minmax(230px, 38dvh);
+    overflow: hidden;
+  }
+
+  .detailPane {
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
   }
 
   .projectPromptModal {
@@ -6757,8 +6773,64 @@
   }
 
   .commentsPane {
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
     border-top: 1px solid var(--omc-border);
-    min-height: 280px;
+    border-left: 0;
+  }
+
+  .commentsHeader {
+    padding: 10px 14px;
+  }
+
+  .commentsFeed {
+    min-height: 0;
+    padding: 10px 12px;
+    overscroll-behavior: contain;
+  }
+
+  .commentItem {
+    grid-template-columns: 30px minmax(0, 1fr);
+    gap: 8px;
+    padding: 9px;
+  }
+
+  .commentAvatar {
+    width: 30px;
+    height: 30px;
+  }
+
+  .commentMeta {
+    display: grid;
+    gap: 2px;
+  }
+
+  .commentActions {
+    opacity: 1;
+  }
+
+  .commentsComposer {
+    padding: 9px 12px max(10px, env(safe-area-inset-bottom, 0px));
+
+    textarea {
+      min-height: 56px;
+      max-height: min(116px, 18dvh);
+      resize: vertical;
+    }
+  }
+
+  .commentsComposerHeader,
+  .commentComposerFooter {
+    min-width: 0;
+    gap: 6px;
+
+    span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   }
 
   .metaGrid {
@@ -6771,6 +6843,43 @@
 
   .subtaskDetailGrid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (width <= 430px) {
+  .modalBody {
+    grid-template-rows: minmax(0, 1fr) minmax(250px, 42dvh);
+  }
+
+  .commentsHeader {
+    padding-inline: 12px;
+  }
+
+  .commentsFeed {
+    padding-inline: 10px;
+  }
+
+  .commentComposerFooter {
+    align-items: stretch;
+    display: grid;
+
+    button {
+      min-height: 34px;
+      width: 100%;
+    }
+  }
+}
+
+@media (height <= 760px) and (width <= 900px) {
+  .modalBody {
+    grid-template-rows: minmax(0, 1fr) minmax(210px, 34dvh);
+  }
+
+  .commentsComposer {
+    textarea {
+      min-height: 44px;
+      max-height: 84px;
+    }
   }
 }
 

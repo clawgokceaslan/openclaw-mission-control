@@ -707,7 +707,7 @@
   .modalBody {
     min-height: 0;
     grid-template-columns: minmax(0, 1fr) !important;
-    grid-template-rows: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(230px, 38dvh);
     overflow: hidden;
   }
 
@@ -719,9 +719,69 @@
     padding-bottom: max(14px, env(safe-area-inset-bottom, 0px));
   }
 
-  .splitHandle,
-  .commentsPane {
+  .splitHandle {
     display: none;
+  }
+
+  .commentsPane {
+    min-height: 0;
+    border-top: 1px solid var(--omc-border);
+    border-left: 0;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    display: grid;
+  }
+
+  .commentsHeader {
+    padding: 10px 14px;
+  }
+
+  .commentsFeed {
+    min-height: 0;
+    padding: 10px 12px;
+    overscroll-behavior: contain;
+  }
+
+  .commentItem {
+    grid-template-columns: 30px minmax(0, 1fr);
+    gap: 8px;
+    padding: 9px;
+  }
+
+  .commentAvatar {
+    width: 30px;
+    height: 30px;
+  }
+
+  .commentMeta {
+    display: grid;
+    gap: 2px;
+  }
+
+  .commentActions {
+    opacity: 1;
+  }
+
+  .commentsComposer {
+    padding: 9px 12px max(10px, env(safe-area-inset-bottom, 0px));
+
+    textarea {
+      min-height: 56px;
+      max-height: min(116px, 18dvh);
+      resize: vertical;
+    }
+  }
+
+  .commentsComposerHeader,
+  .commentComposerFooter {
+    min-width: 0;
+    gap: 6px;
+
+    span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   }
 
   .breadcrumbRow {
@@ -897,9 +957,31 @@
     padding-inline: 12px;
   }
 
+  .modalBody {
+    grid-template-rows: minmax(0, 1fr) minmax(250px, 42dvh);
+  }
+
   .detailSectionHeader {
     align-items: flex-start;
     display: grid;
+  }
+
+  .commentsHeader {
+    padding-inline: 12px;
+  }
+
+  .commentsFeed {
+    padding-inline: 10px;
+  }
+
+  .commentComposerFooter {
+    align-items: stretch;
+    display: grid;
+
+    button {
+      min-height: 34px;
+      width: 100%;
+    }
   }
 
   .pipelinePanel {
@@ -918,6 +1000,10 @@
 }
 
 @media (height <= 760px) and (width <= 900px) {
+  .modalBody {
+    grid-template-rows: minmax(0, 1fr) minmax(210px, 34dvh);
+  }
+
   .detailTop {
     padding-block: 12px;
   }
@@ -929,6 +1015,13 @@
   .pipelinePanel {
     .pipelineSteps {
       max-height: 250px;
+    }
+  }
+
+  .commentsComposer {
+    textarea {
+      min-height: 44px;
+      max-height: 84px;
     }
   }
 }
