@@ -49,6 +49,9 @@ interface PipelineTaskRunState {
 }
 
 interface PipelineDraft {
+  name: string
+  createdAt?: number
+  createdByName?: string
   selectedProjectIds: string[]
   selectedTaskIds: string[]
   groups: PipelineGroup[]
@@ -76,6 +79,7 @@ const STEPS: Array<{ key: StepKey; label: string; detail: string }> = [
 ]
 
 const defaultDraft: PipelineDraft = {
+  name: 'Yeni plan pipeline',
   selectedProjectIds: [],
   selectedTaskIds: [],
   groups: [],
@@ -100,6 +104,9 @@ function readStoredDraft(): PipelineDraft {
     return {
       ...defaultDraft,
       ...parsed,
+      name: typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name : defaultDraft.name,
+      createdAt: typeof parsed.createdAt === 'number' ? parsed.createdAt : undefined,
+      createdByName: typeof parsed.createdByName === 'string' ? parsed.createdByName : undefined,
       selectedProjectIds: Array.isArray(parsed.selectedProjectIds) ? parsed.selectedProjectIds : [],
       selectedTaskIds: Array.isArray(parsed.selectedTaskIds) ? parsed.selectedTaskIds : [],
       groups: Array.isArray(parsed.groups) ? parsed.groups : [],
@@ -141,8 +148,16 @@ function summarizeTask(task: TaskEntity) {
   return `${subtaskCount} alt görev, ${commentCount} yorum`
 }
 
+function statusTone(status: QueueStatus | RunItemStatus) {
+  if (status === 'completed') return 'success'
+  if (status === 'running') return 'active'
+  if (status === 'waiting' || status === 'blocked' || status === 'paused') return 'warning'
+  if (status === 'failed' || status === 'cancelled') return 'danger'
+  return 'idle'
+}
+
 export function PlanPipelinePage() {
-  const { token } = useAuth()
+  const { token, user } = useAuth()
   const [activeStep, setActiveStep] = useState<StepKey>('scope')
   const [projects, setProjects] = useState<Project[]>([])
   const [tasks, setTasks] = useState<TaskEntity[]>([])
@@ -157,6 +172,7 @@ export function PlanPipelinePage() {
   const [groupName, setGroupName] = useState('')
   const [groupDescription, setGroupDescription] = useState('')
   const [dragData, setDragData] = useState<string | null>(null)
+  const [selectedDetailGroupId, setSelectedDetailGroupId] = useState<string | null>(draft.currentGroupId ?? null)
 
   const loadData = async () => {
     setLoading(true)
@@ -291,8 +307,8 @@ export function PlanPipelinePage() {
     })
   }
 
-  const createGroup = (event: FormEvent) => {
-    event.preventDefault()
+  const createGroup = (event?: FormEvent) => {
+    event?.preventDefault()
     const name = groupName.trim()
     if (!name) return
     updateDraft((current) => ({
@@ -415,6 +431,8 @@ export function PlanPipelinePage() {
   const startQueue = () => {
     updateDraft((current) => initializeRunState({
       ...current,
+      createdAt: current.createdAt ?? Date.now(),
+      createdByName: current.createdByName ?? user?.name ?? user?.email ?? 'Yerel kullanıcı',
       groups: current.groups.map((group) => ({ ...group, status: 'pending', progress: 0, lastError: undefined, completedAt: undefined })),
       taskRunState: {}
     }))
@@ -532,13 +550,20 @@ export function PlanPipelinePage() {
   const currentGroup = draft.groups.find((group) => group.id === draft.currentGroupId)
   const canStart = draft.groups.some((group) => group.taskIds.length > 0)
   const excludedCount = scopedTasks.length - eligibleTasks.length
+  const groupedTaskCount = draft.groups.reduce((sum, group) => sum + group.taskIds.length, 0)
+  const nextGroup = currentGroup ?? draft.groups.find((group) => group.taskIds.length > 0 && group.status !== 'completed')
+  const runnerName = draft.createdByName ?? user?.name ?? user?.email ?? 'Atanmadı'
+  const plannedGroups = draft.groups.filter((group) => group.taskIds.length > 0)
+  const startedRows = draft.groups.filter((group) => ['running', 'completed', 'failed', 'skipped'].includes(group.status))
+  const waitingRows = draft.groups.filter((group) => group.status === 'pending' || group.status === 'waiting')
+  const detailGroup = draft.groups.find((group) => group.id === selectedDetailGroupId) ?? currentGroup ?? plannedGroups[0] ?? draft.groups[0]
 
   return (
     <section className={styles.page}>
       <header className={styles.header}>
         <div>
           <h1>Plan Pipeline</h1>
-          <p>Projeler arası taskları gruplandır, sıraya al ve onaylı otomasyon kuyruğu gibi yönet.</p>
+          <p>Planlanan, bekleyen ve çalışan otomasyon gruplarını tek ekrandan izle; detayda CodePipeline benzeri çalıştırma akışını gör.</p>
         </div>
         <div className={styles.headerActions}>
           <button className={styles.secondaryButton} type="button" onClick={() => void loadData()}>
@@ -547,7 +572,7 @@ export function PlanPipelinePage() {
           </button>
           <button className={styles.primaryButton} type="button" onClick={() => setModalOpen(true)}>
             <LuPlus size={16} />
-            Grup
+            Pipeline oluştur
           </button>
         </div>
       </header>
@@ -560,49 +585,221 @@ export function PlanPipelinePage() {
         </div>
       ) : null}
 
-      <section className={styles.stepper}>
-        {STEPS.map((step, index) => (
-          <button
-            key={step.key}
-            className={`${styles.stepButton} ${activeStep === step.key ? styles.stepButtonActive : ''}`}
-            type="button"
-            onClick={() => setActiveStep(step.key)}
-          >
-            <span>{index + 1}</span>
-            <strong>{step.label}</strong>
-            <small>{step.detail}</small>
-          </button>
-        ))}
-      </section>
-
-      <section className={styles.workspace}>
-        <aside className={styles.rail}>
-          <div className={styles.metric}>
-            <span>Seçili proje</span>
-            <strong>{draft.selectedProjectIds.length}</strong>
+      <section className={styles.commandCenter}>
+        <aside className={styles.pipelineSummary}>
+          <div className={styles.summaryHead}>
+            <span>Aktif plan</span>
+            <strong>{draft.name}</strong>
+            <small>{formatTime(draft.createdAt)} · {runnerName}</small>
           </div>
-          <div className={styles.metric}>
-            <span>Task havuzu</span>
-            <strong>{draft.selectedTaskIds.length}</strong>
-          </div>
-          <div className={styles.metric}>
-            <span>Grup</span>
-            <strong>{draft.groups.length}</strong>
+          <div className={styles.summaryMetrics}>
+            <div>
+              <span>Planlanan grup</span>
+              <strong>{plannedGroups.length}</strong>
+            </div>
+            <div>
+              <span>Başlatılan</span>
+              <strong>{startedRows.length}</strong>
+            </div>
+            <div>
+              <span>Bekleyen</span>
+              <strong>{waitingRows.length}</strong>
+            </div>
           </div>
           <div className={styles.queuePanel}>
             <div className={styles.queuePanelHead}>
-              <span>Kuyruk</span>
-              <strong>{statusText(draft.queueStatus)}</strong>
+              <span>Kuyruk durumu</span>
+              <strong className={styles[`tone-${statusTone(draft.queueStatus)}`]}>{statusText(draft.queueStatus)}</strong>
             </div>
             <div className={styles.progressTrack}>
               <i style={{ width: `${queueProgress}%` }} />
             </div>
-            <small>{queueProgress}% kalıcı ilerleme</small>
+            <small>{queueProgress}% kalıcı ilerleme · {groupedTaskCount}/{draft.selectedTaskIds.length} task gruplandı</small>
+          </div>
+          <div className={styles.queueControls}>
+            <button className={styles.primaryButton} type="button" disabled={!canStart || draft.queueStatus === 'running'} onClick={startQueue}>
+              <LuPlay size={15} />
+              Başlat
+            </button>
+            {draft.queueStatus === 'paused' ? (
+              <button className={styles.secondaryButton} type="button" onClick={resumeQueue}><LuPlay size={15} /> Sürdür</button>
+            ) : (
+              <button className={styles.secondaryButton} type="button" disabled={draft.queueStatus !== 'running'} onClick={pauseQueue}><LuPause size={15} /> Duraklat</button>
+            )}
           </div>
         </aside>
 
-        <main className={styles.panel}>
-          {activeStep === 'scope' ? (
+        <main className={styles.pipelineDashboard}>
+          <section className={styles.tableSection}>
+            <div className={styles.sectionHead}>
+              <div>
+                <h2>Planlananlar</h2>
+                <p>Gruplanmış ve sıraya alınmış çalıştırma adımları.</p>
+              </div>
+              <span className={styles.statePill}>{statusText(draft.queueStatus)}</span>
+            </div>
+            <div className={styles.pipelineTable}>
+              <div className={styles.tableHeader}>
+                <span>Sıra</span>
+                <span>Grup</span>
+                <span>Çalıştıran</span>
+                <span>Durum</span>
+                <span>Progress</span>
+              </div>
+              {plannedGroups.length > 0 ? plannedGroups.map((group, index) => (
+                <button
+                  key={group.id}
+                  type="button"
+                  className={`${styles.tableRow} ${detailGroup?.id === group.id ? styles.tableRowActive : ''}`}
+                  onClick={() => setSelectedDetailGroupId(group.id)}
+                >
+                  <span>#{index + 1}</span>
+                  <strong>{group.name}<small>{group.taskIds.length} task · Retry {group.retryCount}</small></strong>
+                  <span>{runnerName}</span>
+                  <em className={`${styles.statusBadge} ${styles[`tone-${statusTone(group.status)}`]}`}>{statusText(group.status)}</em>
+                  <span>{group.progress}%</span>
+                </button>
+              )) : (
+                <div className={styles.emptyState}>Henüz planlanmış grup yok. Oluştur akışından proje, task ve grup seçimi yap.</div>
+              )}
+            </div>
+          </section>
+
+          <section className={styles.splitTables}>
+            <div className={styles.tableSection}>
+              <div className={styles.sectionHead}>
+                <div>
+                  <h2>Başlatılanlar</h2>
+                  <p>Çalışan, tamamlanan veya hata alan gruplar.</p>
+                </div>
+              </div>
+              <div className={styles.compactTable}>
+                {startedRows.length > 0 ? startedRows.map((group) => (
+                  <button key={group.id} type="button" onClick={() => setSelectedDetailGroupId(group.id)}>
+                    <strong>{group.name}</strong>
+                    <span>{statusText(group.status)} · {group.progress}%</span>
+                  </button>
+                )) : <div className={styles.emptyState}>Başlatılmış grup yok.</div>}
+              </div>
+            </div>
+            <div className={styles.tableSection}>
+              <div className={styles.sectionHead}>
+                <div>
+                  <h2>Bekleyenler</h2>
+                  <p>Sırada veya onay bekleyen gruplar.</p>
+                </div>
+              </div>
+              <div className={styles.compactTable}>
+                {waitingRows.length > 0 ? waitingRows.map((group) => (
+                  <button key={group.id} type="button" onClick={() => setSelectedDetailGroupId(group.id)}>
+                    <strong>{group.name}</strong>
+                    <span>{statusText(group.status)} · {group.taskIds.length} task</span>
+                  </button>
+                )) : <div className={styles.emptyState}>Bekleyen grup yok.</div>}
+              </div>
+            </div>
+          </section>
+
+          <section className={styles.detailSection}>
+            <div className={styles.sectionHead}>
+              <div>
+                <h2>{detailGroup?.name ?? 'Pipeline detayı'}</h2>
+                <p>{detailGroup?.description || 'Çalıştırılacak ve çalışan adımlar detayda görünür.'}</p>
+              </div>
+              {detailGroup ? <span className={`${styles.statusBadge} ${styles[`tone-${statusTone(detailGroup.status)}`]}`}>{statusText(detailGroup.status)}</span> : null}
+            </div>
+            {draft.waitingApprovalGroupId ? (
+              <div className={styles.approvalBox}>
+                <strong>{draft.groups.find((group) => group.id === draft.waitingApprovalGroupId)?.name} onay bekliyor</strong>
+                <button type="button" onClick={() => approveGroup(draft.waitingApprovalGroupId!)}>Grubu çalıştır</button>
+              </div>
+            ) : null}
+            {detailGroup ? (
+              <div className={styles.pipelineDetail}>
+                {detailGroup.taskIds.map((taskId, index) => {
+                  const task = taskById.get(taskId)
+                  const state = draft.taskRunState[taskId] ?? { status: 'pending' as RunItemStatus, progress: 0, retryCount: 0 }
+                  return (
+                    <article key={taskId} className={styles.detailStage}>
+                      <span>{index + 1}</span>
+                      <div>
+                        <strong>{task?.title ?? taskId}</strong>
+                        <small>{projectById.get(task?.projectId ?? '')?.name ?? 'Proje yok'} · {task ? summarizeTask(task) : 'Task detayı yok'}</small>
+                      </div>
+                      <em className={`${styles.statusBadge} ${styles[`tone-${statusTone(state.status)}`]}`}>{statusText(state.status)}</em>
+                      <div className={styles.progressTrack}>
+                        <i style={{ width: `${state.progress}%` }} />
+                      </div>
+                    </article>
+                  )
+                })}
+                {detailGroup.taskIds.length === 0 ? <div className={styles.emptyState}>Bu gruba henüz task atanmadı.</div> : null}
+                {detailGroup.lastError ? <p className={styles.errorText}>{detailGroup.lastError}</p> : null}
+                <div className={styles.runActions}>
+                  <button type="button" disabled={detailGroup.status !== 'running'} onClick={() => failGroup(detailGroup.id)}>Hata simüle et</button>
+                  <button type="button" disabled={detailGroup.status !== 'failed'} onClick={() => retryGroup(detailGroup.id)}><LuListRestart size={14} /> Yeniden dene</button>
+                  <button type="button" disabled={draft.queueStatus === 'idle'} onClick={cancelQueue}><LuCirclePause size={15} /> İptal et</button>
+                </div>
+              </div>
+            ) : (
+              <div className={styles.emptyState}>Detay için planlanmış bir grup seç.</div>
+            )}
+          </section>
+        </main>
+      </section>
+
+      {modalOpen ? (
+        <>
+          <button className={styles.modalBackdrop} type="button" aria-label="Kapat" onClick={() => setModalOpen(false)} />
+          <section className={`${styles.modal} ${styles.flowModal}`} role="dialog" aria-modal="true" aria-label="Pipeline oluştur">
+            <header>
+              <div>
+                <h2>Pipeline oluştur</h2>
+                <p>Proje kapsamı, task havuzu, grup sırası ve çalıştırma modunu tek akışta hazırla.</p>
+              </div>
+              <button type="button" onClick={() => setModalOpen(false)}><LuX size={16} /></button>
+            </header>
+            <label>
+              <span>Pipeline adı</span>
+              <input value={draft.name} onChange={(event) => updateDraft((current) => ({ ...current, name: event.target.value }))} />
+            </label>
+            <section className={styles.stepper}>
+              {STEPS.map((step, index) => (
+                <button
+                  key={step.key}
+                  className={`${styles.stepButton} ${activeStep === step.key ? styles.stepButtonActive : ''} ${STEPS.findIndex((item) => item.key === activeStep) > index ? styles.stepButtonDone : ''}`}
+                  type="button"
+                  onClick={() => setActiveStep(step.key)}
+                >
+                  <span>{index + 1}</span>
+                  <strong>{step.label}</strong>
+                  <small>{step.detail}</small>
+                </button>
+              ))}
+            </section>
+            <section className={styles.workspace}>
+              <aside className={styles.rail}>
+                <div className={styles.metric}>
+                  <span>Seçili proje</span>
+                  <strong>{draft.selectedProjectIds.length}</strong>
+                </div>
+                <div className={styles.metric}>
+                  <span>Task havuzu</span>
+                  <strong>{draft.selectedTaskIds.length}</strong>
+                </div>
+                <div className={styles.metric}>
+                  <span>Grup</span>
+                  <strong>{draft.groups.length}</strong>
+                </div>
+                <div className={styles.flowBrief}>
+                  <span>Sıradaki adım</span>
+                  <strong>{nextGroup?.name ?? 'Hazırlanıyor'}</strong>
+                  <small>{groupedTaskCount}/{draft.selectedTaskIds.length} task gruplandı</small>
+                </div>
+              </aside>
+
+              <main className={styles.panel}>
+                {activeStep === 'scope' ? (
             <section className={styles.panelSection}>
               <div className={styles.sectionHead}>
                 <div>
@@ -622,6 +819,7 @@ export function PlanPipelinePage() {
                 {projects.map((project) => {
                   const selected = draft.selectedProjectIds.includes(project.id)
                   const projectTaskCount = tasks.filter((task) => task.projectId === project.id).length
+                  const eligibleProjectTaskCount = eligibleTasks.filter((task) => task.projectId === project.id).length
                   return (
                     <button
                       key={project.id}
@@ -631,7 +829,7 @@ export function PlanPipelinePage() {
                     >
                       <span>{selected ? <LuCheck size={15} /> : null}</span>
                       <strong>{project.name}</strong>
-                      <small>{projectTaskCount} task · {project.archived ? 'Arşivli' : 'Aktif'}</small>
+                      <small>{eligibleProjectTaskCount}/{projectTaskCount} planlanabilir · {project.archived ? 'Arşivli' : 'Aktif'}</small>
                     </button>
                   )
                 })}
@@ -639,7 +837,7 @@ export function PlanPipelinePage() {
             </section>
           ) : null}
 
-          {activeStep === 'tasks' ? (
+                {activeStep === 'tasks' ? (
             <section className={styles.panelSection}>
               <div className={styles.sectionHead}>
                 <div>
@@ -666,7 +864,7 @@ export function PlanPipelinePage() {
                         <strong>{task.title}</strong>
                         <small>{projectById.get(task.projectId)?.name ?? 'Proje yok'} · {summarizeTask(task)}</small>
                       </span>
-                      <em>{task.status}</em>
+                      <em>{assignedTaskIds.has(task.id) ? 'Gruplandı' : task.status}</em>
                     </button>
                   )
                 }) : (
@@ -676,7 +874,7 @@ export function PlanPipelinePage() {
             </section>
           ) : null}
 
-          {activeStep === 'groups' ? (
+                {activeStep === 'groups' ? (
             <section className={styles.panelSection}>
               <div className={styles.sectionHead}>
                 <div>
@@ -687,6 +885,17 @@ export function PlanPipelinePage() {
                   <LuSearch size={15} />
                   <input value={groupQuery} onChange={(event) => setGroupQuery(event.target.value)} placeholder="Grup içinde ara" />
                 </label>
+              </div>
+              <div className={styles.inlineComposer}>
+                <label>
+                  <span>Grup adı</span>
+                  <input value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder="Örn. Ön hazırlık" />
+                </label>
+                <label>
+                  <span>Özet amacı</span>
+                  <input value={groupDescription} onChange={(event) => setGroupDescription(event.target.value)} placeholder="Bu grup hangi context'i üretecek?" />
+                </label>
+                <button className={styles.primaryButton} type="button" onClick={() => createGroup()}><LuPlus size={15} /> Grup ekle</button>
               </div>
               <div
                 className={styles.unassignedPool}
@@ -729,16 +938,20 @@ export function PlanPipelinePage() {
                     <article
                       key={group.id}
                       draggable
-                      className={styles.groupCard}
+                      className={`${styles.groupCard} ${group.id === draft.currentGroupId ? styles.groupCardActive : ''}`}
                       onDragStart={() => setDragData(`group:${group.id}`)}
                       onDragOver={(event) => event.preventDefault()}
                       onDrop={() => handleDrop({ groupId: group.id })}
                     >
                       <header>
                         <div>
-                          <span><LuGripVertical size={15} /> Grup</span>
+                          <span><LuGripVertical size={15} /> Grup {draft.groups.findIndex((item) => item.id === group.id) + 1}</span>
                           <h3>{group.name}</h3>
                           <p>{group.description || 'Açıklama yok'}</p>
+                        </div>
+                        <div className={styles.groupMeta}>
+                          <span className={`${styles.statusBadge} ${styles[`tone-${statusTone(group.status)}`]}`}>{statusText(group.status)}</span>
+                          <strong>{group.taskIds.length} task</strong>
                         </div>
                         <div className={styles.iconActions}>
                           <button type="button" title="Yukarı al" onClick={() => moveGroup(group.id, -1)}><LuArrowUp size={14} /></button>
@@ -746,6 +959,12 @@ export function PlanPipelinePage() {
                           <button type="button" title="Sil" onClick={() => removeGroup(group.id)}><LuTrash2 size={14} /></button>
                         </div>
                       </header>
+                      <div className={styles.groupProgress}>
+                        <div className={styles.progressTrack}>
+                          <i style={{ width: `${group.progress}%` }} />
+                        </div>
+                        <small>{group.progress}%</small>
+                      </div>
                       <div className={styles.groupTasks}>
                         {visibleTaskIds.map((taskId) => {
                           const task = taskById.get(taskId)
@@ -757,6 +976,9 @@ export function PlanPipelinePage() {
                                 <strong>{task.title}</strong>
                                 <small>{projectById.get(task.projectId)?.name ?? 'Proje yok'} · {task.description ? task.description.slice(0, 96) : summarizeTask(task)}</small>
                               </span>
+                              <em className={`${styles.statusBadge} ${styles[`tone-${statusTone(draft.taskRunState[taskId]?.status ?? 'pending')}`]}`}>
+                                {statusText(draft.taskRunState[taskId]?.status ?? 'pending')}
+                              </em>
                               <div className={styles.iconActions}>
                                 <button type="button" title="Yukarı al" onClick={() => moveTaskWithinGroup(group.id, taskId, -1)}><LuArrowUp size={13} /></button>
                                 <button type="button" title="Aşağı al" onClick={() => moveTaskWithinGroup(group.id, taskId, 1)}><LuArrowDown size={13} /></button>
@@ -774,7 +996,7 @@ export function PlanPipelinePage() {
             </section>
           ) : null}
 
-          {activeStep === 'run' ? (
+                {activeStep === 'run' ? (
             <section className={styles.panelSection}>
               <div className={styles.sectionHead}>
                 <div>
@@ -826,7 +1048,7 @@ export function PlanPipelinePage() {
                   <article key={group.id} className={styles.runGroup}>
                     <div>
                       <strong>{group.name}</strong>
-                      <span>{statusText(group.status)} · {group.progress}% · Retry {group.retryCount}</span>
+                      <span className={`${styles.statusBadge} ${styles[`tone-${statusTone(group.status)}`]}`}>{statusText(group.status)} · {group.progress}% · Retry {group.retryCount}</span>
                     </div>
                     <div className={styles.progressTrack}>
                       <i style={{ width: `${group.progress}%` }} />
@@ -842,7 +1064,7 @@ export function PlanPipelinePage() {
             </section>
           ) : null}
 
-          {activeStep === 'review' ? (
+                {activeStep === 'review' ? (
             <section className={styles.panelSection}>
               <div className={styles.sectionHead}>
                 <div>
@@ -868,52 +1090,27 @@ export function PlanPipelinePage() {
               </div>
             </section>
           ) : null}
-        </main>
-      </section>
-
-      <footer className={styles.footerNav}>
-        {STEPS.map((step, index) => {
-          if (step.key !== activeStep) return null
-          const previous = STEPS[index - 1]
-          const next = STEPS[index + 1]
-          return (
-            <div key={step.key}>
-              <button className={styles.secondaryButton} type="button" disabled={!previous} onClick={() => previous && setActiveStep(previous.key)}>
-                Geri
-              </button>
-              <button className={styles.primaryButton} type="button" disabled={!next} onClick={() => next && setActiveStep(next.key)}>
-                İleri
-                <LuChevronRight size={15} />
-              </button>
-            </div>
-          )
-        })}
-      </footer>
-
-      {modalOpen ? (
-        <>
-          <button className={styles.modalBackdrop} type="button" aria-label="Kapat" onClick={() => setModalOpen(false)} />
-          <form className={styles.modal} onSubmit={createGroup}>
-            <header>
-              <div>
-                <h2>Yeni pipeline grubu</h2>
-                <p>Taskları sırayla çalışacak bir otomasyon bölümü olarak grupla.</p>
-              </div>
-              <button type="button" onClick={() => setModalOpen(false)}><LuX size={16} /></button>
-            </header>
-            <label>
-              <span>Grup adı</span>
-              <input value={groupName} onChange={(event) => setGroupName(event.target.value)} autoFocus />
-            </label>
-            <label>
-              <span>Özet amacı</span>
-              <textarea value={groupDescription} onChange={(event) => setGroupDescription(event.target.value)} rows={3} />
-            </label>
-            <div className={styles.modalActions}>
-              <button className={styles.secondaryButton} type="button" onClick={() => setModalOpen(false)}>Vazgeç</button>
-              <button className={styles.primaryButton} type="submit">Oluştur</button>
-            </div>
-          </form>
+              </main>
+            </section>
+            <footer className={styles.footerNav}>
+              {STEPS.map((step, index) => {
+                if (step.key !== activeStep) return null
+                const previous = STEPS[index - 1]
+                const next = STEPS[index + 1]
+                return (
+                  <div key={step.key}>
+                    <button className={styles.secondaryButton} type="button" disabled={!previous} onClick={() => previous && setActiveStep(previous.key)}>
+                      Geri
+                    </button>
+                    <button className={next ? styles.primaryButton : styles.secondaryButton} type="button" onClick={() => next ? setActiveStep(next.key) : setModalOpen(false)}>
+                      {next ? 'İleri' : 'Akışı kapat'}
+                      {next ? <LuChevronRight size={15} /> : null}
+                    </button>
+                  </div>
+                )
+              })}
+            </footer>
+          </section>
         </>
       ) : null}
     </section>
