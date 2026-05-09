@@ -1,0 +1,134 @@
+.chatTopbarActions {
+  .chatHeaderMoreWrap {
+    display: none;
+  }
+}
+
+.chatHeaderMoreWrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.chatHeaderMoreButton {
+  display: none !important;
+}
+
+.chatHeaderMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  width: min(230px, calc(100vw - 20px));
+  max-height: min(320px, calc(100dvh - 88px));
+  overflow-y: auto;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 13px;
+  background: var(--omc-surface);
+  box-shadow: var(--omc-shadow-medium);
+  padding: 6px;
+
+  button {
+    width: 100%;
+    min-height: 44px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--omc-text-strong);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 10px;
+    font-size: 0.86rem;
+    font-weight: 800;
+    text-align: left;
+
+    &:hover {
+      background: var(--omc-surface-muted);
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+}
+
+.chatHeaderMenuActive {
+  background: var(--omc-active-bg) !important;
+  color: var(--omc-primary-strong) !important;
+}
+
+.chatHeaderMenuDanger {
+  color: var(--omc-danger) !important;
+}
+
+@media (max-width: 1120px) and (min-width: 861px) {
+  .chatTopbarActions {
+    max-width: 320px;
+    flex-wrap: wrap;
+
+    button {
+      min-height: 36px;
+    }
+
+    .mobileOverflowAction {
+      span {
+        display: none;
+      }
+    }
+  }
+}
+
+@media (max-width: 860px) {
+  .chatTopbarActions {
+    display: grid;
+    grid-template-columns: repeat(2, 44px) 44px 44px;
+    gap: 4px;
+
+    button {
+      width: 44px !important;
+      height: 44px !important;
+      min-width: 44px !important;
+      min-height: 44px;
+      border-radius: 11px;
+    }
+
+    .mobileOverflowAction {
+      display: none;
+    }
+
+    .chatHeaderMoreWrap {
+      display: block;
+    }
+
+    .chatHeaderMoreButton {
+      display: inline-flex !important;
+    }
+  }
+}
+
+@media (max-width: 480px) {
+  .chatTopbarActions {
+    grid-template-columns: repeat(2, 42px) 42px 42px;
+    gap: 3px;
+
+    button {
+      width: 42px !important;
+      height: 42px !important;
+      min-width: 42px !important;
+      min-height: 42px;
+      border-radius: 10px;
+    }
+  }
+
+  .chatHeaderMenu {
+    right: -45px;
+  }
+}

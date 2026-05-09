@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState, type DragEvent, type RefObject } from 'react'
-import { LuBot, LuCircleCheck, LuCircleStop, LuCloudUpload, LuFileText, LuHistory, LuMessageSquare, LuPaperclip, LuPlay, LuPlus, LuRefreshCw, LuSend, LuSettings2, LuSignal, LuSparkles, LuX } from 'react-icons/lu'
+import { useEffect, useMemo, useRef, useState, type DragEvent, type RefObject } from 'react'
+import type { IconType } from 'react-icons'
+import { LuBot, LuCircleCheck, LuCircleStop, LuCloudUpload, LuEllipsis, LuFileText, LuHistory, LuMessageSquare, LuPaperclip, LuPlay, LuPlus, LuRefreshCw, LuSend, LuSettings2, LuSignal, LuSparkles, LuX } from 'react-icons/lu'
 import { formatUsageSummary } from '@shared/utils/gateway-events'
 import type { Agent, Gateway, Skill, TaskEntity, Workspace } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
@@ -9,6 +10,7 @@ import type { ChatAttachmentDraft, ChatConversationSummary, GeneratedContextEntr
 import { gatewayChatLifecycleStatusKey, gatewayChatPhaseTone, gatewayLifecycleStatusMeta } from '@shared/utils/gateway-chat-phase'
 import { lockModalInteractionRegion } from '@renderer/utils/modalInteractionLock'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
+import popupStyles from './index.module.scss'
 
 interface ChatPopupFlatProps {
   task: TaskEntity | null
@@ -183,6 +185,82 @@ interface ChatPopupProps extends Partial<ChatPopupStateProps>, Partial<ChatPopup
     sidebarSubtitle?: string
     showRunActions?: boolean
   }
+}
+
+type ChatHeaderAction = {
+  key: string
+  label: string
+  ariaLabel: string
+  title: string
+  icon: IconType
+  onSelect: () => void
+  disabled?: boolean
+  active?: boolean
+  danger?: boolean
+}
+
+function ChatHeaderOverflowMenu({ actions }: { actions: ChatHeaderAction[] }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    const close = (event: MouseEvent) => {
+      if (menuRef.current?.contains(event.target as Node)) return
+      setIsOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsOpen(false)
+    }
+    window.addEventListener('mousedown', close)
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [isOpen])
+
+  if (actions.length === 0) return null
+
+  return (
+    <div className={popupStyles.chatHeaderMoreWrap} ref={menuRef}>
+      <button
+        type="button"
+        className={`${styles.chatIconAction} ${popupStyles.chatHeaderMoreButton} ${isOpen ? styles.chatActionActive : ''}`}
+        onClick={() => setIsOpen((value) => !value)}
+        aria-label="More chat actions"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        title="More"
+      >
+        <LuEllipsis size={17} />
+      </button>
+      {isOpen ? (
+        <div className={popupStyles.chatHeaderMenu} role="menu">
+          {actions.map((action) => {
+            const Icon = action.icon
+            return (
+              <button
+                key={action.key}
+                type="button"
+                role="menuitem"
+                className={`${action.active ? popupStyles.chatHeaderMenuActive : ''} ${action.danger ? popupStyles.chatHeaderMenuDanger : ''}`}
+                disabled={action.disabled}
+                onClick={() => {
+                  if (action.disabled) return
+                  setIsOpen(false)
+                  action.onSelect()
+                }}
+              >
+                <Icon size={15} />
+                <span>{action.label}</span>
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 export function ChatPopup({
@@ -431,6 +509,55 @@ export function ChatPopup({
   const activePlan = planConversation ? runningConversationIds.has(planConversation.id) || planConversation.status === 'running' || conversationStatusMeta(planConversation).active : false
   const activeRun = runConversation ? runningConversationIds.has(runConversation.id) || runConversation.status === 'running' || conversationStatusMeta(runConversation).active : false
   const activeVerify = verifyConversation ? runningConversationIds.has(verifyConversation.id) || verifyConversation.status === 'running' || conversationStatusMeta(verifyConversation).active : false
+  const headerActions: ChatHeaderAction[] = [
+    ...(showContextHistory ? [{
+      key: 'context',
+      label: 'Context',
+      ariaLabel: 'Context history',
+      title: 'Context history',
+      icon: LuHistory,
+      onSelect: () => setIsContextDrawerOpen(true),
+      active: isContextDrawerOpen
+    }] : []),
+    {
+      key: 'settings',
+      label: 'Settings',
+      ariaLabel: 'Chat settings',
+      title: 'Chat settings',
+      icon: LuSettings2,
+      onSelect: onSettingsToggle,
+      active: chatSettingsOpen
+    },
+    ...(selectedChatCanStop ? [{
+      key: 'stop',
+      label: 'Stop',
+      ariaLabel: 'Stop Codex chat',
+      title: 'Stop Codex chat',
+      icon: LuCircleStop,
+      onSelect: () => onStopChat(),
+      disabled: chatStopping,
+      danger: true
+    }] : []),
+    ...(showRunActions ? [{
+      key: 'plan',
+      label: gatewayPlanLaunching ? 'Planlanıyor' : 'Planla',
+      ariaLabel: gatewayPlanLaunching ? 'Task planlanıyor' : 'Taskı planla',
+      title: gatewayPlanLaunching ? 'Task planlanıyor' : 'Taskı planla',
+      icon: LuSparkles,
+      onSelect: onPlan,
+      disabled: gatewayPlanLaunching
+    }, {
+      key: 'run',
+      label: gatewayRunLaunching ? 'Çalışıyor' : 'Çalıştır',
+      ariaLabel: gatewayRunLaunching ? 'Task çalışıyor' : 'Taskı çalıştır',
+      title: gatewayRunLaunching ? 'Task çalışıyor' : 'Taskı çalıştır',
+      icon: LuPlay,
+      onSelect: onRun,
+      disabled: gatewayRunLaunching
+    }] : [])
+  ]
+  const mobilePrimaryActionKeys = new Set(selectedChatCanStop ? ['stop'] : showRunActions ? ['plan', 'run'] : [])
+  const mobileOverflowActions = headerActions.filter((action) => !mobilePrimaryActionKeys.has(action.key))
   const pipelineRows = [
     {
       key: 'plan',
@@ -555,12 +682,30 @@ export function ChatPopup({
               </span>
               <p title={subtitle}>{subtitle}</p>
             </div>
-            <div className={styles.chatTopbarActions}>
-              {showContextHistory ? <button type="button" onClick={() => setIsContextDrawerOpen(true)} className={`${styles.chatLabeledAction} ${isContextDrawerOpen ? styles.chatActionActive : ''}`} aria-label="Context history" title="Context history"><LuHistory size={16} /><span>Context</span></button> : null}
-              <button type="button" onClick={onSettingsToggle} className={`${styles.chatLabeledAction} ${chatSettingsOpen ? styles.chatActionActive : ''}`} aria-label="Chat settings" title="Chat settings"><LuSettings2 size={16} /><span>Settings</span></button>
-              {selectedChatCanStop ? <button type="button" onClick={() => onStopChat()} disabled={chatStopping} className={`${styles.chatLabeledAction} ${styles.chatStopAction}`} aria-label="Stop Codex chat" title="Stop Codex chat"><LuCircleStop size={16} /><span>Stop</span></button> : null}
-              {showRunActions ? <button type="button" onClick={onPlan} disabled={gatewayPlanLaunching} className={styles.chatLabeledAction} aria-label={gatewayPlanLaunching ? 'Task planlanıyor' : 'Taskı planla'} title={gatewayPlanLaunching ? 'Task planlanıyor' : 'Taskı planla'}><LuSparkles size={16} /><span>{gatewayPlanLaunching ? 'Planlanıyor' : 'Planla'}</span></button> : null}
-              {showRunActions ? <button type="button" onClick={onRun} disabled={gatewayRunLaunching} className={styles.chatLabeledAction} aria-label={gatewayRunLaunching ? 'Task çalışıyor' : 'Taskı çalıştır'} title={gatewayRunLaunching ? 'Task çalışıyor' : 'Taskı çalıştır'}><LuPlay size={16} /><span>{gatewayRunLaunching ? 'Çalışıyor' : 'Çalıştır'}</span></button> : null}
+            <div className={`${styles.chatTopbarActions} ${popupStyles.chatTopbarActions}`}>
+              {headerActions.map((action) => {
+                const Icon = action.icon
+                return (
+                  <button
+                    key={action.key}
+                    type="button"
+                    onClick={action.onSelect}
+                    disabled={action.disabled}
+                    className={[
+                      styles.chatLabeledAction,
+                      action.active ? styles.chatActionActive : '',
+                      action.danger ? styles.chatStopAction : '',
+                      mobilePrimaryActionKeys.has(action.key) ? popupStyles.mobilePrimaryAction : popupStyles.mobileOverflowAction
+                    ].filter(Boolean).join(' ')}
+                    aria-label={action.ariaLabel}
+                    title={action.title}
+                  >
+                    <Icon size={16} />
+                    <span>{action.label}</span>
+                  </button>
+                )
+              })}
+              <ChatHeaderOverflowMenu actions={mobileOverflowActions} />
               <button type="button" onClick={onClose} aria-label="Close chat" title="Close chat" className={styles.chatIconAction}><LuX size={16} /></button>
             </div>
           </header>

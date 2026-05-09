@@ -8051,6 +8051,7 @@
   .chatPopupShell {
     inset: 0;
     width: 100vw;
+    max-width: 100vw;
     height: 100dvh;
     max-height: 100dvh;
     min-height: 0;
@@ -8071,6 +8072,8 @@
   .chatMain {
     grid-template-rows: auto minmax(0, 1fr) auto;
     --chat-content-width: 100%;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .chatTopbar {
@@ -8199,13 +8202,14 @@
   }
 
   .chatComposer {
-    padding: 5px max(10px, env(safe-area-inset-right, 0px)) max(7px, env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px));
+    padding: 6px max(10px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px));
     border-top: 1px solid color-mix(in srgb, var(--omc-border-subtle) 66%, transparent);
+    overflow: hidden;
   }
 
   .chatComposerBox {
-    grid-template-columns: 38px minmax(0, 1fr) 38px;
-    grid-template-rows: minmax(44px, auto) 38px;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    grid-template-rows: minmax(44px, auto) 44px;
     gap: 4px 6px;
     padding: 7px;
 
@@ -8216,21 +8220,21 @@
     }
 
     > button {
-      width: 38px;
-      height: 38px;
+      width: 44px;
+      height: 44px;
       border-radius: 10px;
     }
   }
 
   .chatComposerFooter {
-    min-height: 38px;
+    min-height: 44px;
     gap: 6px;
   }
 
   .chatComposerBox .chatConfigurationButton {
-    max-width: min(220px, calc(100vw - 118px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
-    height: 38px;
-    min-height: 38px;
+    max-width: min(220px, calc(100vw - 130px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+    height: 44px;
+    min-height: 44px;
     padding: 0 9px;
   }
 
@@ -8339,18 +8343,18 @@
   }
 
   .chatComposerBox {
-    grid-template-columns: 34px minmax(0, 1fr) 34px;
-    grid-template-rows: minmax(40px, auto) 34px;
+    grid-template-columns: 42px minmax(0, 1fr) 42px;
+    grid-template-rows: minmax(42px, auto) 42px;
     padding: 6px;
 
     textarea {
-      min-height: 40px;
+      min-height: 42px;
       max-height: min(92px, 18dvh);
     }
 
     > button {
-      width: 34px;
-      height: 34px;
+      width: 42px;
+      height: 42px;
       border-radius: 9px;
     }
   }
