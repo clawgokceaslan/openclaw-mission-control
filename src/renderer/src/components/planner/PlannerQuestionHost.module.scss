@@ -75,6 +75,21 @@
           color: #edf3ff;
         }
       }
+
+      @media (width <= 560px) {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        padding: 16px;
+
+        .icon {
+          display: none;
+        }
+
+        h2 {
+          font-size: 18px;
+          overflow-wrap: anywhere;
+        }
+      }
     }
 
     .summary {
@@ -105,6 +120,17 @@
         color: #cbd8ee;
         font-size: 12px;
         font-weight: 800;
+      }
+
+      @media (width <= 560px) {
+        align-items: stretch;
+        flex-direction: column;
+        padding: 12px 16px;
+
+        button {
+          width: 100%;
+          justify-content: center;
+        }
       }
     }
 
@@ -297,6 +323,33 @@
           background: #315eea;
         }
       }
+
+      @media (width <= 560px) {
+        align-items: stretch;
+        flex-direction: column;
+        padding: 14px 16px;
+
+        .footerActions {
+          width: 100%;
+          flex-direction: column-reverse;
+
+          button {
+            width: 100%;
+            justify-content: center;
+          }
+        }
+      }
+    }
+  }
+
+  @media (width <= 560px) {
+    padding: 10px;
+    place-items: stretch;
+
+    .dialog {
+      width: 100%;
+      max-height: calc(100vh - 20px);
+      border-radius: 16px;
     }
   }
 }

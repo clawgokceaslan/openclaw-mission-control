@@ -312,6 +312,27 @@
   align-items: center;
   gap: 16px;
   padding: 0 18px;
+
+  @media (width <= 560px) {
+    padding: 9px 10px;
+
+    .brandTitle {
+      max-width: 190px;
+      font-size: 0.88rem;
+    }
+
+    .brandMark {
+      width: 32px;
+      height: 32px;
+    }
+
+    .headerAddTaskButton,
+    .plannerQuestionButton,
+    .userAvatar {
+      width: 32px;
+      height: 32px;
+    }
+  }
 }
 
 .brandArea {
@@ -436,6 +457,13 @@
   box-shadow: var(--omc-shadow-large);
   backdrop-filter: blur(22px);
   overflow: hidden;
+
+  @media (width <= 560px) {
+    top: 8px;
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    border-radius: 14px;
+  }
 }
 
 .commandModalEmbedded {
@@ -518,6 +546,21 @@
     border-radius: 10px;
     background: var(--omc-surface);
     color: var(--omc-text-muted);
+  }
+
+  @media (width <= 560px) {
+    min-height: 58px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 10px 12px;
+
+    > svg {
+      display: none;
+    }
+
+    input {
+      min-width: 0;
+      font-size: 0.92rem;
+    }
   }
 }
 
@@ -654,6 +697,11 @@
   overflow: auto;
   padding: 18px;
   display: block;
+
+  @media (width <= 560px) {
+    max-height: calc(100vh - 140px);
+    padding: 12px;
+  }
 }
 
 .commandModalEmbedded .commandBody {
@@ -847,6 +895,15 @@
   display: flex;
   align-items: center;
   gap: 8px;
+
+  @media (width <= 560px) {
+    align-items: stretch;
+    flex-direction: column;
+
+    button {
+      width: 100%;
+    }
+  }
 }
 
 .commandInlinePicker input {
@@ -927,6 +984,17 @@
       font-weight: 900;
       text-transform: uppercase;
       letter-spacing: 0.05em;
+    }
+  }
+
+  @media (width <= 560px) {
+    button {
+      grid-template-columns: auto minmax(0, 1fr);
+
+      em {
+        grid-column: 2;
+        justify-self: start;
+      }
     }
   }
 }
@@ -1133,6 +1201,15 @@
   color: var(--omc-text);
   box-shadow: var(--omc-shadow-large);
   -webkit-app-region: no-drag;
+
+  @media (width <= 560px) {
+    position: fixed;
+    top: 92px;
+    left: 10px;
+    right: 10px;
+    width: auto;
+    max-height: calc(100vh - 108px);
+  }
 }
 
 .plannerQuestionPanel header {
@@ -1199,6 +1276,14 @@
   border: 1px solid var(--omc-border-subtle);
   border-radius: 12px;
   background: var(--omc-surface-muted);
+
+  @media (width <= 560px) {
+    grid-template-columns: 1fr;
+
+    .plannerQuestionActions {
+      justify-content: flex-end;
+    }
+  }
 }
 
 .plannerQuestionRow strong {
@@ -1324,6 +1409,24 @@
     color: var(--omc-text-muted);
     font-size: 0.98rem;
   }
+
+  @media (width <= 560px) {
+    padding: 14px 12px;
+
+    > :global(section) > :global(header:first-child) {
+      margin: -14px -12px 12px;
+      padding: 18px 12px;
+    }
+
+    > :global(section) > :global(header:first-child h1) {
+      font-size: 1.38rem;
+      overflow-wrap: anywhere;
+    }
+
+    > :global(section) > :global(header:first-child p) {
+      font-size: 0.9rem;
+    }
+  }
 }
 
 .pageState {
@@ -1381,11 +1484,29 @@
     min-height: auto;
     padding: 12px;
     gap: 8px;
+
+    .brandAreaMacInset {
+      margin-left: 0;
+    }
   }
 
-  .brandArea { grid-area: brand; }
-  .userCluster { grid-area: user; }
-  .universalSearchButton { grid-area: search; }
+  .brandArea {
+    grid-area: brand;
+    min-width: 0;
+  }
+
+  .userCluster {
+    grid-area: user;
+    gap: 6px;
+  }
+
+  .universalSearchButton {
+    grid-area: search;
+
+    kbd {
+      display: none;
+    }
+  }
 
   .shell {
     grid-template-columns: 1fr;

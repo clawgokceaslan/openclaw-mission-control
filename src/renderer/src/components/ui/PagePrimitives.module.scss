@@ -33,6 +33,18 @@
   display: flex;
   align-items: center;
   gap: 8px;
+
+  @media (width <= 560px) {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+
+    button,
+    a {
+      width: 100%;
+      justify-content: center;
+    }
+  }
 }
 
 .sectionCard {
@@ -75,6 +87,18 @@
   display: flex;
   align-items: center;
   gap: 8px;
+
+  @media (width <= 560px) {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+
+    button,
+    a {
+      width: 100%;
+      justify-content: center;
+    }
+  }
 }
 
 .cardBody {
@@ -125,6 +149,10 @@
   border: 1px solid var(--omc-border);
   border-radius: 12px;
   overflow: hidden;
+
+  @media (width <= 720px) {
+    overflow: visible;
+  }
 }
 
 .dataTable {
@@ -151,6 +179,43 @@
   tr:last-child td {
     border-bottom: none;
   }
+
+  @media (width <= 720px) {
+    display: block;
+
+    thead {
+      display: none;
+    }
+
+    tbody,
+    tr,
+    td {
+      display: block;
+      width: 100%;
+    }
+
+    tbody {
+      display: grid;
+      gap: 10px;
+      padding: 10px;
+    }
+
+    tr {
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 12px;
+      background: var(--omc-surface);
+      overflow: hidden;
+    }
+
+    td {
+      padding: 10px 12px;
+      overflow-wrap: anywhere;
+    }
+
+    td + td {
+      border-top: 1px solid var(--omc-border-subtle);
+    }
+  }
 }
 
 .emptyCell {
@@ -166,6 +231,10 @@
   border-radius: 12px;
   padding: 10px 14px;
   font-weight: 700;
+
+  @media (width <= 560px) {
+    width: 100%;
+  }
 }
 
 .primaryBtn:hover {
@@ -179,6 +248,10 @@
   border-radius: 12px;
   padding: 9px 14px;
   font-weight: 600;
+
+  @media (width <= 560px) {
+    width: 100%;
+  }
 }
 
 .textAction {

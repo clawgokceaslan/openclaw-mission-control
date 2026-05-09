@@ -70,6 +70,15 @@
     box-shadow: var(--omc-shadow-large);
     -webkit-app-region: no-drag;
 
+    @media (width <= 560px) {
+      position: fixed;
+      top: 92px;
+      left: 10px;
+      right: 10px;
+      width: auto;
+      max-height: calc(100vh - 108px);
+    }
+
     header {
       display: flex;
       align-items: center;
@@ -285,6 +294,10 @@
           font-weight: 800;
         }
       }
+    }
+
+    @media (width <= 560px) {
+      grid-template-columns: 1fr;
     }
   }
 

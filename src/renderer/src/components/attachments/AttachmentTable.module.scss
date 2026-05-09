@@ -43,6 +43,17 @@
   input {
     display: none;
   }
+
+  @media (width <= 560px) {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 12px;
+
+    button {
+      width: 100%;
+      justify-content: center;
+    }
+  }
 }
 
 .tableWrap {
@@ -83,6 +94,47 @@
   tr:last-child td {
     border-bottom: 0;
   }
+
+  @media (width <= 720px) {
+    display: block;
+    min-width: 0;
+
+    thead {
+      display: none;
+    }
+
+    tbody {
+      display: grid;
+      gap: 10px;
+      padding: 10px;
+    }
+
+    tbody,
+    tr,
+    td {
+      width: 100%;
+    }
+
+    tr,
+    td {
+      display: block;
+    }
+
+    tr {
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    td {
+      padding: 10px 12px;
+      overflow-wrap: anywhere;
+    }
+
+    td + td {
+      border-top: 1px solid var(--omc-border-subtle);
+    }
+  }
 }
 
 .attachmentName {
@@ -93,6 +145,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+
+  @media (width <= 720px) {
+    max-width: none;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 
 .attachmentUrl {
@@ -104,6 +162,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+
+  @media (width <= 720px) {
+    max-width: none;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 
 .actionGroup {
@@ -180,6 +244,15 @@
     padding: 0 13px;
     color: var(--omc-text-muted);
     font-weight: 850;
+  }
+
+  @media (width <= 480px) {
+    align-items: stretch;
+    flex-direction: column-reverse;
+
+    button {
+      width: 100%;
+    }
   }
 }
 

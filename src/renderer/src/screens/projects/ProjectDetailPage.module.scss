@@ -4678,6 +4678,47 @@
   tr:last-child td {
     border-bottom: 0;
   }
+
+  @media (width <= 760px) {
+    display: block;
+    min-width: 0;
+
+    thead {
+      display: none;
+    }
+
+    tbody {
+      display: grid;
+      gap: 10px;
+      padding: 10px;
+    }
+
+    tbody,
+    tr,
+    td {
+      width: 100%;
+    }
+
+    tr,
+    td {
+      display: block;
+    }
+
+    tr {
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    td {
+      padding: 10px 12px;
+      overflow-wrap: anywhere;
+    }
+
+    td + td {
+      border-top: 1px solid var(--omc-border-subtle);
+    }
+  }
 }
 
 .assignmentPrimary {
