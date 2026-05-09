@@ -519,8 +519,8 @@
         opacity: 0.66;
 
         .codeBlock {
-          min-width: 620px;
-          width: 132vw;
+          min-width: 0;
+          width: min(132vw, 520px);
 
           .codeBlockBody {
             .codeLine {

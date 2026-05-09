@@ -113,8 +113,10 @@
 
 :global(html),
 :global(body) {
+  width: 100%;
   margin: 0;
   min-height: 100%;
+  overflow-x: hidden;
   background: var(--omc-app-background, var(--omc-bg));
   background-size: var(--omc-background-size, auto);
   color: var(--omc-text);
@@ -123,6 +125,7 @@
 }
 
 :global(#root) {
+  width: 100%;
   min-height: 100vh;
   background: var(--omc-app-background, var(--omc-bg));
   background-size: var(--omc-background-size, auto);
@@ -285,12 +288,18 @@
 
 .appFrame {
   height: 100vh;
+  height: 100dvh;
+  min-width: 0;
   display: grid;
   grid-template-rows: minmax(64px, auto) minmax(0, 1fr);
   overflow: hidden;
   background: var(--omc-app-background, var(--omc-bg));
   background-size: var(--omc-background-size, auto);
   color: var(--omc-text);
+
+  @media (width <= 640px) {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
 }
 
 .topbar {
@@ -344,10 +353,54 @@
 
 .brandAreaMacInset {
   margin-left: 68px;
+
+  @media (width <= 900px) {
+    margin-left: 0;
+  }
 }
 
 .brandText {
   min-width: 0;
+}
+
+.sidebarToggle {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--omc-border);
+  border-radius: 10px;
+  background: var(--omc-surface-muted);
+  color: var(--omc-text-strong);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  -webkit-app-region: no-drag;
+  flex: 0 0 auto;
+  box-shadow: var(--omc-shadow);
+
+  svg {
+    flex: 0 0 auto;
+  }
+
+  &:hover {
+    border-color: var(--omc-border-strong);
+    background: var(--omc-hover-bg);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--omc-input-focus-ring);
+  }
+
+  @media (width <= 900px) {
+    display: inline-flex;
+  }
+
+  @media (width <= 560px) {
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+  }
 }
 
 .brandMark {
@@ -398,6 +451,7 @@
 .plannerQuestionButton,
 .userCluster,
 .userArea,
+.sidebarToggle,
 .commandModal {
   -webkit-app-region: no-drag;
 }
@@ -1335,6 +1389,7 @@
 }
 
 .shell {
+  position: relative;
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
   height: 100%;
@@ -1342,6 +1397,36 @@
   overflow: hidden;
   background: var(--omc-app-background, var(--omc-bg));
   background-size: var(--omc-background-size, auto);
+}
+
+.sidebarBackdrop {
+  display: none;
+
+  @media (width <= 900px) {
+    position: fixed;
+    top: 108px;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 890;
+    border: 0;
+    background: var(--omc-overlay);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.16s ease;
+  }
+
+  @media (width <= 560px) {
+    top: 104px;
+  }
+}
+
+.sidebarBackdropOpen {
+  @media (width <= 900px) {
+    display: block;
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 @media (width <= 900px) {
@@ -1484,10 +1569,6 @@
     min-height: auto;
     padding: 12px;
     gap: 8px;
-
-    .brandAreaMacInset {
-      margin-left: 0;
-    }
   }
 
   .brandArea {
@@ -1510,7 +1591,6 @@
 
   .shell {
     grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .sidebarFooter {

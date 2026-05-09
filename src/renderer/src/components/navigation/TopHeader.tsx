@@ -1,7 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { Navbar, Container } from 'react-bootstrap'
 import { useEffect, useRef, useState } from 'react'
-import { LuArrowRight, LuMessageCircleQuestion, LuPlus, LuSearch } from 'react-icons/lu'
+import { LuArrowRight, LuMenu, LuMessageCircleQuestion, LuPlus, LuSearch, LuX } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import type { User } from '@shared/types/entities'
 import { UserAvatar } from '@renderer/components/avatar/UserAvatar'
@@ -24,7 +24,13 @@ function hasMacWindowControlsInset(): boolean {
   return runtimeProcess?.platform === 'darwin'
 }
 
-export function TopHeader({ user }: { user: User | null }) {
+type TopHeaderProps = {
+  user: User | null
+  sidebarOpen: boolean
+  onToggleSidebar: () => void
+}
+
+export function TopHeader({ user, sidebarOpen, onToggleSidebar }: TopHeaderProps) {
   const navigate = useNavigate()
   const userName = user?.name?.trim() || 'Mission Operator'
   const [open, setOpen] = useState(false)
@@ -71,6 +77,17 @@ export function TopHeader({ user }: { user: User | null }) {
     <Navbar className={styles.topbar}>
       <Container fluid className={styles.topbarInner}>
         <div className={brandAreaClassName}>
+          <button
+            type="button"
+            className={styles.sidebarToggle}
+            onClick={onToggleSidebar}
+            aria-label={sidebarOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-expanded={sidebarOpen}
+            aria-controls="primary-navigation"
+            title={sidebarOpen ? 'Close navigation' : 'Open navigation'}
+          >
+            {sidebarOpen ? <LuX size={18} /> : <LuMenu size={18} />}
+          </button>
           <div className={styles.brandMark}>
             <img src={appIconSrc} alt="Open Mission Control logo" />
           </div>

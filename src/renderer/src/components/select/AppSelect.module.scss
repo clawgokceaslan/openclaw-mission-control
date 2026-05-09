@@ -1,5 +1,6 @@
 .appSelect {
   --app-select-control-height: 38px;
+  min-width: 0;
 
   :global(.app-select__control) {
     min-height: var(--app-select-control-height);
@@ -58,6 +59,7 @@
 
   :global(.app-select__menu) {
     margin-top: 6px;
+    max-width: min(100%, calc(100vw - 24px));
     border: 1px solid var(--omc-border);
     border-radius: 12px;
     overflow: hidden;
@@ -110,6 +112,20 @@
   :global(.app-select__multi-value__remove:hover) {
     background: var(--omc-hover-bg);
     color: var(--omc-primary-strong);
+  }
+
+  @media (width <= 520px) {
+    --app-select-control-height: 40px;
+
+    :global(.app-select__value-container) {
+      padding: 3px 7px;
+    }
+
+    :global(.app-select__option) {
+      padding: 10px;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
   }
 }
 

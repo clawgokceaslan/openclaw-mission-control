@@ -94,6 +94,18 @@
         width: 48%;
       }
     }
+
+    @media (width <= 640px) {
+      .skeletonRow {
+        grid-template-columns: 1fr;
+        gap: 8px;
+        padding: 12px;
+      }
+
+      .skeletonCell {
+        width: 100%;
+      }
+    }
   }
 }
 
