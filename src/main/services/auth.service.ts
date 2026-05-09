@@ -1,5 +1,6 @@
 import EventEmitter from 'node:events'
-import { timingSafeEqual, pbkdf2Sync, randomBytes } from 'node:crypto'
+import { timingSafeEqual, pbkdf2Sync } from 'node:crypto'
+import bcrypt from 'bcryptjs'
 import { AppError } from '../../shared/errors/index.js'
 import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
@@ -13,9 +14,15 @@ interface AuthTokenPair {
   refreshTokenExpiresAt: number
 }
 
+type PasswordVerification = {
+  valid: boolean
+  needsRehash: boolean
+}
+
 export class AuthService {
   private readonly bootstrapEmail = 'owner@mission.local'
   private readonly bootstrapPassword = 'changeme'
+  private readonly minPasswordLength = 8
   private readonly roles: User['role'][] = ['owner', 'admin', 'member']
   constructor(
     private readonly authRepo: AuthRepository,
@@ -33,26 +40,42 @@ export class AuthService {
     } as User
   }
 
-  private hashPassword(password: string, salt = randomBytes(16).toString('base64url')): string {
-    const iterations = 260000
-    const digest = pbkdf2Sync(password, salt, iterations, 32, 'sha256').toString('hex')
-    return `pbkdf2:sha256:${iterations}$${salt}$${digest}`
+  private hashBcryptPassword(password: string): string {
+    return bcrypt.hashSync(password, 12)
   }
 
-  private verifyPassword(storedHash: string, password: string): boolean {
-    if (!password || !storedHash) return false
+  private verifyPassword(storedHash: string, password: string): PasswordVerification {
+    if (!password || !storedHash) return { valid: false, needsRehash: false }
+    if (storedHash.startsWith('$2a$') || storedHash.startsWith('$2b$') || storedHash.startsWith('$2y$')) {
+      return { valid: bcrypt.compareSync(password, storedHash), needsRehash: false }
+    }
     if (!storedHash.startsWith('pbkdf2:')) {
       const expected = Buffer.from(storedHash)
       const candidate = Buffer.from(password)
-      return expected.length === candidate.length && timingSafeEqual(expected, candidate)
+      return {
+        valid: expected.length === candidate.length && timingSafeEqual(expected, candidate),
+        needsRehash: true
+      }
     }
     const [algorithmPart, salt, digest] = storedHash.split('$')
     const [, algorithm, iterationsRaw] = algorithmPart.split(':')
     const iterations = Number(iterationsRaw)
-    if (algorithm !== 'sha256' || !salt || !digest || !Number.isFinite(iterations)) return false
+    if (algorithm !== 'sha256' || !salt || !digest || !Number.isFinite(iterations)) {
+      return { valid: false, needsRehash: false }
+    }
     const candidate = pbkdf2Sync(password, salt, iterations, Buffer.from(digest, 'hex').length, 'sha256')
     const expected = Buffer.from(digest, 'hex')
-    return candidate.length === expected.length && timingSafeEqual(candidate, expected)
+    return {
+      valid: candidate.length === expected.length && timingSafeEqual(candidate, expected),
+      needsRehash: true
+    }
+  }
+
+  private validateNewPassword(password?: string, confirmation?: string): string | undefined {
+    if (!password?.trim() || !confirmation?.trim()) return 'New password and confirmation are required'
+    if (password.length < this.minPasswordLength) return `Password must be at least ${this.minPasswordLength} characters`
+    if (password !== confirmation) return 'Password confirmation does not match'
+    return undefined
   }
 
   private async issueTokens(userId: string): Promise<AuthTokenPair> {
@@ -109,11 +132,14 @@ export class AuthService {
     const isLegacyBootstrapHash = userRow.password_hash === 'pbkdf2:sha256:260000$local$changeme'
       && payload.email === this.bootstrapEmail
       && payload.password === this.bootstrapPassword
-    if (!isLegacyBootstrapHash && !this.verifyPassword(userRow.password_hash || '', payload.password)) {
+    const passwordVerification = isLegacyBootstrapHash
+      ? { valid: true, needsRehash: true }
+      : this.verifyPassword(userRow.password_hash || '', payload.password)
+    if (!passwordVerification.valid) {
       return errorResponse(ErrorCodes.Unauthenticated, 'Invalid credentials')
     }
-    if (isLegacyBootstrapHash || !userRow.password_hash?.startsWith('pbkdf2:')) {
-      await this.authRepo.setPasswordHash(userRow.id, this.hashPassword(payload.password))
+    if (passwordVerification.needsRehash) {
+      await this.authRepo.setPasswordHash(userRow.id, this.hashBcryptPassword(payload.password))
     }
     const tokens = await this.issueTokens(userRow.id)
     const user = this.mapUser({
@@ -200,6 +226,18 @@ export class AuthService {
         role
       }
     })
+  }
+
+  async changePassword(
+    payload: { actorToken?: string; newPassword?: string; confirmPassword?: string },
+    _meta?: Record<string, unknown>
+  ): Promise<ServiceResponse> {
+    const actor = await this.requireActor(payload?.actorToken)
+    const validationError = this.validateNewPassword(payload?.newPassword, payload?.confirmPassword)
+    if (validationError) return errorResponse(ErrorCodes.Validation, validationError)
+
+    await this.authRepo.setPasswordHash(actor.user.id, this.hashBcryptPassword(payload.newPassword as string))
+    return okResponse({ ok: true })
   }
 
   async inviteValidate(payload: { inviteToken?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse> {

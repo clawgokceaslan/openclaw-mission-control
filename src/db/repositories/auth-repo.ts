@@ -16,7 +16,7 @@ export interface RefreshTokenRecord {
 export class AuthRepository extends BaseRepository<User & { passwordHash: string }> {
   private readonly defaultOrgId = '00000000-0000-4000-8000-000000000001'
   private readonly defaultOrgName = 'Default Organization'
-  private readonly defaultPasswordHash = 'pbkdf2:sha256:260000$local$75d92a58383dd943d4868d010791b54d4ad8f2c5f02a7fd08096e83b08f633e6'
+  private readonly defaultPasswordHash = '$2b$12$42NmjQ.8tLD3O5pYRn.acuvLjpnTbPAGLEnzResDNGwU/CuinF8VS'
 
   private users = this.db.prepare(
     `SELECT id, organization_id, email, name, password_hash, role, created_at FROM users WHERE email = @email`

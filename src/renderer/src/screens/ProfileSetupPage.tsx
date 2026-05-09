@@ -24,10 +24,10 @@ export function ProfileSetupPage() {
   const currentDatabaseFolder = databaseState?.currentFolderPath ?? ''
   const effectiveDatabaseFolder = selectedDatabaseFolder ?? currentDatabaseFolder
   const databaseStatus = useMemo(() => {
-    if (selectedDatabaseFolder) return 'Custom folder selected'
-    if (databaseState?.currentDbExists) return 'Default database ready'
-    if (databaseState) return 'Database will be created here'
-    return 'Checking database location'
+    if (selectedDatabaseFolder) return 'Özel klasör seçildi'
+    if (databaseState?.currentDbExists) return 'Varsayılan veritabanı hazır'
+    if (databaseState) return 'Veritabanı burada oluşturulacak'
+    return 'Veritabanı konumu kontrol ediliyor'
   }, [databaseState, selectedDatabaseFolder])
 
   const refreshDatabaseLocation = async () => {
@@ -36,7 +36,7 @@ export function ProfileSetupPage() {
     const response = await invokeBridge<DatabaseLocationState>(IPC_CHANNELS.appSettings.getDatabaseLocation, { actorToken: token })
     setDatabaseLoading(false)
     if (!response.ok || !response.data) {
-      setDatabaseMessage(response.error?.message ?? 'Database location could not be loaded.')
+      setDatabaseMessage(response.error?.message ?? 'Veritabanı konumu yüklenemedi.')
       return
     }
     setDatabaseState(response.data)
@@ -52,19 +52,19 @@ export function ProfileSetupPage() {
     setDatabaseMessage(null)
     const response = await invokeBridge<PickDatabaseFolderResponse>(IPC_CHANNELS.appSettings.pickDatabaseFolder, { actorToken: token })
     if (!response.ok) {
-      setDatabaseMessage(response.error?.message ?? 'Database folder could not be selected.')
+      setDatabaseMessage(response.error?.message ?? 'Veritabanı klasörü seçilemedi.')
       return
     }
     if (!response.data?.folderPath) {
       return
     }
     setSelectedDatabaseFolder(response.data.folderPath)
-    setDatabaseMessage('Custom database folder selected. It will be applied after saving.')
+    setDatabaseMessage('Özel veritabanı klasörü seçildi. Kaydettikten sonra uygulanacak.')
   }
 
   const useDefaultDatabaseFolder = () => {
     setSelectedDatabaseFolder(null)
-    setDatabaseMessage('Default database location will be used.')
+    setDatabaseMessage('Varsayılan veritabanı konumu kullanılacak.')
   }
 
   const submit = async (event: FormEvent) => {
@@ -88,16 +88,16 @@ export function ProfileSetupPage() {
         })
         if (!moveResponse.ok || !moveResponse.data) {
           setPending(false)
-          setError(moveResponse.error?.message ?? 'Database folder could not be applied.')
+          setError(moveResponse.error?.message ?? 'Veritabanı klasörü uygulanamadı.')
           return
         }
         setDatabaseState(moveResponse.data)
         if (moveResponse.data.restartRequired) {
-          setDatabaseMessage('Database moved. Restarting app to activate the new location...')
+          setDatabaseMessage('Veritabanı taşındı. Yeni konumu etkinleştirmek için uygulama yeniden başlatılıyor...')
           const restartResponse = await invokeBridge<{ restarting: boolean }>(IPC_CHANNELS.app.restart, {})
           if (!restartResponse.ok) {
             setPending(false)
-            setError(restartResponse.error?.message ?? 'Database moved, but app could not restart automatically.')
+            setError(restartResponse.error?.message ?? 'Veritabanı taşındı, ancak uygulama otomatik yeniden başlatılamadı.')
           }
           return
         }
@@ -114,7 +114,7 @@ export function ProfileSetupPage() {
   return (
     <section className={styles.page}>
       <header className={styles.header}>
-        <span>Initial setup</span>
+        <span>İlk kurulum</span>
         <h1>Profil Bilgisi</h1>
         <p>Devam etmek için adınızı ve soyadınızı girin. Veritabanı klasörü opsiyoneldir.</p>
       </header>
@@ -145,13 +145,13 @@ export function ProfileSetupPage() {
           <div className={styles.panelHeader}>
             <span className={styles.panelIcon}><LuDatabase size={18} /></span>
             <div>
-              <h2>Database</h2>
+              <h2>Veritabanı</h2>
               <p>Varsayılan konumu kullanabilir veya farklı bir klasör seçebilirsiniz.</p>
             </div>
           </div>
 
           <div className={styles.databaseBox}>
-            <small>{selectedDatabaseFolder ? 'Selected folder' : 'Current default folder'}</small>
+            <small>{selectedDatabaseFolder ? 'Seçilen klasör' : 'Geçerli varsayılan klasör'}</small>
             <strong>{effectiveDatabaseFolder || <LoadingState size="compact" messageIndex={0} />}</strong>
             <span>{databaseStatus}</span>
           </div>
@@ -159,13 +159,13 @@ export function ProfileSetupPage() {
           <div className={styles.databaseActions}>
             <button type="button" className={styles.secondaryButton} onClick={() => void chooseDatabaseFolder()} disabled={pending || databaseLoading}>
               <LuFolderOpen size={15} />
-              Choose folder
+              Klasör seç
             </button>
             <button type="button" className={styles.secondaryButton} onClick={useDefaultDatabaseFolder} disabled={pending || !selectedDatabaseFolder}>
               <LuRotateCcw size={15} />
-              Use default
+              Varsayılanı kullan
             </button>
-            <button type="button" className={styles.iconButton} onClick={() => void refreshDatabaseLocation()} disabled={pending || databaseLoading} aria-label="Refresh database location" title="Refresh database location">
+            <button type="button" className={styles.iconButton} onClick={() => void refreshDatabaseLocation()} disabled={pending || databaseLoading} aria-label="Veritabanı konumunu yenile" title="Veritabanı konumunu yenile">
               <LuRefreshCw size={15} />
             </button>
           </div>

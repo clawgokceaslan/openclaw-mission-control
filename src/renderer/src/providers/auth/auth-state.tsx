@@ -3,6 +3,7 @@ import { useAppDispatch, useAppSelector } from '@renderer/store/hooks'
 import { clearSessionToken, getSessionToken } from '@renderer/utils/api'
 import type { Session, User } from '@shared/types/entities'
 import {
+  changePassword as changePasswordThunk,
   loginAuth,
   logoutAuth,
   refreshAuth,
@@ -18,6 +19,7 @@ interface AuthContextValue {
   errorMessage: string | null
   login: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>
   updateProfile: (firstName: string, lastName: string, options?: { email?: string; role?: User['role'] }) => Promise<{ ok: boolean; message?: string }>
+  changePassword: (newPassword: string, confirmPassword: string) => Promise<{ ok: boolean; message?: string }>
   logout: () => Promise<void>
   refresh: () => Promise<void>
 }
@@ -66,6 +68,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const changePassword = async (newPassword: string, confirmPassword: string) => {
+    try {
+      await dispatch(changePasswordThunk({ newPassword, confirmPassword })).unwrap()
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Password could not be changed' }
+    }
+  }
+
   const logout = async () => {
     await dispatch(logoutAuth())
       .unwrap()
@@ -86,6 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       errorMessage,
       login,
       updateProfile,
+      changePassword,
       logout,
       refresh
     }),

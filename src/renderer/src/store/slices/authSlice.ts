@@ -112,6 +112,27 @@ export const updateProfile = createAsyncThunk<
   return response.data
 })
 
+export const changePassword = createAsyncThunk<
+  { ok: true },
+  { newPassword: string; confirmPassword: string },
+  { state: { auth: AuthState } }
+>('auth/changePassword', async ({ newPassword, confirmPassword }, { getState }) => {
+  const { token } = getState().auth
+  if (!token) {
+    throw new Error('No active session')
+  }
+
+  const response = await invokeBridge<{ ok: true }>(IPC_CHANNELS.auth.changePassword, {
+    actorToken: token,
+    newPassword,
+    confirmPassword
+  })
+  if (!response.ok || !response.data) {
+    throw new Error(response.error?.message || 'Password could not be changed')
+  }
+  return response.data
+})
+
 export const logoutAuth = createAsyncThunk<void, void, { state: { auth: AuthState } }>(
   'auth/logout',
   async (_, { getState }) => {
@@ -191,6 +212,16 @@ export const authSlice = createSlice({
     builder.addCase(updateProfile.rejected, (state, action) => {
       state.status = 'failed'
       state.errorMessage = action.error.message ?? 'Profile update failed'
+    })
+
+    builder.addCase(changePassword.pending, (state) => {
+      state.errorMessage = null
+    })
+    builder.addCase(changePassword.fulfilled, (state) => {
+      state.errorMessage = null
+    })
+    builder.addCase(changePassword.rejected, (state, action) => {
+      state.errorMessage = action.error.message ?? 'Password could not be changed'
     })
 
     builder.addCase(logoutAuth.fulfilled, (state) => {

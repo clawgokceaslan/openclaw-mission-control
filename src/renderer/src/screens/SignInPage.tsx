@@ -3,6 +3,7 @@ import styles from './SignInPage.module.scss'
 import { useNavigate } from 'react-router-dom'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { useAuth } from '@renderer/providers/auth/auth-state'
+import { LuLockKeyhole, LuLogIn, LuMail } from 'react-icons/lu'
 
 export function SignInPage() {
   const [email, setEmail] = useState('owner@mission.local')
@@ -27,23 +28,56 @@ export function SignInPage() {
 
   return (
     <div className={styles.page}>
-      <h1 className={styles.title}>Sign In</h1>
-      <form className={styles.form} onSubmit={handleSubmit}>
-        <div>
-          <label>Email</label>
-          <br />
-          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required />
+      <section className={styles.authPanel} aria-labelledby="signin-title">
+        <header className={styles.header}>
+          <span>Open Mission Control</span>
+          <h1 id="signin-title">Sign In</h1>
+          <p>Use your local workspace account to continue.</p>
+        </header>
+
+        <form className={styles.form} onSubmit={handleSubmit}>
+          <label className={styles.field}>
+            <span>Email</span>
+            <div className={styles.inputWrap}>
+              <LuMail size={17} />
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                type="email"
+                autoComplete="email"
+                disabled={pending}
+                required
+              />
+            </div>
+          </label>
+          <label className={styles.field}>
+            <span>Password</span>
+            <div className={styles.inputWrap}>
+              <LuLockKeyhole size={17} />
+              <input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type="password"
+                autoComplete="current-password"
+                disabled={pending}
+                required
+              />
+            </div>
+          </label>
+
+          {error && <p className={styles.error}>{error}</p>}
+
+          <button type="submit" disabled={pending}>
+            <LuLogIn size={17} />
+            {pending ? 'Signing in...' : 'Sign in'}
+          </button>
+        </form>
+
+        <div className={styles.bootstrapHint}>
+          <span>Default account</span>
+          <strong>owner@mission.local</strong>
         </div>
-        <div>
-          <label>Password</label>
-          <br />
-          <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" required />
-        </div>
-        <button type="submit" disabled={pending} className={styles.spacedTop}>
-          {pending ? 'Signing in...' : 'Sign in'}
-        </button>
-      </form>
-      {error && <p className={styles.error}>{error}</p>}
+      </section>
     </div>
   )
 }

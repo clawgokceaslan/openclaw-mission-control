@@ -13,6 +13,7 @@ import {
   LuBadgeCheck,
   LuCamera,
   LuCheck,
+  LuKeyRound,
   LuMail,
   LuMonitor,
   LuMoon,
@@ -117,7 +118,7 @@ function loadImage(file: File): Promise<{ dataUrl: string; image: HTMLImageEleme
 }
 
 export function ProfilePage() {
-  const { user, updateProfile, refresh } = useAuth()
+  const { user, updateProfile, changePassword, refresh } = useAuth()
   const { mode, resolvedMode, paletteId, backgroundId, palettes, backgrounds, setMode, setPaletteId, setBackgroundId } = useTheme()
   const initialName = useMemo(() => splitName(user?.name), [user?.name])
   const [firstName, setFirstName] = useState(initialName.firstName)
@@ -127,6 +128,11 @@ export function ProfilePage() {
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordStatus, setPasswordStatus] = useState<string | null>(null)
+  const [passwordError, setPasswordError] = useState<string | null>(null)
+  const [passwordPending, setPasswordPending] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const cropImageRef = useRef<HTMLImageElement | null>(null)
   const dragStartRef = useRef<{ pointerId: number; startX: number; startY: number; offset: CropOffset } | null>(null)
@@ -194,6 +200,35 @@ export function ProfilePage() {
 
     await refresh()
     setStatus('Profil bilgileri güncellendi.')
+  }
+
+  const submitPassword = async (event: FormEvent) => {
+    event.preventDefault()
+    setPasswordStatus(null)
+    setPasswordError(null)
+
+    if (newPassword.length < 8) {
+      setPasswordError('Şifre en az 8 karakter olmalıdır.')
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Şifre onayı eşleşmiyor.')
+      return
+    }
+
+    setPasswordPending(true)
+    const response = await changePassword(newPassword, confirmPassword)
+    setPasswordPending(false)
+
+    if (!response.ok) {
+      setPasswordError(response.message ?? 'Şifre güncellenemedi.')
+      return
+    }
+
+    setNewPassword('')
+    setConfirmPassword('')
+    setPasswordStatus('Şifre güncellendi. Oturumunuz açık kalacak.')
   }
 
   const resetCrop = () => {
@@ -567,6 +602,50 @@ export function ProfilePage() {
               <button type="submit" disabled={pending}>
                 <LuSave size={16} />
                 {pending ? 'Kaydediliyor...' : 'Kaydet'}
+              </button>
+            </footer>
+          </form>
+
+          <form className={styles.formPanel} onSubmit={submitPassword}>
+            <div className={styles.panelHeader}>
+              <div>
+                <h2>Şifre</h2>
+                <p>Mevcut oturumla yeni şifrenizi belirleyin.</p>
+              </div>
+            </div>
+
+            <div className={styles.formGrid}>
+              <label>
+                <span>Yeni şifre</span>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  autoComplete="new-password"
+                  minLength={8}
+                  required
+                />
+              </label>
+              <label>
+                <span>Şifre onayı</span>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  autoComplete="new-password"
+                  minLength={8}
+                  required
+                />
+              </label>
+            </div>
+
+            {passwordError ? <p className={styles.error}>{passwordError}</p> : null}
+            {passwordStatus ? <p className={styles.success}>{passwordStatus}</p> : null}
+
+            <footer className={styles.footer}>
+              <button type="submit" disabled={passwordPending || !newPassword || !confirmPassword}>
+                <LuKeyRound size={16} />
+                {passwordPending ? 'Güncelleniyor...' : 'Şifreyi Güncelle'}
               </button>
             </footer>
           </form>

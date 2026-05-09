@@ -12,7 +12,8 @@ export const IPC_CHANNELS = {
     logout: 'auth:logout',
     me: 'auth:me',
     inviteValidate: 'auth:invite-validate',
-    updateProfile: 'auth:update-profile'
+    updateProfile: 'auth:update-profile',
+    changePassword: 'auth:change-password'
   },
   projects: {
     list: 'projects:list',
@@ -657,7 +658,7 @@ export interface ServiceMapEntry<TDomain extends ServiceDomain = ServiceDomain, 
 }
 
 export const SERVICE_MAP = {
-  auth: ['login', 'refresh', 'logout', 'me', 'inviteValidate', 'updateProfile'],
+  auth: ['login', 'refresh', 'logout', 'me', 'inviteValidate', 'updateProfile', 'changePassword'],
   projects: ['list', 'get', 'create', 'update', 'moveWorkspace', 'exportWorkspace', 'remove'],
   workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
   appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent', 'getDefaultAddTaskProject', 'setDefaultAddTaskProject', 'getGatewayLanguage', 'setGatewayLanguage', 'getPlannerQuestionAttention', 'setPlannerQuestionAttention', 'getDatabaseLocation', 'pickDatabaseFolder', 'pickDatabaseFile', 'moveDatabaseLocation', 'revealDatabaseLocation'],
@@ -724,6 +725,13 @@ export const SERVICE_ROUTING: {
       action: 'updateProfile',
       method: 'updateProfile',
       channel: IPC_CHANNELS.auth.updateProfile,
+      requiresAuth: true
+    },
+    changePassword: {
+      domain: 'auth',
+      action: 'changePassword',
+      method: 'changePassword',
+      channel: IPC_CHANNELS.auth.changePassword,
       requiresAuth: true
     }
   },
