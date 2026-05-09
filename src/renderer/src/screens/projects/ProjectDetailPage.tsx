@@ -1381,9 +1381,6 @@ export function ProjectDetailPage() {
     }
     return { task: effectiveTask, project, projectGroup: projectGroupForExport, agents, skills, tags, customFields, projectStatuses, gatewayLanguage: projectGatewayLanguage, gatewayPlanReasoningEffort: projectGatewayPlanReasoningEffort, gatewayRunReasoningEffort: projectGatewayRunReasoningEffort }
   }, [agents, customFields, project, projectGatewayLanguage, projectGatewayPlanReasoningEffort, projectGatewayRunReasoningEffort, projectGroupForExport, projectStatuses, selectedTask, selectedTaskAgent, selectedTaskSkills, skills, tags])
-  const selectedTaskAgentMarkdown = selectedTaskExportContext ? buildAgentMarkdown(selectedTaskExportContext) : ''
-  const selectedTaskSkillsMarkdown = selectedTaskExportContext ? buildSkillsMarkdown(selectedTaskExportContext) : ''
-
   const openRecentChat = (row: ProjectRecentChatRow) => {
     setPendingChatOpen({ taskId: row.taskId, conversationId: row.conversationId })
     navigateToTaskDetail(row.taskId)
@@ -1576,7 +1573,7 @@ export function ProjectDetailPage() {
     void workspaceSyncProjectWorkspace()
   }
 
-  const saveReorderedTasks = async (sourceTaskId: string, status: TaskEntity['status'], targetTaskId?: string, position: TaskDropPosition = 'after') => {
+  const saveReorderedTasks = useCallback(async (sourceTaskId: string, status: TaskEntity['status'], targetTaskId?: string, position: TaskDropPosition = 'after') => {
     const result = reorderTasksForDrop(tasks, sourceTaskId, status, targetTaskId, position)
     if (result.updates.length === 0) return
     setTasks(result.tasks)
@@ -1591,21 +1588,21 @@ export function ProjectDetailPage() {
       setError(failed.error?.message ?? 'Unable to save task order')
       await refreshProjectAndSelectedTask()
     }
-  }
+  }, [refreshProjectAndSelectedTask, tasks, token])
 
-  const reorderBoardTasks = async (sourceTaskId: string, targetTaskId: string, position: TaskDropPosition) => {
+  const reorderBoardTasks = useCallback(async (sourceTaskId: string, targetTaskId: string, position: TaskDropPosition) => {
     if (sourceTaskId === targetTaskId) return
     const targetTask = tasks.find((task) => task.id === targetTaskId)
     if (!targetTask) return
     await saveReorderedTasks(sourceTaskId, targetTask.status, targetTaskId, position)
-  }
+  }, [saveReorderedTasks, tasks])
 
-  const onDropColumn = async (event: DragEvent<HTMLElement>, status: TaskEntity['status']) => {
+  const onDropColumn = useCallback(async (event: DragEvent<HTMLElement>, status: TaskEntity['status']) => {
     event.preventDefault()
     const taskId = event.dataTransfer.getData('text/plain')
     if (!taskId) return
     await saveReorderedTasks(taskId, status)
-  }
+  }, [saveReorderedTasks])
 
   const handleQuickCreate = async () => {
     if (!projectId || !taskTitle.trim()) return
@@ -1627,10 +1624,10 @@ export function ProjectDetailPage() {
     await refreshProjectAndSelectedTask()
   }
 
-  const openCreateTask = (status: TaskEntity['status'] = defaultStatus) => {
+  const openCreateTask = useCallback((status: TaskEntity['status'] = defaultStatus) => {
     setCreateTaskStatus(status)
     setIsCreateTaskOpen(true)
-  }
+  }, [defaultStatus, setCreateTaskStatus, setIsCreateTaskOpen])
 
   useEffect(() => {
     const state = location.state as AppNavigateState | null
@@ -3359,10 +3356,8 @@ export function ProjectDetailPage() {
           statusColumns={statusColumns}
           tasksByStatus={tasksByStatus}
           agents={agents}
-          onDropStatus={(event, status) => {
-            void onDropColumn(event, status)
-          }}
-          onReorder={(sourceTaskId, targetTaskId, position) => void reorderBoardTasks(sourceTaskId, targetTaskId, position)}
+          onDropStatus={onDropColumn}
+          onReorder={reorderBoardTasks}
           onOpenTask={navigateToTaskDetail}
           onOpenSubtask={navigateToSubtaskDetail}
           onOpenCreateTask={openCreateTask}
@@ -3502,8 +3497,14 @@ export function ProjectDetailPage() {
             onDownloadTaskToon={() => {
               if (selectedTaskExportContext) downloadTextFile('Task.toon', buildTaskToon(selectedTaskExportContext), 'text/plain;charset=utf-8')
             }}
-            onDownloadAgentMarkdown={selectedTaskAgentMarkdown.trim() ? () => downloadMarkdownFile('Agents.md', selectedTaskAgentMarkdown) : undefined}
-            onDownloadSkillsMarkdown={selectedTaskSkillsMarkdown.trim() ? () => downloadMarkdownFile('Skills.md', selectedTaskSkillsMarkdown) : undefined}
+            onDownloadAgentMarkdown={selectedTaskExportContext ? () => {
+              const markdown = buildAgentMarkdown(selectedTaskExportContext)
+              if (markdown.trim()) downloadMarkdownFile('Agents.md', markdown)
+            } : undefined}
+            onDownloadSkillsMarkdown={selectedTaskExportContext ? () => {
+              const markdown = buildSkillsMarkdown(selectedTaskExportContext)
+              if (markdown.trim()) downloadMarkdownFile('Skills.md', markdown)
+            } : undefined}
             onRunGateway={handleRunSelectedTaskWithCodex}
             isRunGatewayBusy={gatewayRunLaunching}
             isRunGatewayDisabled={!canRunSelectedTaskWithCodex}

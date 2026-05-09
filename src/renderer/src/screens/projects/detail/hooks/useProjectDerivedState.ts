@@ -78,8 +78,8 @@ export function useProjectDerivedState({
   const selectedTask = useMemo(() => {
     if (!selectedTaskId) return null
     if (hydratedSelectedTaskOverride?.id === selectedTaskId) return hydratedSelectedTaskOverride
-    return hydratedTasks.find((item) => item.id === selectedTaskId) ?? null
-  }, [hydratedSelectedTaskOverride, hydratedTasks, selectedTaskId])
+    return null
+  }, [hydratedSelectedTaskOverride, selectedTaskId])
 
   const selectedSubtask = useMemo<TaskSubtask | null>(() => {
     if (!selectedTask || !selectedSubtaskId) return null

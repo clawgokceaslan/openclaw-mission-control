@@ -1,4 +1,4 @@
-import { Component, CSSProperties, DragEvent, PointerEvent, ReactNode, useEffect, useRef, useState } from 'react'
+import { Component, CSSProperties, DragEvent, PointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Stack } from 'react-bootstrap'
 import { LuBot, LuCircleCheck, LuChevronDown, LuClock3, LuCopy, LuDownload, LuExternalLink, LuFileText, LuListChecks, LuMessageSquare, LuEllipsis, LuPaperclip, LuPencil, LuPlay, LuPlus, LuRefreshCw, LuSettings2, LuSlidersHorizontal, LuSparkles, LuSquare, LuTrash2, LuTriangleAlert, LuUpload, LuX } from 'react-icons/lu'
 import type { TaskComment } from '@shared/types/entities'
@@ -302,8 +302,28 @@ class TaskDetailPopupBoundary extends Component<{ children: ReactNode; onClose: 
   }
 }
 
+function useTaskDetailCompactLayout() {
+  const [isCompact, setIsCompact] = useState(() => (
+    typeof window !== 'undefined' ? window.matchMedia('(width <= 900px)').matches : false
+  ))
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const query = window.matchMedia('(width <= 900px)')
+    const update = () => setIsCompact(query.matches)
+    update()
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
+
+  return isCompact
+}
+
 function CommentsPane({ scope, inline = false }: { scope: Record<string, any>; inline?: boolean }) {
-  const comments = [...(scope.comments ?? [])].sort((a: TaskComment, b: TaskComment) => a.createdAt - b.createdAt)
+  const sourceComments = scope.comments ?? []
+  const comments = useMemo(() => (
+    [...sourceComments].sort((a: TaskComment, b: TaskComment) => a.createdAt - b.createdAt)
+  ), [sourceComments])
   const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || 'OP'
   return (
     <>
@@ -442,6 +462,7 @@ function ModelTab({ scope }: { scope: Record<string, any> }) {
 
 function TaskDetailBody({ scope }: { scope: Record<string, any> }) {
   const task = scope.selectedTask
+  const isCompactLayout = useTaskDetailCompactLayout()
   const [detailTab, setDetailTab] = useState(scope.detailTab ?? 'subtasks')
   const [acceptanceDraft, setAcceptanceDraft] = useState(() => acceptanceCriteriaOf(task))
   useEffect(() => setDetailTab(scope.detailTab ?? 'subtasks'), [task?.id])
@@ -549,7 +570,7 @@ function TaskDetailBody({ scope }: { scope: Record<string, any> }) {
         </section>
         <section className={styles.drawerSection}><h4>Dependencies</h4><p>No dependencies.</p></section>
       </div>
-      <CommentsPane scope={{ ...scope, comments: task.comments ?? [] }} />
+      {!isCompactLayout ? <CommentsPane scope={{ ...scope, comments: task.comments ?? [] }} /> : null}
     </div>
   )
 }
@@ -561,6 +582,7 @@ function CustomFieldsList({ scope, values }: { scope: Record<string, any>; value
 function SubtaskDetailBody({ scope }: { scope: Record<string, any> }) {
   const subtask = scope.selectedSubtask
   const task = scope.selectedTask
+  const isCompactLayout = useTaskDetailCompactLayout()
   const [detailTab, setDetailTab] = useState(scope.detailTab === 'subtasks' || scope.detailTab === 'model' ? 'agent' : scope.detailTab ?? 'agent')
   useEffect(() => setDetailTab(scope.detailTab === 'subtasks' || scope.detailTab === 'model' ? 'agent' : scope.detailTab ?? 'agent'), [subtask?.id])
   if (!subtask || !task) return null
@@ -614,7 +636,7 @@ function SubtaskDetailBody({ scope }: { scope: Record<string, any> }) {
           {detailTab === 'attachments' ? <><div className={styles.detailSectionHeader}><div><h4>Attachments</h4><p>{(scope.subtaskAttachmentRows ?? []).length} files</p></div></div><AttachmentTable rows={scope.subtaskAttachmentRows ?? []} uploading={scope.isAttachmentUploading} onUpload={(files) => void scope.uploadSubtaskAttachments(files)} onRemove={(row) => void scope.removeSubtaskAttachment(row)} onError={scope.setError} /></> : null}
         </section>
       </div>
-      <CommentsPane scope={scope} />
+      {!isCompactLayout ? <CommentsPane scope={scope} /> : null}
     </div>
   )
 }
