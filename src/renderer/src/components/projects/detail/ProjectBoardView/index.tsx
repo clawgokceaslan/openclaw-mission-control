@@ -6,11 +6,12 @@ import { TagPill } from '@renderer/components/tags/TagPill'
 import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
 import { formatTaskDate } from '@renderer/screens/projects/detail/status'
 import { taskGatewayActiveTone, taskGatewayLatestSurfaceStatus, type TaskGatewaySurfaceStatus, type TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
-import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
+import styles from './index.module.scss'
 
 const BOARD_INITIAL_VISIBLE_TASKS = 36
 const BOARD_VISIBLE_TASK_STEP = 36
 const BOARD_LOAD_MORE_THRESHOLD_PX = 220
+const BOARD_PAN_INTENT_PX = 8
 
 interface ProjectBoardViewProps {
   columns: ProjectStatusColumn[]
@@ -47,6 +48,10 @@ function codexStatusClass(status: TaskGatewaySurfaceStatus) {
   return `${styles.taskGatewayStateBadge} ${styles[`taskGatewayTone_${status.tone}`] ?? ''}`
 }
 
+function isInteractivePanTarget(target: HTMLElement) {
+  return Boolean(target.closest('button,a,input,textarea,select,[role="button"]'))
+}
+
 interface BoardTaskCardProps {
   task: TaskEntity
   agentName: string
@@ -73,6 +78,7 @@ const BoardTaskCard = memo(function BoardTaskCard({
   const subtasks = task.subtasks ?? []
   const activeTone = taskGatewayActiveTone(task)
   const chatStatus = taskGatewayLatestSurfaceStatus(task)
+  const pointerStartRef = useRef<{ pointerId: number; x: number; y: number; moved: boolean } | null>(null)
 
   const openSubtaskFromCard = useCallback((event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>, subtaskId: string) => {
     event.preventDefault()
@@ -105,7 +111,15 @@ const BoardTaskCard = memo(function BoardTaskCard({
   }, [onDropTargetChange, onReorder, task.id])
 
   const handleDragEnd = useCallback(() => onDropTargetChange(null), [onDropTargetChange])
-  const handleOpenTask = useCallback(() => onOpenTask(task.id), [onOpenTask, task.id])
+  const handleOpenTask = useCallback((event: MouseEvent<HTMLElement>) => {
+    if (pointerStartRef.current?.moved) {
+      event.preventDefault()
+      event.stopPropagation()
+      pointerStartRef.current = null
+      return
+    }
+    onOpenTask(task.id)
+  }, [onOpenTask, task.id])
   const handleToggleSubtasks = useCallback((event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     event.stopPropagation()
@@ -122,6 +136,19 @@ const BoardTaskCard = memo(function BoardTaskCard({
       onDrop={handleDrop}
       onDragEnd={handleDragEnd}
       onClick={handleOpenTask}
+      onPointerDown={(event) => {
+        pointerStartRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, moved: false }
+      }}
+      onPointerMove={(event) => {
+        const pointerStart = pointerStartRef.current
+        if (!pointerStart || pointerStart.pointerId !== event.pointerId) return
+        const distanceX = Math.abs(event.clientX - pointerStart.x)
+        const distanceY = Math.abs(event.clientY - pointerStart.y)
+        if (distanceX > BOARD_PAN_INTENT_PX || distanceY > BOARD_PAN_INTENT_PX) pointerStart.moved = true
+      }}
+      onPointerCancel={() => {
+        pointerStartRef.current = null
+      }}
     >
       <Card.Body>
         <div className={styles.taskTop}>
@@ -181,7 +208,14 @@ const BoardTaskCard = memo(function BoardTaskCard({
 
 export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus, onReorder, onOpenTask, onOpenSubtask, onOpenCreateTask }: ProjectBoardViewProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null)
-  const panRef = useRef({ active: false, startX: 0, scrollLeft: 0 })
+  const panRef = useRef<{ pointerId: number | null; mode: 'pending' | 'pan' | null; startX: number; startY: number; scrollLeft: number }>({
+    pointerId: null,
+    mode: null,
+    startX: 0,
+    startY: 0,
+    scrollLeft: 0
+  })
+  const suppressClickRef = useRef(false)
   const [dropTarget, setDropTarget] = useState<{ taskId: string; position: TaskDropPosition } | null>(null)
   const [expandedSubtasks, setExpandedSubtasks] = useState<Record<string, boolean>>({})
   const [visibleTaskLimits, setVisibleTaskLimits] = useState<Record<string, number>>({})
@@ -214,9 +248,19 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
     expandVisibleTasks(status, total)
   }, [expandVisibleTasks])
 
+  const resetPan = (target: HTMLElement, pointerId?: number) => {
+    const wasPanning = panRef.current.mode === 'pan'
+    if (panRef.current.mode === 'pan' && pointerId !== undefined && target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId)
+    panRef.current = { pointerId: null, mode: null, startX: 0, startY: 0, scrollLeft: 0 }
+    target.classList.remove(styles.kanbanPanning)
+    if (wasPanning) window.setTimeout(() => {
+      suppressClickRef.current = false
+    }, 300)
+  }
+
   const canStartPan = (event: PointerEvent<HTMLElement>) => {
     const target = event.target as HTMLElement
-    return !target.closest('button,a,input,textarea,select,[draggable="true"]')
+    return !isInteractivePanTarget(target)
   }
 
   return (
@@ -225,21 +269,44 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
       className={styles.kanbanWrap}
       onPointerDown={(event) => {
         if (event.button !== 0 || !canStartPan(event)) return
-        panRef.current = { active: true, startX: event.clientX, scrollLeft: wrapRef.current?.scrollLeft ?? 0 }
-        event.currentTarget.setPointerCapture(event.pointerId)
-        event.currentTarget.classList.add(styles.kanbanPanning)
+        panRef.current = {
+          pointerId: event.pointerId,
+          mode: 'pending',
+          startX: event.clientX,
+          startY: event.clientY,
+          scrollLeft: wrapRef.current?.scrollLeft ?? 0
+        }
       }}
       onPointerMove={(event) => {
-        if (!panRef.current.active || !wrapRef.current) return
-        wrapRef.current.scrollLeft = panRef.current.scrollLeft - (event.clientX - panRef.current.startX)
+        const pan = panRef.current
+        if (pan.pointerId !== event.pointerId || !pan.mode || !wrapRef.current) return
+        const deltaX = event.clientX - pan.startX
+        const deltaY = event.clientY - pan.startY
+        if (pan.mode === 'pending') {
+          if (Math.abs(deltaX) < BOARD_PAN_INTENT_PX && Math.abs(deltaY) < BOARD_PAN_INTENT_PX) return
+          if (Math.abs(deltaY) >= Math.abs(deltaX)) {
+            resetPan(event.currentTarget, event.pointerId)
+            return
+          }
+          pan.mode = 'pan'
+          suppressClickRef.current = true
+          event.currentTarget.setPointerCapture(event.pointerId)
+          event.currentTarget.classList.add(styles.kanbanPanning)
+        }
+        event.preventDefault()
+        wrapRef.current.scrollLeft = pan.scrollLeft - deltaX
       }}
       onPointerUp={(event) => {
-        panRef.current.active = false
-        event.currentTarget.classList.remove(styles.kanbanPanning)
+        resetPan(event.currentTarget, event.pointerId)
       }}
       onPointerCancel={(event) => {
-        panRef.current.active = false
-        event.currentTarget.classList.remove(styles.kanbanPanning)
+        resetPan(event.currentTarget, event.pointerId)
+      }}
+      onClickCapture={(event) => {
+        if (!suppressClickRef.current) return
+        suppressClickRef.current = false
+        event.preventDefault()
+        event.stopPropagation()
       }}
     >
       {columns.map((column) => {
