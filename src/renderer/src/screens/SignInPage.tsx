@@ -72,11 +72,6 @@ export function SignInPage({ authNotice }: { authNotice?: string | null }) {
             {pending ? 'Signing in...' : 'Sign in'}
           </button>
         </form>
-
-        <div className={styles.bootstrapHint}>
-          <span>Default account</span>
-          <strong>owner@mission.local</strong>
-        </div>
       </section>
     </div>
   )

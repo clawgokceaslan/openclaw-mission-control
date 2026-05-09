@@ -129,29 +129,6 @@
         }
       }
     }
-
-    .bootstrapHint {
-      border: 1px solid var(--omc-border-subtle);
-      border-radius: 10px;
-      background: var(--omc-surface-soft);
-      padding: 11px 12px;
-      display: grid;
-      gap: 3px;
-
-      span {
-        color: var(--omc-text-soft);
-        font-size: 0.75rem;
-        font-weight: 800;
-        text-transform: uppercase;
-      }
-
-      strong {
-        color: var(--omc-text-strong);
-        font-size: 0.9rem;
-        font-weight: 850;
-        overflow-wrap: anywhere;
-      }
-    }
   }
 }
 

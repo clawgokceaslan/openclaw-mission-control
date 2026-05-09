@@ -8,7 +8,6 @@ import {
   getRefreshToken,
   getMeWithAuthApi,
   invokeBridge,
-  isElectronRuntime,
   loginWithAuthApi,
   logoutWithAuthApi,
   refreshWithAuthApi,
@@ -33,18 +32,6 @@ interface AuthResult {
 
 const getSafeToken = () => (typeof window === 'undefined' ? null : getSessionToken())
 
-const runBootstrapLogin = async () => {
-  const bootstrapResult = await loginWithAuthApi<AuthResult>({ desktopBootstrap: true })
-
-  if (!bootstrapResult.ok || !bootstrapResult.data) {
-    throw new Error(bootstrapResult.error?.message ?? 'Bootstrap login failed')
-  }
-
-  setSessionToken(bootstrapResult.data.session.token)
-  if (bootstrapResult.data.refreshToken) setRefreshToken(bootstrapResult.data.refreshToken)
-  return bootstrapResult.data
-}
-
 export const refreshAuth = createAsyncThunk<AuthResult, void, { state: { auth: AuthState } }>(
   'auth/refresh',
   async (_, { getState, rejectWithValue }) => {
@@ -58,12 +45,7 @@ export const refreshAuth = createAsyncThunk<AuthResult, void, { state: { auth: A
         clearSessionToken()
         return rejectWithValue(refreshResponse.error?.message ?? 'Login required') as never
       }
-      if (!isElectronRuntime()) {
-        return rejectWithValue('Login required') as never
-      }
-      return runBootstrapLogin().catch((error) => {
-        return rejectWithValue(error instanceof Error ? error.message : 'Auth bootstrap failed') as never
-      })
+      return rejectWithValue('Login required') as never
     }
 
     const response = await getMeWithAuthApi<AuthResult>(token)
@@ -77,15 +59,7 @@ export const refreshAuth = createAsyncThunk<AuthResult, void, { state: { auth: A
       return rejectWithValue('Oturum doğrulanamadı. Lütfen tekrar giriş yapın.') as never
     }
 
-    if (!isElectronRuntime()) {
-      return rejectWithValue(response.error?.message ?? 'Login required') as never
-    }
-
-    try {
-      return await runBootstrapLogin()
-    } catch (error) {
-      return rejectWithValue(error instanceof Error ? error.message : 'Auth bootstrap failed') as never
-    }
+    return rejectWithValue(response.error?.message ?? 'Login required') as never
   }
 )
 

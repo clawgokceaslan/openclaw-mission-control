@@ -19,7 +19,7 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
   private readonly defaultPasswordHash = '$2b$12$42NmjQ.8tLD3O5pYRn.acuvLjpnTbPAGLEnzResDNGwU/CuinF8VS'
 
   private users = this.db.prepare(
-    `SELECT id, organization_id, email, name, password_hash, role, created_at FROM users WHERE email = @email`
+    `SELECT id, organization_id, email, name, password_hash, role, created_at FROM users WHERE lower(email) = lower(@email)`
   )
   private defaultWorkspaceUser = this.db.prepare(
     `SELECT u.id, u.organization_id, u.email, u.name, u.password_hash, u.role, u.created_at
