@@ -46,6 +46,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [dispatch, token])
 
+  useEffect(() => {
+    const onTokenChanged = () => {
+      const persistedToken = getSessionToken()
+      if (persistedToken !== token) {
+        dispatch(setAuthToken(persistedToken))
+      }
+    }
+    window.addEventListener('omc-auth-token-changed', onTokenChanged)
+    return () => window.removeEventListener('omc-auth-token-changed', onTokenChanged)
+  }, [dispatch, token])
+
+  useEffect(() => {
+    if (!session?.expiresAt || !token) return undefined
+    const refreshAt = session.expiresAt - Date.now() - 5 * 60 * 1000
+    const timeout = window.setTimeout(() => {
+      void dispatch(refreshAuth())
+    }, Math.max(refreshAt, 10_000))
+    return () => window.clearTimeout(timeout)
+  }, [dispatch, session?.expiresAt, token])
+
   const login = async (email: string, password: string) => {
     try {
       await dispatch(loginAuth({ email, password })).unwrap()

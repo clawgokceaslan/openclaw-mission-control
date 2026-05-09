@@ -7,6 +7,7 @@ import { errorResponse, okResponse, ServiceResponse } from '../../shared/contrac
 import { Session, User } from '../../shared/types/entities.js'
 import { ACCESS_TOKEN_TTL_MS, REFRESH_TOKEN_TTL_MS } from '../../shared/constants/config.js'
 import { AuthRepository } from '../../db/repositories/auth-repo.js'
+import { desktopRefreshTokenStore } from './desktop-refresh-token-store.js'
 
 interface AuthTokenPair {
   session: Session
@@ -94,6 +95,14 @@ export class AuthService {
     }
   }
 
+  private isDesktopMeta(meta?: Record<string, unknown>): boolean {
+    return meta?.transport === 'ipc'
+  }
+
+  private async persistDesktopRefreshToken(token: string, meta?: Record<string, unknown>): Promise<void> {
+    if (this.isDesktopMeta(meta)) await desktopRefreshTokenStore.set(token)
+  }
+
   private normalizeEmail(email?: string): string {
     return email?.trim().toLowerCase() ?? ''
   }
@@ -160,6 +169,13 @@ export class AuthService {
   }
 
   async createDesktopSession(): Promise<ServiceResponse> {
+    const storedRefreshToken = await desktopRefreshTokenStore.get()
+    if (storedRefreshToken) {
+      const refreshed = await this.refresh({ refreshToken: storedRefreshToken }, { transport: 'ipc' })
+      if (refreshed.ok) return refreshed
+      await desktopRefreshTokenStore.clear()
+    }
+
     const userRow = await this.authRepo.findDefaultWorkspaceUser()
       ?? await this.authRepo.ensureLocalUser()
 
@@ -176,6 +192,7 @@ export class AuthService {
       role: userRow.role
     })
     const response = { session: tokens.session, refreshToken: tokens.refreshToken, refreshTokenExpiresAt: tokens.refreshTokenExpiresAt, user }
+    await desktopRefreshTokenStore.set(tokens.refreshToken)
     if (this.eventBus) {
       this.eventBus.emit('auth:session-established', { userId: user.id })
     }
@@ -212,6 +229,7 @@ export class AuthService {
       await this.authRepo.setPasswordHash(userRow.id, this.hashBcryptPassword(password))
     }
     const tokens = await this.issueTokens(userRow.id)
+    await this.persistDesktopRefreshToken(tokens.refreshToken, meta)
     const user = this.mapUser({
       id: userRow.id,
       organizationId: userRow.organization_id,
@@ -226,18 +244,29 @@ export class AuthService {
     return okResponse(response, { requestId: undefined })
   }
 
-  async refresh(payload: { refreshToken?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse> {
-    const token = payload?.refreshToken?.trim()
+  async refresh(payload: { refreshToken?: string }, meta?: Record<string, unknown>): Promise<ServiceResponse> {
+    const token = payload?.refreshToken?.trim() || (this.isDesktopMeta(meta) ? await desktopRefreshTokenStore.get() : null)
     if (!token) return errorResponse(ErrorCodes.Unauthenticated, 'Refresh token required')
     const stored = await this.authRepo.findRefreshToken(token)
     if (!stored || stored.revokedAt || stored.expiresAt <= Date.now()) {
+      if (this.isDesktopMeta(meta)) await desktopRefreshTokenStore.clear()
       return errorResponse(ErrorCodes.Unauthenticated, 'Refresh token is invalid')
     }
     const row = await this.authRepo.findUserById(stored.userId)
     if (!row) return errorResponse(ErrorCodes.Unauthenticated, 'Refresh token user is invalid')
 
-    const next = await this.issueTokens(stored.userId)
-    await this.authRepo.rotateRefreshToken(token, next.refreshToken)
+    const nextRefresh = await this.authRepo.rotateRefreshToken(token, stored.userId, REFRESH_TOKEN_TTL_MS)
+    if (!nextRefresh) {
+      if (this.isDesktopMeta(meta)) await desktopRefreshTokenStore.clear()
+      return errorResponse(ErrorCodes.Unauthenticated, 'Refresh token is invalid')
+    }
+    const session = await this.authRepo.createSession(stored.userId, ACCESS_TOKEN_TTL_MS)
+    const next = {
+      session,
+      refreshToken: nextRefresh.token,
+      refreshTokenExpiresAt: nextRefresh.expiresAt
+    }
+    await this.persistDesktopRefreshToken(next.refreshToken, meta)
     const user = this.mapUser({
       id: row.id,
       organizationId: row.organizationId,
@@ -260,6 +289,7 @@ export class AuthService {
       await this.authRepo.revokeSession(payload.actorToken)
       if (actor) await this.authRepo.revokeUserRefreshTokens(actor.user.id)
     }
+    if (this.isDesktopMeta(_meta)) await desktopRefreshTokenStore.clear()
     return okResponse({ ok: true })
   }
 

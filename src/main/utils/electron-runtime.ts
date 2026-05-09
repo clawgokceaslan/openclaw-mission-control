@@ -13,6 +13,7 @@ type ElectronRuntimeModule = {
   dialog?: typeof Electron.dialog
   shell?: typeof Electron.shell
   ipcMain?: Electron.IpcMain
+  safeStorage?: Electron.SafeStorage
 }
 
 function loadElectronModule(): ElectronRuntimeModule {

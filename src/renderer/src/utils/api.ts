@@ -75,26 +75,45 @@ async function waitForIpc(timeoutMs = 3000): Promise<boolean> {
 
 const SESSION_KEY = 'omc-session-token'
 const REFRESH_SESSION_KEY = 'omc-refresh-token'
+const AUTH_TOKEN_CHANGED_EVENT = 'omc-auth-token-changed'
+
+function volatileStorage(): Storage | null {
+  if (typeof window === 'undefined') return null
+  return isElectronRuntime() ? window.sessionStorage : window.localStorage
+}
+
+function emitAuthTokenChanged(): void {
+  if (typeof window !== 'undefined') {
+    eventSource?.close()
+    eventSource = null
+    if (httpListeners.size > 0) ensureEventSource()
+    window.dispatchEvent(new CustomEvent(AUTH_TOKEN_CHANGED_EVENT))
+  }
+}
 
 export function getSessionToken(): string | null {
-  return localStorage.getItem(SESSION_KEY)
+  return volatileStorage()?.getItem(SESSION_KEY) ?? null
 }
 
 export function getRefreshToken(): string | null {
+  if (isElectronRuntime()) return null
   return localStorage.getItem(REFRESH_SESSION_KEY)
 }
 
 export function setSessionToken(token: string): void {
-  localStorage.setItem(SESSION_KEY, token)
+  volatileStorage()?.setItem(SESSION_KEY, token)
+  emitAuthTokenChanged()
 }
 
 export function setRefreshToken(token: string): void {
+  if (isElectronRuntime()) return
   localStorage.setItem(REFRESH_SESSION_KEY, token)
 }
 
 export function clearSessionToken(): void {
-  localStorage.removeItem(SESSION_KEY)
-  localStorage.removeItem(REFRESH_SESSION_KEY)
+  volatileStorage()?.removeItem(SESSION_KEY)
+  if (!isElectronRuntime()) localStorage.removeItem(REFRESH_SESSION_KEY)
+  emitAuthTokenChanged()
 }
 
 function normalizePayload(payload?: unknown, requestId?: string): Record<string, unknown> {
@@ -150,6 +169,17 @@ function persistAuthTokens(data: unknown): void {
   const auth = data as HttpAuthResult
   if (auth.session?.token) setSessionToken(auth.session.token)
   if (auth.refreshToken) setRefreshToken(auth.refreshToken)
+}
+
+let refreshPromise: Promise<BridgeResult<HttpAuthResult>> | null = null
+
+async function refreshSingleFlight(): Promise<BridgeResult<HttpAuthResult>> {
+  if (!refreshPromise) {
+    refreshPromise = refreshWithAuthApi<HttpAuthResult>().finally(() => {
+      refreshPromise = null
+    })
+  }
+  return refreshPromise
 }
 
 let authHttpClient: AxiosInstance | null = null
@@ -222,14 +252,14 @@ export async function loginWithAuthApi<T = unknown>(payload: { email?: string; p
 }
 
 export async function refreshWithAuthApi<T = unknown>(): Promise<BridgeResult<T>> {
-  const refreshToken = getRefreshToken()
-  if (!refreshToken) return errorResult(ErrorCodes.Unauthenticated, 'Refresh token required')
   if (isElectronRuntime()) {
-    const result = await invokeBridge<T>(IPC_CHANNELS.auth.refresh, { refreshToken })
+    const result = await invokeBridge<T>(IPC_CHANNELS.auth.refresh, {}, undefined, false)
     if (result.ok) persistAuthTokens(result.data)
     if (!result.ok) clearSessionToken()
     return result
   }
+  const refreshToken = getRefreshToken()
+  if (!refreshToken) return errorResult(ErrorCodes.Unauthenticated, 'Refresh token required')
   const result = await requestAuthRest<T>('refresh', {
     method: 'POST',
     headers: requestHeaders(),
@@ -245,7 +275,7 @@ export async function getMeWithAuthApi<T = unknown>(tokenOverride?: string | nul
     const response = await invokeBridge<T>(IPC_CHANNELS.auth.me, token ? { actorToken: token } : {})
     if (response.ok || !retryRefresh || response.error?.code !== ErrorCodes.Unauthenticated) return response
 
-    const refreshResult = await refreshWithAuthApi<HttpAuthResult>()
+    const refreshResult = await refreshSingleFlight()
     if (!refreshResult.ok || !refreshResult.data?.session?.token) return response
     return getMeWithAuthApi<T>(refreshResult.data.session.token, false)
   }
@@ -256,7 +286,7 @@ export async function getMeWithAuthApi<T = unknown>(tokenOverride?: string | nul
   })
   if (response.ok || !retryRefresh || response.error?.code !== ErrorCodes.Unauthenticated) return response
 
-  const refreshResult = await refreshWithAuthApi<HttpAuthResult>()
+  const refreshResult = await refreshSingleFlight()
   if (!refreshResult.ok || !refreshResult.data?.session?.token) return response
   return getMeWithAuthApi<T>(refreshResult.data.session.token, false)
 }
@@ -335,7 +365,8 @@ function errorResult<T = unknown>(code: string, message: string): BridgeResult<T
 export async function invokeBridge<T = unknown>(
   channel: IpcChannel | string,
   payload?: unknown,
-  requestId?: string
+  requestId?: string,
+  retryRefresh = true
 ): Promise<BridgeResult<T>> {
   if (isElectronRuntime()) {
     await waitForIpc()
@@ -353,7 +384,24 @@ export async function invokeBridge<T = unknown>(
   }
 
   try {
-    return await bridge.invoke<T>(channel, normalizePayload(payload, requestId))
+    const response = await bridge.invoke<T>(channel, normalizePayload(payload, requestId))
+    if (
+      response.ok ||
+      !retryRefresh ||
+      response.error?.code !== ErrorCodes.Unauthenticated ||
+      channel === IPC_CHANNELS.auth.login ||
+      channel === IPC_CHANNELS.auth.refresh ||
+      channel === IPC_CHANNELS.auth.logout
+    ) {
+      return response
+    }
+    const refreshResult = await refreshSingleFlight()
+    const refreshedToken = refreshResult.ok ? refreshResult.data?.session?.token : null
+    if (!refreshedToken) return response
+    const nextPayload = payload && typeof payload === 'object'
+      ? { ...(payload as Record<string, unknown>), actorToken: refreshedToken }
+      : { actorToken: refreshedToken, payload }
+    return invokeBridge<T>(channel, nextPayload, requestId, false)
   } catch (error) {
     return errorResult(ErrorCodes.Internal, error instanceof Error ? error.message : 'IPC invoke failed')
   }

@@ -5,9 +5,8 @@ import { apiBaseUrl, getMeWithAuthApi, loginWithAuthApi, setRefreshToken, invoke
 
 function stubElectronRenderer(invoke: ReturnType<typeof vi.fn>) {
   const store = new Map<string, string>()
-  vi.stubGlobal('window', {})
-  vi.stubGlobal('navigator', { userAgent: 'Electron Test' })
-  vi.stubGlobal('localStorage', {
+  const sessionStore = new Map<string, string>()
+  const localStorage = {
     getItem: vi.fn((key: string) => store.get(key) ?? null),
     setItem: vi.fn((key: string, value: string) => {
       store.set(key, value)
@@ -15,7 +14,24 @@ function stubElectronRenderer(invoke: ReturnType<typeof vi.fn>) {
     removeItem: vi.fn((key: string) => {
       store.delete(key)
     })
+  }
+  const sessionStorage = {
+    getItem: vi.fn((key: string) => sessionStore.get(key) ?? null),
+    setItem: vi.fn((key: string, value: string) => {
+      sessionStore.set(key, value)
+    }),
+    removeItem: vi.fn((key: string) => {
+      sessionStore.delete(key)
+    })
+  }
+  vi.stubGlobal('window', {
+    localStorage,
+    sessionStorage,
+    dispatchEvent: vi.fn()
   })
+  vi.stubGlobal('navigator', { userAgent: 'Electron Test' })
+  vi.stubGlobal('localStorage', localStorage)
+  vi.stubGlobal('sessionStorage', sessionStorage)
   vi.stubGlobal('require', vi.fn((name: string) => {
     if (name !== 'electron') throw new Error(`Unexpected module: ${name}`)
     return {
@@ -126,8 +142,40 @@ describe('renderer API bridge', () => {
 
     expect(response.ok).toBe(true)
     expect(invoke).toHaveBeenNthCalledWith(1, IPC_CHANNELS.auth.me, expect.objectContaining({ actorToken: 'stale-access-token' }))
-    expect(invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.auth.refresh, expect.objectContaining({ refreshToken: 'stored-refresh-token' }))
+    expect(invoke).toHaveBeenNthCalledWith(2, IPC_CHANNELS.auth.refresh, expect.not.objectContaining({ refreshToken: expect.any(String) }))
     expect(invoke).toHaveBeenNthCalledWith(3, IPC_CHANNELS.auth.me, expect.objectContaining({ actorToken: 'fresh-access-token' }))
+
+    vi.unstubAllGlobals()
+  })
+
+  it('retries authenticated Electron IPC calls once after a single-flight refresh', async () => {
+    const invoke = vi.fn(async (channel: string, payload: Record<string, unknown>) => {
+      if (channel === IPC_CHANNELS.projects.list && payload.actorToken === 'stale-access-token') {
+        return { ok: false, error: { code: ErrorCodes.Unauthenticated, message: 'No active session' } }
+      }
+      if (channel === IPC_CHANNELS.auth.refresh) {
+        return {
+          ok: true,
+          data: {
+            session: { token: 'fresh-access-token' },
+            refreshToken: 'fresh-refresh-token',
+            user: { id: 'user-1' }
+          }
+        }
+      }
+      return { ok: true, data: [{ actorToken: payload.actorToken }] }
+    })
+    stubElectronRenderer(invoke)
+
+    const [first, second] = await Promise.all([
+      invokeBridge(IPC_CHANNELS.projects.list, { actorToken: 'stale-access-token' }),
+      invokeBridge(IPC_CHANNELS.projects.list, { actorToken: 'stale-access-token' })
+    ])
+
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    expect(invoke.mock.calls.filter(([channel]) => channel === IPC_CHANNELS.auth.refresh)).toHaveLength(1)
+    expect(invoke.mock.calls.filter(([channel, payload]) => channel === IPC_CHANNELS.projects.list && payload.actorToken === 'fresh-access-token')).toHaveLength(2)
 
     vi.unstubAllGlobals()
   })

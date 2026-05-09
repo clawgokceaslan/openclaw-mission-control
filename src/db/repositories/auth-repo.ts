@@ -192,12 +192,32 @@ export class AuthRepository extends BaseRepository<User & { passwordHash: string
     }
   }
 
-  async rotateRefreshToken(token: string, nextToken: string): Promise<void> {
-    await this.refreshTokenRevoke.run({
-      tokenHash: this.hashToken(token),
-      revokedAt: Date.now(),
-      replacedByHash: this.hashToken(nextToken)
+  async rotateRefreshToken(token: string, userId: string, ttlMs: number): Promise<{ token: string; expiresAt: number } | null> {
+    const now = Date.now()
+    const currentHash = this.hashToken(token)
+    const nextToken = randomBytes(48).toString('base64url')
+    const nextHash = this.hashToken(nextToken)
+    const expiresAt = now + ttlMs
+    let rotated = false
+
+    await this.db.transaction(async () => {
+      const result = await this.refreshTokenRevoke.run({
+        tokenHash: currentHash,
+        revokedAt: now,
+        replacedByHash: nextHash
+      })
+      if (result.changes !== 1) return
+      await this.refreshTokensInsert.run({
+        id: randomUUID(),
+        userId,
+        tokenHash: nextHash,
+        expiresAt,
+        createdAt: now
+      })
+      rotated = true
     })
+
+    return rotated ? { token: nextToken, expiresAt } : null
   }
 
   async findSessionByToken(token: string): Promise<Session | undefined> {

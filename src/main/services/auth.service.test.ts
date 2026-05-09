@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuthService } from './auth.service.js'
+import { desktopRefreshTokenStore } from './desktop-refresh-token-store.js'
 
 function authServiceWithPassword(passwordHash: string, options?: { email?: string }) {
   const user = {
@@ -61,6 +62,10 @@ function authServiceWithPassword(passwordHash: string, options?: { email?: strin
 }
 
 describe('AuthService password hashing', () => {
+  beforeEach(async () => {
+    await desktopRefreshTokenStore.clear()
+  })
+
   it('issues local desktop sessions without checking or resetting the password', async () => {
     const changedPasswordHash = bcrypt.hashSync('changed-password', 12)
     const { service, getStoredPasswordHash } = authServiceWithPassword(changedPasswordHash)
@@ -181,5 +186,86 @@ describe('AuthService password hashing', () => {
 
     expect(response.ok).toBe(false)
     expect(getStoredPasswordHash()).toBe(originalHash)
+  })
+
+  it('rotates refresh tokens once and rejects the old token after rotation', async () => {
+    const user = {
+      id: 'user-1',
+      organizationId: 'org-1',
+      email: 'pilot@example.com',
+      name: 'Owner',
+      role: 'owner'
+    }
+    const refreshRecords = new Map<string, { userId: string; expiresAt: number; revokedAt?: number | null }>([
+      ['refresh-1', { userId: user.id, expiresAt: Date.now() + 60_000, revokedAt: null }]
+    ])
+    const repo = {
+      findRefreshToken: async (token: string) => {
+        const record = refreshRecords.get(token)
+        return record
+          ? {
+              id: token,
+              userId: record.userId,
+              tokenHash: token,
+              expiresAt: record.expiresAt,
+              createdAt: Date.now(),
+              revokedAt: record.revokedAt
+            }
+          : undefined
+      },
+      rotateRefreshToken: async (token: string, userId: string, ttlMs: number) => {
+        const current = refreshRecords.get(token)
+        if (!current || current.revokedAt) return null
+        current.revokedAt = Date.now()
+        const nextToken = 'refresh-2'
+        refreshRecords.set(nextToken, { userId, expiresAt: Date.now() + ttlMs, revokedAt: null })
+        return { token: nextToken, expiresAt: refreshRecords.get(nextToken)?.expiresAt }
+      },
+      createSession: async (userId: string, ttlMs: number) => ({
+        id: 'session-2',
+        userId,
+        token: 'access-2',
+        expiresAt: Date.now() + ttlMs,
+        createdAt: Date.now()
+      }),
+      findUserById: async () => user
+    }
+    const service = new AuthService(repo as any)
+
+    const first = await service.refresh({ refreshToken: 'refresh-1' })
+    const reused = await service.refresh({ refreshToken: 'refresh-1' })
+
+    expect(first.ok).toBe(true)
+    expect(first.data.refreshToken).toBe('refresh-2')
+    expect(reused.ok).toBe(false)
+    expect(reused.error?.code).toBe('ERR_UNAUTHENTICATED')
+  })
+
+  it('revokes refresh tokens on logout', async () => {
+    const revokeUserRefreshTokens = vi.fn(async () => undefined)
+    const repo = {
+      findSessionByToken: async (token: string) => ({
+        id: 'session-1',
+        userId: 'user-1',
+        token,
+        expiresAt: Date.now() + 60_000,
+        createdAt: Date.now()
+      }),
+      findUserById: async () => ({
+        id: 'user-1',
+        organizationId: 'org-1',
+        email: 'pilot@example.com',
+        name: 'Owner',
+        role: 'owner'
+      }),
+      revokeSession: vi.fn(async () => undefined),
+      revokeUserRefreshTokens
+    }
+    const service = new AuthService(repo as any)
+
+    const response = await service.logout({ actorToken: 'access-1' })
+
+    expect(response.ok).toBe(true)
+    expect(revokeUserRefreshTokens).toHaveBeenCalledWith('user-1')
   })
 })
