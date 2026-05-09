@@ -29,6 +29,13 @@ const FULL_DISK_ACCESS_SETTING_URL = 'x-apple.systempreferences:com.apple.prefer
 const FULL_DISK_ACCESS_PROMPT_FILE = 'full-disk-access-prompt.json'
 const OPEN_DATABASE_SETTINGS_ARG = '--omc-open-database-settings'
 const OPEN_DATABASE_SETTINGS_ENV = 'OMC_OPEN_DATABASE_SETTINGS'
+const DEV_RELAUNCH_TITLE_PREFIX = 'OpenMissionControl Dev'
+
+type DevRelaunchCommandOptions = {
+  generation?: string
+  oldPid?: number
+  oldParentPid?: number
+}
 
 function fileExists(path: string): boolean {
   return existsSync(path)
@@ -44,6 +51,10 @@ function shellQuote(value: string): string {
 
 function appleScriptString(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+
+function windowsCmdQuote(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`
 }
 
 function currentModuleDir(): string {
@@ -171,17 +182,152 @@ function focusMainWindow(): { focused: boolean } {
   return { focused: true }
 }
 
-export function buildDevRelaunchCommand(openDatabaseSettings = false, cwd = process.cwd()): string {
+function buildDevRelaunchGeneration(): string {
+  return `${Date.now()}-${process.pid}`
+}
+
+function buildDevRelaunchTitle(generation: string): string {
+  return `${DEV_RELAUNCH_TITLE_PREFIX} ${generation}`.replace(/[\r\n]/g, ' ').slice(0, 200)
+}
+
+function buildWorkspaceScopedUnixDevCleanupCommand(): string {
+  return [
+    'cleanup_old_omc_dev() {',
+    '  local workspace="${OMC_DEV_RESTART_WORKSPACE:-}"',
+    '  local old_pid="${OMC_DEV_RESTART_OLD_PID:-}"',
+    '  local old_ppid="${OMC_DEV_RESTART_OLD_PPID:-}"',
+    '  [ -n "$workspace" ] || return 0',
+    '  [ -n "$old_pid" ] || return 0',
+    '  local candidate_pids=""',
+    '  [ -n "$old_ppid" ] && candidate_pids="$candidate_pids $old_ppid"',
+    '  candidate_pids="$candidate_pids $old_pid"',
+    '  local matched_pid=""',
+    '  for candidate_pid in $candidate_pids; do',
+    '    case "$candidate_pid" in (*[!0-9]*|"") continue ;; esac',
+    '    if command -v lsof >/dev/null 2>&1; then',
+    '      local candidate_cwd',
+    '      candidate_cwd="$(lsof -a -p "$candidate_pid" -d cwd -Fn 2>/dev/null | sed -n \'s/^n//p\' | head -n 1)"',
+    '      [ "$candidate_cwd" = "$workspace" ] || continue',
+    '    elif command -v pwdx >/dev/null 2>&1; then',
+    '      local candidate_cwd',
+    '      candidate_cwd="$(pwdx "$candidate_pid" 2>/dev/null | sed \'s/^[^:]*: //\')"',
+    '      [ "$candidate_cwd" = "$workspace" ] || continue',
+    '    else',
+    '      case "$PWD" in ("$workspace") ;; (*) continue ;; esac',
+    '    fi',
+    '    matched_pid="$candidate_pid"',
+    '    break',
+    '  done',
+    '  [ -n "$matched_pid" ] || return 0',
+    '  local old_ttys=""',
+    '  for candidate_pid in $candidate_pids; do',
+    '    case "$candidate_pid" in (*[!0-9]*|"") continue ;; esac',
+    '    old_ttys="$old_ttys $(ps -o tty= -p "$candidate_pid" 2>/dev/null | awk \'$1 != "??" && $1 != "?" { print "/dev/" $1 }\')"',
+    '  done',
+    '  old_ttys="$(printf "%s\\n" $old_ttys | sort -u)"',
+    '  local current_pgid',
+    '  current_pgid="$(ps -o pgid= -p "$$" 2>/dev/null | tr -d " ")"',
+    '  local old_pgids=""',
+    '  for candidate_pid in $candidate_pids; do',
+    '    case "$candidate_pid" in (*[!0-9]*|"") continue ;; esac',
+    '    old_pgids="$old_pgids $(ps -o pgid= -p "$candidate_pid" 2>/dev/null | tr -d " ")"',
+    '  done',
+    '  old_pgids="$(printf "%s\\n" $old_pgids | sort -u)"',
+    '  for old_pgid in $old_pgids; do',
+    '    [ -n "$old_pgid" ] || continue',
+    '    [ "$old_pgid" != "$current_pgid" ] || continue',
+    '    kill -TERM "-$old_pgid" 2>/dev/null || true',
+    '  done',
+    '  sleep 0.5',
+    '  for old_pgid in $old_pgids; do',
+    '    [ -n "$old_pgid" ] || continue',
+    '    [ "$old_pgid" != "$current_pgid" ] || continue',
+    '    kill -KILL "-$old_pgid" 2>/dev/null || true',
+    '  done',
+    '  if [ "$(uname -s 2>/dev/null)" = "Darwin" ] && [ -n "$old_ttys" ]; then',
+    '    for old_tty in $old_ttys; do',
+    '      /usr/bin/osascript - "$old_tty" <<\'APPLESCRIPT\' >/dev/null 2>&1 || true',
+    'on run argv',
+    '  set targetTty to item 1 of argv',
+    '  tell application "Terminal"',
+    '    repeat with terminalWindow in windows',
+    '      repeat with terminalTab in tabs of terminalWindow',
+    '        if tty of terminalTab is targetTty then',
+    '          close terminalWindow',
+    '          return',
+    '        end if',
+    '      end repeat',
+    '    end repeat',
+    '  end tell',
+    'end run',
+    'APPLESCRIPT',
+    '    done',
+    '  fi',
+    '}',
+    'cleanup_old_omc_dev || true',
+    'unset -f cleanup_old_omc_dev 2>/dev/null || true'
+  ].join('\n')
+}
+
+export function buildDevRelaunchCommand(openDatabaseSettings = false, cwd = process.cwd(), options: DevRelaunchCommandOptions = {}): string {
+  const generation = options.generation ?? buildDevRelaunchGeneration()
+  const oldPid = options.oldPid ?? process.pid
+  const oldParentPid = options.oldParentPid ?? process.ppid
+  const title = buildDevRelaunchTitle(generation)
   const envPrefix = openDatabaseSettings ? `${OPEN_DATABASE_SETTINGS_ENV}=1 ` : ''
   return [
-    'sleep 1',
+    `export OMC_DEV_RESTART_GENERATION=${shellQuote(generation)}`,
+    `export OMC_DEV_RESTART_OLD_PID=${shellQuote(String(oldPid))}`,
+    `export OMC_DEV_RESTART_OLD_PPID=${shellQuote(String(oldParentPid))}`,
+    `export OMC_DEV_RESTART_WORKSPACE=${shellQuote(cwd)}`,
+    `printf '\\033]0;%s\\007' ${shellQuote(title)}`,
     `cd ${shellQuote(cwd)}`,
+    buildWorkspaceScopedUnixDevCleanupCommand(),
     `env -u ELECTRON_RUN_AS_NODE ${envPrefix}npm run dev`
+  ].join('\n')
+}
+
+function buildWindowsDevRelaunchCommand(openDatabaseSettings = false, cwd = process.cwd(), options: DevRelaunchCommandOptions = {}): string {
+  const generation = options.generation ?? buildDevRelaunchGeneration()
+  const oldPid = options.oldPid ?? process.pid
+  const oldParentPid = options.oldParentPid ?? process.ppid
+  const title = buildDevRelaunchTitle(generation)
+  const databaseEnv = openDatabaseSettings ? `set ${OPEN_DATABASE_SETTINGS_ENV}=1 && ` : ''
+  const cleanup = [
+    'powershell',
+    '-NoProfile',
+    '-ExecutionPolicy', 'Bypass',
+    '-Command',
+    windowsCmdQuote([
+      `$workspace=${JSON.stringify(cwd)};`,
+      `$ids=@(${oldPid},${oldParentPid}) | Where-Object { $_ -gt 0 } | Select-Object -Unique;`,
+      'foreach ($id in $ids) {',
+      '  try {',
+      '    $p = Get-CimInstance Win32_Process -Filter "ProcessId = $id";',
+      '    if ($p -and $p.ExecutablePath) {',
+      '      $cwd = (Get-Process -Id $id -ErrorAction SilentlyContinue).Path;',
+      '    }',
+      '    Stop-Process -Id $id -Force -ErrorAction SilentlyContinue;',
+      '  } catch {}',
+      '}'
+    ].join(' '))
+  ].join(' ')
+
+  return [
+    `title ${title}`,
+    `cd /d ${windowsCmdQuote(cwd)}`,
+    `set OMC_DEV_RESTART_GENERATION=${generation}`,
+    `set OMC_DEV_RESTART_WORKSPACE=${cwd}`,
+    cleanup,
+    'set ELECTRON_RUN_AS_NODE=',
+    `${databaseEnv}npm run dev`
   ].join(' && ')
 }
 
 function spawnDevRelaunch(openDatabaseSettings = false): void {
-  const command = buildDevRelaunchCommand(openDatabaseSettings)
+  const generation = buildDevRelaunchGeneration()
+  const commandOptions: DevRelaunchCommandOptions = { generation, oldPid: process.pid, oldParentPid: process.ppid }
+  const command = buildDevRelaunchCommand(openDatabaseSettings, process.cwd(), commandOptions)
   safeConsole.log('[main] Relaunching development app', { command })
 
   if (process.platform === 'darwin') {
@@ -189,6 +335,14 @@ function spawnDevRelaunch(openDatabaseSettings = false): void {
       '-e',
       `tell application "Terminal" to do script ${appleScriptString(command)}`
     ], { detached: true, stdio: 'ignore' })
+    child.unref()
+    return
+  }
+
+  if (process.platform === 'win32') {
+    const title = buildDevRelaunchTitle(generation)
+    const windowsCommand = buildWindowsDevRelaunchCommand(openDatabaseSettings, process.cwd(), commandOptions)
+    const child = spawn('cmd.exe', ['/d', '/s', '/c', `start ${windowsCmdQuote(title)} cmd.exe /k ${windowsCmdQuote(windowsCommand)}`], { detached: true, stdio: 'ignore' })
     child.unref()
     return
   }
