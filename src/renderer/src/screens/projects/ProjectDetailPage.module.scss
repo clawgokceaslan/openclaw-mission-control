@@ -8053,69 +8053,51 @@
     border: 0;
     border-radius: 0;
     grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
   }
 
   .chatSidebar {
-    max-height: 126px;
-    border-right: 0;
-    border-bottom: 1px solid var(--omc-border-subtle);
-    padding: max(8px, env(safe-area-inset-top, 0px)) max(10px, env(safe-area-inset-right, 0px)) 8px max(10px, env(safe-area-inset-left, 0px));
-    display: flex;
-    align-items: stretch;
-    gap: 8px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-
-    &::-webkit-scrollbar {
-      display: none;
-    }
-
-    .chatNewConversationButton,
-    .chatConversationButton {
-      flex: 0 0 min(238px, 72vw);
-      padding: 9px;
-    }
-
-    p,
-    .chatHistoryNote {
-      flex: 0 0 auto;
-      min-width: 150px;
-      margin: 0;
-      align-self: stretch;
-    }
+    display: none;
   }
 
   .chatBrand {
-    flex: 0 0 min(210px, 58vw);
-    margin: 0;
-    padding: 6px 10px;
-    border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 64%, transparent);
-    border-radius: 12px;
-    background: color-mix(in srgb, var(--omc-surface) 72%, transparent);
+    display: none;
+  }
+
+  .chatMain {
+    grid-template-rows: auto minmax(0, 1fr) auto;
   }
 
   .chatTopbar {
     align-items: center;
     flex-direction: row;
-    min-height: 52px;
-    padding: 8px max(10px, env(safe-area-inset-right, 0px)) 8px max(12px, env(safe-area-inset-left, 0px));
+    min-height: calc(54px + env(safe-area-inset-top, 0px));
+    padding: env(safe-area-inset-top, 0px) max(8px, env(safe-area-inset-right, 0px)) 7px max(10px, env(safe-area-inset-left, 0px));
+    gap: 8px;
   }
 
   .chatTopbarTitle {
+    gap: 0;
+
+    h2 {
+      font-size: 0.9rem;
+    }
+
     p {
       max-width: 100%;
+      font-size: 0.7rem;
     }
   }
 
   .chatPillRow {
-    gap: 4px;
+    display: none;
   }
 
   .chatTopbarActions {
+    flex: 0 0 auto;
     justify-content: flex-end;
-    overflow-x: auto;
+    gap: 4px;
+    overflow: visible;
     scrollbar-width: none;
 
     &::-webkit-scrollbar {
@@ -8124,14 +8106,16 @@
 
     button {
       flex: 0 0 auto;
-      width: 36px;
-      height: 36px;
+      width: 38px;
+      height: 38px;
+      min-width: 38px;
+      border-radius: 10px;
     }
   }
 
   .chatLabeledAction {
-    min-width: 36px;
-    padding: 0 8px !important;
+    min-width: 38px;
+    padding: 0 !important;
 
     span {
       display: none;
@@ -8139,22 +8123,7 @@
   }
 
   .chatPipelineStrip {
-    display: flex;
-    gap: 8px;
-    padding: 8px max(10px, env(safe-area-inset-right, 0px)) 8px max(10px, env(safe-area-inset-left, 0px));
-    max-height: none;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-
-    &::-webkit-scrollbar {
-      display: none;
-    }
-
-    .chatPipelineStep {
-      flex: 0 0 min(250px, 78vw);
-      grid-template-columns: auto minmax(0, 1fr) auto;
-    }
+    display: none;
   }
 
   .chatWorkspace {
@@ -8164,8 +8133,9 @@
 
   .chatTranscript {
     height: 100%;
-    padding: 14px max(10px, env(safe-area-inset-right, 0px)) 16px max(10px, env(safe-area-inset-left, 0px));
+    padding: 12px max(10px, env(safe-area-inset-right, 0px)) 14px max(10px, env(safe-area-inset-left, 0px));
     overscroll-behavior: contain;
+    scrollbar-gutter: auto;
   }
 
   .chatSettingsPanel {
@@ -8188,11 +8158,28 @@
   }
 
   .chatContextDrawerBody {
-    grid-template-rows: minmax(100px, 0.75fr) minmax(150px, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .chatContextTimeline {
+    max-height: 170px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    display: flex;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
+  .chatContextEntry,
+  .chatContextEntryActive {
+    flex: 0 0 min(260px, 82vw);
   }
 
   .chatComposer {
-    padding: 7px max(10px, env(safe-area-inset-right, 0px)) max(9px, env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px));
+    padding: 6px max(10px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px));
     border-top: 1px solid color-mix(in srgb, var(--omc-border-subtle) 66%, transparent);
   }
 
@@ -8227,8 +8214,15 @@
   }
 
   .chatAttachmentChips {
-    max-height: 58px;
-    overflow-y: auto;
+    flex-wrap: nowrap;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
   }
 
   .chatConfigModalOverlay {

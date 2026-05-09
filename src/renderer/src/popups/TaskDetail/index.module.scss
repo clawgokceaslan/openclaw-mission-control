@@ -369,6 +369,13 @@
   border-left: 1px solid var(--omc-border);
 }
 
+.commentsPaneInline {
+  min-height: 0;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
 .commentsHeader {
   border-bottom: 1px solid var(--omc-border);
   background: var(--omc-surface);
@@ -707,7 +714,7 @@
   .modalBody {
     min-height: 0;
     grid-template-columns: minmax(0, 1fr) !important;
-    grid-template-rows: minmax(0, 1fr) minmax(230px, 38dvh);
+    grid-template-rows: minmax(0, 1fr);
     overflow: hidden;
   }
 
@@ -719,7 +726,8 @@
     padding-bottom: max(14px, env(safe-area-inset-bottom, 0px));
   }
 
-  .splitHandle {
+  .splitHandle,
+  .modalBody > .commentsPane:not(.commentsPaneInline) {
     display: none;
   }
 
@@ -729,6 +737,10 @@
     border-left: 0;
     grid-template-rows: auto minmax(0, 1fr) auto;
     display: grid;
+  }
+
+  .commentsPaneInline {
+    max-height: min(520px, 62dvh);
   }
 
   .commentsHeader {
@@ -766,8 +778,8 @@
 
     textarea {
       min-height: 56px;
-      max-height: min(116px, 18dvh);
-      resize: vertical;
+      max-height: min(94px, 14dvh);
+      resize: none;
     }
   }
 
@@ -958,7 +970,7 @@
   }
 
   .modalBody {
-    grid-template-rows: minmax(0, 1fr) minmax(250px, 42dvh);
+    grid-template-rows: minmax(0, 1fr);
   }
 
   .detailSectionHeader {
@@ -972,6 +984,10 @@
 
   .commentsFeed {
     padding-inline: 10px;
+  }
+
+  .commentsPaneInline {
+    max-height: min(480px, 58dvh);
   }
 
   .commentComposerFooter {
@@ -1001,7 +1017,7 @@
 
 @media (height <= 760px) and (width <= 900px) {
   .modalBody {
-    grid-template-rows: minmax(0, 1fr) minmax(210px, 34dvh);
+    grid-template-rows: minmax(0, 1fr);
   }
 
   .detailTop {
@@ -1021,7 +1037,7 @@
   .commentsComposer {
     textarea {
       min-height: 44px;
-      max-height: 84px;
+      max-height: 74px;
     }
   }
 }

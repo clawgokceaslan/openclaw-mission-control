@@ -302,13 +302,13 @@ class TaskDetailPopupBoundary extends Component<{ children: ReactNode; onClose: 
   }
 }
 
-function CommentsPane({ scope }: { scope: Record<string, any> }) {
+function CommentsPane({ scope, inline = false }: { scope: Record<string, any>; inline?: boolean }) {
   const comments = [...(scope.comments ?? [])].sort((a: TaskComment, b: TaskComment) => a.createdAt - b.createdAt)
   const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || 'OP'
   return (
     <>
-      <div className={styles.splitHandle} onMouseDown={scope.onResizeStart} role="separator" aria-orientation="vertical" aria-label="Resize detail and comments panels" />
-      <aside className={styles.commentsPane}>
+      {!inline ? <div className={styles.splitHandle} onMouseDown={scope.onResizeStart} role="separator" aria-orientation="vertical" aria-label="Resize detail and comments panels" /> : null}
+      <aside className={`${styles.commentsPane} ${inline ? styles.commentsPaneInline : ''}`}>
         <header className={styles.commentsHeader}><div><h4>Comments</h4><span>{comments.length} notes</span></div></header>
         <div className={styles.commentsFeed}>
           {comments.length > 0 ? (
@@ -521,7 +521,7 @@ function TaskDetailBody({ scope }: { scope: Record<string, any> }) {
         <section className={styles.drawerSection}>
           <div className={styles.tabRow}>
             {[
-              ['subtasks', LuListChecks, 'Subtasks'], ['customFields', LuSlidersHorizontal, 'Custom fields'], ['checklist', LuListChecks, 'Checklist'], ['attachments', LuPaperclip, 'Attachments'], ['agent', LuBot, 'Agent'], ['skills', LuSparkles, 'Skills'], ['model', LuSettings2, 'Model']
+              ['subtasks', LuListChecks, 'Subtasks'], ['comments', LuMessageSquare, `Comments ${(task.comments ?? []).length}`], ['customFields', LuSlidersHorizontal, 'Custom fields'], ['checklist', LuListChecks, 'Checklist'], ['attachments', LuPaperclip, 'Attachments'], ['agent', LuBot, 'Agent'], ['skills', LuSparkles, 'Skills'], ['model', LuSettings2, 'Model']
             ].map(([tab, Icon, label]: any) => <button key={tab} type="button" className={detailTab === tab ? styles.tabActive : styles.tabBtn} onClick={() => selectTab(tab)}><Icon size={15} />{label}</button>)}
           </div>
           {detailTab === 'subtasks' ? (
@@ -533,6 +533,8 @@ function TaskDetailBody({ scope }: { scope: Record<string, any> }) {
                 return <div key={subtask.id} className={`${styles.subtaskRow} ${scope.pendingDeleteSubtaskId === subtask.id ? styles.subtaskDeleteArmed : ''}`}><button type="button" className={`${styles.subtaskStatusToggle} ${completed.has(subtask.status) ? styles.subtaskStatusDone : ''}`} onClick={(event) => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); scope.setSubtaskStatusMenu?.((current: any) => current?.subtaskId === subtask.id ? null : { subtaskId: subtask.id, left: rect.left, top: rect.bottom + 6 }) }}><span />{subtaskStatusColumn.title}<LuChevronDown size={13} /></button><label><span className={styles.editableSubtaskTitle} onClick={(event) => { event.stopPropagation(); scope.scheduleOpenSubtaskDetail?.(subtask.id) }} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); scope.startSubtaskRename?.(subtask) }}>{subtask.title}</span></label><button type="button" className={styles.subtaskRemoveBtn} onClick={() => void scope.removeSubtask?.(subtask.id)}><LuTrash2 size={14} /></button></div>
               })}</Stack>
             </>
+          ) : detailTab === 'comments' ? (
+            <CommentsPane inline scope={{ ...scope, comments: task.comments ?? [] }} />
           ) : detailTab === 'customFields' ? (
             <><div className={styles.detailSectionHeader}><div><h4>Custom fields</h4><p>{(scope.assignedCustomFieldValues ?? []).length} assigned</p></div></div><div className={styles.tabCtaCard}><div><strong>Add custom field</strong><span>Attach a field value to this task.</span></div><button type="button" className={styles.tabActionButton} onClick={scope.openCustomFieldModal}><LuPlus size={15} />Add custom field</button></div><CustomFieldsList scope={scope} values={scope.assignedCustomFieldValues ?? []} /></>
           ) : detailTab === 'checklist' ? (
@@ -565,6 +567,7 @@ function SubtaskDetailBody({ scope }: { scope: Record<string, any> }) {
   const resolveColumn = typeof scope.resolveColumnByStatus === 'function' ? scope.resolveColumnByStatus : fallbackStatusColumn
   const subtaskStatusColumn = resolveColumn(subtask.status)
   const checklistItems = subtaskChecklistItems(subtask)
+  const comments = scope.comments ?? []
   const selectTab = (tab: string) => {
     setDetailTab(tab)
     scope.setDetailTab?.(tab)
@@ -601,10 +604,11 @@ function SubtaskDetailBody({ scope }: { scope: Record<string, any> }) {
         </section>
         <section className={styles.drawerSection}>
           <div className={styles.tabRow}>
-            {[[ 'agent', LuBot, 'Agent' ], [ 'skills', LuSparkles, 'Skills' ], [ 'customFields', LuSlidersHorizontal, 'Custom fields' ], [ 'checklist', LuListChecks, 'Checklist' ], [ 'attachments', LuPaperclip, 'Attachments' ]].map(([tab, Icon, label]: any) => <button key={tab} type="button" className={detailTab === tab ? styles.tabActive : styles.tabBtn} onClick={() => selectTab(tab)}><Icon size={15} />{label}</button>)}
+            {[[ 'agent', LuBot, 'Agent' ], [ 'skills', LuSparkles, 'Skills' ], [ 'comments', LuMessageSquare, `Comments ${comments.length}` ], [ 'customFields', LuSlidersHorizontal, 'Custom fields' ], [ 'checklist', LuListChecks, 'Checklist' ], [ 'attachments', LuPaperclip, 'Attachments' ]].map(([tab, Icon, label]: any) => <button key={tab} type="button" className={detailTab === tab ? styles.tabActive : styles.tabBtn} onClick={() => selectTab(tab)}><Icon size={15} />{label}</button>)}
           </div>
           {detailTab === 'agent' ? <><div className={styles.detailSectionHeader}><div><h4>Agent</h4><p>{scope.selectedSubtaskAgent?.name ?? 'Unassigned'}</p></div></div><AgentAssignmentPanel agent={scope.selectedSubtaskAgent} agents={scope.agents ?? []} ctaDescription="Choose the agent responsible for this subtask." onChange={scope.setSubtaskAgent} /></> : null}
           {detailTab === 'skills' ? <><div className={styles.detailSectionHeader}><div><h4>Skills</h4><p>{(scope.selectedSubtaskSkillOptions ?? []).length} selected</p></div></div><SkillsAssignmentPanel selectedSkills={scope.selectedSubtaskSkills ?? []} skills={scope.skills ?? []} source="Subtask" ctaDescription="Select one or more skills needed for this subtask." onChange={scope.setSubtaskSkills} /></> : null}
+          {detailTab === 'comments' ? <CommentsPane inline scope={{ ...scope, comments }} /> : null}
           {detailTab === 'customFields' ? <><div className={styles.detailSectionHeader}><div><h4>Custom fields</h4><p>{(scope.assignedSubtaskCustomFieldValues ?? []).length} assigned</p></div></div><div className={styles.tabCtaCard}><div><strong>Add custom field</strong><span>Attach a field value to this subtask.</span></div><button type="button" className={styles.tabActionButton} onClick={scope.openCustomFieldModal}><LuPlus size={15} />Add custom field</button></div><CustomFieldsList scope={scope} values={scope.assignedSubtaskCustomFieldValues ?? []} /></> : null}
           {detailTab === 'checklist' ? <><div className={styles.detailSectionHeader}><div><h4>Checklist</h4><p>{checklistItems.filter((item: any) => item.checked).length} checked / {checklistItems.length} total</p></div></div><ChecklistPanel items={checklistItems} emptyLabel="No checklist items on this subtask." onAdd={() => scope.openChecklistModal?.()} onToggle={(itemId) => scope.toggleSubtaskChecklistItem?.(itemId)} onRemove={(itemId) => scope.removeSubtaskChecklistItem?.(itemId)} /></> : null}
           {detailTab === 'attachments' ? <><div className={styles.detailSectionHeader}><div><h4>Attachments</h4><p>{(scope.subtaskAttachmentRows ?? []).length} files</p></div></div><AttachmentTable rows={scope.subtaskAttachmentRows ?? []} uploading={scope.isAttachmentUploading} onUpload={(files) => void scope.uploadSubtaskAttachments(files)} onRemove={(row) => void scope.removeSubtaskAttachment(row)} onError={scope.setError} /></> : null}
