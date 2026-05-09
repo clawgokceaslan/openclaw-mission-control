@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { LuArrowLeft, LuCheck, LuListRestart, LuLoader, LuPlay, LuRefreshCw, LuTriangleAlert } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
@@ -40,7 +40,8 @@ function formatTime(timestamp?: number) {
 
 export function PlanPipelineRunsPage() {
   const { token } = useAuth()
-  const location = useLocation()
+  const navigate = useNavigate()
+  const { pipelineId } = useParams<{ pipelineId?: string }>()
   const [pipelines, setPipelines] = useState<PlanPipelineRecord[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [tasks, setTasks] = useState<TaskEntity[]>([])
@@ -67,8 +68,7 @@ export function PlanPipelineRunsPage() {
     setPipelines(nextPipelines)
     setProjects(projectResponse.ok && Array.isArray(projectResponse.data) ? projectResponse.data : [])
     setTasks(taskResponse.ok && Array.isArray(taskResponse.data) ? taskResponse.data : [])
-    const requestedId = new URLSearchParams(location.search).get('pipeline')
-    setSelectedId((current) => requestedId ?? current ?? nextPipelines[0]?.id ?? null)
+    setSelectedId((current) => pipelineId ?? current ?? nextPipelines[0]?.id ?? null)
     if (!projectResponse.ok || !taskResponse.ok) {
       setFeedback({ kind: 'error', message: 'Pipeline yüklendi fakat proje veya task detaylarının bir kısmı alınamadı' })
     }
@@ -76,7 +76,7 @@ export function PlanPipelineRunsPage() {
 
   useEffect(() => {
     void loadData()
-  }, [token, location.search])
+  }, [token, pipelineId])
 
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects])
   const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])
@@ -111,8 +111,8 @@ export function PlanPipelineRunsPage() {
       <header className={styles.header}>
         <div>
           <Link to={APP_ROUTES.PLAN_PIPELINE} className={styles.backLink}><LuArrowLeft size={15} /> Plan Pipeline</Link>
-          <h1>Çalışan Pipeline Detayları</h1>
-          <p>Çalışan, bekleyen ve hata almış pipeline gruplarını stage ve task bağlamıyla izle.</p>
+          <h1>Pipeline Çalıştırmaları</h1>
+          <p>Seçili pipeline grubunu stage, task ve progress bağlamıyla izle.</p>
         </div>
         <button className={styles.secondaryButton} type="button" onClick={() => void loadData()}>
           <LuRefreshCw size={15} />
@@ -162,7 +162,10 @@ export function PlanPipelineRunsPage() {
                 key={pipeline.id}
                 type="button"
                 className={`${styles.pipelineItem} ${selected?.id === pipeline.id ? styles.pipelineItemActive : ''}`}
-                onClick={() => setSelectedId(pipeline.id)}
+                onClick={() => {
+                  setSelectedId(pipeline.id)
+                  navigate(`/plan-pipeline/${encodeURIComponent(pipeline.id)}/runs`, { replace: true })
+                }}
               >
                 <strong>{pipeline.groupName}</strong>
                 <span>{pipeline.sourceDraftName}</span>

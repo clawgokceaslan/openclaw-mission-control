@@ -141,6 +141,36 @@
     }
   }
 
+  .detailTabs {
+    border-bottom: 1px solid var(--omc-border-subtle);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    button {
+      border: 0;
+      border-bottom: 2px solid transparent;
+      background: transparent;
+      color: var(--omc-text-muted);
+      padding: 0 10px 10px;
+      font-weight: 850;
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.48;
+      }
+
+      &:not(:disabled):hover {
+        color: var(--omc-text-strong);
+      }
+    }
+
+    .detailTabActive {
+      border-bottom-color: var(--omc-primary);
+      color: var(--omc-text-strong);
+    }
+  }
+
   .saveNotice {
     grid-template-columns: 24px minmax(0, 1fr);
     align-items: center;

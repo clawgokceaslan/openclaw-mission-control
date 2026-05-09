@@ -19,7 +19,6 @@ import {
   LuTriangleAlert,
   LuX
 } from 'react-icons/lu'
-import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { PlanPipelineRecord, Project, ProjectStatus, TaskEntity } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
@@ -72,6 +71,10 @@ interface ProjectLoadIssue {
 }
 
 const STORAGE_KEY = 'omc-plan-pipeline-state-v1'
+
+function planPipelineRunPath(pipelineId: string) {
+  return `/plan-pipeline/${encodeURIComponent(pipelineId)}/runs`
+}
 
 const STEPS: Array<{ key: StepKey; label: string; detail: string }> = [
   { key: 'basic', label: 'Temel bilgiler', detail: 'Ad ve niyet' },
@@ -817,10 +820,6 @@ export function PlanPipelinePage() {
             <LuRefreshCw size={15} />
             Yenile
           </button>
-          <button className={styles.secondaryButton} type="button" onClick={() => navigate(APP_ROUTES.PLAN_PIPELINE_RUNS)}>
-            <LuExternalLink size={15} />
-            Çalışan detayları
-          </button>
           <button className={styles.primaryButton} type="button" onClick={() => setModalOpen(true)}>
             <LuPlus size={16} />
             Pipeline oluştur
@@ -952,7 +951,7 @@ export function PlanPipelinePage() {
                       aria-label={`${group.name} çalışan detay sayfası`}
                       onClick={(event) => {
                         event.stopPropagation()
-                        navigate(`${APP_ROUTES.PLAN_PIPELINE_RUNS}?pipeline=${encodeURIComponent(group.id)}`)
+                        navigate(planPipelineRunPath(group.id))
                       }}
                     >
                       <LuExternalLink size={14} />
@@ -1007,6 +1006,12 @@ export function PlanPipelinePage() {
                 <p>{detailGroup?.description || 'Çalıştırılacak ve çalışan adımlar detayda görünür.'}</p>
               </div>
               {detailGroup ? <span className={`${styles.statusBadge} ${styles[`tone-${statusTone(detailGroup.status)}`]}`}>{statusText(detailGroup.status)}</span> : null}
+            </div>
+            <div className={styles.detailTabs} aria-label="Pipeline detay sekmeleri">
+              <button type="button" className={styles.detailTabActive}>Özet</button>
+              <button type="button" disabled={!detailGroup} onClick={() => detailGroup && navigate(planPipelineRunPath(detailGroup.id))}>
+                Çalıştırmalar
+              </button>
             </div>
             <div className={styles.detailMetrics}>
               <div>
@@ -1185,9 +1190,9 @@ export function PlanPipelinePage() {
                 </button>
                 <button type="button" disabled={detailModalGroup.status !== 'running'} onClick={() => failGroup(detailModalGroup.id)}>Hata simüle et</button>
                 <button type="button" disabled={detailModalGroup.status !== 'failed'} onClick={() => retryGroup(detailModalGroup.id)}><LuListRestart size={14} /> Yeniden dene</button>
-                <button type="button" onClick={() => navigate(`${APP_ROUTES.PLAN_PIPELINE_RUNS}?pipeline=${encodeURIComponent(detailModalGroup.id)}`)}>
+                <button type="button" onClick={() => navigate(planPipelineRunPath(detailModalGroup.id))}>
                   <LuExternalLink size={14} />
-                  Detay sayfası
+                  Çalıştırmalar
                 </button>
               </div>
             </section>

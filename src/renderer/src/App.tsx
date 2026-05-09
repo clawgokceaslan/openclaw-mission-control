@@ -61,6 +61,18 @@ function GatewayDetailRedirect() {
   return <Navigate to={`${APP_ROUTES.SETTINGS}?tab=gateways${gatewayId}`} replace />
 }
 
+function PlanPipelineRunsRedirect() {
+  const location = useLocation()
+  const params = new URLSearchParams(location.search)
+  const state = location.state as { pipeline?: unknown; pipelineId?: unknown; id?: unknown } | null
+  const statePipelineId = [state?.pipeline, state?.pipelineId, state?.id].find((value): value is string => typeof value === 'string' && value.trim().length > 0)
+  const pipelineId = params.get('pipeline') ?? params.get('pipelineId') ?? params.get('id') ?? statePipelineId
+  if (!pipelineId) {
+    return <Navigate to={APP_ROUTES.PLAN_PIPELINE} replace />
+  }
+  return <Navigate to={`/plan-pipeline/${encodeURIComponent(pipelineId)}/runs`} replace />
+}
+
 const SIGNED_IN_ROUTES: RouteConfig[] = [
   { path: '/', element: <Navigate to={APP_ROUTES.DASHBOARD} replace /> },
   { path: APP_ROUTES.DASHBOARD, element: <DashboardPage /> },
@@ -68,7 +80,8 @@ const SIGNED_IN_ROUTES: RouteConfig[] = [
   { path: APP_ROUTES.PROFILE, element: <ProfilePage /> },
   { path: APP_ROUTES.PROJECTS, element: <ProjectsPage /> },
   { path: APP_ROUTES.PLAN_PIPELINE, element: <PlanPipelinePage /> },
-  { path: APP_ROUTES.PLAN_PIPELINE_RUNS, element: <PlanPipelineRunsPage /> },
+  { path: APP_ROUTES.PLAN_PIPELINE_RUNS, element: <PlanPipelineRunsRedirect /> },
+  { path: APP_ROUTES.PLAN_PIPELINE_RUN_DETAIL, element: <PlanPipelineRunsPage /> },
   { path: APP_ROUTES.PROJECTS_NEW, element: <ProjectNewPage /> },
   { path: APP_ROUTES.PROJECT_DETAIL, element: <ProjectDetailPage /> },
   { path: APP_ROUTES.PROJECT_TASK_DETAIL, element: <ProjectDetailPage /> },
