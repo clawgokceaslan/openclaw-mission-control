@@ -1,5 +1,5 @@
 import EventEmitter from 'node:events'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 import { createWebServerStatusState, getInternalHttpServerStatus, startInternalHttpServer } from './http-server.js'
 
@@ -99,6 +99,33 @@ describe('startInternalHttpServer', () => {
       expect(response.status).toBe(401)
       expect(json.ok).toBe(false)
       expect(json.error?.code).toBe('ERR_UNAUTHENTICATED')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('runs the injected app restart action from the authenticated web API', async () => {
+    const restartApp = vi.fn()
+    const server = await startInternalHttpServer(createContext(), {
+      preferredPort: 30130,
+      host: '127.0.0.1',
+      managementActions: { restartApp }
+    })
+    try {
+      const response = await fetch(`${server.url}/api/internal/${encodeURIComponent(IPC_CHANNELS.app.restart)}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer access-token'
+        },
+        body: JSON.stringify({ payload: {} })
+      })
+      const json = await response.json() as { ok: boolean; data?: { restarting?: boolean } }
+
+      expect(response.status).toBe(200)
+      expect(json.ok).toBe(true)
+      expect(json.data?.restarting).toBe(true)
+      expect(restartApp).toHaveBeenCalledWith(false)
     } finally {
       await server.close()
     }

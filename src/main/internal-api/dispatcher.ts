@@ -42,7 +42,7 @@ export const INTERNAL_API_CAPABILITIES = {
   electron: {
     filePicker: false,
     shell: false,
-    restart: false,
+    restart: true,
     localFileAccess: false
   }
 } as const

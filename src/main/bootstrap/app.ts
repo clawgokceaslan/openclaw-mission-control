@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createAppContext } from '../services/service-container.js'
@@ -27,6 +28,7 @@ const isDev = process.env.ELECTRON_RENDERER_URL !== undefined || process.env.NOD
 const FULL_DISK_ACCESS_SETTING_URL = 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'
 const FULL_DISK_ACCESS_PROMPT_FILE = 'full-disk-access-prompt.json'
 const OPEN_DATABASE_SETTINGS_ARG = '--omc-open-database-settings'
+const OPEN_DATABASE_SETTINGS_ENV = 'OMC_OPEN_DATABASE_SETTINGS'
 
 function fileExists(path: string): boolean {
   return existsSync(path)
@@ -34,6 +36,14 @@ function fileExists(path: string): boolean {
 
 function resolveFromCandidates(candidates: string[]): string | undefined {
   return candidates.find(fileExists)
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`
+}
+
+function appleScriptString(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 }
 
 function currentModuleDir(): string {
@@ -161,15 +171,52 @@ function focusMainWindow(): { focused: boolean } {
   return { focused: true }
 }
 
+export function buildDevRelaunchCommand(openDatabaseSettings = false, cwd = process.cwd()): string {
+  const envPrefix = openDatabaseSettings ? `${OPEN_DATABASE_SETTINGS_ENV}=1 ` : ''
+  return [
+    'sleep 1',
+    `cd ${shellQuote(cwd)}`,
+    `env -u ELECTRON_RUN_AS_NODE ${envPrefix}npm run dev`
+  ].join(' && ')
+}
+
+function spawnDevRelaunch(openDatabaseSettings = false): void {
+  const command = buildDevRelaunchCommand(openDatabaseSettings)
+  safeConsole.log('[main] Relaunching development app', { command })
+
+  if (process.platform === 'darwin') {
+    const child = spawn('/usr/bin/osascript', [
+      '-e',
+      `tell application "Terminal" to do script ${appleScriptString(command)}`
+    ], { detached: true, stdio: 'ignore' })
+    child.unref()
+    return
+  }
+
+  const shell = process.env.SHELL || '/bin/zsh'
+  const child = spawn(shell, ['-lc', command], { detached: true, stdio: 'ignore' })
+  child.unref()
+}
+
 function relaunchApp(openDatabaseSettings = false): void {
   if (!app) return
   const args = process.argv.slice(1).filter((arg) => arg !== OPEN_DATABASE_SETTINGS_ARG)
   if (openDatabaseSettings) args.push(OPEN_DATABASE_SETTINGS_ARG)
   setTimeout(() => {
     schedulerRef?.stop()
+    if (isDev) {
+      spawnDevRelaunch(openDatabaseSettings)
+      app.exit(0)
+      return
+    }
     app.relaunch({ args })
     app.exit(0)
   }, 100)
+}
+
+function restartApp(openDatabaseSettings = false) {
+  relaunchApp(openDatabaseSettings)
+  return okResponse({ restarting: true })
 }
 
 function registerCompanionIpcRoutes(): void {
@@ -200,13 +247,11 @@ function registerCompanionIpcRoutes(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.app.restart, () => {
-    relaunchApp(false)
-    return okResponse({ restarting: true })
+    return restartApp(false)
   })
 
   ipcMain.handle(IPC_CHANNELS.app.restartToDatabaseSettings, () => {
-    relaunchApp(true)
-    return okResponse({ restarting: true })
+    return restartApp(true)
   })
 }
 
@@ -432,7 +477,10 @@ export async function bootstrapApp(): Promise<void> {
         join(app.getAppPath(), 'dist', 'renderer'),
         join(currentModuleDir(), '..', '..', 'renderer')
       ]),
-      devRendererUrl: isDev ? resolveRendererSource() : undefined
+      devRendererUrl: isDev ? resolveRendererSource() : undefined,
+      managementActions: {
+        restartApp: relaunchApp
+      }
     }
     void startInternalHttpServer(context, internalHttpServerConfig).then((server) => {
       internalHttpServerRef = server
@@ -444,7 +492,7 @@ export async function bootstrapApp(): Promise<void> {
     windowRef = createMainWindow()
     createCompanionTray()
     setTimeout(() => requestFullDiskAccessIfNeeded(windowRef), 1500)
-    if (process.argv.includes(OPEN_DATABASE_SETTINGS_ARG)) {
+    if (process.argv.includes(OPEN_DATABASE_SETTINGS_ARG) || process.env[OPEN_DATABASE_SETTINGS_ENV] === '1') {
       setTimeout(() => sendMainNavigation('/settings?tab=database'), 800)
     }
     powerMonitor?.on('resume', () => {

@@ -19,6 +19,9 @@ export interface InternalHttpServerConfig {
   host: string
   staticRoot?: string
   devRendererUrl?: string
+  managementActions?: {
+    restartApp?: (openDatabaseSettings: boolean) => void
+  }
 }
 
 export interface InternalHttpServerHandle {
@@ -223,9 +226,31 @@ async function authenticateHttpRequest(context: AppContext, request: IncomingMes
   return token
 }
 
-async function handleInternalCall(context: AppContext, request: IncomingMessage, response: ServerResponse, requestUrl: URL): Promise<void> {
+async function handleInternalCall(context: AppContext, config: InternalHttpServerConfig, request: IncomingMessage, response: ServerResponse, requestUrl: URL): Promise<void> {
   const encodedChannel = requestUrl.pathname.slice('/api/internal/'.length)
   const channel = decodeURIComponent(encodedChannel)
+  if (channel === IPC_CHANNELS.app.restart || channel === IPC_CHANNELS.app.restartToDatabaseSettings) {
+    const auth = await authenticateHttpRequest(context, request, true)
+    if (auth && typeof auth === 'object' && 'ok' in auth && !auth.ok) {
+      sendJson(response, statusForResult(auth), auth)
+      return
+    }
+
+    const restartApp = config.managementActions?.restartApp
+    if (!restartApp) {
+      sendJson(response, 403, errorResponse(ErrorCodes.Forbidden, 'App restart is unavailable from this runtime', {
+        capability: 'electron-restart',
+        channel,
+        supported: false
+      }))
+      return
+    }
+
+    restartApp(channel === IPC_CHANNELS.app.restartToDatabaseSettings)
+    sendJson(response, 200, okResponse({ restarting: true }))
+    return
+  }
+
   const route = findRouteByChannel(channel)
   if (!route) {
     sendJson(response, 404, errorResponse(ErrorCodes.NotFound, `Internal API route not found: ${channel}`))
@@ -367,7 +392,7 @@ export async function startInternalHttpServer(context: AppContext, config: Inter
           return
         }
         if (request.method === 'POST' && requestUrl.pathname.startsWith('/api/internal/')) {
-          await handleInternalCall(context, request, response, requestUrl)
+          await handleInternalCall(context, config, request, response, requestUrl)
           return
         }
         if (request.method === 'GET' || request.method === 'HEAD') {
