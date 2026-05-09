@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
   LuArrowDown,
   LuArrowUp,
@@ -23,7 +23,7 @@ import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList } from '@renderer/utils/api'
 import styles from './index.module.scss'
 
-type StepKey = 'scope' | 'tasks' | 'groups' | 'run' | 'review'
+type StepKey = 'basic' | 'projects' | 'tasks' | 'groups' | 'run'
 type RunMode = 'questioned' | 'silent'
 type QueueStatus = 'idle' | 'running' | 'paused' | 'blocked' | 'completed' | 'failed' | 'cancelled'
 type RunItemStatus = 'pending' | 'waiting' | 'running' | 'completed' | 'failed' | 'skipped'
@@ -71,11 +71,11 @@ interface ProjectLoadIssue {
 const STORAGE_KEY = 'omc-plan-pipeline-state-v1'
 
 const STEPS: Array<{ key: StepKey; label: string; detail: string }> = [
-  { key: 'scope', label: 'Kapsam', detail: 'Projeleri seç' },
-  { key: 'tasks', label: 'Task seçimi', detail: 'Plan havuzu' },
-  { key: 'groups', label: 'Gruplar', detail: 'Sıra ve içerik' },
-  { key: 'run', label: 'Çalıştırma', detail: 'Mod ve kuyruk' },
-  { key: 'review', label: 'Gözden geçir', detail: 'Özet context' }
+  { key: 'basic', label: 'Temel bilgiler', detail: 'Ad ve niyet' },
+  { key: 'projects', label: 'Proje seçimi', detail: 'Kapsam' },
+  { key: 'tasks', label: 'Task havuzu', detail: 'Planlanacak işler' },
+  { key: 'groups', label: 'Gruplama', detail: 'Stage önizleme' },
+  { key: 'run', label: 'Oluştur', detail: 'Mod ve kuyruk' }
 ]
 
 const defaultDraft: PipelineDraft = {
@@ -158,7 +158,7 @@ function statusTone(status: QueueStatus | RunItemStatus) {
 
 export function PlanPipelinePage() {
   const { token, user } = useAuth()
-  const [activeStep, setActiveStep] = useState<StepKey>('scope')
+  const [activeStep, setActiveStep] = useState<StepKey>('basic')
   const [projects, setProjects] = useState<Project[]>([])
   const [tasks, setTasks] = useState<TaskEntity[]>([])
   const [statusesByProject, setStatusesByProject] = useState<Record<string, ProjectStatus[]>>({})
@@ -173,6 +173,7 @@ export function PlanPipelinePage() {
   const [groupDescription, setGroupDescription] = useState('')
   const [dragData, setDragData] = useState<string | null>(null)
   const [selectedDetailGroupId, setSelectedDetailGroupId] = useState<string | null>(draft.currentGroupId ?? null)
+  const modalCloseRef = useRef<HTMLButtonElement | null>(null)
 
   const loadData = async () => {
     setLoading(true)
@@ -224,6 +225,7 @@ export function PlanPipelinePage() {
 
   useEffect(() => {
     if (!modalOpen) return undefined
+    window.setTimeout(() => modalCloseRef.current?.focus(), 0)
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setModalOpen(false)
     }
@@ -337,7 +339,6 @@ export function PlanPipelinePage() {
     }))
     setGroupName('')
     setGroupDescription('')
-    setModalOpen(false)
   }
 
   const removeGroup = (groupId: string) => {
@@ -570,30 +571,46 @@ export function PlanPipelinePage() {
   const stageCompletionCount = draft.groups.filter((group) => group.status === 'completed').length
   const failedGroupCount = draft.groups.filter((group) => group.status === 'failed').length
   const waitingApprovalGroup = draft.waitingApprovalGroupId ? draft.groups.find((group) => group.id === draft.waitingApprovalGroupId) : undefined
+  const runStats = useMemo(() => {
+    const taskStates = plannedGroups.flatMap((group) => group.taskIds.map((taskId) => draft.taskRunState[taskId]?.status ?? group.status))
+    return {
+      pending: taskStates.filter((status) => status === 'pending').length,
+      waiting: draft.groups.filter((group) => group.status === 'waiting').length,
+      running: taskStates.filter((status) => status === 'running').length,
+      completed: taskStates.filter((status) => status === 'completed').length,
+      failed: taskStates.filter((status) => status === 'failed').length
+    }
+  }, [draft.groups, draft.taskRunState, plannedGroups])
   const stepValidity: Record<StepKey, boolean> = {
-    scope: draft.name.trim().length > 0 && draft.selectedProjectIds.length > 0,
+    basic: draft.name.trim().length > 0,
+    projects: draft.selectedProjectIds.length > 0,
     tasks: draft.selectedTaskIds.length > 0,
     groups: draft.groups.length > 0 && groupedTaskCount > 0 && unassignedSelectedTasks.length === 0,
-    run: canStart,
-    review: canStart
+    run: canStart
   }
   const firstInvalidStepIndex = STEPS.findIndex((step) => !stepValidity[step.key])
-  const maxAccessibleStepIndex = firstInvalidStepIndex === -1 ? STEPS.length - 1 : firstInvalidStepIndex + 1
+  const maxAccessibleStepIndex = firstInvalidStepIndex === -1 ? STEPS.length - 1 : firstInvalidStepIndex
   const activeStepMessage = (() => {
-    if (activeStep === 'scope' && !stepValidity.scope) return 'Pipeline adı ve en az bir proje seçimi gerekli.'
+    if (activeStep === 'basic' && !stepValidity.basic) return 'İlerlemek için pipeline adını netleştir.'
+    if (activeStep === 'projects' && !stepValidity.projects) return 'Task havuzunu hazırlamak için en az bir proje seç.'
     if (activeStep === 'tasks' && !stepValidity.tasks) return 'Devam etmek için task havuzuna en az bir task ekle.'
     if (activeStep === 'groups' && !stepValidity.groups) {
       if (draft.groups.length === 0) return 'Taskları yerleştirmek için en az bir grup oluştur.'
       if (groupedTaskCount === 0) return 'Oluşturulan gruba en az bir task ata.'
       return 'Atanmamış taskları gruplara taşıyarak akışı tamamla.'
     }
-    if ((activeStep === 'run' || activeStep === 'review') && !canStart) return 'Başlatılabilir bir grup olmadığı için kuyruk hazır değil.'
+    if (activeStep === 'run' && !canStart) return 'Başlatılabilir bir grup olmadığı için kuyruk hazır değil.'
     return null
   })()
   const goToStep = (index: number) => {
     const boundedIndex = Math.min(Math.max(index, 0), maxAccessibleStepIndex)
     setActiveStep(STEPS[boundedIndex].key)
   }
+  useEffect(() => {
+    if (activeStepIndex > maxAccessibleStepIndex) {
+      setActiveStep(STEPS[maxAccessibleStepIndex].key)
+    }
+  }, [activeStepIndex, maxAccessibleStepIndex])
 
   return (
     <section className={styles.page}>
@@ -758,6 +775,18 @@ export function PlanPipelinePage() {
                 <span>Retry / hata</span>
                 <strong>{draft.groups.reduce((sum, group) => sum + group.retryCount, 0)} / {failedGroupCount}</strong>
               </div>
+              <div>
+                <span>Task durumu</span>
+                <strong>{runStats.completed}/{groupedTaskCount}</strong>
+              </div>
+              <div>
+                <span>Çalışan / bekleyen</span>
+                <strong>{runStats.running} / {runStats.pending + runStats.waiting}</strong>
+              </div>
+              <div>
+                <span>Hatalı task</span>
+                <strong>{runStats.failed}</strong>
+              </div>
             </div>
             {plannedGroups.length > 0 ? (
               <div className={styles.stageMap} aria-label="Pipeline stage akışı">
@@ -820,13 +849,13 @@ export function PlanPipelinePage() {
       {modalOpen ? (
         <>
           <button className={styles.modalBackdrop} type="button" aria-label="Kapat" onClick={() => setModalOpen(false)} />
-          <section className={`${styles.modal} ${styles.flowModal}`} role="dialog" aria-modal="true" aria-label="Pipeline oluştur">
+          <section className={`${styles.modal} ${styles.flowModal}`} role="dialog" aria-modal="true" aria-labelledby="plan-pipeline-dialog-title" aria-describedby="plan-pipeline-dialog-description">
             <header>
               <div>
-                <h2>Pipeline oluştur</h2>
-                <p>Proje kapsamı, task havuzu, grup sırası ve çalıştırma modunu tek akışta hazırla.</p>
+                <h2 id="plan-pipeline-dialog-title">Pipeline oluştur</h2>
+                <p id="plan-pipeline-dialog-description">Temel bilgileri, proje kapsamını, task havuzunu, stage düzenini ve çalıştırma kararını sırayla tamamla.</p>
               </div>
-              <button type="button" onClick={() => setModalOpen(false)}><LuX size={16} /></button>
+              <button ref={modalCloseRef} type="button" aria-label="Pipeline oluşturma modalını kapat" onClick={() => setModalOpen(false)}><LuX size={16} /></button>
             </header>
             <section className={styles.stepper}>
               {STEPS.map((step, index) => (
@@ -877,19 +906,45 @@ export function PlanPipelinePage() {
               </aside>
 
               <main className={styles.panel}>
-                {activeStep === 'scope' ? (
+                {activeStep === 'basic' ? (
             <section className={styles.panelSection}>
               <div className={styles.sectionHead}>
                 <div>
-                  <h2>Temel bilgiler ve proje kapsamı</h2>
-                  <p>Pipeline adını netleştir, sonra başlangıçta kullanılacak projeleri seç.</p>
+                  <h2>Temel bilgiler</h2>
+                  <p>Bu pipeline listelerde ve çalıştırma detayında bu adla görünecek. Kısa, aksiyon odaklı bir ad seç.</p>
                 </div>
-                {loading ? <span className={styles.statePill}><LuLoader size={14} /> Yükleniyor</span> : null}
+                <span className={styles.statePill}>{draft.runMode === 'questioned' ? 'Onaylı akış' : 'Otomatik akış'}</span>
               </div>
               <label className={styles.nameField}>
                 <span>Pipeline adı</span>
                 <input value={draft.name} onChange={(event) => updateDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Örn. Sprint hazırlık pipeline" />
               </label>
+              <div className={styles.intentGrid}>
+                <article>
+                  <strong>Akış tipi</strong>
+                  <span>Sıralı stage çalıştırma, stage başına context üretimi ve opsiyonel kullanıcı onayı.</span>
+                </article>
+                <article>
+                  <strong>Draft davranışı</strong>
+                  <span>Seçimler tarayıcı localStorage alanında korunur; modal kapanınca veri kaybolmaz.</span>
+                </article>
+                <article>
+                  <strong>Sonraki adım</strong>
+                  <span>Pipeline kapsamına girecek projeleri seçerek task havuzunu daralt.</span>
+                </article>
+              </div>
+            </section>
+          ) : null}
+
+                {activeStep === 'projects' ? (
+            <section className={styles.panelSection}>
+              <div className={styles.sectionHead}>
+                <div>
+                  <h2>Proje seçimi</h2>
+                  <p>Yalnızca seçtiğin projelerdeki tamamlanmamış tasklar sonraki adımda havuza düşer.</p>
+                </div>
+                {loading ? <span className={styles.statePill}><LuLoader size={14} /> Yükleniyor</span> : <span className={styles.statePill}>{draft.selectedProjectIds.length} seçili</span>}
+              </div>
               {issues.length > 0 ? (
                 <div className={styles.issueList}>
                   {issues.map((issue) => (
@@ -1082,6 +1137,28 @@ export function PlanPipelinePage() {
                   <div className={styles.emptyState}>Henüz grup yok. Yukarıdaki alanla ilk stage'i oluştur, sonra taskları bu stage'e ata.</div>
                 ) : null}
               </div>
+              <div className={styles.stagePreview}>
+                <div className={styles.stagePreviewHead}>
+                  <div>
+                    <strong>Stage önizleme</strong>
+                    <span>{groupedTaskCount}/{draft.selectedTaskIds.length} task gruplandı</span>
+                  </div>
+                  <span className={styles.statePill}>{unassignedSelectedTasks.length > 0 ? `${unassignedSelectedTasks.length} atanmamış` : 'Hazır'}</span>
+                </div>
+                {plannedGroups.length > 0 ? (
+                  <div className={styles.previewRail}>
+                    {plannedGroups.map((group, index) => (
+                      <article key={group.id}>
+                        <span>{index + 1}</span>
+                        <strong>{group.name}</strong>
+                        <small>{group.taskIds.length} task · {statusText(group.status)}</small>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className={styles.emptyState}>Önizleme için en az bir task içeren grup oluştur.</div>
+                )}
+              </div>
             </section>
           ) : null}
 
@@ -1150,18 +1227,6 @@ export function PlanPipelinePage() {
                   </article>
                 ))}
               </div>
-            </section>
-          ) : null}
-
-                {activeStep === 'review' ? (
-            <section className={styles.panelSection}>
-              <div className={styles.sectionHead}>
-                <div>
-                  <h2>Gözden geçirme</h2>
-                  <p>Sıra, progress ve gruplar arası özet context aktarımı.</p>
-                </div>
-                <span className={styles.statePill}>{formatTime(draft.updatedAt)}</span>
-              </div>
               <div className={styles.reviewTimeline}>
                 {draft.groups.map((group, index) => (
                   <article key={group.id} className={styles.reviewItem}>
@@ -1176,6 +1241,7 @@ export function PlanPipelinePage() {
                     </div>
                   </article>
                 ))}
+                {draft.groups.length === 0 ? <div className={styles.emptyState}>Oluşturma özeti için önce stage ekle.</div> : null}
               </div>
             </section>
           ) : null}

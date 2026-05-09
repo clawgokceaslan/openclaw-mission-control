@@ -983,6 +983,34 @@
     max-width: 520px;
   }
 
+  .intentGrid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+
+    article {
+      min-width: 0;
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 10px;
+      background: var(--omc-surface-muted);
+      padding: 12px;
+      display: grid;
+      gap: 6px;
+
+      strong {
+        color: var(--omc-text-strong);
+        font-size: 0.92rem;
+      }
+
+      span {
+        color: var(--omc-text-muted);
+        font-size: 0.84rem;
+        font-weight: 700;
+        line-height: 1.42;
+      }
+    }
+  }
+
   .searchBox {
     min-width: min(320px, 100%);
     min-height: 38px;
@@ -1316,6 +1344,103 @@
     .groupCardActive {
       border-color: var(--omc-primary-border);
       box-shadow: 0 0 0 3px color-mix(in srgb, var(--omc-primary) 9%, transparent);
+    }
+  }
+
+  .stagePreview {
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 10px;
+    background: var(--omc-surface-muted);
+    padding: 12px;
+    display: grid;
+    gap: 12px;
+
+    .stagePreviewHead {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+
+      div {
+        min-width: 0;
+        display: grid;
+        gap: 3px;
+
+        strong {
+          color: var(--omc-text-strong);
+          font-size: 0.96rem;
+        }
+
+        span {
+          color: var(--omc-text-muted);
+          font-weight: 750;
+        }
+      }
+    }
+
+    .previewRail {
+      overflow-x: auto;
+      display: flex;
+      gap: 10px;
+      padding-bottom: 2px;
+
+      article {
+        position: relative;
+        min-width: 180px;
+        border: 1px solid var(--omc-border);
+        border-radius: 10px;
+        background: var(--omc-surface);
+        padding: 10px 12px;
+        display: grid;
+        grid-template-columns: 30px minmax(0, 1fr);
+        grid-template-areas:
+          "step title"
+          "step meta";
+        column-gap: 9px;
+
+        &::after {
+          content: "";
+          position: absolute;
+          left: calc(100% + 1px);
+          top: 50%;
+          width: 10px;
+          height: 2px;
+          background: var(--omc-border-strong);
+          transform: translateY(-50%);
+        }
+
+        &:last-child::after {
+          display: none;
+        }
+
+        > span {
+          grid-area: step;
+          width: 30px;
+          height: 30px;
+          border-radius: 8px;
+          background: var(--omc-icon-bg);
+          color: var(--omc-icon-text);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 850;
+        }
+
+        strong {
+          grid-area: title;
+          min-width: 0;
+          overflow: hidden;
+          color: var(--omc-text-strong);
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        small {
+          grid-area: meta;
+          color: var(--omc-text-muted);
+          font-weight: 750;
+        }
+      }
     }
   }
 
@@ -1735,6 +1860,17 @@
 
     .modeGrid {
       grid-template-columns: 1fr;
+    }
+
+    .intentGrid {
+      grid-template-columns: 1fr;
+    }
+
+    .stagePreview {
+      .stagePreviewHead {
+        align-items: stretch;
+        flex-direction: column;
+      }
     }
 
     .approvalBox {
