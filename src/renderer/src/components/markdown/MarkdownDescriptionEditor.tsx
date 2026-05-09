@@ -13,12 +13,14 @@ import styles from './MarkdownDescriptionEditor.module.scss'
 type EditorStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'failed'
 type DataFormatRole = OutputFormat['formatRole']
 type DataFormatCodeMode = 'json' | 'yaml'
+type MarkdownChangeTimer = ReturnType<typeof window.setTimeout>
 
 export type DescriptionDataFormat = Pick<OutputFormat, 'id' | 'name' | 'formatRole' | 'fields'>
   & Partial<Pick<OutputFormat, 'description'>>
 
 const LEGACY_DATA_FORMAT_TOKEN_RE = /:::omc-data-format\s+(\{[^\n]*\})\s*\n:::/g
 const EMPTY_DATA_FORMATS: DescriptionDataFormat[] = []
+const MARKDOWN_CHANGE_DEBOUNCE_MS = 180
 
 function normalizeFields(fields: AgentOutputFormatField[]): AgentOutputFormatField[] {
   return fields
@@ -209,6 +211,9 @@ export function MarkdownDescriptionEditor({
   const loadingRef = useRef(false)
   const latestValueRef = useRef<string | null>(null)
   const isEditorFocusedRef = useRef(false)
+  const onChangeRef = useRef(onChange)
+  const pendingMarkdownTimerRef = useRef<MarkdownChangeTimer | null>(null)
+  const pendingMarkdownRef = useRef<string | null>(null)
   const [isEmpty, setIsEmpty] = useState(!value.trim())
   const [pendingRole, setPendingRole] = useState<DataFormatRole | null>(null)
   const [selectedFormatId, setSelectedFormatId] = useState('')
@@ -222,6 +227,10 @@ export function MarkdownDescriptionEditor({
   }, [dataFormats, pendingRole])
 
   const selectedFormat = useMemo(() => roleFormats.find((format) => format.id === selectedFormatId) ?? null, [roleFormats, selectedFormatId])
+
+  useEffect(() => {
+    onChangeRef.current = onChange
+  }, [onChange])
 
   const resolveFileUrl = async (url: string): Promise<string> => {
     if (!url.startsWith('file://')) return url
@@ -271,16 +280,29 @@ export function MarkdownDescriptionEditor({
 
   useEffect(() => {
     return () => {
+      if (pendingMarkdownTimerRef.current || pendingMarkdownRef.current !== null) {
+        if (pendingMarkdownTimerRef.current) window.clearTimeout(pendingMarkdownTimerRef.current)
+        pendingMarkdownTimerRef.current = null
+        const markdown = editor.blocksToMarkdownLossy(editor.document)
+        pendingMarkdownRef.current = null
+        latestValueRef.current = markdown
+        onChangeRef.current(markdown)
+      }
       for (const objectUrl of resolvedFileUrlCacheRef.current.values()) {
         URL.revokeObjectURL(objectUrl)
       }
       resolvedFileUrlCacheRef.current.clear()
     }
-  }, [])
+  }, [editor])
 
   useEffect(() => {
     if (value === latestValueRef.current) return
     if (isEditorFocusedRef.current) return
+    if (pendingMarkdownTimerRef.current) {
+      window.clearTimeout(pendingMarkdownTimerRef.current)
+      pendingMarkdownTimerRef.current = null
+      pendingMarkdownRef.current = null
+    }
     latestValueRef.current = value
     setIsEmpty(!value.trim())
     loadingRef.current = true
@@ -296,12 +318,33 @@ export function MarkdownDescriptionEditor({
     }
   }, [dataFormats, editor, value])
 
-  const handleChange = () => {
+  const flushPendingMarkdown = () => {
+    if (pendingMarkdownTimerRef.current) {
+      window.clearTimeout(pendingMarkdownTimerRef.current)
+      pendingMarkdownTimerRef.current = null
+    }
+    const nextMarkdown = editor.blocksToMarkdownLossy(editor.document)
+    pendingMarkdownRef.current = null
+    latestValueRef.current = nextMarkdown
+    setIsEmpty(!nextMarkdown.trim())
+    onChangeRef.current(nextMarkdown)
+    return nextMarkdown
+  }
+
+  const scheduleMarkdownChange = () => {
     if (loadingRef.current) return
-    const markdown = editor.blocksToMarkdownLossy(editor.document)
-    latestValueRef.current = markdown
-    setIsEmpty(!markdown.trim())
-    onChange(markdown)
+    pendingMarkdownRef.current = ''
+    if (pendingMarkdownTimerRef.current) {
+      window.clearTimeout(pendingMarkdownTimerRef.current)
+    }
+    pendingMarkdownTimerRef.current = window.setTimeout(() => {
+      pendingMarkdownTimerRef.current = null
+      const markdown = editor.blocksToMarkdownLossy(editor.document)
+      pendingMarkdownRef.current = null
+      latestValueRef.current = markdown
+      setIsEmpty(!markdown.trim())
+      onChangeRef.current(markdown)
+    }, MARKDOWN_CHANGE_DEBOUNCE_MS)
   }
 
   const openDataFormatPicker = (role: DataFormatRole) => {
@@ -329,7 +372,10 @@ export function MarkdownDescriptionEditor({
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
     isEditorFocusedRef.current = false
     if (isFullscreen) return
-    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onCommit?.()
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      if (pendingMarkdownRef.current !== null || pendingMarkdownTimerRef.current) flushPendingMarkdown()
+      onCommit?.()
+    }
   }
 
   const handleFocusCapture = () => {
@@ -349,6 +395,11 @@ export function MarkdownDescriptionEditor({
         return
       }
       isEditorFocusedRef.current = false
+      if (pendingMarkdownTimerRef.current) {
+        window.clearTimeout(pendingMarkdownTimerRef.current)
+        pendingMarkdownTimerRef.current = null
+        pendingMarkdownRef.current = null
+      }
       onCancel?.()
     }
   }
@@ -364,7 +415,7 @@ export function MarkdownDescriptionEditor({
       >
         {isFullscreen ? <LuMinimize2 size={16} /> : <LuMaximize2 size={16} />}
       </button>
-      <BlockNoteView editor={editor} onChange={handleChange} theme={resolvedMode} slashMenu={!enableDataFormatCommands}>
+      <BlockNoteView editor={editor} onChange={scheduleMarkdownChange} theme={resolvedMode} slashMenu={!enableDataFormatCommands}>
         {enableDataFormatCommands ? (
           <SuggestionMenuController
             triggerCharacter="/"

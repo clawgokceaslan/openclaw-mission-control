@@ -1846,6 +1846,7 @@ export function ProjectDetailPage() {
   }
 
   const setTaskDescriptionDraft = (next: string) => {
+    if (descriptionDraftRef.current === next) return
     descriptionDraftRef.current = next
     setDescriptionDraft(next)
     setIsDescriptionEditing(next !== descriptionSavedSnapshotRef.current)
@@ -1860,6 +1861,7 @@ export function ProjectDetailPage() {
   }
 
   const setSelectedSubtaskDescriptionDraft = (next: string) => {
+    if (subtaskDescriptionDraftRef.current === next) return
     subtaskDescriptionDraftRef.current = next
     setSubtaskDescriptionDraft(next)
     setIsSubtaskDescriptionDirty(next !== subtaskDescriptionSavedSnapshotRef.current)
