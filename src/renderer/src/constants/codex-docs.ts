@@ -125,6 +125,106 @@ codex --remote wss://codex.example.com:4500
 Agent sync is removed. Agent definitions stay in Open Mission Control until a future Codex CLI execution flow is implemented.`
   },
   {
+    id: 'codex-planning-workflows',
+    title: 'Codex Planning Workflows',
+    category: 'Planning',
+    summary: 'User-facing Codex planning flow from task planning launch through clarification, model settings, JSON validation, and task update.',
+    sourceFiles: [
+      'src/renderer/src/screens/projects/ProjectDetailPage.tsx',
+      'src/renderer/src/screens/projects/detail/hooks/useProjectGatewayFlow.ts',
+      'src/renderer/src/popups/PlanChoiceModal/index.tsx',
+      'src/renderer/src/components/planner/PlannerQuestionHost.tsx',
+      'src/renderer/src/components/planner/plannerQuestionQueue.ts',
+      'src/renderer/src/popups/ProjectDetailSettingsPopup/index.tsx',
+      'src/renderer/src/popups/TaskDetail/index.tsx',
+      'src/main/services/task.service.ts',
+      'src/shared/contracts/ipc.ts'
+    ],
+    terms: [
+      { term: 'Plan launch', description: 'Starts a Codex planning conversation for the selected task from the project detail chat controls.' },
+      { term: 'Ask-first mode', description: 'Planner must ask clarification questions before writing or applying planned-task JSON.' },
+      { term: 'Direct mode', description: 'Planner skips clarification and updates the current task plan from existing project and task context.' },
+      { term: 'Plan model', description: 'The Codex model used for planning; it can come from project settings or a task-level override.' },
+      { term: 'Planner JSON', description: 'The planned task payload that is validated and then applied to the scoped source task.' }
+    ],
+    markdown: `# Codex Planning Workflows
+
+Codex planning turns a selected Open Mission Control task into a clearer execution plan. The flow updates task planning content; it does not run implementation work.
+
+This document covers normal user planning flows only. Plan Pipeline and Pipeline Runs are separate automation surfaces and are intentionally outside this feature scope.
+
+## Start a plan
+
+1. Open a project and select a task.
+2. Configure the Codex gateway, runtime workspace, and plan model if the task cannot already inherit them from the project.
+3. Use the task chat planning action.
+4. Choose how the planner should proceed in the planning checkpoint modal.
+
+The planning launch requires a Codex gateway and a plan model. If either is missing, the app opens the model settings area so the user can complete the setup before retrying.
+
+## Ask-first planning
+
+Ask-first mode is for planning decisions where user input can materially change the task. The planner reads the current task and project context, then writes a questions file and runs the OMC helper's ask command.
+
+Expected behavior:
+
+- the planner asks 1-3 concise root questions;
+- options may include recommended choices and nested follow-up questions;
+- the planner must not write \`planned-task.json\`;
+- the planner must not validate or update the task until the answer is submitted.
+
+The app shows unanswered planner questions through the global planner question modal. After the user chooses options and adds notes, the answer is sent back into the same planning conversation as a clarification message. That follow-up run continues in direct mode because the required clarification has already been supplied.
+
+## Direct planning
+
+Direct mode is for fast plan updates when the existing context is enough. The planner does not ask questions and does not run the ask command.
+
+Expected behavior:
+
+- the planner uses the exported \`currentTaskJson\` as the starting shape;
+- the planner writes \`planned-task.json\`;
+- the OMC helper validates the JSON;
+- the OMC helper updates the scoped source task;
+- the planning run finishes after the update.
+
+Direct mode still respects planner quality rules: subtasks should be action-oriented, ordered for execution, and specific enough to guide a later Codex Run.
+
+## Plan model and effort
+
+Planning uses the plan model rather than the run model. The effective plan model is resolved in this order:
+
+1. task-level plan model override;
+2. project-level plan model;
+3. project default Codex model.
+
+Reasoning effort follows the same split between plan and run settings. If the selected model supports reasoning, the plan reasoning effort is sent with the planning launch; otherwise the reasoning field is omitted. This lets users tune planning depth separately from implementation speed.
+
+## Answer planner questions
+
+Planner questions are collected from gateway activity metadata and from existing unanswered task history. The modal keeps the active project, task, gateway, plan model, language, and reasoning effort attached to the question.
+
+When the user submits an answer:
+
+- selected options and notes are formatted into a clarification message;
+- stale answers from hidden follow-up branches are pruned;
+- the same task and conversation are resumed with \`planWithGateway\`;
+- the answered question is removed from the queue after a successful response.
+
+If available, the user can skip with the first options; this submits the default first-option path without free-form notes.
+
+## Task update result
+
+Planner JSON is validated before it changes task data. Validation normalizes tags, skills, custom fields, checklist items, comments, and subtasks, then checks planner quality for single-task updates.
+
+When validation succeeds, \`plannerUpdateFromJson\` imports the planned JSON into the scoped source task. The result can change the task title, description, tags, checklist, comments, custom fields, and the full subtask array. Existing user comments are preserved by planner instructions, while planner decisions and assumptions should be added as Planner-authored comments when they matter for execution.
+
+After the update, the task becomes the execution plan that later appears in exported \`Task.md\` for Codex Run.
+
+## Out of scope
+
+The Planning category does not document Plan Pipeline creation, saved pipeline groups, pipeline dashboards, or Pipeline Runs execution history. Those screens can use the same underlying task planning concepts, but they are separate product areas and should be documented independently.`
+  },
+  {
     id: 'codex-cli-interactive',
     title: 'Interactive CLI Workflows',
     category: 'CLI',
