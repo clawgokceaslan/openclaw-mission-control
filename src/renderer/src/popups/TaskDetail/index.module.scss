@@ -88,6 +88,13 @@
   -webkit-app-region: no-drag;
 }
 
+.secondaryHeaderActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
 .primaryActions {
   position: relative;
   z-index: 2;
@@ -213,6 +220,7 @@
 
 .menuWrap {
   position: relative;
+  flex: 0 0 auto;
 }
 
 .menu {
@@ -247,6 +255,10 @@
       background: var(--omc-surface-muted);
     }
   }
+}
+
+.mobileMenuOnly {
+  display: none !important;
 }
 
 .dangerAction {
@@ -289,13 +301,27 @@
   }
 
   .headerActions {
-    overflow-x: auto;
+    flex: 0 0 auto;
+    overflow: visible;
     justify-content: flex-end;
     scrollbar-width: none;
 
     &::-webkit-scrollbar {
       display: none;
     }
+  }
+
+  .secondaryHeaderActions {
+    display: none;
+  }
+
+  .mobileMenuOnly {
+    display: flex !important;
+  }
+
+  .primaryActions {
+    flex: 0 0 auto;
+    gap: 4px;
   }
 
   .iconButton {
@@ -321,6 +347,8 @@
     top: calc(56px + env(safe-area-inset-top, 0px));
     right: max(10px, env(safe-area-inset-right, 0px));
     width: min(260px, calc(100vw - 20px));
+    max-height: calc(100dvh - 72px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    overflow-y: auto;
   }
 }
 
@@ -949,11 +977,15 @@
 
 @media (width <= 430px) {
   .headerTitle {
-    max-width: 20vw;
+    max-width: 18vw;
   }
 
   .headerActions {
-    gap: 4px;
+    gap: 3px;
+  }
+
+  .primaryActions {
+    gap: 3px;
   }
 
   .iconButton,

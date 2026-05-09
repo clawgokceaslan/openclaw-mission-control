@@ -73,12 +73,25 @@
 }
 
 .headerActions {
+  position: relative;
+  z-index: 11;
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+}
+
+.secondaryHeaderActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .iconButton {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
   width: 32px;
   height: 32px;
   border: 1px solid transparent;
@@ -96,8 +109,54 @@
   }
 }
 
+.iconButtonActive {
+  border-color: var(--omc-primary) !important;
+  background: var(--omc-active-bg) !important;
+  color: var(--omc-primary-strong) !important;
+}
+
+.mobileMoreWrap {
+  position: relative;
+  flex: 0 0 auto;
+  display: none;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: 220px;
+  overflow: hidden;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 13px;
+  background: var(--omc-surface);
+  box-shadow: var(--omc-shadow-medium);
+  padding: 6px;
+
+  button {
+    width: 100%;
+    min-height: 36px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--omc-text-strong);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 10px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    text-align: left;
+
+    &:hover {
+      background: var(--omc-surface-muted);
+    }
+  }
+}
+
 .dangerAction {
-  color: var(--omc-danger);
+  color: var(--omc-danger) !important;
 }
 
 .modalBody {
@@ -1361,8 +1420,56 @@
 @media (width <= 980px) {
   .shell,
   .nestedShell {
-    inset: 1.5vh 1.5vw;
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
     min-height: 0;
+    border-width: 0;
+    border-radius: 0;
+  }
+
+  .header {
+    min-height: calc(52px + env(safe-area-inset-top, 0px));
+    align-items: end;
+    gap: 8px;
+    padding: env(safe-area-inset-top, 0px) max(10px, env(safe-area-inset-right, 0px)) 8px max(12px, env(safe-area-inset-left, 0px));
+  }
+
+  .headerTitle {
+    max-width: 40vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .headerActions {
+    flex: 0 0 auto;
+    justify-content: flex-end;
+    gap: 4px;
+    overflow: visible;
+  }
+
+  .secondaryHeaderActions {
+    display: none;
+  }
+
+  .mobileMoreWrap {
+    display: block;
+  }
+
+  .iconButton {
+    width: 38px;
+    height: 38px;
+  }
+
+  .menu {
+    position: fixed;
+    top: calc(56px + env(safe-area-inset-top, 0px));
+    right: max(10px, env(safe-area-inset-right, 0px));
+    width: min(260px, calc(100vw - 20px));
+    max-height: calc(100dvh - 72px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    overflow-y: auto;
   }
 
   .modalBody {
@@ -1379,5 +1486,20 @@
   .codexSummaryCard,
   .multiCustomFieldMain {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (width <= 430px) {
+  .headerTitle {
+    max-width: 34vw;
+  }
+
+  .headerActions {
+    gap: 3px;
+  }
+
+  .iconButton {
+    width: 36px;
+    height: 36px;
   }
 }

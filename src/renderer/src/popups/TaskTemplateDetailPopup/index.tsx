@@ -1,5 +1,6 @@
 import { type CSSProperties, type Dispatch, type DragEvent, type ReactNode, type RefObject, type SetStateAction, useEffect, useMemo, useRef, useState } from 'react'
-import { LuBot, LuListChecks, LuListTodo, LuPaperclip, LuPencil, LuPlus, LuSettings2, LuSlidersHorizontal, LuSparkles, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
+import type { IconType } from 'react-icons'
+import { LuBot, LuEllipsis, LuListChecks, LuListTodo, LuPaperclip, LuPencil, LuPlus, LuSettings2, LuSlidersHorizontal, LuSparkles, LuTrash2, LuUpload, LuX } from 'react-icons/lu'
 import type { Agent, CodexCliGatewayConfig, CodexCliModel, CustomField, Gateway, OutputFormat, Skill, TaskChecklistItem, TaskComment, TaskTemplate, TaskTemplatePayload } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { LoadingState } from '@renderer/components/loading'
@@ -42,6 +43,13 @@ type CommentsPaneProps = {
   onRemoveComment: (comment: TaskComment) => void
   onCancelEditComment: () => void
   children: ReactNode
+}
+
+type HeaderMoreAction = {
+  label: string
+  icon: IconType
+  onSelect: () => void
+  danger?: boolean
 }
 
 export interface TaskTemplateDetailPopupProps {
@@ -305,6 +313,58 @@ function PopupShell({ title, nested = false, actions, onClose, onFilesDrop, chil
         {children}
       </section>
     </>
+  )
+}
+
+function HeaderMoreMenu({ actions, ariaLabel }: { actions: HeaderMoreAction[], ariaLabel: string }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    const close = (event: MouseEvent) => {
+      if (menuRef.current?.contains(event.target as Node)) return
+      setIsOpen(false)
+    }
+    window.addEventListener('mousedown', close)
+    return () => window.removeEventListener('mousedown', close)
+  }, [isOpen])
+
+  if (actions.length === 0) return null
+
+  return (
+    <div className={styles.mobileMoreWrap} ref={menuRef}>
+      <button
+        type="button"
+        className={`${styles.iconButton} ${isOpen ? styles.iconButtonActive : ''}`}
+        onClick={() => setIsOpen((value) => !value)}
+        aria-label={ariaLabel}
+        title="More"
+      >
+        <LuEllipsis size={18} />
+      </button>
+      {isOpen ? (
+        <div className={styles.menu} role="menu">
+          {actions.map((action) => {
+            const Icon = action.icon
+            return (
+              <button
+                key={action.label}
+                type="button"
+                className={action.danger ? styles.dangerAction : undefined}
+                onClick={() => {
+                  setIsOpen(false)
+                  action.onSelect()
+                }}
+              >
+                <Icon size={15} />
+                {action.label}
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -819,10 +879,17 @@ export function TaskTemplateDetailPopup(props: TaskTemplateDetailPopupProps) {
   const statusText = saveState === 'saving' ? 'Saving...' : saveState === 'dirty' ? 'Unsaved changes' : saveState === 'failed' ? 'Failed' : 'Saved'
   const subtaskStatus = selectedSubtask?.status || PROJECT_STATUS_COLUMNS[0].status
   const selectedSubtaskStatusColumn = resolveProjectStatusColumn(subtaskStatus, PROJECT_STATUS_COLUMNS)
+  const templateMoreActions: HeaderMoreAction[] = [
+    { label: 'Import JSON', icon: LuUpload, onSelect: onImportJson },
+    { label: 'Delete template', icon: LuTrash2, onSelect: onDeleteTemplate, danger: true }
+  ]
   const templateActions = (
     <>
-      <button type="button" className={styles.iconButton} onClick={onImportJson} aria-label="Import template JSON" title="Import JSON"><LuUpload size={16} /></button>
-      <button type="button" className={`${styles.iconButton} ${styles.dangerAction}`} onClick={onDeleteTemplate} aria-label="Delete template" title="Delete template"><LuTrash2 size={16} /></button>
+      <div className={styles.secondaryHeaderActions}>
+        <button type="button" className={styles.iconButton} onClick={onImportJson} aria-label="Import template JSON" title="Import JSON"><LuUpload size={16} /></button>
+        <button type="button" className={`${styles.iconButton} ${styles.dangerAction}`} onClick={onDeleteTemplate} aria-label="Delete template" title="Delete template"><LuTrash2 size={16} /></button>
+      </div>
+      <HeaderMoreMenu actions={templateMoreActions} ariaLabel="Template actions" />
       <button type="button" className={styles.iconButton} onClick={() => void onClose()} aria-label="Close template detail" title="Close"><LuX size={17} /></button>
     </>
   )
@@ -1063,18 +1130,32 @@ export function TaskTemplateDetailPopup(props: TaskTemplateDetailPopupProps) {
       onFilesDrop={onSubtaskFilesDrop}
       actions={(
         <>
-          <button
-            type="button"
-            className={`${styles.iconButton} ${styles.dangerAction}`}
-            onClick={() => {
-              onPatchSubtasks((current) => current.filter((item) => item.uiId !== selectedSubtask.uiId))
-              onCloseSubtaskDetail()
-            }}
-            aria-label="Delete subtask"
-            title="Delete subtask"
-          >
-            <LuTrash2 size={16} />
-          </button>
+          <div className={styles.secondaryHeaderActions}>
+            <button
+              type="button"
+              className={`${styles.iconButton} ${styles.dangerAction}`}
+              onClick={() => {
+                onPatchSubtasks((current) => current.filter((item) => item.uiId !== selectedSubtask.uiId))
+                onCloseSubtaskDetail()
+              }}
+              aria-label="Delete subtask"
+              title="Delete subtask"
+            >
+              <LuTrash2 size={16} />
+            </button>
+          </div>
+          <HeaderMoreMenu
+            ariaLabel="Subtask actions"
+            actions={[{
+              label: 'Delete subtask',
+              icon: LuTrash2,
+              danger: true,
+              onSelect: () => {
+                onPatchSubtasks((current) => current.filter((item) => item.uiId !== selectedSubtask.uiId))
+                onCloseSubtaskDetail()
+              }
+            }]}
+          />
           <button type="button" className={styles.iconButton} onClick={onCloseSubtaskDetail} aria-label="Close subtask detail" title="Close"><LuX size={17} /></button>
         </>
       )}

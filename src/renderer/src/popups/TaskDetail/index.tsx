@@ -696,44 +696,46 @@ export function TaskDetailPopup({
     <>
       {!hideTaskActions ? (
         <>
-          {onImportJson ? (
-            <button type="button" className={`${styles.iconButton} ${styles.labeledActionButton} ${styles.importButton}`} onPointerDown={(event) => runHeaderAction(event, onImportJson)} aria-label="Import JSON">
-              <LuUpload size={16} />
-              <span className={styles.actionButtonLabel}>Import</span>
-            </button>
-          ) : null}
-          {onExportTaskJson ? (
-            <button type="button" className={`${styles.iconButton} ${styles.labeledActionButton} ${styles.exportButton}`} onPointerDown={(event) => runHeaderAction(event, onExportTaskJson)} aria-label="Export JSON">
-              <LuDownload size={16} />
-              <span className={styles.actionButtonLabel}>Export</span>
-            </button>
-          ) : null}
-          {hasDownloadActions ? (
-            <div className={styles.menuWrap} ref={downloadMenuRef}>
-              <button
-                type="button"
-                className={`${styles.iconButton} ${styles.labeledActionButton} ${styles.downloadButton} ${isDownloadMenuOpen ? styles.iconButtonActive : ''}`}
-                onPointerDown={(event) => runHeaderAction(event, () => {
-                  setIsMenuOpen(false)
-                  setIsDownloadMenuOpen((value) => !value)
-                })}
-                aria-label="Download task"
-              >
-                <LuDownload size={17} />
-                <span className={styles.actionButtonLabel}>Download</span>
+          <div className={styles.secondaryHeaderActions}>
+            {onImportJson ? (
+              <button type="button" className={`${styles.iconButton} ${styles.labeledActionButton} ${styles.importButton}`} onPointerDown={(event) => runHeaderAction(event, onImportJson)} aria-label="Import JSON">
+                <LuUpload size={16} />
+                <span className={styles.actionButtonLabel}>Import</span>
               </button>
-              {isDownloadMenuOpen ? (
-                <div className={styles.menu} role="menu">
-                  {onDownloadZip ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadZip() }}><LuDownload size={15} /> Download ZIP</button> : null}
-                  {onDownloadTaskMarkdown ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadTaskMarkdown() }}><LuFileText size={15} /> Download Task.md</button> : null}
-                  {onDownloadTaskJson ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadTaskJson() }}><LuFileText size={15} /> Download Task.json</button> : null}
-                  {onDownloadTaskToon ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadTaskToon() }}><LuFileText size={15} /> Download Task.toon</button> : null}
-                  {onDownloadAgentMarkdown ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadAgentMarkdown() }}><LuFileText size={15} /> Download Agents.md</button> : null}
-                  {onDownloadSkillsMarkdown ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadSkillsMarkdown() }}><LuFileText size={15} /> Download Skills.md</button> : null}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
+            ) : null}
+            {onExportTaskJson ? (
+              <button type="button" className={`${styles.iconButton} ${styles.labeledActionButton} ${styles.exportButton}`} onPointerDown={(event) => runHeaderAction(event, onExportTaskJson)} aria-label="Export JSON">
+                <LuDownload size={16} />
+                <span className={styles.actionButtonLabel}>Export</span>
+              </button>
+            ) : null}
+            {hasDownloadActions ? (
+              <div className={styles.menuWrap} ref={downloadMenuRef}>
+                <button
+                  type="button"
+                  className={`${styles.iconButton} ${styles.labeledActionButton} ${styles.downloadButton} ${isDownloadMenuOpen ? styles.iconButtonActive : ''}`}
+                  onPointerDown={(event) => runHeaderAction(event, () => {
+                    setIsMenuOpen(false)
+                    setIsDownloadMenuOpen((value) => !value)
+                  })}
+                  aria-label="Download task"
+                >
+                  <LuDownload size={17} />
+                  <span className={styles.actionButtonLabel}>Download</span>
+                </button>
+                {isDownloadMenuOpen ? (
+                  <div className={styles.menu} role="menu">
+                    {onDownloadZip ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadZip() }}><LuDownload size={15} /> Download ZIP</button> : null}
+                    {onDownloadTaskMarkdown ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadTaskMarkdown() }}><LuFileText size={15} /> Download Task.md</button> : null}
+                    {onDownloadTaskJson ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadTaskJson() }}><LuFileText size={15} /> Download Task.json</button> : null}
+                    {onDownloadTaskToon ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadTaskToon() }}><LuFileText size={15} /> Download Task.toon</button> : null}
+                    {onDownloadAgentMarkdown ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadAgentMarkdown() }}><LuFileText size={15} /> Download Agents.md</button> : null}
+                    {onDownloadSkillsMarkdown ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadSkillsMarkdown() }}><LuFileText size={15} /> Download Skills.md</button> : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
           <div className={styles.primaryActions}>
             {isPlanWithGatewayRunning && onStopPlanGateway ? (
               <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.stopButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isStopGatewayBusy) onStopPlanGateway() })} disabled={isStopGatewayBusy} aria-label="Planlamayı duraklat" title="Çalışan planlamayı duraklat">
@@ -778,6 +780,14 @@ export function TaskDetailPopup({
             </button>
             {isMenuOpen ? (
               <div className={styles.menu} role="menu">
+                {onImportJson ? <button type="button" className={styles.mobileMenuOnly} onClick={() => { setIsMenuOpen(false); onImportJson() }}><LuUpload size={15} /> Import JSON</button> : null}
+                {onExportTaskJson ? <button type="button" className={styles.mobileMenuOnly} onClick={() => { setIsMenuOpen(false); onExportTaskJson() }}><LuDownload size={15} /> Export JSON</button> : null}
+                {onDownloadZip ? <button type="button" className={styles.mobileMenuOnly} onClick={() => { setIsMenuOpen(false); onDownloadZip() }}><LuDownload size={15} /> Download ZIP</button> : null}
+                {onDownloadTaskMarkdown ? <button type="button" className={styles.mobileMenuOnly} onClick={() => { setIsMenuOpen(false); onDownloadTaskMarkdown() }}><LuFileText size={15} /> Download Task.md</button> : null}
+                {onDownloadTaskJson ? <button type="button" className={styles.mobileMenuOnly} onClick={() => { setIsMenuOpen(false); onDownloadTaskJson() }}><LuFileText size={15} /> Download Task.json</button> : null}
+                {onDownloadTaskToon ? <button type="button" className={styles.mobileMenuOnly} onClick={() => { setIsMenuOpen(false); onDownloadTaskToon() }}><LuFileText size={15} /> Download Task.toon</button> : null}
+                {onDownloadAgentMarkdown ? <button type="button" className={styles.mobileMenuOnly} onClick={() => { setIsMenuOpen(false); onDownloadAgentMarkdown() }}><LuFileText size={15} /> Download Agents.md</button> : null}
+                {onDownloadSkillsMarkdown ? <button type="button" className={styles.mobileMenuOnly} onClick={() => { setIsMenuOpen(false); onDownloadSkillsMarkdown() }}><LuFileText size={15} /> Download Skills.md</button> : null}
                 <button type="button" onClick={copyTaskLink}><LuExternalLink size={15} /> Copy link</button>
                 <button type="button" onClick={copyTaskId}><LuCopy size={15} /> Copy task ID</button>
                 <button type="button" onClick={() => { setIsMenuOpen(false); onEditTitle() }}><LuPencil size={15} /> Edit title</button>
