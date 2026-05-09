@@ -286,7 +286,7 @@
 .appFrame {
   height: 100vh;
   display: grid;
-  grid-template-rows: 64px 1fr;
+  grid-template-rows: minmax(64px, auto) minmax(0, 1fr);
   overflow: hidden;
   background: var(--omc-app-background, var(--omc-bg));
   background-size: var(--omc-background-size, auto);
@@ -1248,8 +1248,8 @@
 
 .shell {
   display: grid;
-  grid-template-columns: 260px 1fr;
-  height: calc(100vh - 64px);
+  grid-template-columns: 280px minmax(0, 1fr);
+  height: 100%;
   min-height: 0;
   overflow: hidden;
   background: var(--omc-app-background, var(--omc-bg));
@@ -1295,7 +1295,7 @@
 .content {
   padding: 22px 30px;
   min-height: 0;
-  height: calc(100vh - 64px);
+  height: 100%;
   overflow: auto;
   background: transparent;
   color: var(--omc-text);
@@ -1348,12 +1348,12 @@
 
 @media (width <= 1200px) {
   .topbarInner {
-    grid-template-columns: 300px 1fr auto;
+    grid-template-columns: 280px minmax(220px, 1fr) auto;
     padding: 0 12px;
   }
 
   .shell {
-    grid-template-columns: 220px 1fr;
+    grid-template-columns: 240px minmax(0, 1fr);
   }
 
   .content {
@@ -1386,6 +1386,7 @@
 
   .shell {
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .sidebarFooter {
