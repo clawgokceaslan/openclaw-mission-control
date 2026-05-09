@@ -1,6 +1,6 @@
 import { Component, CSSProperties, DragEvent, PointerEvent, ReactNode, useEffect, useRef, useState } from 'react'
 import { Stack } from 'react-bootstrap'
-import { LuBot, LuCircleCheck, LuChevronDown, LuClock3, LuCopy, LuDownload, LuExternalLink, LuFileText, LuListChecks, LuListPlus, LuMessageSquare, LuEllipsis, LuPaperclip, LuPencil, LuPlay, LuPlus, LuRefreshCw, LuSettings2, LuSlidersHorizontal, LuSparkles, LuSquare, LuTrash2, LuTriangleAlert, LuUpload, LuX } from 'react-icons/lu'
+import { LuBot, LuCircleCheck, LuChevronDown, LuClock3, LuCopy, LuDownload, LuExternalLink, LuFileText, LuListChecks, LuMessageSquare, LuEllipsis, LuPaperclip, LuPencil, LuPlay, LuPlus, LuRefreshCw, LuSettings2, LuSlidersHorizontal, LuSparkles, LuSquare, LuTrash2, LuTriangleAlert, LuUpload, LuX } from 'react-icons/lu'
 import type { TaskComment } from '@shared/types/entities'
 import { GATEWAY_REASONING_EFFORT_OPTIONS, gatewayModelReasoningEfforts, gatewayModelSupportsReasoning, normalizeGatewayReasoningEffort } from '@shared/utils/gateway-language'
 import { AppSelect } from '@renderer/components/select/AppSelect'
@@ -251,7 +251,6 @@ interface TaskDetailPopupProps {
   onDeleteTask: () => void
   onEditTitle: () => void
   onOpenChat: () => void
-  onOpenTaskPlanner?: () => void
   title?: string
   nested?: boolean
   hideTaskActions?: boolean
@@ -624,7 +623,6 @@ export function TaskDetailPopup({
   onDeleteTask,
   onEditTitle,
   onOpenChat,
-  onOpenTaskPlanner,
   title = 'Task detail',
   nested = false,
   hideTaskActions = false,
@@ -743,12 +741,6 @@ export function TaskDetailPopup({
               <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.planButton}`} onPointerDown={(event) => runHeaderAction(event, () => { if (!isPlanWithGatewayBusy && !isPlanWithGatewayDisabled) onPlanWithGateway() })} disabled={isPlanWithGatewayBusy || isPlanWithGatewayDisabled} aria-label="Taskı planla" title={isPlanWithGatewayDisabled ? 'Bu taskı planlamak için önce Codex gateway ve model ayarlarını yapılandır.' : 'Task için uygulanabilir plan oluştur'}>
                 <LuSparkles size={16} />
                 <span className={styles.primaryActionLabel}>Planla</span>
-              </button>
-            ) : null}
-            {onOpenTaskPlanner ? (
-              <button type="button" className={`${styles.iconButton} ${styles.primaryActionButton} ${styles.planButton}`} onPointerDown={(event) => runHeaderAction(event, onOpenTaskPlanner)} aria-label="Taskı AI ile parçalara böl" title="Bu taskı yeni task taslaklarına böl">
-                <LuListPlus size={16} />
-                <span className={styles.primaryActionLabel}>Böl</span>
               </button>
             ) : null}
             {isRunGatewayRunning && onStopRunGateway ? (

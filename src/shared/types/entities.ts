@@ -98,27 +98,6 @@ export interface TaskEntity {
   updatedAt: number
 }
 
-export interface TaskGroupQueueState {
-  state: 'not_configured' | 'idle' | 'queued' | 'running' | 'completed' | 'failed'
-  updatedAt?: number | null
-  details?: Record<string, unknown>
-}
-
-export interface TaskGroup {
-  id: string
-  groupId: string
-  projectId: string
-  title: string
-  orderedTaskIds: string[]
-  activeTaskId: string | null
-  groupContextMdPath: string
-  contractedContext: string
-  planningQueueState: TaskGroupQueueState
-  executionQueueState: TaskGroupQueueState
-  createdAt: number
-  updatedAt: number
-}
-
 export interface TaskChecklistItem {
   id: string
   title: string
@@ -220,7 +199,6 @@ export interface ProjectInstructionTemplate {
 export interface TaskJsonImportResult {
   task?: TaskEntity
   tasks?: TaskEntity[]
-  taskGroup?: TaskGroup
   template?: TaskTemplate
   warnings: string[]
 }

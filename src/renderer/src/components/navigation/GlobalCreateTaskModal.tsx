@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
-import type { Agent, OutputFormat, Project, ProjectStatus, Tag, TaskGroup, TaskTemplate } from '@shared/types/entities'
+import type { Agent, OutputFormat, Project, ProjectStatus, Tag, TaskTemplate } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList } from '@renderer/utils/api'
 import { CreateTaskPopup } from '@renderer/popups/CreateTask'
@@ -32,7 +32,6 @@ export function GlobalCreateTaskModal({ open, initial, onClose }: GlobalCreateTa
   const [templates, setTemplates] = useState<TaskTemplate[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [tags, setTags] = useState<Tag[]>([])
-  const [taskGroups, setTaskGroups] = useState<TaskGroup[]>([])
   const [outputFormats, setOutputFormats] = useState<OutputFormat[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [createdDetail, setCreatedDetail] = useState<{ taskId: string; projectId: string } | null>(null)
@@ -92,23 +91,17 @@ export function GlobalCreateTaskModal({ open, initial, onClose }: GlobalCreateTa
   useEffect(() => {
     if (!open || !selectedProjectId) {
       setStatusColumns(PROJECT_STATUS_COLUMNS)
-      setTaskGroups([])
       return
     }
     let cancelled = false
-    Promise.all([
-      invokeBridge<ProjectStatus[]>(IPC_CHANNELS.statuses.getProjectStatuses, { actorToken: token, projectId: selectedProjectId }),
-      invokeBridge<TaskGroup[]>(IPC_CHANNELS.taskGroups.list, { actorToken: token, projectId: selectedProjectId })
-    ])
-      .then(([statusResponse, taskGroupResponse]) => {
+    invokeBridge<ProjectStatus[]>(IPC_CHANNELS.statuses.getProjectStatuses, { actorToken: token, projectId: selectedProjectId })
+      .then((statusResponse) => {
         if (cancelled) return
         setStatusColumns(statusResponse.ok && Array.isArray(statusResponse.data) ? columnsFromProjectStatuses(statusResponse.data) : PROJECT_STATUS_COLUMNS)
-        setTaskGroups(taskGroupResponse.ok && Array.isArray(taskGroupResponse.data) ? taskGroupResponse.data : [])
       })
       .catch(() => {
         if (!cancelled) {
           setStatusColumns(PROJECT_STATUS_COLUMNS)
-          setTaskGroups([])
         }
       })
     return () => {
@@ -164,7 +157,6 @@ export function GlobalCreateTaskModal({ open, initial, onClose }: GlobalCreateTa
         tags={tags}
         agents={agents}
         templates={templates}
-        taskGroups={taskGroups}
         statusColumns={statusColumns}
         defaultStatus={statusColumns[0]?.status ?? 'pending'}
         initialTitle={initial?.title ?? ''}

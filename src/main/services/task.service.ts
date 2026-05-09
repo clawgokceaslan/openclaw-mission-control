@@ -31,18 +31,15 @@ import type {
   SetTaskTagsRequest,
   RunningGatewayTaskRow,
   RunningGatewayTasksResponse,
-  TaskPlannerAiFillRequest,
-  TaskPlannerAiFillResult,
-  TaskPlannerContextRequest,
-  TaskPlannerJsonRequest,
+  PlannerContextRequest,
+  PlannerJsonRequest,
   UpdateTaskSubtaskRequest,
   UpdateTaskCommentRequest
 } from '../../shared/contracts/ipc.js'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
-import type { Agent, ProjectStatus, Skill, Tag, TaskChecklistItem, TaskComment, TaskEntity, TaskGroup, TaskJsonImportResult, TaskSubtask } from '../../shared/types/entities.js'
+import type { Agent, ProjectStatus, Skill, Tag, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask } from '../../shared/types/entities.js'
 import { AuthService } from './auth.service.js'
 import { TaskRepository, TaskSkillRepository, TaskSubtaskRepository, TaskTagRepository } from '../../db/repositories/task-repo.js'
-import { TaskGroupRepository } from '../../db/repositories/task-group-repo.js'
 import { ProjectRepository } from '../../db/repositories/project-repo.js'
 import { CustomFieldRepository, TagRepository } from '../../db/repositories/custom-field-repo.js'
 import { SkillRepository } from '../../db/repositories/skill-repo.js'
@@ -51,7 +48,6 @@ import { StatusRepository } from '../../db/repositories/status-repo.js'
 import { AppSettingsRepository, WorkspaceRepository } from '../../db/repositories/workspace-repo.js'
 import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
 import { GATEWAY_LANGUAGE_KEY, DEFAULT_AGENT_KEY } from './app-settings.service.js'
-import { buildTaskGroupContextMarkdown, buildTaskGroupContract, taskGroupContextPath, taskGroupQueueDetails } from './task-group-contract.js'
 import { TaskJsonImportNormalizer } from './task-json-import.js'
 import type { NormalizedTaskJsonImport } from './task-json-import.js'
 import { safeConsole } from '../utils/safe-output.js'
@@ -76,7 +72,6 @@ type PlannerBridgeContext = {
   actorToken?: string
   projectId: string
   taskId: string
-  groupId?: string
   finishFilePath?: string
   terminalTitle?: string
   workspaceRunPath?: string
@@ -99,30 +94,6 @@ type PlannerJsonItem = {
   index: number
   fromArray: boolean
 }
-
-const TASK_PLANNER_AI_FIELDS = [
-  'outcome',
-  'northStar',
-  'problem',
-  'audience',
-  'jobToBeDone',
-  'evidence',
-  'opportunity',
-  'hypotheses',
-  'successSignals',
-  'moscow',
-  'prioritization',
-  'storyMap',
-  'deliveryPlan',
-  'metrics',
-  'risks',
-  'constraints',
-  'exclusions',
-  'pmNotes'
-] as const
-
-const TASK_PLANNER_AI_FIELD_SET = new Set<string>(TASK_PLANNER_AI_FIELDS)
-const TASK_PLANNER_AI_TIMEOUT_MS = 120_000
 
 function parsePlannerJsonPayload(value: unknown): unknown {
   if (typeof value !== 'string') return value
@@ -149,12 +120,6 @@ function batchTaskTraceComment(sourceTitle: string, tasks: TaskEntity[]): string
     '',
     ...lines
   ].join('\n')
-}
-
-function plannerTaskGroupTitle(payloadTitle: unknown, sourceTask: TaskEntity | undefined, firstTask: TaskEntity): string {
-  if (typeof payloadTitle === 'string' && payloadTitle.trim()) return payloadTitle.trim()
-  if (sourceTask?.title?.trim()) return `${sourceTask.title.trim()} grubu`
-  return `${firstTask.title.trim()} grubu`
 }
 
 type PlannerLaunchResult = {
@@ -470,7 +435,7 @@ function customFieldEntries(values: Record<string, unknown> | undefined, customF
   })
 }
 
-function taskPlannerJson(task: TaskEntity, customFields: Array<{ id: string; name: string; type?: string }>): Record<string, unknown> {
+function plannerTaskJson(task: TaskEntity, customFields: Array<{ id: string; name: string; type?: string }>): Record<string, unknown> {
   const taskPayload = task.payload && typeof task.payload === 'object' && !Array.isArray(task.payload)
     ? task.payload as Record<string, unknown>
     : {}
@@ -930,7 +895,7 @@ export function initialGatewayPrompt(
   projectId: string,
   taskId: string,
   omcInstructionsPath: string,
-  options: { language?: string; languages?: GatewayLanguagePair; promptShape?: GatewayPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null; groupContract?: string | null } = {}
+  options: { language?: string; languages?: GatewayLanguagePair; promptShape?: GatewayPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null } = {}
 ): string {
   const language = typeof options.languages === 'object' ? options.languages.outputLanguage : options.language
   const promptShape = normalizeGatewayPromptShape(options.promptShape)
@@ -942,7 +907,6 @@ export function initialGatewayPrompt(
     gatewayLanguageInstruction(language),
     projectInstructionsSection(options.projectPrompt, { audience: 'run' }),
     effectiveAgentSection(options.effectiveAgent),
-    options.groupContract ? `TaskGroup context contract:\n${options.groupContract}` : '',
     `Before making changes, read the run-specific .omc CLI instructions at ${omcInstructionsPath} in the runtime workspace.`,
     `Read ${exportWorkspacePath}/${taskFileName} as the primary task context. Read ${exportWorkspacePath}/Agents.md, ${exportWorkspacePath}/Skills.md, and ${exportWorkspacePath}/attachments/ only if present and needed.`,
     `Apply the Project Rules section in ${taskFileName} before making implementation decisions.`,
@@ -961,7 +925,6 @@ export function initialGatewayPrompt(
     { name: 'language_instruction', value: gatewayLanguageInstruction(language) },
     { name: 'project_instructions', value: projectInstructionsSection(options.projectPrompt, { audience: 'run' }) },
     { name: 'effective_agent', value: effectiveAgentSection(options.effectiveAgent) },
-    ...(options.groupContract ? [{ name: 'task_group_contract', value: options.groupContract }] : []),
     { name: 'omc_cli_instructions_path', value: omcInstructionsPath },
     { name: 'primary_task_file', value: `${exportWorkspacePath}/${taskFileName}` },
     { name: 'required_reads', value: [`${exportWorkspacePath}/${taskFileName}`, `${exportWorkspacePath}/Agents.md if needed`, `${exportWorkspacePath}/Skills.md if needed`, `${exportWorkspacePath}/attachments/ if present`] },
@@ -1013,217 +976,13 @@ export function plannerJsonGuidance() {
   }
 }
 
-function normalizeTaskPlannerAiMode(value: unknown): NonNullable<TaskPlannerAiFillRequest['mode']> {
-  return value === 'all' || value === 'drafts' ? value : 'step'
-}
-
-function normalizeTaskPlannerAiFields(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  const seen = new Set<string>()
-  const fields: string[] = []
-  for (const item of value) {
-    if (typeof item !== 'string') continue
-    const key = item.trim()
-    if (!TASK_PLANNER_AI_FIELD_SET.has(key) || seen.has(key)) continue
-    seen.add(key)
-    fields.push(key)
-  }
-  return fields
-}
-
-function normalizeTaskPlannerAiForm(value: unknown): Record<string, string> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
-  const form: Record<string, string> = {}
-  for (const key of TASK_PLANNER_AI_FIELDS) {
-    const raw = (value as Record<string, unknown>)[key]
-    if (typeof raw === 'string') form[key] = raw
-    else if (typeof raw === 'number' || typeof raw === 'boolean') form[key] = String(raw)
-  }
-  return form
-}
-
-function normalizeTaskPlannerAiAnswers(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  return value
-    .filter((item): item is string => typeof item === 'string')
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .slice(-8)
-}
-
-function compactAiText(value: unknown, limit: number): string {
-  if (typeof value !== 'string') return ''
-  const compact = value.replace(/\s+/g, ' ').trim()
-  if (compact.length <= limit) return compact
-  return `${compact.slice(0, Math.max(0, limit - 1)).trimEnd()}…`
-}
-
-function compactTaskPlannerAiTask(task?: TaskEntity | null): Record<string, unknown> | null {
-  if (!task) return null
-  return {
-    id: task.id,
-    title: task.title,
-    description: compactAiText(task.description ?? '', 1800),
-    tags: (task.tags ?? []).map((tag) => tag.name || tag.id).slice(0, 12),
-    checklist: (task.checklistItems ?? []).map((item) => item.title).slice(0, 12),
-    comments: (task.comments ?? []).slice(-6).map((comment) => ({
-      authorName: comment.authorName,
-      body: compactAiText(comment.body, 500)
-    })),
-    subtasks: (task.subtasks ?? []).slice(0, 12).map((subtask) => ({
-      title: subtask.title,
-      description: compactAiText(asPayload(subtask.payload).description ?? subtask.description ?? '', 500)
-    }))
-  }
-}
-
-export function taskPlannerAiFillPrompt(input: {
-  project: { id: string; name: string; description?: string; generalContext?: string; generalPrompt?: string; defaultOutput?: string; metrics?: Record<string, unknown> | null }
-  sourceTask?: TaskEntity | null
-  form: Record<string, string>
-  answers: string[]
-  intro: string
-  targetFields: string[]
-  mode: NonNullable<TaskPlannerAiFillRequest['mode']>
-  step?: number
-  suggestedTaskCount?: number
-  language?: string
-}): string {
-  const projectPrompt = projectPromptSnapshot(input.project)
-  const targetFields = input.targetFields.length > 0 ? input.targetFields : [...TASK_PLANNER_AI_FIELDS]
-  const outputShape = {
-    form: Object.fromEntries(targetFields.map((field) => [field, 'string'])),
-    questions: ['short PM clarification question'],
-    drafts: input.mode === 'drafts'
-      ? [{
-          order: 1,
-          phase: 'Discovery',
-          title: 'Action-oriented task title',
-          description: 'Markdown task description with Amaç, Bağlam, Beklenen İş, Kabul Sinyali, Kısıtlar, Risk',
-          confidence: 84,
-          rationale: 'Why this task boundary is correct',
-          risk: 'Main risk or dependency'
-        }]
-      : []
-  }
-  const context = {
-    mode: input.mode,
-    step: input.step ?? null,
-    targetFields,
-    suggestedTaskCount: input.suggestedTaskCount ?? null,
-    firstUserIntro: compactAiText(input.intro, 2200),
-    project: {
-      id: input.project.id,
-      name: input.project.name,
-      description: compactAiText(input.project.description ?? '', 1200)
-    },
-    sourceTask: compactTaskPlannerAiTask(input.sourceTask),
-    currentForm: input.form,
-    pmAnswers: input.answers,
-    projectInstructions: projectInstructionsSection(projectPrompt, { audience: 'plan' })
-  }
-  const rows = [
-    'You are the fast AI fill engine for Open Mission Control TaskPlannerChatPopup.',
-    gatewayLanguageInstruction(input.language),
-    'Return only valid JSON. Do not wrap it in Markdown. Do not explain the answer.',
-    'Do not call tools, inspect files, mutate tasks, create tasks, or update the source task. The renderer will only use your JSON to fill editable fields.',
-    'Act as a senior product manager. Use outcome over output, JTBD, Opportunity Solution Tree, MoSCoW, RICE/Kano, story mapping, HEART metrics, and pre-mortem only where they improve the field.',
-    'The firstUserIntro is the highest-priority thinking brief. Treat sourceTask and project as supporting context.',
-    'Optimize for speed: fill only targetFields for step/all modes; for drafts mode also produce concise but execution-ready task drafts.',
-    'Preserve good existing field content, but complete weak or empty content. Use concrete project/task language instead of generic methodology descriptions.',
-    input.mode === 'drafts'
-      ? `Produce ${input.suggestedTaskCount ?? 5} independent task drafts. Each draft must be a separate same-project task, not a subtask.`
-      : 'Do not produce drafts unless mode is drafts.',
-    'Return JSON with this shape:',
-    JSON.stringify(outputShape, null, 2),
-    'Input context JSON:',
-    JSON.stringify(context, null, 2)
-  ]
-  return rows.join('\n\n')
-}
-
-function parseJsonFromAssistantText(raw: string): unknown {
-  const text = raw.trim()
-  if (!text) throw new Error('AI response is empty.')
-  try {
-    return JSON.parse(text)
-  } catch { }
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  if (fenced?.[1]) {
-    try {
-      return JSON.parse(fenced[1].trim())
-    } catch { }
-  }
-  const first = text.indexOf('{')
-  const last = text.lastIndexOf('}')
-  if (first >= 0 && last > first) return JSON.parse(text.slice(first, last + 1))
-  throw new Error('AI response did not contain valid JSON.')
-}
-
-export function normalizeTaskPlannerAiFillResult(value: unknown, targetFields: string[] = []): ServiceResponse<Omit<TaskPlannerAiFillResult, 'diagnostics'>> {
-  let parsed = value
-  try {
-    parsed = typeof value === 'string' ? parseJsonFromAssistantText(value) : value
-  } catch (error) {
-    return errorResponse(ErrorCodes.Validation, error instanceof Error ? error.message : 'Invalid AI response JSON')
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return errorResponse(ErrorCodes.Validation, 'AI response must be a JSON object.')
-  }
-  const record = parsed as Record<string, unknown>
-  const targetSet = new Set(targetFields.filter((field) => TASK_PLANNER_AI_FIELD_SET.has(field)))
-  const allowAnyField = targetSet.size === 0
-  const formRecord = record.form && typeof record.form === 'object' && !Array.isArray(record.form)
-    ? record.form as Record<string, unknown>
-    : {}
-  const form: Record<string, string> = {}
-  for (const [key, raw] of Object.entries(formRecord)) {
-    if (!TASK_PLANNER_AI_FIELD_SET.has(key)) continue
-    if (!allowAnyField && !targetSet.has(key)) continue
-    if (typeof raw === 'string' && raw.trim()) form[key] = raw.trim()
-    else if ((typeof raw === 'number' || typeof raw === 'boolean') && String(raw).trim()) form[key] = String(raw).trim()
-  }
-
-  const questions = Array.isArray(record.questions)
-    ? record.questions
-      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-      .map((item) => item.trim())
-      .slice(0, 6)
-    : []
-  const drafts = Array.isArray(record.drafts)
-    ? record.drafts.flatMap((raw, index) => {
-        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
-        const draft = raw as Record<string, unknown>
-        const title = typeof draft.title === 'string' ? draft.title.trim() : ''
-        const description = typeof draft.description === 'string' ? draft.description.trim() : ''
-        if (!title || !description) return []
-        const order = typeof draft.order === 'number' && Number.isFinite(draft.order) ? Math.max(1, Math.floor(draft.order)) : index + 1
-        const confidence = typeof draft.confidence === 'number' && Number.isFinite(draft.confidence) ? Math.max(1, Math.min(100, Math.round(draft.confidence))) : undefined
-        return [{
-          order,
-          title,
-          description,
-          phase: typeof draft.phase === 'string' && draft.phase.trim() ? draft.phase.trim() : undefined,
-          confidence,
-          rationale: typeof draft.rationale === 'string' && draft.rationale.trim() ? draft.rationale.trim() : undefined,
-          risk: typeof draft.risk === 'string' && draft.risk.trim() ? draft.risk.trim() : undefined
-        }]
-      })
-    : []
-  return okResponse({
-    ...(Object.keys(form).length > 0 ? { form } : {}),
-    ...(questions.length > 0 ? { questions } : {}),
-    ...(drafts.length > 0 ? { drafts } : {})
-  })
-}
-
 export function initialPlannerPrompt(
   projectId: string,
   taskId: string,
   helperPath: string,
   contextPath: string,
   plannedTaskPath: string,
-  options: { language?: string; languages?: GatewayLanguagePair; promptShape?: GatewayPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null; clarificationMode?: PlannerClarificationMode; groupContract?: string | null } = {}
+  options: { language?: string; languages?: GatewayLanguagePair; promptShape?: GatewayPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null; clarificationMode?: PlannerClarificationMode } = {}
 ): string {
   const questionsPath = plannedTaskPath.replace(/planned-task\.json$/i, 'questions.json')
   const language = typeof options.languages === 'object' ? options.languages.outputLanguage : options.language
@@ -1271,7 +1030,6 @@ export function initialPlannerPrompt(
     `The project id is ${projectId} and the source task id is ${taskId}.`,
     gatewayLanguageInstruction(language),
     projectInstructionsSection(options.projectPrompt, { audience: 'plan' }),
-    options.groupContract ? `TaskGroup context contract:\n${options.groupContract}` : '',
     effectiveAgentSection(options.effectiveAgent),
     'Plan the current task from currentTaskJson task-detail data: title, description/content, custom fields, checklist, comments, tags, and subtasks.',
     'Treat currentTaskJson.title and currentTaskJson.description as the authoritative task title and description/content sources; do not replace them with chat headings, user prompt labels, or gateway payload text.',
@@ -2852,7 +2610,7 @@ function plannerQuestionBody(payload: PlannerQuestionPayload): string {
   ].join('\n')
 }
 
-function omcTaskPlannerClientScript(): string {
+function omcPlannerClientScript(): string {
   return `#!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -2963,7 +2721,6 @@ export function omcCliInstructions(context: {
   plannedTaskRelativePath: string
   exportWorkspacePath?: string
   runtimeWorkspacePath: string
-  groupContract?: string | null
 }): string {
   const helper = context.helperRelativePath
   const questionsRelativePath = plannerRunRelativePath(context.runId, 'questions.json')
@@ -2997,7 +2754,6 @@ export function omcCliInstructions(context: {
     `- Runtime workspace: ${context.runtimeWorkspacePath}`,
     `- Run folder: .omc/runs/${context.runId}`,
     ...(context.exportWorkspacePath ? [`- Export workspace: ${context.exportWorkspacePath}`] : []),
-    ...(context.groupContract ? ['- TaskGroup contract: available below'] : []),
     '',
     '## Commands',
     '',
@@ -3013,7 +2769,6 @@ export function omcCliInstructions(context: {
     '',
     `- ${gatewayLanguageInstruction(language)}`,
     '- Run context before planning or when you need project/task metadata.',
-    ...(context.groupContract ? ['', '## TaskGroup Contract', '', context.groupContract] : []),
     '- Run validate before create or update.',
     ...plannerModeRules,
     '- Non-negotiable planner rules in these instructions override weaker or conflicting project Plan Guide instructions, including any instruction that says user input is not needed.',
@@ -3135,8 +2890,7 @@ export class TaskService {
     private readonly workspaces: WorkspaceRepository,
     private readonly gateways: GatewayRepository,
     private readonly appSettings: AppSettingsRepository,
-    private readonly eventBus?: EventEmitter,
-    private readonly taskGroups?: TaskGroupRepository
+    private readonly eventBus?: EventEmitter
   ) { }
 
   private async findProjectOrg(projectId: string): Promise<string | undefined> {
@@ -3146,92 +2900,6 @@ export class TaskService {
 
   private emitTaskUpdated(projectId: string, taskId: string, action: string): void {
     this.eventBus?.emit(IPC_CHANNELS.events.taskUpdated, { projectId, taskId, action, updatedAt: Date.now() })
-  }
-
-  private async taskGroupForLaunch(taskId: string, requestedGroupId?: string): Promise<TaskGroup | null> {
-    if (!this.taskGroups) return null
-    if (requestedGroupId?.trim()) {
-      const group = await this.taskGroups.get(requestedGroupId.trim())
-      return group?.orderedTaskIds.includes(taskId) ? group : null
-    }
-    const groups = await this.taskGroups.listByTaskId(taskId)
-    return groups[0] ?? null
-  }
-
-  private async tasksByGroupOrder(group: TaskGroup): Promise<Map<string, TaskEntity>> {
-    const tasksById = new Map<string, TaskEntity>()
-    for (const taskId of group.orderedTaskIds) {
-      const task = await this.repo.get(taskId)
-      if (task) tasksById.set(task.id, task)
-    }
-    return tasksById
-  }
-
-  private queueStateDetails(group: TaskGroup, activeTaskId: string) {
-    return taskGroupQueueDetails(group, activeTaskId)
-  }
-
-  private async markTaskGroupQueue(group: TaskGroup | null, queue: 'planning' | 'execution', state: 'queued' | 'running' | 'completed' | 'failed', activeTaskId: string): Promise<TaskGroup | null> {
-    if (!group || !this.taskGroups) return group
-    const groupContextMdPath = group.groupContextMdPath || taskGroupContextPath(group.groupId)
-    const baseDetails = taskGroupQueueDetails({ ...group, groupContextMdPath }, activeTaskId)
-    const planningQueueState = queue === 'planning'
-      ? { state, updatedAt: Date.now(), details: baseDetails }
-      : group.planningQueueState
-    const executionQueueState = queue === 'execution'
-      ? { state, updatedAt: Date.now(), details: baseDetails }
-      : group.executionQueueState
-    const tasksById = await this.tasksByGroupOrder(group)
-    const contractedContext = buildTaskGroupContract({
-      projectId: group.projectId,
-      groupId: group.groupId,
-      title: group.title,
-      orderedTaskIds: group.orderedTaskIds,
-      activeTaskId,
-      groupContextMdPath,
-      planningQueueState,
-      executionQueueState,
-      tasksById
-    })
-    const details = { ...baseDetails, contractedContext }
-    const patch = queue === 'planning'
-      ? { activeTaskId, groupContextMdPath, contractedContext, planningQueueState: { ...planningQueueState, details } }
-      : { activeTaskId, groupContextMdPath, contractedContext, executionQueueState: { ...executionQueueState, details } }
-    const updated = await this.taskGroups.update(group.id, patch)
-    if (!updated) return group
-    if (updated.groupContextMdPath) {
-      await mkdir(dirname(updated.groupContextMdPath), { recursive: true })
-      await writeFile(updated.groupContextMdPath, buildTaskGroupContextMarkdown({
-        title: updated.title,
-        contractedContext: updated.contractedContext,
-        orderedTaskIds: updated.orderedTaskIds,
-        activeTaskId: updated.activeTaskId,
-        planningQueueState: updated.planningQueueState,
-        executionQueueState: updated.executionQueueState,
-        tasksById
-      }), 'utf8')
-    }
-    return updated
-  }
-
-  private async markBridgeTaskGroupQueue(context: PlannerBridgeContext, state: 'completed' | 'failed'): Promise<void> {
-    if (!this.taskGroups) return
-    const group = await this.taskGroupForLaunch(context.taskId, context.groupId)
-    if (!group) return
-    await this.markTaskGroupQueue(group, context.mode === 'execute' ? 'execution' : 'planning', state, context.taskId)
-  }
-
-  private rowGroupContract(taskId: string, groupsByTaskId: Map<string, TaskGroup>): Pick<PlannedGatewayTaskRow, 'groupId' | 'orderedTaskIds' | 'activeTaskId' | 'groupContextMdPath' | 'contractedContext'> {
-    const group = groupsByTaskId.get(taskId)
-    return group
-      ? {
-          groupId: group.groupId,
-          orderedTaskIds: group.orderedTaskIds,
-          activeTaskId: group.activeTaskId,
-          groupContextMdPath: group.groupContextMdPath,
-          contractedContext: group.contractedContext
-        }
-      : {}
   }
 
   private async setTaskGatewayPlanState(taskId: string, gatewayPlanState: Record<string, unknown>): Promise<void> {
@@ -3309,7 +2977,6 @@ export class TaskService {
       exitCode,
       model: context.model ?? null
     })
-    await this.markBridgeTaskGroupQueue(context, kind === 'completed' ? 'completed' : 'failed')
   }
 
   private async appendPlannerQuestionActivity(
@@ -3530,13 +3197,6 @@ export class TaskService {
     const pageSize = Math.max(1, Math.min(50, Math.floor(Number(payload?.pageSize ?? 12))))
     const projectId = payload?.projectId?.trim() || undefined
     const { rows, total } = await this.repo.listPlannedGateway(actor.user.organizationId, page, pageSize, projectId)
-    const groupsByTaskId = new Map<string, TaskGroup>()
-    if (this.taskGroups) {
-      for (const { task } of rows) {
-        const group = await this.taskGroupForLaunch(task.id)
-        if (group) groupsByTaskId.set(task.id, group)
-      }
-    }
     const plannedRows: PlannedGatewayTaskRow[] = rows.map(({ task, project }) => {
       const taskGateway = taskGatewayMetrics(task)
       const projectGateway = projectGatewayMetrics(project.metrics)
@@ -3555,7 +3215,6 @@ export class TaskService {
       return {
         taskId: task.id,
         projectId: project.id,
-        ...this.rowGroupContract(task.id, groupsByTaskId),
         taskTitle: task.title,
         taskStatus: task.status,
         projectName: project.name,
@@ -3585,21 +3244,11 @@ export class TaskService {
     const group = normalizeRunningGatewayGroup(payload?.group)
     const projectId = payload?.projectId?.trim() || undefined
     const candidates = await this.repo.listRunningGateway(actor.user.organizationId, projectId)
-    const groupsByTaskId = new Map<string, TaskGroup>()
-    if (this.taskGroups) {
-      for (const { task } of candidates) {
-        const taskGroup = await this.taskGroupForLaunch(task.id)
-        if (taskGroup) groupsByTaskId.set(task.id, taskGroup)
-      }
-    }
     const runningRows = candidates.flatMap(({ task, project }) => summarizeRunningConversation(
       task,
       project,
       taskActivityMessagesFromPayload(task.payload)
-    )).map(({ latestActivityBody, ...row }) => ({
-      ...row,
-      ...this.rowGroupContract(row.taskId, groupsByTaskId)
-    }))
+    )).map(({ latestActivityBody, ...row }) => row)
     const counts = countRunningGatewayGroups(runningRows)
     const filteredRows = group === 'all'
       ? runningRows
@@ -3754,7 +3403,7 @@ export class TaskService {
     return okResponse({ task, warnings: imported.warnings })
   }
 
-  async plannerContext(payload: TaskPlannerContextRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<Record<string, unknown>>> {
+  async plannerContext(payload: PlannerContextRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<Record<string, unknown>>> {
     if (!payload?.projectId || !payload.taskId) return errorResponse(ErrorCodes.Validation, 'Project and task id are required')
     const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
     if (!access.ok || !access.data) return access as ServiceResponse<Record<string, unknown>>
@@ -3785,7 +3434,7 @@ export class TaskService {
       : { ...taskForContext, skills: effectiveSkills }
     const activityMessages = taskActivityMessagesFromPayload(task.payload)
     const contextSummary = gatewayCompactContextSummary(taskForContextWithSkills, activityMessages)
-    const currentTaskJson = taskPlannerJson(taskForContextWithSkills, customFields)
+    const currentTaskJson = plannerTaskJson(taskForContextWithSkills, customFields)
 
     return okResponse({
       project: {
@@ -3855,148 +3504,7 @@ export class TaskService {
     })
   }
 
-  async plannerAiFill(payload: TaskPlannerAiFillRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<TaskPlannerAiFillResult>> {
-    if (!payload?.projectId) return errorResponse(ErrorCodes.Validation, 'Project id required')
-    if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex gateway is required')
-    if (!payload.model?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex model is required')
-
-    const mode = normalizeTaskPlannerAiMode(payload.mode)
-    const requestedFields = normalizeTaskPlannerAiFields(payload.targetFields)
-    const targetFields = requestedFields.length > 0 || mode === 'step'
-      ? requestedFields
-      : [...TASK_PLANNER_AI_FIELDS]
-    const projectAccess = payload.taskId?.trim()
-      ? await this.ensureTaskAccess(payload.actorToken, payload.taskId.trim())
-      : await this.ensureProjectAccess(payload.actorToken, payload.projectId)
-    if (!projectAccess.ok || !projectAccess.data) return projectAccess as ServiceResponse<TaskPlannerAiFillResult>
-
-    const project = await this.projects.get(payload.projectId)
-    if (!project) return errorResponse(ErrorCodes.NotFound, 'Project not found')
-    if (project.organizationId !== projectAccess.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
-
-    let sourceTask: TaskEntity | null = null
-    if ('task' in projectAccess.data) {
-      if (projectAccess.data.task.projectId !== project.id) return errorResponse(ErrorCodes.Validation, 'Project id does not match task')
-      const [enrichedTask] = await this.enrichTasks([projectAccess.data.task])
-      sourceTask = enrichedTask
-    }
-
-    const gateway = await this.gateways.get(payload.gatewayId.trim())
-    if (!gateway || gateway.organizationId !== projectAccess.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Codex gateway is invalid')
-    const runtimeWorkspaceId = projectGatewayRuntimeWorkspaceId(project)
-    if (!runtimeWorkspaceId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is required')
-    const runtimeWorkspace = await this.workspaces.get(runtimeWorkspaceId)
-    if (!runtimeWorkspace || runtimeWorkspace.organizationId !== projectAccess.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
-
-    let launchConfig: Awaited<ReturnType<typeof codexLaunchConfig>>
-    try {
-      launchConfig = await codexLaunchConfig(gateway.template)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to launch Codex AI fill'
-      return errorResponse(ErrorCodes.Validation, message)
-    }
-
-    const startedAt = Date.now()
-    const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-planner-ai-fill-'))
-    const finalMessagePath = join(runFolderPath, 'final-message.json')
-    const model = payload.model.trim()
-    const reasoningEffort = normalizeGatewayReasoningEffort(payload.reasoningEffort || 'xhigh')
-    const language = await resolveGatewayLanguageSetting(this.appSettings, projectAccess.data.actorOrgId, project, payload)
-    const suggestedTaskCount = Math.max(3, Math.min(8, Math.floor(Number(payload.suggestedTaskCount ?? 5))))
-    const prompt = taskPlannerAiFillPrompt({
-      project,
-      sourceTask,
-      form: normalizeTaskPlannerAiForm(payload.form),
-      answers: normalizeTaskPlannerAiAnswers(payload.answers),
-      intro: typeof payload.intro === 'string' ? payload.intro : '',
-      targetFields,
-      mode,
-      step: typeof payload.step === 'number' && Number.isFinite(payload.step) ? payload.step : undefined,
-      suggestedTaskCount,
-      language
-    })
-    const args = [
-      'exec',
-      '--json',
-      '--output-last-message',
-      finalMessagePath,
-      '--cd',
-      runtimeWorkspace.rootPath,
-      '--model',
-      model,
-      '-c',
-      codexReasoningConfigArg(reasoningEffort),
-      '--skip-git-repo-check',
-      '--dangerously-bypass-approvals-and-sandbox',
-      '--color',
-      'never',
-      prompt
-    ]
-
-    try {
-      await mkdir(runtimeWorkspace.rootPath, { recursive: true })
-      const finalText = await new Promise<string>((resolve, reject) => {
-        const child = spawn(launchConfig.codexPath, args, {
-          cwd: runtimeWorkspace.rootPath,
-          env: launchConfig.codexEnv,
-          stdio: ['ignore', 'pipe', 'pipe']
-        })
-        let stdout = ''
-        let stderr = ''
-        let settled = false
-        const timeout = setTimeout(() => {
-          if (settled) return
-          settled = true
-          child.kill('SIGTERM')
-          reject(new Error('AI fill timed out.'))
-        }, TASK_PLANNER_AI_TIMEOUT_MS)
-        timeout.unref?.()
-        child.stdout.setEncoding('utf8')
-        child.stderr.setEncoding('utf8')
-        child.stdout.on('data', (chunk: string) => {
-          stdout += chunk
-        })
-        child.stderr.on('data', (chunk: string) => {
-          stderr += chunk
-        })
-        child.on('error', (error) => {
-          if (settled) return
-          settled = true
-          clearTimeout(timeout)
-          reject(error)
-        })
-        child.on('close', async (code) => {
-          if (settled) return
-          settled = true
-          clearTimeout(timeout)
-          if (code !== 0) {
-            reject(new Error(stderr.trim() || `AI fill failed with code ${code ?? 'unknown'}.`))
-            return
-          }
-          const final = await readFile(finalMessagePath, 'utf8').catch(() => '')
-          resolve(final.trim() || stdout.trim())
-        })
-      })
-      const normalized = normalizeTaskPlannerAiFillResult(finalText, mode === 'drafts' ? [] : targetFields)
-      if (!normalized.ok) return normalized as ServiceResponse<TaskPlannerAiFillResult>
-      return okResponse({
-        ...(normalized.data ?? {}),
-        diagnostics: {
-          gatewayId: gateway.id,
-          model,
-          reasoningEffort,
-          durationMs: Date.now() - startedAt
-        }
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'AI fill failed.'
-      return errorResponse(ErrorCodes.Internal, message)
-    } finally {
-      await rm(runFolderPath, { recursive: true, force: true }).catch(() => undefined)
-    }
-  }
-
-  async plannerValidateJson(payload: TaskPlannerJsonRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<Record<string, unknown>>> {
+  async plannerValidateJson(payload: PlannerJsonRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<Record<string, unknown>>> {
     const actor = await this.auth.requireActor(payload?.actorToken)
     if (!payload?.projectId && !payload?.taskId) return errorResponse(ErrorCodes.Validation, 'Project or task id required')
     const projectId = payload.taskId ? (await this.repo.get(payload.taskId))?.projectId : payload.projectId
@@ -4069,7 +3577,7 @@ export class TaskService {
     }
   }
 
-  private async validateBatchCreateJson(payload: TaskPlannerJsonRequest, items: PlannerJsonItem[]): Promise<ServiceResponse<{ warnings: string[] }>> {
+  private async validateBatchCreateJson(payload: PlannerJsonRequest, items: PlannerJsonItem[]): Promise<ServiceResponse<{ warnings: string[] }>> {
     const actor = await this.auth.requireActor(payload?.actorToken)
     if (!payload?.projectId) return errorResponse(ErrorCodes.Validation, 'Project id required')
     const projectOrg = await this.findProjectOrg(payload.projectId)
@@ -4088,63 +3596,7 @@ export class TaskService {
     return okResponse({ warnings: Array.from(new Set(warnings)) })
   }
 
-  private async createPlannerTaskGroup(payload: TaskPlannerJsonRequest, tasks: TaskEntity[]): Promise<ServiceResponse<TaskGroup | null>> {
-    if (!payload.createTaskGroup || tasks.length === 0) return okResponse(null)
-    if (!this.taskGroups) return errorResponse(ErrorCodes.Internal, 'Task group repository is not configured')
-    if (!payload.projectId) return errorResponse(ErrorCodes.Validation, 'Project id required')
-    const sourceTask = payload.taskId ? await this.repo.get(payload.taskId) : undefined
-    const groupId = randomUUID()
-    const title = plannerTaskGroupTitle(payload.taskGroupTitle, sourceTask, tasks[0])
-    const orderedTaskIds = tasks.map((task) => task.id)
-    const groupContextMdPath = taskGroupContextPath(groupId)
-    const now = Date.now()
-    const queueDetailsBase = {
-      projectId: payload.projectId,
-      groupId,
-      orderedTaskIds,
-      activeTaskId: orderedTaskIds[0] ?? null,
-      groupContextMdPath
-    }
-    const planningQueueState = { state: 'idle' as const, updatedAt: now, details: queueDetailsBase }
-    const executionQueueState = { state: 'idle' as const, updatedAt: now, details: queueDetailsBase }
-    const tasksById = new Map(tasks.map((task) => [task.id, task]))
-    const contractedContext = buildTaskGroupContract({
-      projectId: payload.projectId,
-      groupId,
-      title,
-      orderedTaskIds,
-      activeTaskId: orderedTaskIds[0] ?? null,
-      groupContextMdPath,
-      planningQueueState,
-      executionQueueState,
-      tasksById
-    })
-    const queueDetails = { ...queueDetailsBase, contractedContext }
-    const group = await this.taskGroups.create({
-      id: groupId,
-      projectId: payload.projectId,
-      title,
-      orderedTaskIds,
-      activeTaskId: orderedTaskIds[0] ?? null,
-      groupContextMdPath,
-      contractedContext,
-      planningQueueState: { ...planningQueueState, details: queueDetails },
-      executionQueueState: { ...executionQueueState, details: queueDetails }
-    })
-    await mkdir(dirname(groupContextMdPath), { recursive: true })
-    await writeFile(groupContextMdPath, buildTaskGroupContextMarkdown({
-      title,
-      contractedContext,
-      orderedTaskIds,
-      activeTaskId: orderedTaskIds[0] ?? null,
-      planningQueueState: group.planningQueueState,
-      executionQueueState: group.executionQueueState,
-      tasksById
-    }), 'utf8')
-    return okResponse(group)
-  }
-
-  async plannerCreateFromJson(payload: TaskPlannerJsonRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<TaskJsonImportResult>> {
+  async plannerCreateFromJson(payload: PlannerJsonRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<TaskJsonImportResult>> {
     if (!payload?.projectId) return errorResponse(ErrorCodes.Validation, 'Project id required')
     let items: PlannerJsonItem[]
     try {
@@ -4184,18 +3636,12 @@ export class TaskService {
           }
         }
       }
-      const groupResponse = await this.createPlannerTaskGroup(payload, createdTasks)
-      if (!groupResponse.ok) {
-        return errorResponse(groupResponse.error?.code ?? ErrorCodes.Validation, groupResponse.error?.message ?? 'Created tasks but task group could not be created', {
-          createdTaskIds: createdTasks.map((task) => task.id)
-        })
-      }
-      return okResponse({ tasks: createdTasks, task: createdTasks[0], taskGroup: groupResponse.data ?? undefined, warnings: Array.from(new Set(warnings)) })
+      return okResponse({ tasks: createdTasks, task: createdTasks[0], warnings: Array.from(new Set(warnings)) })
     }
     return this.importJson({ actorToken: payload.actorToken, projectId: payload.projectId, json: payload.json })
   }
 
-  async plannerUpdateFromJson(payload: TaskPlannerJsonRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<TaskJsonImportResult>> {
+  async plannerUpdateFromJson(payload: PlannerJsonRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<TaskJsonImportResult>> {
     if (!payload?.taskId) return errorResponse(ErrorCodes.Validation, 'Task id required')
     const validation = await this.plannerValidateJson(payload)
     if (!validation.ok) return validation as ServiceResponse<TaskJsonImportResult>
@@ -4214,8 +3660,6 @@ export class TaskService {
     const updated = await this.repo.update(access.data.task.id, { status: target.id, payload: nextPayload })
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Task not found')
     await this.subtaskRepo.updateStatusesByTask(access.data.task.id, target.id)
-    const taskGroup = await this.taskGroupForLaunch(access.data.task.id)
-    await this.markTaskGroupQueue(taskGroup, 'execution', 'completed', access.data.task.id)
     this.emitTaskUpdated(access.data.task.projectId, access.data.task.id, 'ready_for_review')
     await this.signalGatewayTerminalRun(access.data.task.id)
     return okResponse({ taskId: access.data.task.id, statusId: target.id, statusName: target.name })
@@ -4305,10 +3749,6 @@ export class TaskService {
     const promptShape = projectGatewayPromptShape(project)
     const reasoningEffort = projectGatewayReasoningEffort(project, 'run', payload.reasoningEffort)
     const effectiveAgent = await this.effectiveAgentForTask(access.data.task, access.data.actorOrgId, project)
-    let taskGroup = await this.taskGroupForLaunch(access.data.task.id, payload.groupId)
-    if (payload.groupId?.trim() && !taskGroup) return errorResponse(ErrorCodes.Validation, 'Task group does not include this task')
-    if (taskGroup && taskGroup.projectId !== project.id) return errorResponse(ErrorCodes.Forbidden, 'Task group project mismatch')
-    taskGroup = await this.markTaskGroupQueue(taskGroup, 'execution', 'running', access.data.task.id)
 
     const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-gateway-run-'))
     let bridge: { url: string; close: () => Promise<void> } | null = null
@@ -4359,8 +3799,7 @@ export class TaskService {
         language,
         promptShape,
         projectPrompt,
-        effectiveAgent,
-        groupContract: taskGroup?.contractedContext
+        effectiveAgent
       })
       const workspaceRunPath = join(runtimeWorkspacePath, '.omc', 'runs', runId)
       workspaceRunPathForCleanup = workspaceRunPath
@@ -4369,7 +3808,6 @@ export class TaskService {
         actorToken: payload.actorToken,
         projectId: project.id,
         taskId: access.data.task.id,
-        groupId: taskGroup?.groupId,
         finishFilePath,
         terminalTitle: runTerminalTitle,
         workspaceRunPath,
@@ -4383,7 +3821,7 @@ export class TaskService {
       const clientScriptPath = join(runtimeWorkspacePath, helperRelativePath)
       const sessionPath = join(runtimeWorkspacePath, sessionRelativePath)
       await mkdir(workspaceRunPath, { recursive: true })
-      await writeFile(clientScriptPath, omcTaskPlannerClientScript(), 'utf8')
+      await writeFile(clientScriptPath, omcPlannerClientScript(), 'utf8')
       await chmod(clientScriptPath, 0o700)
       await writeFile(sessionPath, JSON.stringify({
         runId,
@@ -4399,7 +3837,6 @@ export class TaskService {
         language,
         reasoningEffort,
         effectiveAgent,
-        taskGroupContract: taskGroup ? this.queueStateDetails(taskGroup, access.data.task.id) : null,
         bridgeUrl: bridge.url,
         bridgeToken,
         createdAt: new Date().toISOString()
@@ -4414,8 +3851,7 @@ export class TaskService {
         plannedTaskRelativePath,
         exportWorkspacePath,
         runtimeWorkspacePath,
-        language,
-        groupContract: taskGroup?.contractedContext,
+        language
       }), 'utf8')
       const codexCommand = [
         shellQuote(codexPath),
@@ -4508,7 +3944,6 @@ export class TaskService {
         projectPrompt,
         language,
         effectiveAgent,
-        taskGroupContract: taskGroup ? this.queueStateDetails(taskGroup, access.data.task.id) : null,
         finishFilePath,
         terminalTitle: runTerminalTitle,
         executionMode,
@@ -4761,7 +4196,6 @@ export class TaskService {
             body: error.message,
             metadata: { gatewayBlock: 'run-complete', command: execCommand, codexPath, configuredCodexPath, attemptedCodexPaths }
           }, { emitTaskUpdatedAction: 'activity_complete' })
-          void this.markTaskGroupQueue(taskGroup, 'execution', 'failed', taskId)
           notifyRunCompletion('failed', 1)
           void bridge?.close()
           if (workspaceRunPathForCleanup) {
@@ -4823,7 +4257,6 @@ export class TaskService {
               if (postRunCode === 0) {
                 await this.markTaskReadyForReview({ actorToken: payload.actorToken, projectId: project.id, taskId }).catch(() => undefined)
               }
-              await this.markTaskGroupQueue(taskGroup, 'execution', postRunCode === 0 ? 'completed' : 'failed', taskId)
               notifyRunCompletion(postRunCode === 0 ? 'completed' : 'failed', postRunCode)
             } else {
               terminalMessages.push({
@@ -4835,7 +4268,6 @@ export class TaskService {
                 metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, rawTail: eventSummary.rawTail }
               })
               await this.appendTaskActivityMessages(taskId, terminalMessages, { emitTaskUpdatedAction: 'activity_complete' })
-              await this.markTaskGroupQueue(taskGroup, 'execution', 'failed', taskId)
               notifyRunCompletion('failed', code)
             }
             await bridge?.close()
@@ -5118,11 +4550,6 @@ export class TaskService {
     const promptShape = projectGatewayPromptShape(project)
     const reasoningEffort = projectGatewayReasoningEffort(project, 'plan', payload.reasoningEffort)
     const effectiveAgent = await this.effectiveAgentForTask(access.data.task, access.data.actorOrgId, project)
-    let taskGroup = await this.taskGroupForLaunch(access.data.task.id, payload.groupId)
-    if (payload.groupId?.trim() && !taskGroup) return errorResponse(ErrorCodes.Validation, 'Task group does not include this task')
-    if (taskGroup && taskGroup.projectId !== project.id) return errorResponse(ErrorCodes.Forbidden, 'Task group project mismatch')
-    taskGroup = await this.markTaskGroupQueue(taskGroup, 'planning', 'running', access.data.task.id)
-
     const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-gateway-planner-'))
     let bridge: { url: string; close: () => Promise<void> } | null = null
     let preserveRunFolderOnError = false
@@ -5152,7 +4579,6 @@ export class TaskService {
         actorToken: payload.actorToken,
         projectId: project.id,
         taskId: access.data.task.id,
-        groupId: taskGroup?.groupId,
         finishFilePath,
         terminalTitle: runTerminalTitle,
         workspaceRunPath,
@@ -5170,7 +4596,7 @@ export class TaskService {
       const clientScriptPath = join(runtimeWorkspacePath, helperRelativePath)
       const sessionPath = join(runtimeWorkspacePath, sessionRelativePath)
       await mkdir(workspaceRunPath, { recursive: true })
-      await writeFile(clientScriptPath, omcTaskPlannerClientScript(), 'utf8')
+      await writeFile(clientScriptPath, omcPlannerClientScript(), 'utf8')
       await chmod(clientScriptPath, 0o700)
       await writeFile(sessionPath, JSON.stringify({
         runId,
@@ -5187,7 +4613,6 @@ export class TaskService {
         workspaceRunPath,
         projectPrompt,
         effectiveAgent,
-        taskGroupContract: taskGroup ? this.queueStateDetails(taskGroup, access.data.task.id) : null,
         bridgeUrl: bridge.url,
         bridgeToken,
         createdAt: new Date().toISOString()
@@ -5202,8 +4627,7 @@ export class TaskService {
         helperRelativePath,
         contextRelativePath,
         plannedTaskRelativePath,
-        runtimeWorkspacePath,
-        groupContract: taskGroup?.contractedContext
+        runtimeWorkspacePath
       }), 'utf8')
       const taskId = access.data.task.id
       const transcript = taskActivityMessagesFromPayload(access.data.task.payload)
@@ -5215,8 +4639,7 @@ export class TaskService {
           promptShape,
           projectPrompt,
           effectiveAgent,
-          clarificationMode,
-          groupContract: taskGroup?.contractedContext
+          clarificationMode
         }),
         plannerClarificationPrompt({ conversationId, clarificationMessage, transcript, language, promptShape })
       ].join(' ')
@@ -5267,7 +4690,7 @@ export class TaskService {
         'trap cleanup EXIT',
         `cd ${shellQuote(runtimeWorkspacePath)}`,
         'printf \'\\033]0;%s\\007\' "$TERMINAL_TITLE"',
-        'echo "Open Mission Control Codex task planner"',
+        'echo "Open Mission Control Codex task planning"',
         `echo "Project: ${project.name.replace(/"/g, '\\"')}"`,
         `echo "Source task: ${access.data.task.title.replace(/"/g, '\\"')}"`,
         'echo "Open Mission Control helper API is scoped to this project and task."',
@@ -5305,7 +4728,6 @@ export class TaskService {
         gitignoreUpdated,
         bridgeUrl: bridge.url,
         projectPrompt,
-        taskGroupContract: taskGroup ? this.queueStateDetails(taskGroup, access.data.task.id) : null,
         finishFilePath,
         terminalTitle: runTerminalTitle,
         executionMode,
@@ -5391,7 +4813,6 @@ export class TaskService {
             body: error.message,
             metadata: { gatewayBlock: 'run-complete', command: execCommand, codexPath, configuredCodexPath, attemptedCodexPaths }
           }, { emitTaskUpdatedAction: 'activity_complete' })
-          void this.markTaskGroupQueue(taskGroup, 'planning', 'failed', taskId)
           notifyPlanCompletion('failed', 1)
           void bridge?.close()
           if (workspaceRunPathForCleanup) {
@@ -5470,7 +4891,6 @@ export class TaskService {
               })
             }
             await this.appendTaskActivityMessages(taskId, terminalMessages, { emitTaskUpdatedAction: 'activity_complete' })
-            await this.markTaskGroupQueue(taskGroup, 'planning', code === 0 ? 'completed' : 'failed', taskId)
             notifyPlanCompletion(code === 0 ? 'completed' : 'failed', code)
             await bridge?.close()
             if (workspaceRunPathForCleanup) {
@@ -5561,7 +4981,7 @@ export class TaskService {
         await rm(runFolderPath, { recursive: true, force: true })
         if (workspaceRunPathForCleanup) await rm(workspaceRunPathForCleanup, { recursive: true, force: true })
       }
-      const message = error instanceof Error ? error.message : 'Unable to launch Codex task planner'
+      const message = error instanceof Error ? error.message : 'Unable to launch Codex task planning'
       if (isCodexCliNotFoundError(error)) {
         await this.appendTaskActivityMessage(access.data.task.id, {
           runId: plannerRunId(access.data.task.id),

@@ -10,7 +10,7 @@ import { GATEWAY_REASONING_EFFORT_OPTIONS, DEFAULT_GATEWAY_LANGUAGE, gatewayMode
 import { gatewayChatLifecycleStatusKey, gatewayChatPhaseActionLabel, gatewayLifecycleStatusMeta, inferGatewayChatPhase, type GatewayChatPhase } from '@shared/utils/gateway-chat-phase'
 import { invokeBridge } from '@renderer/utils/api'
 import { clearRendererDiagnosticContext, setRendererDiagnosticContext } from '@renderer/utils/rendererResilience'
-import { Agent, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskGroup, TaskJsonImportResult, TaskSubtask, CustomField } from '@shared/types/entities'
+import { Agent, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, CustomField } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { LoadingState } from '@renderer/components/loading'
@@ -88,9 +88,6 @@ import type {
 import { ChatPopup } from '@renderer/popups/ChatPopup'
 import { TaskDetailPopup } from '@renderer/popups/TaskDetail'
 import { PlanChoiceModal } from '@renderer/popups/PlanChoiceModal'
-import { TaskPlannerChatPopup } from '@renderer/popups/TaskPlannerChatPopup'
-import { TaskGroupCreateModal } from '@renderer/popups/TaskGroupCreateModal'
-import { TaskGroupsModal } from '@renderer/popups/TaskGroupsModal'
 import styles from './ProjectDetailPage.module.scss'
 
 const DETAIL_RATIO_KEY = 'omc:task-modal:detail-ratio'
@@ -155,16 +152,12 @@ export function ProjectDetailPage() {
     chatVisibleLimit: CHAT_INITIAL_MESSAGE_LIMIT,
     detailRatio: loadInitialRatio()
   })
-  const [isTaskPlannerOpen, setIsTaskPlannerOpen] = useState(false)
-  const [updatingTaskGroupId, setUpdatingTaskGroupId] = useState<string | null>(null)
   const projectDetailState = useProjectDetailDispatcher(projectDetailRawState, projectDetailDispatch)
   const {
     project,
     setProject,
     projectGroups,
     setProjectGroups,
-    taskGroups,
-    setTaskGroups,
     tasks,
     setTasks,
     agents,
@@ -205,12 +198,6 @@ export function ProjectDetailPage() {
     setProjectGroupDescriptionDraft,
     projectGroupSaving,
     setProjectGroupSaving,
-    taskGroupTitleDraft,
-    setTaskGroupTitleDraft,
-    taskGroupSaving,
-    setTaskGroupSaving,
-    taskGroupError,
-    setTaskGroupError,
     projectSyncing,
     setProjectSyncing,
     projectSyncMessage,
@@ -450,8 +437,6 @@ export function ProjectDetailPage() {
   const lastGatewayModelRefreshRef = useRef<string | null>(null)
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false)
   const [isRecentChatsView, setIsRecentChatsView] = useState(false)
-  const [isTaskGroupCreateOpen, setIsTaskGroupCreateOpen] = useState(false)
-  const [isTaskGroupsOpen, setIsTaskGroupsOpen] = useState(false)
   const [pendingChatOpen, setPendingChatOpen] = useState<{ taskId: string; conversationId: string } | null>(null)
   const [defaultAgentId, setDefaultAgentId] = useState<string>('')
   const [gatewayLanguage, setGatewayLanguage] = useState<string>(DEFAULT_GATEWAY_LANGUAGE)
@@ -1540,62 +1525,6 @@ export function ProjectDetailPage() {
     await refresh()
   }
 
-  const createTaskGroup = async (): Promise<boolean> => {
-    if (!projectId) return false
-    const title = taskGroupTitleDraft.trim()
-    if (!title) {
-      setTaskGroupError('Grup adı zorunlu.')
-      return false
-    }
-
-    setTaskGroupSaving(true)
-    setTaskGroupError(null)
-    const response = await invokeBridge<TaskGroup>(IPC_CHANNELS.taskGroups.create, {
-      actorToken: token,
-      projectId,
-      title
-    })
-
-    if (!response.ok || !response.data) {
-      setTaskGroupSaving(false)
-      setTaskGroupError(response.error?.message ?? 'Task grubu oluşturulamadı')
-      return false
-    }
-
-    setTaskGroups((current) => [response.data as TaskGroup, ...current.filter((group) => group.groupId !== response.data?.groupId)])
-    setTaskGroupTitleDraft('')
-    setTaskGroupSaving(false)
-    return true
-  }
-
-  const closeTaskGroupCreateModal = () => {
-    if (taskGroupSaving) return
-    setIsTaskGroupCreateOpen(false)
-    setTaskGroupTitleDraft('')
-    setTaskGroupError(null)
-  }
-
-  const updateTaskGroupTasks = async (groupId: string, orderedTaskIds: string[], activeTaskId?: string | null) => {
-    setTaskGroupSaving(true)
-    setUpdatingTaskGroupId(groupId)
-    setTaskGroupError(null)
-    const response = await invokeBridge<TaskGroup>(IPC_CHANNELS.taskGroups.update, {
-      actorToken: token,
-      groupId,
-      orderedTaskIds,
-      ...(activeTaskId !== undefined ? { activeTaskId } : {})
-    })
-    setTaskGroupSaving(false)
-    setUpdatingTaskGroupId(null)
-
-    if (!response.ok || !response.data) {
-      setTaskGroupError(response.error?.message ?? 'Task grubu güncellenemedi')
-      return
-    }
-
-    setTaskGroups((current) => current.map((group) => group.groupId === groupId ? response.data as TaskGroup : group))
-  }
-
   const openCreateTask = (status: TaskEntity['status'] = defaultStatus) => {
     setCreateTaskStatus(status)
     setIsCreateTaskOpen(true)
@@ -1648,9 +1577,6 @@ export function ProjectDetailPage() {
       setIsCreateTaskOpen(false)
       setCreateTaskInitialTitle('')
       setCreateTaskInitialTemplateId(null)
-      if (result.taskGroup) {
-        setTaskGroups((current) => current.map((group) => group.groupId === result.taskGroup?.groupId ? result.taskGroup : group))
-      }
       await refresh()
       openTask(result.task.id)
     } catch (error) {
@@ -3246,12 +3172,6 @@ export function ProjectDetailPage() {
         onTaskTitleChange={setTaskTitle}
         onQuickCreate={() => void handleQuickCreate()}
         onOpenCreateTask={() => openCreateTask(defaultStatus)}
-        onOpenCreateTaskGroup={() => {
-          setTaskGroupError(null)
-          setIsTaskGroupCreateOpen(true)
-        }}
-        onOpenTaskGroups={() => setIsTaskGroupsOpen(true)}
-        onOpenTaskPlanner={() => setIsTaskPlannerOpen(true)}
         onOpenProjectPrompts={openProjectPromptSettings}
         onOpenAnalytics={() => setIsAnalyticsOpen(true)}
         onOpenStatusSettings={openStatusEditor}
@@ -3261,43 +3181,6 @@ export function ProjectDetailPage() {
         recentChatsActive={isRecentChatsView}
         recentChatsCount={projectRecentChats.length}
         onRecentChatsSelect={() => setIsRecentChatsView(true)}
-      />
-
-      <TaskGroupCreateModal
-        open={isTaskGroupCreateOpen}
-        titleDraft={taskGroupTitleDraft}
-        saving={taskGroupSaving}
-        error={taskGroupError}
-        onTitleDraftChange={(value) => {
-          setTaskGroupTitleDraft(value)
-          if (taskGroupError) setTaskGroupError(null)
-        }}
-        onClose={closeTaskGroupCreateModal}
-        onSubmit={() => {
-          void createTaskGroup().then((created) => {
-            if (created) setIsTaskGroupCreateOpen(false)
-          })
-        }}
-      />
-
-      <TaskGroupsModal
-        open={isTaskGroupsOpen}
-        groups={taskGroups}
-        saving={taskGroupSaving}
-        error={isTaskGroupCreateOpen ? null : taskGroupError}
-        tasks={tasks}
-        updatingGroupId={updatingTaskGroupId}
-        onUpdate={(groupId, orderedTaskIds, activeTaskId) => void updateTaskGroupTasks(groupId, orderedTaskIds, activeTaskId)}
-        onOpenTask={(taskId) => {
-          setIsTaskGroupsOpen(false)
-          navigateToTaskDetail(taskId)
-        }}
-        onCreateGroup={() => {
-          setTaskGroupError(null)
-          setIsTaskGroupsOpen(false)
-          setIsTaskGroupCreateOpen(true)
-        }}
-        onClose={() => setIsTaskGroupsOpen(false)}
       />
 
       {isAnalyticsOpen ? (
@@ -3360,7 +3243,6 @@ export function ProjectDetailPage() {
         <ActiveProjectView
           statusColumns={statusColumns}
           tasksByStatus={tasksByStatus}
-          taskGroups={taskGroups}
           agents={agents}
           onDropStatus={(event, status) => {
             void onDropColumn(event, status)
@@ -3386,7 +3268,6 @@ export function ProjectDetailPage() {
           tags,
           agents,
           templates: taskTemplates,
-          taskGroups,
           statusColumns,
           defaultStatus: createTaskStatus,
           initialTitle: createTaskInitialTitle,
@@ -3472,33 +3353,12 @@ export function ProjectDetailPage() {
         scope={projectSettingsModalScope}
       ></ProjectDetailSettingsPopup>
 
-      <TaskPlannerChatPopup
-        open={isTaskPlannerOpen}
-        actorToken={token}
-        project={project}
-        gateways={gateways}
-        sourceTask={selectedTask}
-        defaultStatus={defaultStatus}
-        onClose={() => setIsTaskPlannerOpen(false)}
-        onCreated={(createdTasks, taskGroup) => {
-          if (createdTasks.length > 0) {
-            const createdIds = new Set(createdTasks.map((task) => task.id))
-            setTasks((current) => [...createdTasks, ...current.filter((task) => !createdIds.has(task.id))])
-            if (taskGroup) {
-              setTaskGroups((current) => [taskGroup, ...current.filter((group) => group.groupId !== taskGroup.groupId)])
-            }
-            setProjectSyncMessage(taskGroup ? `${createdTasks.length} yeni task "${taskGroup.title}" grubu altında oluşturuldu.` : `${createdTasks.length} yeni task oluşturuldu.`)
-          }
-        }}
-      />
-
-      {selectedTask && !isChatPopupOpen && !isTaskPlannerOpen ? (
+      {selectedTask && !isChatPopupOpen ? (
         <>
           <TaskDetailPopup
             taskId={selectedTask.id}
             onClose={closeSelectedTaskDetail}
             onOpenChat={() => setIsChatPopupOpen(true)}
-            onOpenTaskPlanner={() => setIsTaskPlannerOpen(true)}
             onEditTitle={() => {
               setDetailViewMode('task')
               setSelectedSubtaskId(null)

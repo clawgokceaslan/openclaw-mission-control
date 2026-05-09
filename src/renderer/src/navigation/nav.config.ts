@@ -13,9 +13,7 @@ import {
   LuClipboardList,
   LuBookMarked,
   LuLayers,
-  LuMessageSquare,
-  LuRoute,
-  LuWorkflow
+  LuMessageSquare
 } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 
@@ -37,9 +35,7 @@ export const NAV_BY_GROUP: Record<NavGroupKey, NavItem[]> = {
   ],
   Projects: [
     { label: 'Project groups', path: APP_ROUTES.PROJECT_GROUPS, group: 'Projects', icon: LuFolderKanban },
-    { label: 'Projects', path: APP_ROUTES.PROJECTS, group: 'Projects', icon: LuFolder },
-    { label: 'Çalıştırma Kuyruğu', path: APP_ROUTES.AUTO_RUN, group: 'Projects', icon: LuRoute },
-    { label: 'Plan Kuyruğu', path: APP_ROUTES.AUTO_PLANS, group: 'Projects', icon: LuWorkflow }
+    { label: 'Projects', path: APP_ROUTES.PROJECTS, group: 'Projects', icon: LuFolder }
   ],
   Templates: [
     { label: 'Statuses', path: APP_ROUTES.STATUSES, group: 'Templates', icon: LuListTodo },

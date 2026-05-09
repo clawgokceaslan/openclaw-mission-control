@@ -1,4 +1,4 @@
-import { LuLayers, LuListPlus, LuMessageSquare, LuPlus, LuRefreshCw, LuRoute, LuSettings2, LuSignal } from 'react-icons/lu'
+import { LuMessageSquare, LuPlus, LuRefreshCw, LuSettings2, LuSignal } from 'react-icons/lu'
 import type { Project } from '@shared/types/entities'
 import { ProjectViewBar } from '../ProjectViewBar'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
@@ -10,9 +10,6 @@ interface ProjectDetailHeaderProps {
   onTaskTitleChange: (value: string) => void
   onQuickCreate: () => void
   onOpenCreateTask: () => void
-  onOpenCreateTaskGroup: () => void
-  onOpenTaskGroups: () => void
-  onOpenTaskPlanner: () => void
   onOpenProjectPrompts: () => void
   onOpenAnalytics: () => void
   onOpenStatusSettings: () => void
@@ -31,9 +28,6 @@ export function ProjectDetailHeader({
   onTaskTitleChange,
   onQuickCreate,
   onOpenCreateTask,
-  onOpenCreateTaskGroup,
-  onOpenTaskGroups,
-  onOpenTaskPlanner,
   onOpenProjectPrompts,
   onOpenAnalytics,
   onOpenStatusSettings,
@@ -66,33 +60,6 @@ export function ProjectDetailHeader({
           />
           <button type="button" className={styles.plusBtn} onClick={onOpenCreateTask} disabled={busy}>
             <LuPlus size={18} />
-          </button>
-          <button
-            type="button"
-            className={styles.iconBtn}
-            onClick={onOpenTaskGroups}
-            aria-label="Task gruplarını yönet"
-            title="Task gruplarını yönet"
-          >
-            <LuRoute size={16} />
-          </button>
-          <button
-            type="button"
-            className={styles.iconBtn}
-            onClick={onOpenCreateTaskGroup}
-            aria-label="Task grubu oluştur"
-            title="Task grubu oluştur"
-          >
-            <LuLayers size={16} />
-          </button>
-          <button
-            type="button"
-            className={styles.iconBtn}
-            onClick={onOpenTaskPlanner}
-            aria-label="Çoklu task oluşturma merkezi"
-            title="Çoklu task oluşturma merkezi"
-          >
-            <LuListPlus size={16} />
           </button>
           <button type="button" className={styles.iconBtn} onClick={onSyncProject} disabled={syncDisabled} aria-label="Sync project exports"><LuRefreshCw size={16} /></button>
           <button

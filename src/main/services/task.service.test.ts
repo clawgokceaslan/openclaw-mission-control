@@ -9,7 +9,7 @@ import { promisify } from 'node:util'
 import type { ProjectStatus, TaskChecklistItem, TaskEntity } from '../../shared/types/entities.js'
 import type { NormalizedTaskJsonImport, NormalizedImportedSubtask } from './task-json-import.js'
 import { TaskJsonImportNormalizer } from './task-json-import.js'
-import { appendGatewayNextChatHandoff, gatewayChatPrompt, gatewayOutputChanges, gatewayWorkspaceChanges, initialGatewayPrompt, initialPlannerPrompt, normalizePlannerQuestionPayload, normalizeTaskPlannerAiFillResult, omcCliInstructions, plannerJsonGuidance, postRunContinuationPrompt, shouldStartPostRunPrompt, summarizeRunningConversation, taskPlannerAiFillPrompt, TaskService, validatePlannerTaskJsonQuality, writeTaskSnapshotToExportWorkspace } from './task.service.js'
+import { appendGatewayNextChatHandoff, gatewayChatPrompt, gatewayOutputChanges, gatewayWorkspaceChanges, initialGatewayPrompt, initialPlannerPrompt, normalizePlannerQuestionPayload, omcCliInstructions, plannerJsonGuidance, postRunContinuationPrompt, shouldStartPostRunPrompt, summarizeRunningConversation, TaskService, validatePlannerTaskJsonQuality, writeTaskSnapshotToExportWorkspace } from './task.service.js'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 
 const execFileAsync = promisify(execFile)
@@ -553,94 +553,6 @@ describe('planner quality gate', () => {
     expect(importedJson).toHaveLength(2)
   })
 
-  it('creates a task group contract for batch planner output when requested', async () => {
-    const service = Object.create(TaskService.prototype) as TaskService & any
-    const workspace = await mkdtemp(join(tmpdir(), 'omc-task-group-test-'))
-    const previousCwd = process.cwd()
-    const createdGroups: any[] = []
-    service.auth = { requireActor: async () => ({ user: { organizationId: 'org-1' } }) }
-    service.findProjectOrg = async () => 'org-1'
-    service.agents = {}
-    service.tags = { list: async () => [] }
-    service.skills = {}
-    service.customFields = { list: async () => [] }
-    service.repo = { get: async () => undefined }
-    service.taskGroups = {
-      create: vi.fn(async (input: any) => {
-        const group = {
-          id: input.id,
-          groupId: input.id,
-          projectId: input.projectId,
-          title: input.title,
-          orderedTaskIds: input.orderedTaskIds,
-          activeTaskId: input.activeTaskId,
-          groupContextMdPath: input.groupContextMdPath,
-          contractedContext: input.contractedContext,
-          planningQueueState: input.planningQueueState,
-          executionQueueState: input.executionQueueState,
-          createdAt: 1,
-          updatedAt: 1
-        }
-        createdGroups.push(group)
-        return group
-      })
-    }
-    service.importJson = async (payload: any) => {
-      const index = payload.json.title.includes('Delivery') ? 2 : 1
-      return {
-        ok: true,
-        data: {
-          task: {
-            id: `task-${index}`,
-            projectId: payload.projectId,
-            title: payload.json.title,
-            status: 'active',
-            description: payload.json.description,
-            agenticInputs: payload.json.agenticInputs ?? {},
-            createdAt: 1,
-            updatedAt: 1
-          },
-          warnings: []
-        }
-      }
-    }
-
-    try {
-      process.chdir(workspace)
-      const response = await service.plannerCreateFromJson({
-        actorToken: 'actor',
-        projectId: 'project-1',
-        json: [
-          { title: 'Discovery task', description: 'Define scope.', agenticInputs: { acceptanceCriteria: '- Scope is clear.' } },
-          { title: 'Delivery task', description: 'Ship the UI.' }
-        ],
-        createTaskGroup: true,
-        taskGroupTitle: 'Release group'
-      })
-
-      expect(response.ok).toBe(true)
-      expect(response.data?.taskGroup).toEqual(expect.objectContaining({
-        projectId: 'project-1',
-        title: 'Release group',
-        orderedTaskIds: ['task-1', 'task-2'],
-        activeTaskId: 'task-1'
-      }))
-      expect(response.data?.taskGroup?.planningQueueState).toEqual(expect.objectContaining({ state: 'idle' }))
-      expect(response.data?.taskGroup?.executionQueueState.details).toEqual(expect.objectContaining({
-        projectId: 'project-1',
-        orderedTaskIds: ['task-1', 'task-2'],
-        activeTaskId: 'task-1'
-      }))
-      expect(createdGroups[0].contractedContext).toContain('orderedTaskIds: task-1, task-2')
-      const contextMd = await readFile(response.data?.taskGroup?.groupContextMdPath ?? '', 'utf8')
-      expect(contextMd).toContain('# Release group')
-      expect(contextMd).toContain('Discovery task')
-    } finally {
-      process.chdir(previousCwd)
-      await rm(workspace, { recursive: true, force: true })
-    }
-  })
-
   it('prevalidates every batch create item before importing any task', async () => {
     const service = Object.create(TaskService.prototype) as TaskService & any
     let importCount = 0
@@ -843,62 +755,6 @@ describe('planner quality gate', () => {
     const parsed = JSON.parse(prompt)
     expect(parsed.family).toBe('post_run')
     expect(parsed.sections.find((section: { name: string }) => section.name === 'post_run_prompt').value).toBe('Clean up generated artifacts.')
-  })
-})
-
-describe('task planner AI fill', () => {
-  it('builds a JSON-only prompt scoped to target fields and source task context', () => {
-    const prompt = taskPlannerAiFillPrompt({
-      project: { id: 'project-1', name: 'OMC', description: 'Planning product.' },
-      sourceTask: taskWithComments(),
-      form: { outcome: 'Split a large task', problem: 'Too broad' },
-      answers: ['Keep source task open.'],
-      intro: 'Use AI to fill planner fields quickly.',
-      targetFields: ['outcome', 'northStar'],
-      mode: 'step',
-      step: 2,
-      suggestedTaskCount: 5,
-      language: 'tr'
-    })
-
-    expect(prompt).toContain('Return only valid JSON')
-    expect(prompt).toContain('"targetFields": [')
-    expect(prompt).toContain('"outcome"')
-    expect(prompt).toContain('"northStar"')
-    expect(prompt).toContain('Use AI to fill planner fields quickly.')
-    expect(prompt).toContain('Prompt Priority Task')
-    expect(prompt).toContain('Do not call tools')
-  })
-
-  it('normalizes AI fill JSON and rejects fields outside the requested page', () => {
-    const response = normalizeTaskPlannerAiFillResult(`\`\`\`json
-{
-  "form": {
-    "outcome": "A stronger outcome",
-    "metrics": "Should be ignored for this step",
-    "unknown": "ignored"
-  },
-  "questions": ["Which user owns the first decision?"],
-  "drafts": [
-    {
-      "order": 1,
-      "phase": "Discovery",
-      "title": "Clarify the product boundary",
-      "description": "## Amaç\\nDefine the boundary.",
-      "confidence": 91
-    }
-  ]
-}
-\`\`\``, ['outcome'])
-
-    expect(response.ok).toBe(true)
-    expect(response.data?.form).toEqual({ outcome: 'A stronger outcome' })
-    expect(response.data?.questions).toEqual(['Which user owns the first decision?'])
-    expect(response.data?.drafts?.[0]).toMatchObject({
-      order: 1,
-      title: 'Clarify the product boundary',
-      confidence: 91
-    })
   })
 })
 

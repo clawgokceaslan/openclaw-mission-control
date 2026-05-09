@@ -12,7 +12,6 @@ import type {
   StatusTemplate,
   Tag,
   TaskEntity,
-  TaskGroup,
   TaskTemplate,
   Workspace
 } from '@shared/types/entities'
@@ -42,7 +41,6 @@ export interface ProjectDetailDataContext {
       | 'setWorkspaces'
       | 'setStatusTemplates'
       | 'setProjectGroups'
-      | 'setTaskGroups'
       | 'setGatewayId'
       | 'setGatewayRuntimeWorkspaceId'
       | 'setGatewayDefaultModel'
@@ -74,7 +72,6 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
     setWorkspaces,
     setStatusTemplates,
     setProjectGroups,
-    setTaskGroups,
     setGatewayId,
     setGatewayRuntimeWorkspaceId,
     setGatewayDefaultModel,
@@ -102,8 +99,7 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
       statusesResponse,
       workspacesResponse,
       statusTemplatesResponse,
-      projectGroupsResponse,
-      taskGroupsResponse
+      projectGroupsResponse
     ] = await Promise.all([
       invokeBridge<Project>(IPC_CHANNELS.projects.get, { actorToken: token, id: projectId }),
       invokeBridge<TaskEntity[]>(IPC_CHANNELS.tasks.list, { actorToken: token, projectId }),
@@ -117,8 +113,7 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
       invokeBridge<ProjectStatus[]>(IPC_CHANNELS.statuses.getProjectStatuses, { actorToken: token, projectId }),
       loadList<Workspace[]>(IPC_CHANNELS.workspaces.list, token),
       invokeBridge<StatusTemplate[]>(IPC_CHANNELS.statuses.listTemplates, { actorToken: token }),
-      loadList<ProjectGroup[]>(IPC_CHANNELS.projectGroups.list, token),
-      invokeBridge<TaskGroup[]>(IPC_CHANNELS.taskGroups.list, { actorToken: token, projectId })
+      loadList<ProjectGroup[]>(IPC_CHANNELS.projectGroups.list, token)
     ])
 
     if (!projectResponse.ok || !projectResponse.data) {
@@ -144,15 +139,9 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
       setProjectGroups(Array.isArray(projectGroupsResponse.data) ? projectGroupsResponse.data : [])
     }
 
-    if (taskGroupsResponse.ok) {
-      setTaskGroups(Array.isArray(taskGroupsResponse.data) ? taskGroupsResponse.data : [])
-    }
-
     setError(
       !taskResponse.ok
         ? taskResponse.error?.message ?? 'Unable to load tasks'
-        : !taskGroupsResponse.ok
-          ? taskGroupsResponse.error?.message ?? 'Unable to load task groups'
         : !outputFormatsResponse.ok
           ? outputFormatsResponse.error?.message ?? 'Unable to load data formats'
           : !taskTemplatesResponse.ok
@@ -175,8 +164,7 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
     setProjectStatuses,
     setWorkspaces,
     setStatusTemplates,
-    setProjectGroups,
-    setTaskGroups
+    setProjectGroups
   ])
 
   const rawRefreshRef = useRef(rawRefresh)

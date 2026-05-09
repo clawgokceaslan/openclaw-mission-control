@@ -1,13 +1,12 @@
 import type { DragEvent } from 'react'
 import { ProjectBoardView } from '@renderer/components/projects/detail/ProjectBoardView'
-import type { Agent, TaskEntity, TaskGroup } from '@shared/types/entities'
+import type { Agent, TaskEntity } from '@shared/types/entities'
 import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
 import type { TaskDropPosition } from '@renderer/screens/projects/detail/projectDetailUtils'
 
 export interface ActiveProjectViewProps {
   statusColumns: ProjectStatusColumn[]
   tasksByStatus: Record<TaskEntity['status'], TaskEntity[]>
-  taskGroups: TaskGroup[]
   agents: Agent[]
   onDropStatus: (event: DragEvent<HTMLElement>, status: TaskEntity['status']) => void
   onReorder: (sourceTaskId: string, targetTaskId: string, position: TaskDropPosition) => void
@@ -19,7 +18,6 @@ export interface ActiveProjectViewProps {
 export function ActiveProjectView({
   statusColumns,
   tasksByStatus,
-  taskGroups,
   agents,
   onDropStatus,
   onReorder,
@@ -31,7 +29,6 @@ export function ActiveProjectView({
     <ProjectBoardView
       columns={statusColumns}
       tasksByStatus={tasksByStatus}
-      taskGroups={taskGroups}
       agents={agents}
       onDropStatus={onDropStatus}
       onReorder={(sourceTaskId, targetTaskId, position) => void onReorder(sourceTaskId, targetTaskId, position)}
