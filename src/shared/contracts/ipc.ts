@@ -146,6 +146,11 @@ export const IPC_CHANNELS = {
     update: 'project-groups:update',
     remove: 'project-groups:remove'
   },
+  planPipelines: {
+    list: 'plan-pipelines:list',
+    createFromGroups: 'plan-pipelines:create-from-groups',
+    updateState: 'plan-pipelines:update-state'
+  },
   customFields: {
     list: 'custom-fields:list',
     create: 'custom-fields:create',
@@ -666,6 +671,7 @@ export const SERVICE_MAP = {
   skills: ['list', 'listPage', 'create', 'update', 'remove', 'listPacks'],
   organization: ['me', 'listMembers', 'createInvite'],
   projectGroups: ['list', 'create', 'update', 'remove'],
+  planPipelines: ['list', 'createFromGroups', 'updateState'],
   customFields: ['list', 'create', 'update', 'remove', 'tagsList', 'tagsCreate', 'tagsUpdate', 'tagsRemove'],
   outputFormats: ['list', 'create', 'update', 'remove'],
   jobs: ['list', 'metrics']
@@ -1473,6 +1479,29 @@ export const SERVICE_ROUTING: {
       action: 'remove',
       method: 'remove',
       channel: IPC_CHANNELS.projectGroups.remove,
+      requiresAuth: true
+    }
+  },
+  planPipelines: {
+    list: {
+      domain: 'planPipelines',
+      action: 'list',
+      method: 'list',
+      channel: IPC_CHANNELS.planPipelines.list,
+      requiresAuth: true
+    },
+    createFromGroups: {
+      domain: 'planPipelines',
+      action: 'createFromGroups',
+      method: 'createFromGroups',
+      channel: IPC_CHANNELS.planPipelines.createFromGroups,
+      requiresAuth: true
+    },
+    updateState: {
+      domain: 'planPipelines',
+      action: 'updateState',
+      method: 'updateState',
+      channel: IPC_CHANNELS.planPipelines.updateState,
       requiresAuth: true
     }
   },

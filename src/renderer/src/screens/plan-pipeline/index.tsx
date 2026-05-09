@@ -18,7 +18,7 @@ import {
   LuX
 } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
-import type { Project, ProjectStatus, TaskEntity } from '@shared/types/entities'
+import type { PlanPipelineRecord, Project, ProjectStatus, TaskEntity } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList } from '@renderer/utils/api'
 import styles from './index.module.scss'
@@ -161,6 +161,7 @@ export function PlanPipelinePage() {
   const [activeStep, setActiveStep] = useState<StepKey>('basic')
   const [projects, setProjects] = useState<Project[]>([])
   const [tasks, setTasks] = useState<TaskEntity[]>([])
+  const [savedPipelines, setSavedPipelines] = useState<PlanPipelineRecord[]>([])
   const [statusesByProject, setStatusesByProject] = useState<Record<string, ProjectStatus[]>>({})
   const [issues, setIssues] = useState<ProjectLoadIssue[]>([])
   const [loading, setLoading] = useState(true)
@@ -171,6 +172,8 @@ export function PlanPipelinePage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [groupName, setGroupName] = useState('')
   const [groupDescription, setGroupDescription] = useState('')
+  const [saveFeedback, setSaveFeedback] = useState<{ kind: 'success' | 'error'; message: string } | null>(null)
+  const [saving, setSaving] = useState(false)
   const [dragData, setDragData] = useState<string | null>(null)
   const [selectedDetailGroupId, setSelectedDetailGroupId] = useState<string | null>(draft.currentGroupId ?? null)
   const modalCloseRef = useRef<HTMLButtonElement | null>(null)
@@ -178,9 +181,10 @@ export function PlanPipelinePage() {
   const loadData = async () => {
     setLoading(true)
     setError(null)
-    const [projectResponse, taskResponse] = await Promise.all([
+    const [projectResponse, taskResponse, pipelineResponse] = await Promise.all([
       loadList<Project[]>(IPC_CHANNELS.projects.list, token),
-      loadList<TaskEntity[]>(IPC_CHANNELS.tasks.list, token)
+      loadList<TaskEntity[]>(IPC_CHANNELS.tasks.list, token),
+      loadList<PlanPipelineRecord[]>(IPC_CHANNELS.planPipelines.list, token)
     ])
 
     if (!projectResponse.ok) {
@@ -206,12 +210,14 @@ export function PlanPipelinePage() {
 
     setProjects(projectRows)
     setTasks(taskRows)
+    setSavedPipelines(pipelineResponse.ok && Array.isArray(pipelineResponse.data) ? pipelineResponse.data : [])
     setStatusesByProject(Object.fromEntries(statusEntries.map((entry) => [entry.projectId, entry.statuses])))
     setIssues(statusEntries.filter((entry) => entry.issue).map((entry) => ({
       projectId: entry.projectId,
       message: entry.issue ?? 'Bilinmeyen hata'
     })))
     if (!taskResponse.ok) setError(taskResponse.error?.message ?? 'Task listesi yüklenemedi')
+    if (!pipelineResponse.ok) setSaveFeedback({ kind: 'error', message: pipelineResponse.error?.message ?? 'Kayıtlı pipeline listesi yüklenemedi' })
     setLoading(false)
   }
 
@@ -274,6 +280,21 @@ export function PlanPipelinePage() {
     () => draft.selectedTaskIds.filter((taskId) => !assignedTaskIds.has(taskId) && taskById.has(taskId)),
     [draft.selectedTaskIds, assignedTaskIds, taskById]
   )
+  const savedPipelineGroups = useMemo<PipelineGroup[]>(() => savedPipelines
+    .slice()
+    .sort((a, b) => b.createdAt - a.createdAt || a.groupOrder - b.groupOrder)
+    .map((pipeline) => ({
+      id: pipeline.id,
+      name: pipeline.groupName,
+      description: pipeline.groupDescription ?? `${pipeline.sourceDraftName} kaydından oluşturuldu.`,
+      taskIds: pipeline.taskIds,
+      status: pipeline.status === 'paused' || pipeline.status === 'blocked' || pipeline.status === 'cancelled' ? 'waiting' : pipeline.status,
+      progress: pipeline.progress,
+      retryCount: pipeline.retryCount,
+      lastError: pipeline.lastError,
+      summaryContext: pipeline.summaryContext,
+      completedAt: pipeline.completedAt
+    })), [savedPipelines])
 
   const queueProgress = useMemo(() => {
     const totalTasks = draft.groups.reduce((sum, group) => sum + group.taskIds.length, 0)
@@ -439,6 +460,16 @@ export function PlanPipelinePage() {
   }
 
   const startQueue = () => {
+    if (savedPipelineGroups.length > 0) {
+      const firstPending = savedPipelines.slice().sort((a, b) => a.groupOrder - b.groupOrder).find((pipeline) => pipeline.status === 'pending' || pipeline.status === 'waiting')
+      if (firstPending) {
+        void updateSavedPipelineState(firstPending.id, {
+          status: firstPending.runMode === 'questioned' ? 'waiting' : 'running',
+          progress: firstPending.progress
+        })
+      }
+      return
+    }
     updateDraft((current) => initializeRunState({
       ...current,
       createdAt: current.createdAt ?? Date.now(),
@@ -459,14 +490,29 @@ export function PlanPipelinePage() {
   }
 
   const pauseQueue = () => {
+    if (savedPipelineGroups.length > 0) {
+      const running = savedPipelines.find((pipeline) => pipeline.status === 'running')
+      if (running) void updateSavedPipelineState(running.id, { status: 'paused' })
+      return
+    }
     updateDraft((current) => ({ ...current, queueStatus: 'paused' }))
   }
 
   const resumeQueue = () => {
+    if (savedPipelineGroups.length > 0) {
+      const paused = savedPipelines.find((pipeline) => pipeline.status === 'paused')
+      if (paused) void updateSavedPipelineState(paused.id, { status: paused.runMode === 'questioned' ? 'waiting' : 'running' })
+      return
+    }
     updateDraft((current) => ({ ...current, queueStatus: current.waitingApprovalGroupId ? 'blocked' : 'running' }))
   }
 
   const cancelQueue = () => {
+    if (savedPipelineGroups.length > 0) {
+      const active = savedPipelines.filter((pipeline) => pipeline.status === 'running' || pipeline.status === 'waiting' || pipeline.status === 'paused')
+      active.forEach((pipeline) => void updateSavedPipelineState(pipeline.id, { status: 'cancelled' }))
+      return
+    }
     updateDraft((current) => ({
       ...current,
       queueStatus: 'cancelled',
@@ -475,6 +521,10 @@ export function PlanPipelinePage() {
   }
 
   const failGroup = (groupId: string) => {
+    if (savedPipelines.some((pipeline) => pipeline.id === groupId)) {
+      void updateSavedPipelineState(groupId, { status: 'failed', lastError: 'Kayıtlı pipeline manuel olarak hatalı işaretlendi.' })
+      return
+    }
     updateDraft((current) => ({
       ...current,
       queueStatus: 'failed',
@@ -483,6 +533,16 @@ export function PlanPipelinePage() {
   }
 
   const retryGroup = (groupId: string) => {
+    const savedPipeline = savedPipelines.find((pipeline) => pipeline.id === groupId)
+    if (savedPipeline) {
+      void updateSavedPipelineState(groupId, {
+        status: savedPipeline.runMode === 'questioned' ? 'waiting' : 'running',
+        progress: 0,
+        retryCount: savedPipeline.retryCount + 1,
+        lastError: null
+      })
+      return
+    }
     updateDraft((current) => ({
       ...current,
       queueStatus: current.runMode === 'questioned' ? 'blocked' : 'running',
@@ -499,6 +559,73 @@ export function PlanPipelinePage() {
         return [taskId, target ? { ...state, status: 'pending', progress: 0, lastError: undefined, retryCount: state.retryCount + 1 } : state]
       }))
     }))
+  }
+
+  const updateSavedPipelineState = async (id: string, patch: Partial<Pick<PlanPipelineRecord, 'status' | 'progress' | 'retryCount' | 'summaryContext' | 'lastError' | 'completedAt'>>) => {
+    const response = await invokeBridge<PlanPipelineRecord>(IPC_CHANNELS.planPipelines.updateState, {
+      actorToken: token,
+      id,
+      ...patch
+    })
+    if (!response.ok || !response.data) {
+      setSaveFeedback({ kind: 'error', message: response.error?.message ?? 'Pipeline durumu güncellenemedi' })
+      return
+    }
+    setSavedPipelines((current) => current.map((pipeline) => pipeline.id === id ? response.data! : pipeline))
+  }
+
+  const savePipeline = async () => {
+    const sourceDraftName = draft.name.trim()
+    const groupsToSave = draft.groups.filter((group) => group.taskIds.length > 0)
+    const emptyGroupNames = draft.groups.filter((group) => group.taskIds.length === 0).map((group) => group.name)
+    setSaveFeedback(null)
+    if (!sourceDraftName) {
+      setSaveFeedback({ kind: 'error', message: 'Kaydetmek için pipeline adını doldur.' })
+      setActiveStep('basic')
+      return
+    }
+    if (draft.selectedProjectIds.length === 0) {
+      setSaveFeedback({ kind: 'error', message: 'Kaydetmek için en az bir proje seç.' })
+      setActiveStep('projects')
+      return
+    }
+    if (draft.selectedTaskIds.length === 0) {
+      setSaveFeedback({ kind: 'error', message: 'Kaydetmek için en az bir task seç.' })
+      setActiveStep('tasks')
+      return
+    }
+    if (draft.groups.length === 0 || groupsToSave.length === 0 || emptyGroupNames.length > 0) {
+      setSaveFeedback({ kind: 'error', message: emptyGroupNames.length > 0 ? `Boş gruplar kaydedilemez: ${emptyGroupNames.join(', ')}` : 'Kaydetmek için task içeren en az bir grup oluştur.' })
+      setActiveStep('groups')
+      return
+    }
+    if (unassignedSelectedTasks.length > 0) {
+      setSaveFeedback({ kind: 'error', message: `${unassignedSelectedTasks.length} seçili task henüz bir gruba atanmadı.` })
+      setActiveStep('groups')
+      return
+    }
+    setSaving(true)
+    const response = await invokeBridge<PlanPipelineRecord[]>(IPC_CHANNELS.planPipelines.createFromGroups, {
+      actorToken: token,
+      sourceDraftName,
+      projectIds: draft.selectedProjectIds,
+      runMode: draft.runMode,
+      createdByName: user?.name ?? user?.email ?? 'Yerel kullanıcı',
+      groups: groupsToSave.map((group) => ({
+        name: group.name,
+        description: group.description,
+        taskIds: group.taskIds
+      }))
+    })
+    setSaving(false)
+    if (!response.ok || !Array.isArray(response.data)) {
+      setSaveFeedback({ kind: 'error', message: response.error?.message ?? 'Pipeline kaydı oluşturulamadı' })
+      return
+    }
+    setSavedPipelines((current) => [...response.data!, ...current])
+    setSelectedDetailGroupId(response.data[0]?.id ?? null)
+    setSaveFeedback({ kind: 'success', message: `${response.data.length} grup ayrı pipeline olarak kaydedildi.` })
+    setModalOpen(false)
   }
 
   useEffect(() => {
@@ -564,15 +691,32 @@ export function PlanPipelinePage() {
   const nextGroup = currentGroup ?? draft.groups.find((group) => group.taskIds.length > 0 && group.status !== 'completed')
   const runnerName = draft.createdByName ?? user?.name ?? user?.email ?? 'Atanmadı'
   const plannedGroups = draft.groups.filter((group) => group.taskIds.length > 0)
-  const startedRows = draft.groups.filter((group) => ['running', 'completed', 'failed', 'skipped'].includes(group.status))
-  const waitingRows = draft.groups.filter((group) => group.status === 'pending' || group.status === 'waiting')
-  const detailGroup = draft.groups.find((group) => group.id === selectedDetailGroupId) ?? currentGroup ?? plannedGroups[0] ?? draft.groups[0]
+  const dashboardGroups = savedPipelineGroups.length > 0 ? savedPipelineGroups : plannedGroups
+  const dashboardTaskCount = dashboardGroups.reduce((sum, group) => sum + group.taskIds.length, 0)
+  const dashboardProgress = savedPipelineGroups.length > 0
+    ? Math.round(dashboardGroups.reduce((sum, group) => sum + group.progress, 0) / Math.max(dashboardGroups.length, 1))
+    : queueProgress
+  const dashboardQueueStatus: QueueStatus = savedPipelineGroups.length > 0
+    ? (dashboardGroups.some((group) => group.status === 'running')
+      ? 'running'
+      : dashboardGroups.some((group) => group.status === 'failed')
+        ? 'failed'
+        : dashboardGroups.every((group) => group.status === 'completed')
+          ? 'completed'
+          : dashboardGroups.some((group) => group.status === 'waiting')
+            ? 'blocked'
+            : 'idle')
+    : draft.queueStatus
+  const dashboardCanStart = savedPipelineGroups.length > 0 ? dashboardGroups.some((group) => group.status === 'pending' || group.status === 'waiting') : canStart
+  const startedRows = dashboardGroups.filter((group) => ['running', 'completed', 'failed', 'skipped'].includes(group.status))
+  const waitingRows = dashboardGroups.filter((group) => group.status === 'pending' || group.status === 'waiting')
+  const detailGroup = dashboardGroups.find((group) => group.id === selectedDetailGroupId) ?? currentGroup ?? dashboardGroups[0] ?? draft.groups[0]
   const activeStepIndex = STEPS.findIndex((step) => step.key === activeStep)
-  const stageCompletionCount = draft.groups.filter((group) => group.status === 'completed').length
-  const failedGroupCount = draft.groups.filter((group) => group.status === 'failed').length
+  const stageCompletionCount = dashboardGroups.filter((group) => group.status === 'completed').length
+  const failedGroupCount = dashboardGroups.filter((group) => group.status === 'failed').length
   const waitingApprovalGroup = draft.waitingApprovalGroupId ? draft.groups.find((group) => group.id === draft.waitingApprovalGroupId) : undefined
   const runStats = useMemo(() => {
-    const taskStates = plannedGroups.flatMap((group) => group.taskIds.map((taskId) => draft.taskRunState[taskId]?.status ?? group.status))
+    const taskStates = dashboardGroups.flatMap((group) => group.taskIds.map((taskId) => draft.taskRunState[taskId]?.status ?? group.status))
     return {
       pending: taskStates.filter((status) => status === 'pending').length,
       waiting: draft.groups.filter((group) => group.status === 'waiting').length,
@@ -580,7 +724,7 @@ export function PlanPipelinePage() {
       completed: taskStates.filter((status) => status === 'completed').length,
       failed: taskStates.filter((status) => status === 'failed').length
     }
-  }, [draft.groups, draft.taskRunState, plannedGroups])
+  }, [draft.groups, draft.taskRunState, dashboardGroups])
   const stepValidity: Record<StepKey, boolean> = {
     basic: draft.name.trim().length > 0,
     projects: draft.selectedProjectIds.length > 0,
@@ -602,6 +746,13 @@ export function PlanPipelinePage() {
     if (activeStep === 'run' && !canStart) return 'Başlatılabilir bir grup olmadığı için kuyruk hazır değil.'
     return null
   })()
+  const activeStepGuide: Record<StepKey, string> = {
+    basic: 'Pipeline adı kayıtlı listede üst bağlamdır; her grup ayrı pipeline kaydı olarak bu adın altında saklanır.',
+    projects: 'Proje seçimi task havuzunu daraltır. Kaydedilen her pipeline kaydı seçili proje kapsamını birlikte taşır.',
+    tasks: 'Seçtiğin taskların tamamı bir gruba atanmalıdır. Atanmamış task kalırsa Kaydet işlemi engellenir.',
+    groups: 'Her dolu grup kendi sıra numarası ve task listesiyle ayrı pipeline olarak kaydedilir; boş grup kayıt hatasıdır.',
+    run: 'Çalıştırma modu sadece kayıt sonrası onay davranışını belirler. Kaydet aksiyonu pipeline kayıtlarını oluşturmak için yeterlidir.'
+  }
   const goToStep = (index: number) => {
     const boundedIndex = Math.min(Math.max(index, 0), maxAccessibleStepIndex)
     setActiveStep(STEPS[boundedIndex].key)
@@ -638,6 +789,18 @@ export function PlanPipelinePage() {
           <button type="button" onClick={() => void loadData()}>Tekrar dene</button>
         </div>
       ) : null}
+      {saveFeedback ? (
+        <div className={`${styles.alert} ${saveFeedback.kind === 'success' ? styles.successAlert : ''}`}>
+          {saveFeedback.kind === 'success' ? <LuCheck size={16} /> : <LuTriangleAlert size={16} />}
+          <span>{saveFeedback.message}</span>
+          <button type="button" onClick={() => setSaveFeedback(null)}>Kapat</button>
+        </div>
+      ) : null}
+
+      <section className={styles.guidePanel}>
+        <strong>Sayfa rehberi</strong>
+        <p>Kayıtlı pipeline kayıtları bu ekranda listelenir; açık taslak ise yalnızca oluşturma akışında ara durum olarak localStorage içinde tutulur. Pipeline oluştururken taskları gruplara atamak yeterlidir; Kaydet sonrası her dolu grup ayrı pipeline satırı olur.</p>
+      </section>
 
       <section className={styles.commandCenter}>
         <aside className={styles.pipelineSummary}>
@@ -649,7 +812,7 @@ export function PlanPipelinePage() {
           <div className={styles.summaryMetrics}>
             <div>
               <span>Planlanan grup</span>
-              <strong>{plannedGroups.length}</strong>
+              <strong>{dashboardGroups.length}</strong>
             </div>
             <div>
               <span>Başlatılan</span>
@@ -663,22 +826,22 @@ export function PlanPipelinePage() {
           <div className={styles.queuePanel}>
             <div className={styles.queuePanelHead}>
               <span>Kuyruk durumu</span>
-              <strong className={styles[`tone-${statusTone(draft.queueStatus)}`]}>{statusText(draft.queueStatus)}</strong>
+              <strong className={styles[`tone-${statusTone(dashboardQueueStatus)}`]}>{statusText(dashboardQueueStatus)}</strong>
             </div>
             <div className={styles.progressTrack}>
-              <i style={{ width: `${queueProgress}%` }} />
+              <i style={{ width: `${dashboardProgress}%` }} />
             </div>
-            <small>{queueProgress}% kalıcı ilerleme · {groupedTaskCount}/{draft.selectedTaskIds.length} task gruplandı</small>
+            <small>{dashboardProgress}% kalıcı ilerleme · {dashboardTaskCount || groupedTaskCount} task kapsamda</small>
           </div>
           <div className={styles.queueControls}>
-            <button className={styles.primaryButton} type="button" disabled={!canStart || draft.queueStatus === 'running'} onClick={startQueue}>
+            <button className={styles.primaryButton} type="button" disabled={!dashboardCanStart || dashboardQueueStatus === 'running'} onClick={startQueue}>
               <LuPlay size={15} />
               Başlat
             </button>
-            {draft.queueStatus === 'paused' ? (
+            {dashboardQueueStatus === 'paused' ? (
               <button className={styles.secondaryButton} type="button" onClick={resumeQueue}><LuPlay size={15} /> Sürdür</button>
             ) : (
-              <button className={styles.secondaryButton} type="button" disabled={draft.queueStatus !== 'running'} onClick={pauseQueue}><LuPause size={15} /> Duraklat</button>
+              <button className={styles.secondaryButton} type="button" disabled={dashboardQueueStatus !== 'running'} onClick={pauseQueue}><LuPause size={15} /> Duraklat</button>
             )}
           </div>
         </aside>
@@ -690,7 +853,7 @@ export function PlanPipelinePage() {
                 <h2>Planlananlar</h2>
                 <p>Gruplanmış ve sıraya alınmış çalıştırma adımları.</p>
               </div>
-              <span className={styles.statePill}>{statusText(draft.queueStatus)}</span>
+              <span className={styles.statePill}>{statusText(dashboardQueueStatus)}</span>
             </div>
             <div className={styles.pipelineTable}>
               <div className={styles.tableHeader}>
@@ -700,7 +863,7 @@ export function PlanPipelinePage() {
                 <span>Durum</span>
                 <span>Progress</span>
               </div>
-              {plannedGroups.length > 0 ? plannedGroups.map((group, index) => (
+              {dashboardGroups.length > 0 ? dashboardGroups.map((group, index) => (
                 <button
                   key={group.id}
                   type="button"
@@ -765,7 +928,7 @@ export function PlanPipelinePage() {
             <div className={styles.detailMetrics}>
               <div>
                 <span>Stage tamamlandı</span>
-                <strong>{stageCompletionCount}/{plannedGroups.length}</strong>
+              <strong>{stageCompletionCount}/{dashboardGroups.length}</strong>
               </div>
               <div>
                 <span>Onay bekleyen</span>
@@ -777,7 +940,7 @@ export function PlanPipelinePage() {
               </div>
               <div>
                 <span>Task durumu</span>
-                <strong>{runStats.completed}/{groupedTaskCount}</strong>
+                <strong>{runStats.completed}/{dashboardTaskCount || groupedTaskCount}</strong>
               </div>
               <div>
                 <span>Çalışan / bekleyen</span>
@@ -788,9 +951,13 @@ export function PlanPipelinePage() {
                 <strong>{runStats.failed}</strong>
               </div>
             </div>
-            {plannedGroups.length > 0 ? (
+            <div className={styles.detailGuide}>
+              <strong>Detay rehberi</strong>
+              <p>Seçili satır kaydedilmiş bir pipeline grubunu temsil eder. Sıra, task listesi, durum, progress, retry ve özet alanları aynı kalıcı kayıttan okunur; hata ve retry aksiyonları bu kaydı günceller.</p>
+            </div>
+            {dashboardGroups.length > 0 ? (
               <div className={styles.stageMap} aria-label="Pipeline stage akışı">
-                {plannedGroups.map((group, index) => (
+                {dashboardGroups.map((group, index) => (
                   <button
                     key={group.id}
                     type="button"
@@ -836,7 +1003,7 @@ export function PlanPipelinePage() {
                 <div className={styles.runActions}>
                   <button type="button" disabled={detailGroup.status !== 'running'} onClick={() => failGroup(detailGroup.id)}>Hata simüle et</button>
                   <button type="button" disabled={detailGroup.status !== 'failed'} onClick={() => retryGroup(detailGroup.id)}><LuListRestart size={14} /> Yeniden dene</button>
-                  <button type="button" disabled={draft.queueStatus === 'idle'} onClick={cancelQueue}><LuCirclePause size={15} /> İptal et</button>
+                  <button type="button" disabled={dashboardQueueStatus === 'idle'} onClick={cancelQueue}><LuCirclePause size={15} /> İptal et</button>
                 </div>
               </div>
             ) : (
@@ -878,6 +1045,10 @@ export function PlanPipelinePage() {
                 <strong>{STEPS[activeStepIndex].label}</strong>
               </div>
               {activeStepMessage ? <p>{activeStepMessage}</p> : <p>Bu adım hazır; ileri geçebilirsin.</p>}
+            </section>
+            <section className={styles.stepGuide}>
+              <strong>Adım rehberi</strong>
+              <p>{activeStepGuide[activeStep]}</p>
             </section>
             <section className={styles.workspace}>
               <aside className={styles.rail}>
@@ -1166,8 +1337,8 @@ export function PlanPipelinePage() {
             <section className={styles.panelSection}>
               <div className={styles.sectionHead}>
                 <div>
-                  <h2>Çalıştırma ayarları</h2>
-                  <p>Varsayılan davranış sıralı ve onaylıdır. Sorusuz modda bir sonraki grup otomatik devam eder.</p>
+                  <h2>Kaydetme ayarları</h2>
+                  <p>Run modu kayıt sonrası onay davranışını belirler; Kaydet aksiyonu grup ve pipeline kayıtlarını birlikte oluşturur.</p>
                 </div>
               </div>
               <div className={styles.modeGrid}>
@@ -1188,20 +1359,9 @@ export function PlanPipelinePage() {
                   <span>Varsayılan kararlarla sıradaki gruba geçer.</span>
                 </button>
               </div>
-              <div className={styles.queueControls}>
-                <button className={styles.primaryButton} type="button" disabled={!canStart || draft.queueStatus === 'running'} onClick={startQueue}>
-                  <LuPlay size={15} />
-                  Kuyruğu başlat
-                </button>
-                {draft.queueStatus === 'paused' ? (
-                  <button className={styles.secondaryButton} type="button" onClick={resumeQueue}><LuPlay size={15} /> Sürdür</button>
-                ) : (
-                  <button className={styles.secondaryButton} type="button" disabled={draft.queueStatus !== 'running'} onClick={pauseQueue}><LuPause size={15} /> Duraklat</button>
-                )}
-                <button className={styles.secondaryButton} type="button" disabled={draft.queueStatus === 'idle'} onClick={cancelQueue}>
-                  <LuCirclePause size={15} />
-                  İptal et
-                </button>
+              <div className={styles.saveNotice}>
+                <LuCheck size={16} />
+                <span>Kaydet seçildiğinde her dolu grup ayrı pipeline kaydı üretir; çalıştırma başlatmak zorunlu değildir.</span>
               </div>
               {draft.waitingApprovalGroupId ? (
                 <div className={styles.approvalBox}>
@@ -1258,9 +1418,9 @@ export function PlanPipelinePage() {
                     <button className={styles.secondaryButton} type="button" disabled={!previous} onClick={() => previous && goToStep(index - 1)}>
                       Geri
                     </button>
-                    <button className={next ? styles.primaryButton : styles.secondaryButton} type="button" disabled={nextDisabled} onClick={() => next ? goToStep(index + 1) : setModalOpen(false)}>
-                      {next ? 'İleri' : 'Detayı görüntüle'}
-                      {next ? <LuChevronRight size={15} /> : null}
+                    <button className={styles.primaryButton} type="button" disabled={next ? nextDisabled : saving || !stepValidity.run} onClick={() => next ? goToStep(index + 1) : void savePipeline()}>
+                      {next ? 'İleri' : saving ? 'Kaydediliyor' : 'Kaydet'}
+                      {next ? <LuChevronRight size={15} /> : <LuCheck size={15} />}
                     </button>
                   </div>
                 )

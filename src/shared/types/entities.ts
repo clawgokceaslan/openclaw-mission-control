@@ -98,6 +98,30 @@ export interface TaskEntity {
   updatedAt: number
 }
 
+export type PlanPipelineStatus = 'pending' | 'waiting' | 'running' | 'paused' | 'blocked' | 'completed' | 'failed' | 'cancelled' | 'skipped'
+export type PlanPipelineRunMode = 'questioned' | 'silent'
+
+export interface PlanPipelineRecord {
+  id: string
+  organizationId: string
+  sourceDraftName: string
+  groupName: string
+  groupDescription?: string
+  groupOrder: number
+  projectIds: string[]
+  taskIds: string[]
+  status: PlanPipelineStatus
+  progress: number
+  retryCount: number
+  runMode: PlanPipelineRunMode
+  summaryContext?: string
+  lastError?: string
+  createdByName?: string
+  completedAt?: number
+  createdAt: number
+  updatedAt: number
+}
+
 export interface TaskChecklistItem {
   id: string
   title: string

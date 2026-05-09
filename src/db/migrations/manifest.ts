@@ -64,7 +64,8 @@ export function resolveMigrations(basePath: string): MigrationPlan[] {
     '016_project_instruction_templates.sql',
     '017_agent_tags.sql',
     '018_remove_agent_steps_reasoning_config.sql',
-    '020_drop_task_groups.sql'
+    '020_drop_task_groups.sql',
+    '021_plan_pipeline_records.sql'
   ]
   return filenames.map((filename) => {
     const searchPaths = [
