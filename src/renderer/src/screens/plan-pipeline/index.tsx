@@ -222,6 +222,15 @@ export function PlanPipelinePage() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...draft, updatedAt: Date.now() }))
   }, [draft])
 
+  useEffect(() => {
+    if (!modalOpen) return undefined
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setModalOpen(false)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [modalOpen])
+
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects])
   const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])
 
@@ -557,6 +566,34 @@ export function PlanPipelinePage() {
   const startedRows = draft.groups.filter((group) => ['running', 'completed', 'failed', 'skipped'].includes(group.status))
   const waitingRows = draft.groups.filter((group) => group.status === 'pending' || group.status === 'waiting')
   const detailGroup = draft.groups.find((group) => group.id === selectedDetailGroupId) ?? currentGroup ?? plannedGroups[0] ?? draft.groups[0]
+  const activeStepIndex = STEPS.findIndex((step) => step.key === activeStep)
+  const stageCompletionCount = draft.groups.filter((group) => group.status === 'completed').length
+  const failedGroupCount = draft.groups.filter((group) => group.status === 'failed').length
+  const waitingApprovalGroup = draft.waitingApprovalGroupId ? draft.groups.find((group) => group.id === draft.waitingApprovalGroupId) : undefined
+  const stepValidity: Record<StepKey, boolean> = {
+    scope: draft.name.trim().length > 0 && draft.selectedProjectIds.length > 0,
+    tasks: draft.selectedTaskIds.length > 0,
+    groups: draft.groups.length > 0 && groupedTaskCount > 0 && unassignedSelectedTasks.length === 0,
+    run: canStart,
+    review: canStart
+  }
+  const firstInvalidStepIndex = STEPS.findIndex((step) => !stepValidity[step.key])
+  const maxAccessibleStepIndex = firstInvalidStepIndex === -1 ? STEPS.length - 1 : firstInvalidStepIndex + 1
+  const activeStepMessage = (() => {
+    if (activeStep === 'scope' && !stepValidity.scope) return 'Pipeline adı ve en az bir proje seçimi gerekli.'
+    if (activeStep === 'tasks' && !stepValidity.tasks) return 'Devam etmek için task havuzuna en az bir task ekle.'
+    if (activeStep === 'groups' && !stepValidity.groups) {
+      if (draft.groups.length === 0) return 'Taskları yerleştirmek için en az bir grup oluştur.'
+      if (groupedTaskCount === 0) return 'Oluşturulan gruba en az bir task ata.'
+      return 'Atanmamış taskları gruplara taşıyarak akışı tamamla.'
+    }
+    if ((activeStep === 'run' || activeStep === 'review') && !canStart) return 'Başlatılabilir bir grup olmadığı için kuyruk hazır değil.'
+    return null
+  })()
+  const goToStep = (index: number) => {
+    const boundedIndex = Math.min(Math.max(index, 0), maxAccessibleStepIndex)
+    setActiveStep(STEPS[boundedIndex].key)
+  }
 
   return (
     <section className={styles.page}>
@@ -708,10 +745,41 @@ export function PlanPipelinePage() {
               </div>
               {detailGroup ? <span className={`${styles.statusBadge} ${styles[`tone-${statusTone(detailGroup.status)}`]}`}>{statusText(detailGroup.status)}</span> : null}
             </div>
-            {draft.waitingApprovalGroupId ? (
+            <div className={styles.detailMetrics}>
+              <div>
+                <span>Stage tamamlandı</span>
+                <strong>{stageCompletionCount}/{plannedGroups.length}</strong>
+              </div>
+              <div>
+                <span>Onay bekleyen</span>
+                <strong>{waitingApprovalGroup ? '1' : '0'}</strong>
+              </div>
+              <div>
+                <span>Retry / hata</span>
+                <strong>{draft.groups.reduce((sum, group) => sum + group.retryCount, 0)} / {failedGroupCount}</strong>
+              </div>
+            </div>
+            {plannedGroups.length > 0 ? (
+              <div className={styles.stageMap} aria-label="Pipeline stage akışı">
+                {plannedGroups.map((group, index) => (
+                  <button
+                    key={group.id}
+                    type="button"
+                    className={`${styles.stageNode} ${detailGroup?.id === group.id ? styles.stageNodeActive : ''}`}
+                    onClick={() => setSelectedDetailGroupId(group.id)}
+                  >
+                    <span className={`${styles.stageMarker} ${styles[`tone-${statusTone(group.status)}`]}`}>{index + 1}</span>
+                    <strong>{group.name}</strong>
+                    <small>{group.taskIds.length} task · {group.progress}%</small>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {waitingApprovalGroup ? (
               <div className={styles.approvalBox}>
-                <strong>{draft.groups.find((group) => group.id === draft.waitingApprovalGroupId)?.name} onay bekliyor</strong>
-                <button type="button" onClick={() => approveGroup(draft.waitingApprovalGroupId!)}>Grubu çalıştır</button>
+                <strong>{waitingApprovalGroup.name} onay bekliyor</strong>
+                <span>Sorulu mod, bu stage başlamadan önce kullanıcı kararını bekliyor.</span>
+                <button type="button" onClick={() => approveGroup(waitingApprovalGroup.id)}>Grubu çalıştır</button>
               </div>
             ) : null}
             {detailGroup ? (
@@ -720,16 +788,17 @@ export function PlanPipelinePage() {
                   const task = taskById.get(taskId)
                   const state = draft.taskRunState[taskId] ?? { status: 'pending' as RunItemStatus, progress: 0, retryCount: 0 }
                   return (
-                    <article key={taskId} className={styles.detailStage}>
+                    <article key={taskId} className={`${styles.detailStage} ${styles[`detailStage-${statusTone(state.status)}`]}`}>
                       <span>{index + 1}</span>
                       <div>
                         <strong>{task?.title ?? taskId}</strong>
-                        <small>{projectById.get(task?.projectId ?? '')?.name ?? 'Proje yok'} · {task ? summarizeTask(task) : 'Task detayı yok'}</small>
+                        <small>{projectById.get(task?.projectId ?? '')?.name ?? 'Proje yok'} · {task ? summarizeTask(task) : 'Task detayı yok'} · Retry {state.retryCount}</small>
                       </div>
                       <em className={`${styles.statusBadge} ${styles[`tone-${statusTone(state.status)}`]}`}>{statusText(state.status)}</em>
                       <div className={styles.progressTrack}>
                         <i style={{ width: `${state.progress}%` }} />
                       </div>
+                      {state.lastError ? <p>{state.lastError}</p> : null}
                     </article>
                   )
                 })}
@@ -759,26 +828,35 @@ export function PlanPipelinePage() {
               </div>
               <button type="button" onClick={() => setModalOpen(false)}><LuX size={16} /></button>
             </header>
-            <label>
-              <span>Pipeline adı</span>
-              <input value={draft.name} onChange={(event) => updateDraft((current) => ({ ...current, name: event.target.value }))} />
-            </label>
             <section className={styles.stepper}>
               {STEPS.map((step, index) => (
                 <button
                   key={step.key}
-                  className={`${styles.stepButton} ${activeStep === step.key ? styles.stepButtonActive : ''} ${STEPS.findIndex((item) => item.key === activeStep) > index ? styles.stepButtonDone : ''}`}
+                  className={`${styles.stepButton} ${activeStep === step.key ? styles.stepButtonActive : ''} ${activeStepIndex > index ? styles.stepButtonDone : ''}`}
                   type="button"
-                  onClick={() => setActiveStep(step.key)}
+                  disabled={index > maxAccessibleStepIndex}
+                  onClick={() => goToStep(index)}
                 >
-                  <span>{index + 1}</span>
+                  <span>{activeStepIndex > index ? <LuCheck size={14} /> : index + 1}</span>
                   <strong>{step.label}</strong>
                   <small>{step.detail}</small>
                 </button>
               ))}
             </section>
+            <section className={styles.stepIntro}>
+              <div>
+                <span>Adım {activeStepIndex + 1} / {STEPS.length}</span>
+                <strong>{STEPS[activeStepIndex].label}</strong>
+              </div>
+              {activeStepMessage ? <p>{activeStepMessage}</p> : <p>Bu adım hazır; ileri geçebilirsin.</p>}
+            </section>
             <section className={styles.workspace}>
               <aside className={styles.rail}>
+                <div className={styles.flowBrief}>
+                  <span>Pipeline</span>
+                  <strong>{draft.name}</strong>
+                  <small>{draft.runMode === 'questioned' ? 'Sorulu mod' : 'Sorusuz mod'} · {statusText(draft.queueStatus)}</small>
+                </div>
                 <div className={styles.metric}>
                   <span>Seçili proje</span>
                   <strong>{draft.selectedProjectIds.length}</strong>
@@ -803,11 +881,15 @@ export function PlanPipelinePage() {
             <section className={styles.panelSection}>
               <div className={styles.sectionHead}>
                 <div>
-                  <h2>Proje kapsamı</h2>
-                  <p>Pipeline başlangıcında kullanılacak projeleri elle seç.</p>
+                  <h2>Temel bilgiler ve proje kapsamı</h2>
+                  <p>Pipeline adını netleştir, sonra başlangıçta kullanılacak projeleri seç.</p>
                 </div>
                 {loading ? <span className={styles.statePill}><LuLoader size={14} /> Yükleniyor</span> : null}
               </div>
+              <label className={styles.nameField}>
+                <span>Pipeline adı</span>
+                <input value={draft.name} onChange={(event) => updateDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Örn. Sprint hazırlık pipeline" />
+              </label>
               {issues.length > 0 ? (
                 <div className={styles.issueList}>
                   {issues.map((issue) => (
@@ -833,6 +915,9 @@ export function PlanPipelinePage() {
                     </button>
                   )
                 })}
+                {!loading && projects.length === 0 ? (
+                  <div className={styles.emptyState}>Henüz proje yok. Pipeline kapsamı oluşturmak için önce proje eklenmesi gerekir.</div>
+                ) : null}
               </div>
             </section>
           ) : null}
@@ -924,6 +1009,7 @@ export function PlanPipelinePage() {
                       </button>
                     )
                   })}
+                  {unassignedSelectedTasks.length === 0 ? <span>Seçili taskların tamamı gruplara atanmış.</span> : null}
                 </div>
               </div>
               <div className={styles.groupBoard}>
@@ -992,6 +1078,9 @@ export function PlanPipelinePage() {
                     </article>
                   )
                 })}
+                {draft.groups.length === 0 ? (
+                  <div className={styles.emptyState}>Henüz grup yok. Yukarıdaki alanla ilk stage'i oluştur, sonra taskları bu stage'e ata.</div>
+                ) : null}
               </div>
             </section>
           ) : null}
@@ -1097,13 +1186,14 @@ export function PlanPipelinePage() {
                 if (step.key !== activeStep) return null
                 const previous = STEPS[index - 1]
                 const next = STEPS[index + 1]
+                const nextDisabled = Boolean(next && !stepValidity[step.key])
                 return (
                   <div key={step.key}>
-                    <button className={styles.secondaryButton} type="button" disabled={!previous} onClick={() => previous && setActiveStep(previous.key)}>
+                    <button className={styles.secondaryButton} type="button" disabled={!previous} onClick={() => previous && goToStep(index - 1)}>
                       Geri
                     </button>
-                    <button className={next ? styles.primaryButton : styles.secondaryButton} type="button" onClick={() => next ? setActiveStep(next.key) : setModalOpen(false)}>
-                      {next ? 'İleri' : 'Akışı kapat'}
+                    <button className={next ? styles.primaryButton : styles.secondaryButton} type="button" disabled={nextDisabled} onClick={() => next ? goToStep(index + 1) : setModalOpen(false)}>
+                      {next ? 'İleri' : 'Detayı görüntüle'}
                       {next ? <LuChevronRight size={15} /> : null}
                     </button>
                   </div>

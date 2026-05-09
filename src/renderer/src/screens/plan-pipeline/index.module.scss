@@ -401,6 +401,33 @@
             color: var(--omc-text-muted);
             font-weight: 750;
           }
+
+          p {
+            grid-column: 2 / -1;
+            margin: 0;
+            color: var(--omc-danger-strong);
+            font-weight: 800;
+          }
+        }
+
+        .detailStage-active {
+          border-color: color-mix(in srgb, var(--omc-primary) 38%, var(--omc-border));
+          box-shadow: inset 3px 0 0 var(--omc-primary);
+        }
+
+        .detailStage-success {
+          border-color: var(--omc-success-border);
+          box-shadow: inset 3px 0 0 var(--omc-success-strong);
+        }
+
+        .detailStage-warning {
+          border-color: var(--omc-warning-border);
+          box-shadow: inset 3px 0 0 var(--omc-warning-text);
+        }
+
+        .detailStage-danger {
+          border-color: var(--omc-danger-border);
+          box-shadow: inset 3px 0 0 var(--omc-danger-strong);
         }
 
         .errorText {
@@ -409,6 +436,112 @@
           font-weight: 800;
         }
       }
+    }
+  }
+
+  .detailMetrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+
+    div {
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 9px;
+      background: var(--omc-surface-muted);
+      padding: 10px 12px;
+      display: grid;
+      gap: 4px;
+
+      span {
+        color: var(--omc-text-muted);
+        font-size: 0.76rem;
+        font-weight: 850;
+        text-transform: uppercase;
+      }
+
+      strong {
+        color: var(--omc-text-strong);
+        font-size: 1.12rem;
+      }
+    }
+  }
+
+  .stageMap {
+    overflow-x: auto;
+    padding: 2px 2px 8px;
+    display: flex;
+    gap: 10px;
+
+    .stageNode {
+      position: relative;
+      min-width: 170px;
+      border: 1px solid var(--omc-border);
+      border-radius: 10px;
+      background: var(--omc-surface);
+      color: var(--omc-text);
+      padding: 10px 12px;
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr);
+      grid-template-areas:
+        "marker title"
+        "marker meta";
+      column-gap: 9px;
+      text-align: left;
+      transition:
+        border-color 160ms ease,
+        background 160ms ease,
+        transform 160ms ease;
+
+      &::after {
+        content: "";
+        position: absolute;
+        left: calc(100% + 1px);
+        top: 50%;
+        width: 10px;
+        height: 2px;
+        background: var(--omc-border-strong);
+        transform: translateY(-50%);
+      }
+
+      &:last-child::after {
+        display: none;
+      }
+
+      &:hover {
+        border-color: color-mix(in srgb, var(--omc-primary) 28%, var(--omc-border));
+        transform: translateY(-1px);
+      }
+
+      .stageMarker {
+        grid-area: marker;
+        width: 30px;
+        height: 30px;
+        border-radius: 9px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 850;
+      }
+
+      strong {
+        grid-area: title;
+        min-width: 0;
+        overflow: hidden;
+        color: var(--omc-text-strong);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      small {
+        grid-area: meta;
+        color: var(--omc-text-muted);
+        font-weight: 750;
+      }
+    }
+
+    .stageNodeActive {
+      border-color: var(--omc-primary-border);
+      background: var(--omc-hover-bg);
     }
   }
 
@@ -459,6 +592,11 @@
 
       &:hover {
         background: var(--omc-surface-muted);
+      }
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.48;
       }
 
       span {
@@ -512,6 +650,43 @@
         background: var(--omc-success-bg);
         color: var(--omc-success-strong);
       }
+    }
+  }
+
+  .stepIntro {
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 10px;
+    background: var(--omc-surface-muted);
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+
+    div {
+      display: grid;
+      gap: 3px;
+
+      span {
+        color: var(--omc-text-muted);
+        font-size: 0.76rem;
+        font-weight: 850;
+        text-transform: uppercase;
+      }
+
+      strong {
+        color: var(--omc-text-strong);
+        font-size: 1rem;
+      }
+    }
+
+    p {
+      max-width: 520px;
+      margin: 0;
+      color: var(--omc-text-muted);
+      font-weight: 750;
+      line-height: 1.4;
+      text-align: right;
     }
   }
 
@@ -804,6 +979,10 @@
     }
   }
 
+  .nameField {
+    max-width: 520px;
+  }
+
   .searchBox {
     min-width: min(320px, 100%);
     min-height: 38px;
@@ -942,6 +1121,11 @@
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
+
+      > span {
+        color: var(--omc-text-muted);
+        font-weight: 750;
+      }
 
       .poolTask {
         max-width: 280px;
@@ -1197,16 +1381,24 @@
     border-radius: 10px;
     background: var(--omc-hover-bg);
     padding: 12px;
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    justify-content: space-between;
     gap: 12px;
 
     strong {
       color: var(--omc-text-strong);
     }
 
+    span {
+      grid-column: 1;
+      color: var(--omc-text-muted);
+      font-weight: 750;
+    }
+
     button {
+      grid-row: 1 / span 2;
+      grid-column: 2;
       min-height: 34px;
       border: 1px solid var(--omc-primary);
       border-radius: 8px;
@@ -1518,6 +1710,19 @@
       }
     }
 
+    .detailMetrics {
+      grid-template-columns: 1fr;
+    }
+
+    .stepIntro {
+      align-items: stretch;
+      flex-direction: column;
+
+      p {
+        text-align: left;
+      }
+    }
+
     .stepper {
       grid-template-columns: 1fr;
     }
@@ -1530,6 +1735,20 @@
 
     .modeGrid {
       grid-template-columns: 1fr;
+    }
+
+    .approvalBox {
+      grid-template-columns: 1fr;
+
+      span,
+      button {
+        grid-column: 1;
+        grid-row: auto;
+      }
+
+      button {
+        justify-self: start;
+      }
     }
 
     .inlineComposer {
