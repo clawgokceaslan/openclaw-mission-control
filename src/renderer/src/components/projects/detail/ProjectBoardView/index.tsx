@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react'
+import { memo, useCallback, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react'
 import { Card } from 'react-bootstrap'
 import { LuCalendarPlus, LuChevronDown, LuMessageSquare, LuPlus, LuUserPlus } from 'react-icons/lu'
 import type { Agent, Tag, TaskEntity } from '@shared/types/entities'
@@ -43,22 +43,144 @@ function codexStatusClass(status: TaskGatewaySurfaceStatus) {
   return `${styles.taskGatewayStateBadge} ${styles[`taskGatewayTone_${status.tone}`] ?? ''}`
 }
 
+interface BoardTaskCardProps {
+  task: TaskEntity
+  agentName: string
+  expanded: boolean
+  dropPosition: TaskDropPosition | null
+  onExpandToggle: (taskId: string) => void
+  onDropTargetChange: (target: { taskId: string; position: TaskDropPosition } | null) => void
+  onReorder: (sourceTaskId: string, targetTaskId: string, position: TaskDropPosition) => void
+  onOpenTask: (taskId: string) => void
+  onOpenSubtask: (taskId: string, subtaskId: string) => void
+}
+
+const BoardTaskCard = memo(function BoardTaskCard({
+  task,
+  agentName,
+  expanded,
+  dropPosition,
+  onExpandToggle,
+  onDropTargetChange,
+  onReorder,
+  onOpenTask,
+  onOpenSubtask
+}: BoardTaskCardProps) {
+  const subtasks = task.subtasks ?? []
+  const activeTone = taskGatewayActiveTone(task)
+  const chatStatus = taskGatewayLatestSurfaceStatus(task)
+
+  const openSubtaskFromCard = (event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>, subtaskId: string) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onOpenSubtask(task.id, subtaskId)
+  }
+
+  return (
+    <Card
+      className={`${styles.taskCard} ${activeTaskClass(activeTone)} ${dropPosition ? dropPosition === 'before' ? styles.taskCardDropBefore : styles.taskCardDropAfter : ''}`}
+      draggable
+      onDragStart={(event) => event.dataTransfer.setData('text/plain', task.id)}
+      onDragOver={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        event.dataTransfer.dropEffect = 'move'
+        onDropTargetChange({ taskId: task.id, position: eventDropPosition(event) })
+      }}
+      onDragLeave={() => {
+        if (dropPosition) onDropTargetChange(null)
+      }}
+      onDrop={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        const sourceTaskId = event.dataTransfer.getData('text/plain')
+        const position = eventDropPosition(event)
+        onDropTargetChange(null)
+        if (sourceTaskId && sourceTaskId !== task.id) onReorder(sourceTaskId, task.id, position)
+      }}
+      onDragEnd={() => onDropTargetChange(null)}
+      onClick={() => onOpenTask(task.id)}
+    >
+      <Card.Body>
+        <div className={styles.taskTop}>
+          <h3>{task.title}</h3>
+        </div>
+        {chatStatus ? (
+          <div className={styles.taskStatusRow}>
+            <span className={codexStatusClass(chatStatus)}>{chatStatus.label}</span>
+          </div>
+        ) : null}
+        <div className={styles.projectTaskMeta}>
+          <span><LuUserPlus size={14} /> {agentName}</span>
+          <span><LuCalendarPlus size={14} /> {formatTaskDate(task.updatedAt)}</span>
+        </div>
+        {renderTags(task.tags)}
+        <div className={styles.projectTaskFooter}>
+          {subtasks.length > 0 ? (
+            <button
+              type="button"
+              className={styles.subtaskToggleButton}
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                onExpandToggle(task.id)
+              }}
+              aria-expanded={expanded}
+            >
+              <LuChevronDown size={13} className={expanded ? styles.subtaskToggleOpen : styles.subtaskToggleClosed} />
+              Subtasks {subtasks.length}
+            </button>
+          ) : (
+            <span>Subtasks 0</span>
+          )}
+          {(task.commentCount ?? task.comments?.length ?? 0) > 0 ? (
+            <span><LuMessageSquare size={13} /> {task.commentCount ?? task.comments?.length}</span>
+          ) : null}
+        </div>
+        {expanded ? (
+          <div className={styles.subtaskInlineList}>
+            {subtasks.map((subtask) => (
+              <article
+                key={subtask.id}
+                className={styles.subtaskInlineCard}
+                role="button"
+                tabIndex={0}
+                onClick={(event) => openSubtaskFromCard(event, subtask.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') openSubtaskFromCard(event, subtask.id)
+                }}
+              >
+                <strong>{subtask.title}</strong>
+                <span>{subtask.status}{subtask.assigneeName ? ` · ${subtask.assigneeName}` : ''}</span>
+              </article>
+            ))}
+          </div>
+        ) : null}
+      </Card.Body>
+    </Card>
+  )
+})
+
 export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus, onReorder, onOpenTask, onOpenSubtask, onOpenCreateTask }: ProjectBoardViewProps) {
-  const agentName = (task: TaskEntity) => agents.find((agent) => agent.id === task.agentId)?.name ?? 'Unassigned'
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const panRef = useRef({ active: false, startX: 0, scrollLeft: 0 })
   const [dropTarget, setDropTarget] = useState<{ taskId: string; position: TaskDropPosition } | null>(null)
   const [expandedSubtasks, setExpandedSubtasks] = useState<Record<string, boolean>>({})
+  const agentNameById = useMemo(() => new Map(agents.map((agent) => [agent.id, agent.name])), [agents])
+
+  const toggleExpandedSubtasks = useCallback((taskId: string) => {
+    setExpandedSubtasks((current) => ({ ...current, [taskId]: !current[taskId] }))
+  }, [])
+
+  const updateDropTarget = useCallback((target: { taskId: string; position: TaskDropPosition } | null) => {
+    setDropTarget((current) => (
+      current?.taskId === target?.taskId && current?.position === target?.position ? current : target
+    ))
+  }, [])
 
   const canStartPan = (event: PointerEvent<HTMLElement>) => {
     const target = event.target as HTMLElement
     return !target.closest('button,a,input,textarea,select,[draggable="true"]')
-  }
-
-  const openSubtaskFromCard = (event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>, taskId: string, subtaskId: string) => {
-    event.preventDefault()
-    event.stopPropagation()
-    onOpenSubtask(taskId, subtaskId)
   }
 
   return (
@@ -118,98 +240,20 @@ export function ProjectBoardView({ columns, tasksByStatus, agents, onDropStatus,
               </div>
             ) : null}
             <div className={styles.columnBody}>
-              {rows.map((task) => {
-                const subtasks = task.subtasks ?? []
-                const expanded = Boolean(expandedSubtasks[task.id])
-                const activeTone = taskGatewayActiveTone(task)
-                const chatStatus = taskGatewayLatestSurfaceStatus(task)
-                return (
-                  <Card
+              {rows.map((task) => (
+                <BoardTaskCard
                   key={task.id}
-                  className={`${styles.taskCard} ${activeTaskClass(activeTone)} ${dropTarget?.taskId === task.id ? dropTarget.position === 'before' ? styles.taskCardDropBefore : styles.taskCardDropAfter : ''}`}
-                  draggable
-                  onDragStart={(event) => event.dataTransfer.setData('text/plain', task.id)}
-                  onDragOver={(event) => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    event.dataTransfer.dropEffect = 'move'
-                    setDropTarget({ taskId: task.id, position: eventDropPosition(event) })
-                  }}
-                  onDragLeave={() => {
-                    setDropTarget((current) => current?.taskId === task.id ? null : current)
-                  }}
-                  onDrop={(event) => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    const sourceTaskId = event.dataTransfer.getData('text/plain')
-                    const position = eventDropPosition(event)
-                    setDropTarget(null)
-                    if (sourceTaskId && sourceTaskId !== task.id) onReorder(sourceTaskId, task.id, position)
-                  }}
-                  onDragEnd={() => {
-                    setDropTarget(null)
-                  }}
-                  onClick={() => onOpenTask(task.id)}
-                >
-                  <Card.Body>
-                    <div className={styles.taskTop}>
-                      <h3>{task.title}</h3>
-                    </div>
-                    {chatStatus ? (
-                      <div className={styles.taskStatusRow}>
-                        <span className={codexStatusClass(chatStatus)}>{chatStatus.label}</span>
-                      </div>
-                    ) : null}
-                    <div className={styles.projectTaskMeta}>
-                      <span><LuUserPlus size={14} /> {agentName(task)}</span>
-                      <span><LuCalendarPlus size={14} /> {formatTaskDate(task.updatedAt)}</span>
-                    </div>
-                    {renderTags(task.tags)}
-                    <div className={styles.projectTaskFooter}>
-                      {subtasks.length > 0 ? (
-                        <button
-                          type="button"
-                          className={styles.subtaskToggleButton}
-                          onClick={(event) => {
-                            event.preventDefault()
-                            event.stopPropagation()
-                            setExpandedSubtasks((current) => ({ ...current, [task.id]: !expanded }))
-                          }}
-                          aria-expanded={expanded}
-                        >
-                          <LuChevronDown size={13} className={expanded ? styles.subtaskToggleOpen : styles.subtaskToggleClosed} />
-                          Subtasks {subtasks.length}
-                        </button>
-                      ) : (
-                        <span>Subtasks 0</span>
-                      )}
-                      {(task.commentCount ?? task.comments?.length ?? 0) > 0 ? (
-                        <span><LuMessageSquare size={13} /> {task.commentCount ?? task.comments?.length}</span>
-                      ) : null}
-                    </div>
-                    {expanded ? (
-                      <div className={styles.subtaskInlineList}>
-                        {subtasks.map((subtask) => (
-                          <article
-                            key={subtask.id}
-                            className={styles.subtaskInlineCard}
-                            role="button"
-                            tabIndex={0}
-                            onClick={(event) => openSubtaskFromCard(event, task.id, subtask.id)}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter' || event.key === ' ') openSubtaskFromCard(event, task.id, subtask.id)
-                            }}
-                          >
-                            <strong>{subtask.title}</strong>
-                            <span>{subtask.status}{subtask.assigneeName ? ` · ${subtask.assigneeName}` : ''}</span>
-                          </article>
-                        ))}
-                      </div>
-                    ) : null}
-                  </Card.Body>
-                </Card>
-                )
-              })}
+                  task={task}
+                  agentName={task.agentId ? agentNameById.get(task.agentId) ?? 'Unassigned' : 'Unassigned'}
+                  expanded={Boolean(expandedSubtasks[task.id])}
+                  dropPosition={dropTarget?.taskId === task.id ? dropTarget.position : null}
+                  onExpandToggle={toggleExpandedSubtasks}
+                  onDropTargetChange={updateDropTarget}
+                  onReorder={onReorder}
+                  onOpenTask={onOpenTask}
+                  onOpenSubtask={onOpenSubtask}
+                />
+              ))}
             </div>
             <div className={styles.projectAddRow}>
               <button type="button" onClick={() => onOpenCreateTask(column.status)}>

@@ -1,4 +1,5 @@
 import type { DragEvent } from 'react'
+import { memo } from 'react'
 import { ProjectBoardView } from '@renderer/components/projects/detail/ProjectBoardView'
 import type { Agent, TaskEntity } from '@shared/types/entities'
 import type { ProjectStatusColumn } from '@renderer/screens/projects/detail/status'
@@ -15,7 +16,7 @@ export interface ActiveProjectViewProps {
   onOpenCreateTask: (status: TaskEntity['status']) => void
 }
 
-export function ActiveProjectView({
+export const ActiveProjectView = memo(function ActiveProjectView({
   statusColumns,
   tasksByStatus,
   agents,
@@ -37,4 +38,4 @@ export function ActiveProjectView({
       onOpenCreateTask={onOpenCreateTask}
     />
   )
-}
+})

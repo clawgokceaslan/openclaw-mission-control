@@ -96,7 +96,7 @@ export function useProjectDerivedState({
     for (const task of hydratedTasks) {
       const nextStatus = grouped[task.status] ? task.status : fallback
       if (!grouped[nextStatus]) grouped[nextStatus] = []
-      grouped[nextStatus] = [...grouped[nextStatus], task]
+      grouped[nextStatus].push(task)
     }
     Object.keys(grouped).forEach((status) => {
       grouped[status] = orderedTasksForStatus(grouped[status] ?? [])

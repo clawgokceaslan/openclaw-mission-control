@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   LuMessageSquare,
@@ -18,9 +18,7 @@ import { prefixDataFormatTokens, type DescriptionDataFormat } from '@renderer/co
 import { storedAttachmentRows } from '@renderer/components/attachments/AttachmentTable'
 import { AttachmentRow, attachmentRowsFromDescription, removeAttachmentFromMarkdown, uploadTaskAttachment } from '@renderer/components/attachments/attachments'
 import { ProjectDetailHeader } from '@renderer/components/projects/detail/ProjectDetailHeader'
-import { ProjectDetailSettingsPopup } from '@renderer/popups/ProjectDetailSettingsPopup'
 import { ActiveProjectView } from '@renderer/components/projects/detail/ActiveProjectView'
-import { TaskModals } from '@renderer/components/projects/detail/TaskModals'
 import { createTaskWithTemplate, type CreateTaskInput } from './detail/createTaskWithTemplate'
 import { useProjectDetailData } from './detail/hooks/useProjectDetailData'
 import { useProjectChatPopup } from './detail/hooks/useProjectChatPopup'
@@ -85,8 +83,6 @@ import type {
   TextDraftRow,
   ThreadEntry
 } from './detail/types'
-import { ChatPopup } from '@renderer/popups/ChatPopup'
-import { TaskDetailPopup } from '@renderer/popups/TaskDetail'
 import { PlanChoiceModal } from '@renderer/popups/PlanChoiceModal'
 import styles from './ProjectDetailPage.module.scss'
 
@@ -132,6 +128,14 @@ function clampRatio(value: number) {
 }
 
 const DESCRIPTION_AUTOSAVE_DELAY_MS = 5000
+const ProjectDetailSettingsPopup = lazy(() => import('@renderer/popups/ProjectDetailSettingsPopup').then((module) => ({ default: module.ProjectDetailSettingsPopup })))
+const TaskModals = lazy(() => import('@renderer/components/projects/detail/TaskModals').then((module) => ({ default: module.TaskModals })))
+const TaskDetailPopup = lazy(() => import('@renderer/popups/TaskDetail').then((module) => ({ default: module.TaskDetailPopup })))
+const ChatPopup = lazy(() => import('@renderer/popups/ChatPopup').then((module) => ({ default: module.ChatPopup })))
+
+function ProjectDetailLazyFallback() {
+  return <LoadingState size="compact" message="" />
+}
 
 function loadInitialRatio() {
   if (typeof window === 'undefined') return DEFAULT_DETAIL_RATIO
@@ -482,17 +486,17 @@ export function ProjectDetailPage() {
       .replace(':subtaskId', routeParam(subtaskId))
     : APP_ROUTES.PROJECTS
 
-  const navigateToProjectDetail = (options: { replace?: boolean } = {}) => {
+  const navigateToProjectDetail = useCallback((options: { replace?: boolean } = {}) => {
     navigate(projectDetailRoute(), { replace: options.replace ?? false })
-  }
+  }, [navigate, projectId])
 
-  const navigateToTaskDetail = (taskId: string, options: { replace?: boolean } = {}) => {
+  const navigateToTaskDetail = useCallback((taskId: string, options: { replace?: boolean } = {}) => {
     navigate(taskDetailRoute(taskId), { replace: options.replace ?? false })
-  }
+  }, [navigate, projectId])
 
-  const navigateToSubtaskDetail = (taskId: string, subtaskId: string, options: { replace?: boolean } = {}) => {
+  const navigateToSubtaskDetail = useCallback((taskId: string, subtaskId: string, options: { replace?: boolean } = {}) => {
     navigate(subtaskDetailRoute(taskId, subtaskId), { replace: options.replace ?? false })
-  }
+  }, [navigate, projectId])
 
   useEffect(() => {
     if (!routeTaskId) {
@@ -3144,6 +3148,19 @@ export function ProjectDetailPage() {
 
 
   const splitTemplate = `${Math.round(detailRatio * 100)}% 6px minmax(${MIN_COMMENTS_WIDTH}px, 1fr)`
+  const hasTaskModalOpen = Boolean(
+    isCreateTaskOpen ||
+    isAddSubtaskOpen ||
+    isProjectPromptSettingsOpen ||
+    isCustomFieldModalOpen ||
+    isChecklistModalOpen ||
+    isOutputFormatModalOpen ||
+    isTaskImportOpen
+  )
+  const assignedFieldIdsForModal = useMemo(() => {
+    if (detailViewMode === 'subtask' && selectedSubtask) return new Set(Object.keys(getSubtaskCustomFieldValues(selectedSubtask)))
+    return new Set(Object.keys(selectedTask?.customFieldValues ?? {}))
+  }, [detailViewMode, selectedSubtask, selectedTask?.customFieldValues])
 
   if (projectLoadError) {
     return (
@@ -3254,107 +3271,111 @@ export function ProjectDetailPage() {
         />
       )}
 
-      <TaskModals
-        open
-        selectedTask={selectedTask}
-        project={project}
-        isCreateTaskOpen={isCreateTaskOpen}
-        onCreateTaskClose={() => {
-          setIsCreateTaskOpen(false)
-          setCreateTaskInitialTitle('')
-          setCreateTaskInitialTemplateId(null)
-        }}
-        createTaskProject={{
-          tags,
-          agents,
-          templates: taskTemplates,
-          statusColumns,
-          defaultStatus: createTaskStatus,
-          initialTitle: createTaskInitialTitle,
-          initialTemplateId: createTaskInitialTemplateId,
-          busy,
-          onCreate: (input) => void handleCreateTask({ ...input, projectId: projectId ?? input.projectId })
-        }}
-        isAddSubtaskOpen={isAddSubtaskOpen}
-        onAddSubtaskClose={() => setIsAddSubtaskOpen(false)}
-        onAddSubtaskCreate={(input) => void createSubtask(input)}
-        onAddSubtasksCreate={(inputs) => void createSubtasks(inputs)}
-        isProjectPromptSettingsOpen={isProjectPromptSettingsOpen}
-        projectPromptTab={projectPromptTab}
-        projectPromptContext={projectPromptContext}
-        projectPromptPrompt={projectPromptPrompt}
-        projectPromptPlanGuide={projectPromptPlanGuide}
-        projectPromptOutput={projectPromptOutput}
-        projectPromptRules={projectPromptRules}
-        projectPromptPostRun={projectPromptPostRun}
-        projectPromptError={projectPromptError}
-        projectPromptSaving={isProjectPromptSaving}
-        onProjectPromptTabChange={setProjectPromptTab}
-        onProjectPromptContextChange={setProjectPromptContext}
-        onProjectPromptPromptChange={setProjectPromptPrompt}
-        onProjectPromptPlanGuideChange={setProjectPromptPlanGuide}
-        onProjectPromptOutputChange={setProjectPromptOutput}
-        onProjectPromptRulesChange={setProjectPromptRules}
-        onProjectPromptPostRunChange={setProjectPromptPostRun}
-        onProjectPromptClose={() => setIsProjectPromptSettingsOpen(false)}
-        onProjectPromptSave={() => void saveProjectPromptSettings()}
-        isCustomFieldModalOpen={isCustomFieldModalOpen}
-        customFieldRows={customFieldRows}
-        customFields={customFields}
-        assignedFieldIds={
-          detailViewMode === 'subtask' && selectedSubtask
-            ? new Set(Object.keys(getSubtaskCustomFieldValues(selectedSubtask)))
-            : new Set(Object.keys(selectedTask?.customFieldValues ?? {}))
-        }
-        customFieldError={customFieldError}
-        isCreateCustomFieldOpen={isCreateCustomFieldOpen}
-        quickFieldName={quickFieldName}
-        quickFieldType={quickFieldType}
-        onCustomFieldRowsChange={setCustomFieldRows}
-        onCustomFieldCreateRow={() => ({ id: createLocalId(), field: null, value: '' })}
-        onCreateCustomFieldOpenChange={setIsCreateCustomFieldOpen}
-        onQuickFieldNameChange={setQuickFieldName}
-        onQuickFieldTypeChange={setQuickFieldType}
-        onCustomFieldModalClose={() => setIsCustomFieldModalOpen(false)}
-        onCustomFieldSave={() => void saveCustomFieldRows()}
-        onCustomFieldCreate={() => void createCustomFieldFromModal()}
-        onCustomFieldErrorClear={() => setCustomFieldError(null)}
-        isChecklistModalOpen={isChecklistModalOpen}
-        checklistRows={checklistRows}
-        onChecklistRowsChange={setChecklistRows}
-        onChecklistCreateRow={() => ({ id: createLocalId(), title: '' })}
-        onChecklistModalClose={() => setIsChecklistModalOpen(false)}
-        onChecklistSave={() => void addChecklistItems()}
-        isOutputFormatModalOpen={isOutputFormatModalOpen}
-        dataFormatRoleDraft={dataFormatRoleDraft}
-        outputFormatDraftOption={outputFormatDraftOption}
-        outputFormatOptions={dataFormatRoleDraft === 'input' ? inputFormatOptions : outputFormatOptions}
-        isCreateOutputFormatOpen={isCreateOutputFormatOpen}
-        quickOutputFormatName={quickOutputFormatName}
-        quickOutputFormatDescription={quickOutputFormatDescription}
-        onOutputFormatDraftOptionChange={setOutputFormatDraftOption}
-        onCreateOutputFormatOpenChange={setIsCreateOutputFormatOpen}
-        onQuickOutputFormatNameChange={setQuickOutputFormatName}
-        onQuickOutputFormatDescriptionChange={setQuickOutputFormatDescription}
-        onOutputFormatClose={() => setIsOutputFormatModalOpen(false)}
-        onOutputFormatSave={() => void saveTaskOutputFormatFromModal()}
-        onOutputFormatCreate={() => void createOutputFormatFromModal()}
-        isTaskImportOpen={isTaskImportOpen}
-        isTaskImporting={isTaskImporting}
-        onTaskImportClose={() => setIsTaskImportOpen(false)}
-        onTaskImport={(jsonText) => void importSelectedTaskJson(jsonText)}
-      >
-        {null}
-      </TaskModals>
+      {hasTaskModalOpen ? (
+        <Suspense fallback={<ProjectDetailLazyFallback />}>
+          <TaskModals
+            open
+            selectedTask={selectedTask}
+            project={project}
+            isCreateTaskOpen={isCreateTaskOpen}
+            onCreateTaskClose={() => {
+              setIsCreateTaskOpen(false)
+              setCreateTaskInitialTitle('')
+              setCreateTaskInitialTemplateId(null)
+            }}
+            createTaskProject={{
+              tags,
+              agents,
+              templates: taskTemplates,
+              statusColumns,
+              defaultStatus: createTaskStatus,
+              initialTitle: createTaskInitialTitle,
+              initialTemplateId: createTaskInitialTemplateId,
+              busy,
+              onCreate: (input) => void handleCreateTask({ ...input, projectId: projectId ?? input.projectId })
+            }}
+            isAddSubtaskOpen={isAddSubtaskOpen}
+            onAddSubtaskClose={() => setIsAddSubtaskOpen(false)}
+            onAddSubtaskCreate={(input) => void createSubtask(input)}
+            onAddSubtasksCreate={(inputs) => void createSubtasks(inputs)}
+            isProjectPromptSettingsOpen={isProjectPromptSettingsOpen}
+            projectPromptTab={projectPromptTab}
+            projectPromptContext={projectPromptContext}
+            projectPromptPrompt={projectPromptPrompt}
+            projectPromptPlanGuide={projectPromptPlanGuide}
+            projectPromptOutput={projectPromptOutput}
+            projectPromptRules={projectPromptRules}
+            projectPromptPostRun={projectPromptPostRun}
+            projectPromptError={projectPromptError}
+            projectPromptSaving={isProjectPromptSaving}
+            onProjectPromptTabChange={setProjectPromptTab}
+            onProjectPromptContextChange={setProjectPromptContext}
+            onProjectPromptPromptChange={setProjectPromptPrompt}
+            onProjectPromptPlanGuideChange={setProjectPromptPlanGuide}
+            onProjectPromptOutputChange={setProjectPromptOutput}
+            onProjectPromptRulesChange={setProjectPromptRules}
+            onProjectPromptPostRunChange={setProjectPromptPostRun}
+            onProjectPromptClose={() => setIsProjectPromptSettingsOpen(false)}
+            onProjectPromptSave={() => void saveProjectPromptSettings()}
+            isCustomFieldModalOpen={isCustomFieldModalOpen}
+            customFieldRows={customFieldRows}
+            customFields={customFields}
+            assignedFieldIds={assignedFieldIdsForModal}
+            customFieldError={customFieldError}
+            isCreateCustomFieldOpen={isCreateCustomFieldOpen}
+            quickFieldName={quickFieldName}
+            quickFieldType={quickFieldType}
+            onCustomFieldRowsChange={setCustomFieldRows}
+            onCustomFieldCreateRow={() => ({ id: createLocalId(), field: null, value: '' })}
+            onCreateCustomFieldOpenChange={setIsCreateCustomFieldOpen}
+            onQuickFieldNameChange={setQuickFieldName}
+            onQuickFieldTypeChange={setQuickFieldType}
+            onCustomFieldModalClose={() => setIsCustomFieldModalOpen(false)}
+            onCustomFieldSave={() => void saveCustomFieldRows()}
+            onCustomFieldCreate={() => void createCustomFieldFromModal()}
+            onCustomFieldErrorClear={() => setCustomFieldError(null)}
+            isChecklistModalOpen={isChecklistModalOpen}
+            checklistRows={checklistRows}
+            onChecklistRowsChange={setChecklistRows}
+            onChecklistCreateRow={() => ({ id: createLocalId(), title: '' })}
+            onChecklistModalClose={() => setIsChecklistModalOpen(false)}
+            onChecklistSave={() => void addChecklistItems()}
+            isOutputFormatModalOpen={isOutputFormatModalOpen}
+            dataFormatRoleDraft={dataFormatRoleDraft}
+            outputFormatDraftOption={outputFormatDraftOption}
+            outputFormatOptions={dataFormatRoleDraft === 'input' ? inputFormatOptions : outputFormatOptions}
+            isCreateOutputFormatOpen={isCreateOutputFormatOpen}
+            quickOutputFormatName={quickOutputFormatName}
+            quickOutputFormatDescription={quickOutputFormatDescription}
+            onOutputFormatDraftOptionChange={setOutputFormatDraftOption}
+            onCreateOutputFormatOpenChange={setIsCreateOutputFormatOpen}
+            onQuickOutputFormatNameChange={setQuickOutputFormatName}
+            onQuickOutputFormatDescriptionChange={setQuickOutputFormatDescription}
+            onOutputFormatClose={() => setIsOutputFormatModalOpen(false)}
+            onOutputFormatSave={() => void saveTaskOutputFormatFromModal()}
+            onOutputFormatCreate={() => void createOutputFormatFromModal()}
+            isTaskImportOpen={isTaskImportOpen}
+            isTaskImporting={isTaskImporting}
+            onTaskImportClose={() => setIsTaskImportOpen(false)}
+            onTaskImport={(jsonText) => void importSelectedTaskJson(jsonText)}
+          >
+            {null}
+          </TaskModals>
+        </Suspense>
+      ) : null}
 
-      <ProjectDetailSettingsPopup
-        open={isStatusEditorOpen}
-        onClose={() => setIsStatusEditorOpen(false)}
-        scope={projectSettingsModalScope}
-      ></ProjectDetailSettingsPopup>
+      {isStatusEditorOpen ? (
+        <Suspense fallback={<ProjectDetailLazyFallback />}>
+          <ProjectDetailSettingsPopup
+            open
+            onClose={() => setIsStatusEditorOpen(false)}
+            scope={projectSettingsModalScope}
+          />
+        </Suspense>
+      ) : null}
 
       {selectedTask && !isChatPopupOpen ? (
-        <>
+        <Suspense fallback={<ProjectDetailLazyFallback />}>
           <TaskDetailPopup
             taskId={selectedTask.id}
             onClose={closeSelectedTaskDetail}
@@ -3587,10 +3608,14 @@ export function ProjectDetailPage() {
               }}
             />
           ) : null}
-        </>
+        </Suspense>
       ) : null}
 
-        {isChatPopupOpen ? <ChatPopup chatState={chatState} chatHandlers={chatHandlers} /> : null}
+        {isChatPopupOpen ? (
+          <Suspense fallback={<ProjectDetailLazyFallback />}>
+            <ChatPopup chatState={chatState} chatHandlers={chatHandlers} />
+          </Suspense>
+        ) : null}
         <PlanChoiceModal
           open={planChoiceOpen}
           loading={gatewayPlanLaunching}
