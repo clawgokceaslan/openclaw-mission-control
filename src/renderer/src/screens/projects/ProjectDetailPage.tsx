@@ -750,6 +750,16 @@ export function ProjectDetailPage() {
   }
 
   useEffect(() => {
+    if (isChatPopupOpen) return
+    setChatDragDepth((value) => value === 0 ? value : 0)
+    setSlashCommandIndex((value) => value === 0 ? value : 0)
+    setChatComposerFocused((value) => value ? false : value)
+    setChatSettingsOpen((value) => value ? false : value)
+    setChatAttachments((value) => value.length === 0 ? value : [])
+    setChatVisibleLimit((value) => value === CHAT_INITIAL_MESSAGE_LIMIT ? value : CHAT_INITIAL_MESSAGE_LIMIT)
+  }, [isChatPopupOpen])
+
+  useEffect(() => {
     if (!selectedTask || detailViewMode !== 'task' || !isDescriptionEditing) {
       clearDescriptionAutosaveTimer()
       descriptionAutosaveRequestIdRef.current += 1
