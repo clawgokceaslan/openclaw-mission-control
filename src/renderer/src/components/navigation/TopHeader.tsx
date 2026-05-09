@@ -16,6 +16,14 @@ import { UniversalCommand, type GlobalTaskCreateInitial } from './UniversalComma
 
 const appIconSrc = new URL('../../../../../app-icon.png', import.meta.url).href
 
+function hasMacWindowControlsInset(): boolean {
+  const isElectron = typeof navigator !== 'undefined' && /Electron/.test(navigator.userAgent)
+  if (!isElectron) return false
+
+  const runtimeProcess = (globalThis as { process?: { platform?: string } }).process
+  return runtimeProcess?.platform === 'darwin'
+}
+
 export function TopHeader({ user }: { user: User | null }) {
   const navigate = useNavigate()
   const userName = user?.name?.trim() || 'Mission Operator'
@@ -25,6 +33,7 @@ export function TopHeader({ user }: { user: User | null }) {
   const questionPanelRef = useRef<HTMLDivElement | null>(null)
   const { queue: plannerQuestions, hasConfigurationWarning, openQuestion } = usePlannerQuestions()
   const { avatarUrl } = useLocalAvatar(user?.id)
+  const brandAreaClassName = `${styles.brandArea} ${hasMacWindowControlsInset() ? styles.brandAreaMacInset : ''}`
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -61,7 +70,7 @@ export function TopHeader({ user }: { user: User | null }) {
   return (
     <Navbar className={styles.topbar}>
       <Container fluid className={styles.topbarInner}>
-        <div className={styles.brandArea}>
+        <div className={brandAreaClassName}>
           <div className={styles.brandMark}>
             <img src={appIconSrc} alt="Open Mission Control logo" />
           </div>
