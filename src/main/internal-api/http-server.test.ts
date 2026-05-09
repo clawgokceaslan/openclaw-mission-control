@@ -1,7 +1,7 @@
 import EventEmitter from 'node:events'
 import { describe, expect, it } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
-import { startInternalHttpServer } from './http-server.js'
+import { createWebServerStatusState, getInternalHttpServerStatus, startInternalHttpServer } from './http-server.js'
 
 function createContext() {
   const eventBus = new EventEmitter()
@@ -31,6 +31,32 @@ function createContext() {
 }
 
 describe('startInternalHttpServer', () => {
+  it('marks localhost-bound LAN addresses as not externally reachable', () => {
+    const status = createWebServerStatusState({
+      status: 'running',
+      host: '127.0.0.1',
+      preferredPort: 3000,
+      actualPort: 3000
+    })
+
+    expect(status.lanReachable).toBe(false)
+    expect(status.localUrl).toBe('http://localhost:3000')
+    expect(status.lanAddresses.every((entry) => entry.url === null)).toBe(true)
+  })
+
+  it('marks all-interface hosts as LAN reachable when a port is active', () => {
+    const status = createWebServerStatusState({
+      status: 'running',
+      host: '0.0.0.0',
+      preferredPort: 3000,
+      actualPort: 3001
+    })
+
+    expect(status.lanReachable).toBe(true)
+    expect(status.url).toBe('http://127.0.0.1:3001')
+    expect(status.localUrl).toBe('http://localhost:3001')
+  })
+
   it('serves protected internal API calls through the shared dispatcher', async () => {
     const server = await startInternalHttpServer(createContext(), { preferredPort: 30100, host: '127.0.0.1' })
     try {
@@ -47,6 +73,14 @@ describe('startInternalHttpServer', () => {
       expect(response.status).toBe(200)
       expect(json.ok).toBe(true)
       expect(json.data?.[0]?.actorToken).toBe('access-token')
+      expect(getInternalHttpServerStatus()).toMatchObject({
+        status: 'running',
+        host: '127.0.0.1',
+        preferredPort: 30100,
+        actualPort: server.port,
+        localUrl: `http://localhost:${server.port}`,
+        lanReachable: false
+      })
     } finally {
       await server.close()
     }

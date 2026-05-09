@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { LuArrowRight, LuBellOff, LuBot, LuCheck, LuClipboard, LuCog, LuDatabase, LuFileSearch, LuFolderOpen, LuHardDrive, LuLanguages, LuRefreshCw, LuSlidersHorizontal, LuTriangleAlert, LuWaypoints } from 'react-icons/lu'
-import { IPC_CHANNELS, type DatabaseLocationState, type PickDatabaseFileResponse, type PickDatabaseFolderResponse } from '@shared/contracts/ipc'
+import { LuArrowRight, LuBellOff, LuBot, LuCheck, LuClipboard, LuCog, LuCopy, LuDatabase, LuExternalLink, LuFileJson, LuFileSearch, LuFolderOpen, LuGlobe, LuHardDrive, LuLanguages, LuPower, LuRefreshCw, LuServer, LuSlidersHorizontal, LuTriangleAlert, LuWaypoints, LuWifi } from 'react-icons/lu'
+import { IPC_CHANNELS, type DatabaseLocationState, type PickDatabaseFileResponse, type PickDatabaseFolderResponse, type WebServerStatusState } from '@shared/contracts/ipc'
 import { GATEWAY_LANGUAGE_OPTIONS, DEFAULT_GATEWAY_LANGUAGE } from '@shared/utils/gateway-language'
 import { DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR, type PlannerQuestionAttentionBehavior } from '@shared/utils/planner-question-attention'
 import type { Agent } from '@shared/types/entities'
@@ -12,9 +12,10 @@ import { LoadingState } from '@renderer/components/loading'
 import { WorkspacesPage } from '@renderer/screens/workspaces/WorkspacesPage'
 import { GatewaysPage } from '@renderer/screens/gateways/GatewaysPage'
 import { GatewayDetailPage } from '@renderer/screens/gateways/GatewayDetailPage'
+import { webServerLanMessage, webServerPrimaryUrl, webServerStatusLabel, webServerStatusTone } from './webServerViewModel'
 import styles from './SettingsPage.module.scss'
 
-type SettingsSection = 'general' | 'workspaces' | 'gateways' | 'database'
+type SettingsSection = 'general' | 'workspaces' | 'gateways' | 'database' | 'web-server'
 
 const databaseFallbackState: DatabaseLocationState = {
   currentFolderPath: '',
@@ -31,7 +32,7 @@ export function SettingsPage() {
   const { token } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedTab = searchParams.get('tab') as SettingsSection | null
-  const [activeSection, setActiveSection] = useState<SettingsSection>(requestedTab && ['general', 'workspaces', 'gateways', 'database'].includes(requestedTab) ? requestedTab : 'general')
+  const [activeSection, setActiveSection] = useState<SettingsSection>(requestedTab && ['general', 'workspaces', 'gateways', 'database', 'web-server'].includes(requestedTab) ? requestedTab : 'general')
   const selectedGatewayId = searchParams.get('gatewayId')
   const [agents, setAgents] = useState<Agent[]>([])
   const [defaultAgentId, setDefaultAgentId] = useState('')
@@ -51,9 +52,15 @@ export function SettingsPage() {
   const [databaseMoving, setDatabaseMoving] = useState(false)
   const [databaseMessage, setDatabaseMessage] = useState<string | null>(null)
   const [databaseCopied, setDatabaseCopied] = useState(false)
+  const [webServerStatus, setWebServerStatus] = useState<WebServerStatusState | null>(null)
+  const [webServerLoading, setWebServerLoading] = useState(false)
+  const [webServerMessage, setWebServerMessage] = useState<string | null>(null)
+  const [webServerHealth, setWebServerHealth] = useState<unknown>(null)
+  const [webServerCapabilities, setWebServerCapabilities] = useState<unknown>(null)
+  const [webServerAction, setWebServerAction] = useState<'open' | 'copy' | 'refresh' | 'restart' | null>(null)
 
   useEffect(() => {
-    if (requestedTab && ['general', 'workspaces', 'gateways', 'database'].includes(requestedTab)) {
+    if (requestedTab && ['general', 'workspaces', 'gateways', 'database', 'web-server'].includes(requestedTab)) {
       setActiveSection(requestedTab)
     }
   }, [requestedTab])
@@ -70,17 +77,24 @@ export function SettingsPage() {
       setSourceDatabasePath('')
       setDatabaseLoading(false)
       setDatabaseLoadError(null)
+      setWebServerStatus(null)
+      setWebServerLoading(false)
+      setWebServerMessage(null)
+      setWebServerHealth(null)
+      setWebServerCapabilities(null)
       return
     }
     setDatabaseLoading(true)
+    setWebServerLoading(true)
     setDatabaseLoadError(null)
     void Promise.all([
       loadList<Agent[]>(IPC_CHANNELS.agents.list, token),
       invokeBridge<{ agentId: string | null }>(IPC_CHANNELS.appSettings.getDefaultAgent, { actorToken: token }),
       invokeBridge<{ language: string }>(IPC_CHANNELS.appSettings.getGatewayLanguage, { actorToken: token }),
       invokeBridge<{ behavior: PlannerQuestionAttentionBehavior }>(IPC_CHANNELS.appSettings.getPlannerQuestionAttention, { actorToken: token }),
-      invokeBridge<DatabaseLocationState>(IPC_CHANNELS.appSettings.getDatabaseLocation, { actorToken: token })
-    ]).then(([agentResponse, defaultResponse, languageResponse, plannerQuestionAttentionResponse, databaseResponse]) => {
+      invokeBridge<DatabaseLocationState>(IPC_CHANNELS.appSettings.getDatabaseLocation, { actorToken: token }),
+      invokeBridge<WebServerStatusState>(IPC_CHANNELS.appSettings.getWebServerStatus, { actorToken: token })
+    ]).then(([agentResponse, defaultResponse, languageResponse, plannerQuestionAttentionResponse, databaseResponse, webServerResponse]) => {
       if (cancelled) return
       setAgents(Array.isArray(agentResponse.data) ? agentResponse.data : [])
       setDefaultAgentId(defaultResponse.ok && defaultResponse.data?.agentId ? defaultResponse.data.agentId : '')
@@ -91,11 +105,18 @@ export function SettingsPage() {
       } else {
         setDatabaseLoadError(databaseResponse.error?.message ?? 'Unable to load database location.')
       }
+      if (webServerResponse.ok && webServerResponse.data) {
+        setWebServerStatus(webServerResponse.data)
+      } else {
+        setWebServerMessage(webServerResponse.error?.message ?? 'Unable to load web server status.')
+      }
     }).catch(() => {
       if (!cancelled) setDefaultAgentMessage('Unable to load settings.')
       if (!cancelled) setDatabaseLoadError('Unable to load database location.')
+      if (!cancelled) setWebServerMessage('Unable to load web server status.')
     }).finally(() => {
       if (!cancelled) setDatabaseLoading(false)
+      if (!cancelled) setWebServerLoading(false)
     })
     return () => {
       cancelled = true
@@ -336,6 +357,106 @@ export function SettingsPage() {
     setDatabaseMessage('Database folder opened.')
   }
 
+  const refreshWebServerStatus = async (withPublicChecks = false) => {
+    setWebServerAction('refresh')
+    setWebServerLoading(true)
+    setWebServerMessage(null)
+    try {
+      const response = await invokeBridge<WebServerStatusState>(IPC_CHANNELS.appSettings.getWebServerStatus, { actorToken: token })
+      if (!response.ok || !response.data) {
+        setWebServerMessage(response.error?.message ?? 'Unable to refresh web server status.')
+        return
+      }
+      setWebServerStatus(response.data)
+      if (!withPublicChecks) {
+        setWebServerMessage('Web server status refreshed.')
+        return
+      }
+      const baseUrl = webServerPrimaryUrl(response.data)
+      if (!baseUrl || response.data.status !== 'running') {
+        setWebServerHealth(null)
+        setWebServerCapabilities(null)
+        setWebServerMessage('Web server is not running, so public endpoint checks were skipped.')
+        return
+      }
+      const [healthResponse, capabilitiesResponse] = await Promise.all([
+        fetch(`${baseUrl}/api/health`),
+        fetch(`${baseUrl}/api/capabilities`)
+      ])
+      const health = await healthResponse.json()
+      const capabilities = await capabilitiesResponse.json()
+      setWebServerHealth(health)
+      setWebServerCapabilities(capabilities)
+      if (!healthResponse.ok || !capabilitiesResponse.ok) {
+        setWebServerMessage('Public endpoint checks returned an error.')
+        return
+      }
+      setWebServerMessage('Health and capabilities refreshed.')
+    } catch (error) {
+      setWebServerMessage(error instanceof Error ? error.message : 'Unable to refresh web server checks.')
+    } finally {
+      setWebServerLoading(false)
+      setWebServerAction(null)
+    }
+  }
+
+  const openWebServerUrl = async () => {
+    const url = webServerPrimaryUrl(webServerStatus)
+    if (!url) {
+      setWebServerMessage('No web URL is available to open.')
+      return
+    }
+    setWebServerAction('open')
+    setWebServerMessage(null)
+    try {
+      const response = await invokeBridge<{ opened: boolean; url: string }>(IPC_CHANNELS.appSettings.openWebServerUrl, {
+        actorToken: token,
+        url
+      })
+      setWebServerMessage(response.ok ? 'Web URL opened.' : response.error?.message ?? 'Unable to open web URL.')
+    } catch (error) {
+      setWebServerMessage(error instanceof Error ? error.message : 'Unable to open web URL.')
+    } finally {
+      setWebServerAction(null)
+    }
+  }
+
+  const copyWebServerUrl = async () => {
+    const url = webServerPrimaryUrl(webServerStatus)
+    if (!url) {
+      setWebServerMessage('No web URL is available to copy.')
+      return
+    }
+    setWebServerAction('copy')
+    try {
+      await navigator.clipboard?.writeText(url)
+      setWebServerMessage('Web URL copied.')
+      window.setTimeout(() => {
+        setWebServerAction((current) => current === 'copy' ? null : current)
+      }, 1400)
+    } catch {
+      setWebServerMessage('Unable to copy web URL.')
+      setWebServerAction(null)
+    }
+  }
+
+  const restartAppFromWebServerPanel = async () => {
+    setWebServerAction('restart')
+    setWebServerMessage(null)
+    try {
+      const response = await invokeBridge<{ restarting: boolean }>(IPC_CHANNELS.app.restart, {})
+      if (!response.ok) {
+        setWebServerMessage(response.error?.message ?? 'Unable to restart the app.')
+        setWebServerAction(null)
+        return
+      }
+      setWebServerMessage('Restarting the app...')
+    } catch (error) {
+      setWebServerMessage(error instanceof Error ? error.message : 'Unable to restart the app.')
+      setWebServerAction(null)
+    }
+  }
+
   const selectSection = (section: SettingsSection) => {
     setActiveSection(section)
     setSearchParams(section === 'general' ? {} : { tab: section })
@@ -355,7 +476,8 @@ export function SettingsPage() {
     { id: 'general' as SettingsSection, label: 'General', icon: LuSlidersHorizontal },
     { id: 'workspaces' as SettingsSection, label: 'Workspaces', icon: LuFolderOpen },
     { id: 'gateways' as SettingsSection, label: 'Gateways', icon: LuWaypoints },
-    { id: 'database' as SettingsSection, label: 'Database', icon: LuHardDrive }
+    { id: 'database' as SettingsSection, label: 'Database', icon: LuHardDrive },
+    { id: 'web-server' as SettingsSection, label: 'Web Sunucusu', icon: LuServer }
   ]
 
   const hasPendingRestart = databaseState.restartRequired
@@ -407,6 +529,9 @@ export function SettingsPage() {
       : !databaseFolder
         ? 'Answer the destination question before moving the database.'
         : 'Review the answers, then move the database and restart into the new location.'
+  const webPrimaryUrl = webServerPrimaryUrl(webServerStatus)
+  const webStatusTone = webServerStatus ? webServerStatusTone(webServerStatus.status) : 'muted'
+  const webServerCanUseUrl = Boolean(webPrimaryUrl && webServerStatus?.status === 'running')
 
   return (
     <section className={styles.page}>
@@ -517,6 +642,124 @@ export function SettingsPage() {
               ) : (
                 <GatewaysPage embedded onOpenGateway={openGatewayDetail} />
               )}
+            </div>
+          ) : null}
+
+          {activeSection === 'web-server' ? (
+            <div className={`${styles.panel} ${styles.webServerPanel}`}>
+              <header className={styles.webServerHero}>
+                <span className={styles.panelIcon}><LuServer size={19} /></span>
+                <div>
+                  <h2>Web Sunucusu</h2>
+                  <p>Runtime web arayüzü, public health kontrolleri ve yerel ağ erişim durumu.</p>
+                </div>
+                <span className={webStatusTone === 'ok' ? styles.statusPillOk : webStatusTone === 'warn' ? styles.statusPillWarn : styles.statusPillMuted}>
+                  {webServerLoading ? 'Loading' : webServerStatus ? webServerStatusLabel(webServerStatus.status) : 'Unknown'}
+                </span>
+              </header>
+
+              {webServerLoading && !webServerStatus ? (
+                <div className={styles.webServerNotice} role="status">
+                  <LoadingState size="compact" message="" />
+                  <span>Web server status is loading.</span>
+                </div>
+              ) : null}
+
+              {webServerStatus?.status === 'error' ? (
+                <div className={styles.databaseWarning} role="alert">
+                  <LuTriangleAlert size={17} />
+                  <span>{webServerStatus.lastError || 'Web server failed to start.'}</span>
+                </div>
+              ) : null}
+
+              {webServerStatus?.status === 'stopped' ? (
+                <div className={styles.webServerNotice} role="status">
+                  <LuPower size={17} />
+                  <span>Web server is currently stopped. Restart the app to start it again.</span>
+                </div>
+              ) : null}
+
+              <div className={styles.webServerGrid}>
+                <div className={styles.webServerMetric}>
+                  <small>Status</small>
+                  <strong>{webServerStatus ? webServerStatusLabel(webServerStatus.status) : 'Unknown'}</strong>
+                  <span>{webServerStatus?.lastError || 'Current runtime state'}</span>
+                </div>
+                <div className={styles.webServerMetric}>
+                  <small>Host</small>
+                  <strong>{webServerStatus?.host || 'Unknown'}</strong>
+                  <span>{webServerStatus?.lanReachable ? 'LAN binding is reachable.' : 'Bound to localhost or unavailable.'}</span>
+                </div>
+                <div className={styles.webServerMetric}>
+                  <small>Preferred port</small>
+                  <strong>{webServerStatus?.preferredPort || 'Unknown'}</strong>
+                  <span>Configured startup port</span>
+                </div>
+                <div className={styles.webServerMetric}>
+                  <small>Actual port</small>
+                  <strong>{webServerStatus?.actualPort ?? 'Not listening'}</strong>
+                  <span>Active listener port after fallback scan</span>
+                </div>
+              </div>
+
+              <section className={styles.surfaceSection}>
+                <h3><LuGlobe size={17} /> Localhost URL</h3>
+                <div className={styles.webServerUrlRow}>
+                  <span>{webPrimaryUrl || 'No local URL available'}</span>
+                  <button type="button" className={styles.secondaryButton} onClick={() => void openWebServerUrl()} disabled={!webServerCanUseUrl || webServerAction === 'open'}>
+                    <LuExternalLink size={15} />
+                    {webServerAction === 'open' ? 'Opening' : 'Open'}
+                  </button>
+                  <button type="button" className={styles.secondaryButton} onClick={() => void copyWebServerUrl()} disabled={!webPrimaryUrl || webServerAction === 'copy'}>
+                    {webServerAction === 'copy' ? <LuCheck size={15} /> : <LuCopy size={15} />}
+                    {webServerAction === 'copy' ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              </section>
+
+              <section className={styles.surfaceSection}>
+                <h3><LuWifi size={17} /> LAN IPv4 addresses</h3>
+                <p className={styles.settingMessage}>{webServerLanMessage(webServerStatus)}</p>
+                <div className={styles.lanAddressList}>
+                  {webServerStatus?.lanAddresses.length ? webServerStatus.lanAddresses.map((entry) => (
+                    <label key={entry.address}>
+                      <small>{entry.address}</small>
+                      <span>{entry.url || 'Not reachable while bound to localhost'}</span>
+                    </label>
+                  )) : (
+                    <div className={styles.webServerEmpty}>No LAN IPv4 address found.</div>
+                  )}
+                </div>
+              </section>
+
+              <section className={styles.surfaceSection}>
+                <h3><LuFileJson size={17} /> Health and capabilities</h3>
+                <div className={styles.webServerActions}>
+                  <button type="button" className={styles.secondaryButton} onClick={() => void refreshWebServerStatus(true)} disabled={webServerAction === 'refresh'}>
+                    <LuRefreshCw size={15} />
+                    {webServerAction === 'refresh' ? <LoadingState size="compact" message="" /> : 'Refresh checks'}
+                  </button>
+                  <button type="button" className={styles.secondaryButton} onClick={() => void refreshWebServerStatus(false)} disabled={webServerAction === 'refresh'}>
+                    <LuRefreshCw size={15} />
+                    Refresh status
+                  </button>
+                  <button type="button" className={styles.primaryButton} onClick={() => void restartAppFromWebServerPanel()} disabled={webServerAction === 'restart'}>
+                    <LuPower size={15} />
+                    {webServerAction === 'restart' ? 'Restarting' : 'Restart app'}
+                  </button>
+                </div>
+                <div className={styles.webServerChecks}>
+                  <label>
+                    <small>Health</small>
+                    <code>{webServerHealth ? JSON.stringify(webServerHealth) : 'Not refreshed yet'}</code>
+                  </label>
+                  <label>
+                    <small>Capabilities</small>
+                    <code>{webServerCapabilities ? JSON.stringify(webServerCapabilities) : 'Not refreshed yet'}</code>
+                  </label>
+                </div>
+                {webServerMessage ? <p className={styles.settingMessage}>{webServerMessage}</p> : null}
+              </section>
             </div>
           ) : null}
 

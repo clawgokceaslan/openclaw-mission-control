@@ -43,6 +43,8 @@ export const IPC_CHANNELS = {
     getPlannerQuestionAttention: 'app-settings:get-planner-question-attention',
     setPlannerQuestionAttention: 'app-settings:set-planner-question-attention',
     getDatabaseLocation: 'app-settings:get-database-location',
+    getWebServerStatus: 'app-settings:get-web-server-status',
+    openWebServerUrl: 'app-settings:open-web-server-url',
     pickDatabaseFolder: 'app-settings:pick-database-folder',
     pickDatabaseFile: 'app-settings:pick-database-file',
     moveDatabaseLocation: 'app-settings:move-database-location',
@@ -613,6 +615,31 @@ export interface DatabaseLocationState {
   restartRequired: boolean
 }
 
+export type WebServerStatus = 'starting' | 'running' | 'stopped' | 'error'
+
+export interface WebServerLanAddress {
+  address: string
+  url: string | null
+}
+
+export interface WebServerStatusState {
+  status: WebServerStatus
+  host: string
+  preferredPort: number
+  actualPort: number | null
+  url: string | null
+  localUrl: string | null
+  lanAddresses: WebServerLanAddress[]
+  lanReachable: boolean
+  lastError: string | null
+  updatedAt: number
+}
+
+export interface OpenWebServerUrlRequest {
+  actorToken?: string
+  url?: string | null
+}
+
 export interface PickDatabaseFolderRequest {
   actorToken?: string
 }
@@ -661,7 +688,7 @@ export const SERVICE_MAP = {
   auth: ['login', 'refresh', 'logout', 'me', 'inviteValidate', 'updateProfile', 'changePassword'],
   projects: ['list', 'get', 'create', 'update', 'moveWorkspace', 'exportWorkspace', 'remove'],
   workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
-  appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent', 'getDefaultAddTaskProject', 'setDefaultAddTaskProject', 'getGatewayLanguage', 'setGatewayLanguage', 'getPlannerQuestionAttention', 'setPlannerQuestionAttention', 'getDatabaseLocation', 'pickDatabaseFolder', 'pickDatabaseFile', 'moveDatabaseLocation', 'revealDatabaseLocation'],
+  appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent', 'getDefaultAddTaskProject', 'setDefaultAddTaskProject', 'getGatewayLanguage', 'setGatewayLanguage', 'getPlannerQuestionAttention', 'setPlannerQuestionAttention', 'getDatabaseLocation', 'getWebServerStatus', 'openWebServerUrl', 'pickDatabaseFolder', 'pickDatabaseFile', 'moveDatabaseLocation', 'revealDatabaseLocation'],
   statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
   tasks: ['list', 'listPlannedGateway', 'listRunningGateway', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runGateway', 'planWithGateway', 'gatewayChatSend', 'gatewayChatStop', 'gatewayChatResolve', 'plannerContext', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
   taskTemplates: ['list', 'create', 'update', 'remove', 'importJson'],
@@ -899,6 +926,20 @@ export const SERVICE_ROUTING: {
       action: 'getDatabaseLocation',
       method: 'getDatabaseLocation',
       channel: IPC_CHANNELS.appSettings.getDatabaseLocation,
+      requiresAuth: true
+    },
+    getWebServerStatus: {
+      domain: 'appSettings',
+      action: 'getWebServerStatus',
+      method: 'getWebServerStatus',
+      channel: IPC_CHANNELS.appSettings.getWebServerStatus,
+      requiresAuth: true
+    },
+    openWebServerUrl: {
+      domain: 'appSettings',
+      action: 'openWebServerUrl',
+      method: 'openWebServerUrl',
+      channel: IPC_CHANNELS.appSettings.openWebServerUrl,
       requiresAuth: true
     },
     pickDatabaseFolder: {

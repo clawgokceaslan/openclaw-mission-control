@@ -239,6 +239,174 @@
   color: var(--omc-warning-strong, #8a6413);
 }
 
+.statusPillMuted {
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 999px;
+  background: var(--omc-surface-muted);
+  color: var(--omc-text-muted);
+  padding: 7px 10px;
+  font-size: 0.76rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.webServerPanel {
+  gap: 18px;
+
+  .webServerHero {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: start;
+
+    h2 {
+      margin: 0;
+      color: var(--omc-text-strong);
+      font-size: 1.35rem;
+    }
+
+    p {
+      margin: 5px 0 0;
+      color: var(--omc-text-muted);
+    }
+  }
+
+  .webServerNotice {
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 8px;
+    background: var(--omc-surface-muted);
+    color: var(--omc-text-muted);
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 0.88rem;
+    font-weight: 800;
+  }
+
+  .webServerGrid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+
+    .webServerMetric {
+      min-width: 0;
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 8px;
+      background: var(--omc-surface-muted);
+      padding: 11px 12px;
+      display: grid;
+      gap: 5px;
+
+      small {
+        color: var(--omc-text-muted);
+        font-size: 0.74rem;
+        font-weight: 850;
+        text-transform: uppercase;
+      }
+
+      strong {
+        min-width: 0;
+        color: var(--omc-text-strong);
+        overflow-wrap: anywhere;
+      }
+
+      span {
+        min-width: 0;
+        color: var(--omc-text-muted);
+        font-size: 0.85rem;
+        overflow-wrap: anywhere;
+      }
+    }
+  }
+
+  .webServerUrlRow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 8px;
+    align-items: stretch;
+
+    > span {
+      min-width: 0;
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 8px;
+      background: var(--omc-surface);
+      color: var(--omc-text-strong);
+      padding: 10px 12px;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  .lanAddressList {
+    display: grid;
+    gap: 8px;
+
+    label,
+    .webServerEmpty {
+      min-width: 0;
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 8px;
+      background: var(--omc-surface);
+      padding: 10px 11px;
+      display: grid;
+      gap: 5px;
+    }
+
+    small {
+      color: var(--omc-text-muted);
+      font-size: 0.72rem;
+      font-weight: 850;
+      text-transform: uppercase;
+    }
+
+    span,
+    .webServerEmpty {
+      min-width: 0;
+      color: var(--omc-text-strong);
+      font-size: 0.88rem;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  .webServerActions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .webServerChecks {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+
+    label {
+      min-width: 0;
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 8px;
+      background: var(--omc-surface);
+      padding: 10px 11px;
+      display: grid;
+      gap: 5px;
+
+      small {
+        color: var(--omc-text-muted);
+        font-size: 0.72rem;
+        font-weight: 850;
+        text-transform: uppercase;
+      }
+
+      code {
+        min-width: 0;
+        color: var(--omc-text-strong);
+        font-size: 0.78rem;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+    }
+  }
+}
+
 .databaseOverview {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -509,6 +677,15 @@
   .databaseHero,
   .databaseOverview {
     grid-template-columns: 1fr;
+  }
+
+  .webServerPanel {
+    .webServerHero,
+    .webServerGrid,
+    .webServerUrlRow,
+    .webServerChecks {
+      grid-template-columns: 1fr;
+    }
   }
 
   .databaseFlow {

@@ -1,11 +1,12 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { createReadStream, existsSync, statSync } from 'node:fs'
+import { networkInterfaces } from 'node:os'
 import { join, normalize } from 'node:path'
 import { URL } from 'node:url'
 import type { AppContext } from '../services/service-container.js'
 import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, type ServiceResponse } from '../../shared/contracts/response.js'
-import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
+import { IPC_CHANNELS, type WebServerLanAddress, type WebServerStatusState } from '../../shared/contracts/ipc.js'
 import {
   dispatchInternalApi,
   findRouteByChannel,
@@ -25,6 +26,90 @@ export interface InternalHttpServerHandle {
   port: number
   url: string
   close: () => Promise<void>
+}
+
+let webServerStatus: WebServerStatusState = {
+  status: 'stopped',
+  host: '127.0.0.1',
+  preferredPort: 0,
+  actualPort: null,
+  url: null,
+  localUrl: null,
+  lanAddresses: [],
+  lanReachable: false,
+  lastError: null,
+  updatedAt: Date.now()
+}
+
+export function getLanIpv4Addresses(): string[] {
+  const values = new Set<string>()
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.family === 'IPv4' && !entry.internal && entry.address) {
+        values.add(entry.address)
+      }
+    }
+  }
+  return [...values].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
+}
+
+function isLoopbackHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase()
+  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1'
+}
+
+function isAllInterfacesHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase()
+  return normalized === '0.0.0.0' || normalized === '::'
+}
+
+export function createWebServerStatusState(input: {
+  status: WebServerStatusState['status']
+  host: string
+  preferredPort: number
+  actualPort?: number | null
+  lastError?: string | null
+}): WebServerStatusState {
+  const actualPort = input.actualPort ?? null
+  const host = input.host || '127.0.0.1'
+  const lanReachable = Boolean(actualPort && !isLoopbackHost(host))
+  const localUrl = actualPort ? `http://localhost:${actualPort}` : null
+  const activeHost = isAllInterfacesHost(host) ? '127.0.0.1' : host
+  const url = actualPort ? `http://${activeHost}:${actualPort}` : null
+  const lanAddresses: WebServerLanAddress[] = getLanIpv4Addresses().map((address) => ({
+    address,
+    url: lanReachable ? `http://${address}:${actualPort}` : null
+  }))
+
+  return {
+    status: input.status,
+    host,
+    preferredPort: input.preferredPort,
+    actualPort,
+    url,
+    localUrl,
+    lanAddresses,
+    lanReachable,
+    lastError: input.lastError ?? null,
+    updatedAt: Date.now()
+  }
+}
+
+export function getInternalHttpServerStatus(): WebServerStatusState {
+  return {
+    ...webServerStatus,
+    lanAddresses: webServerStatus.lanAddresses.map((address) => ({ ...address }))
+  }
+}
+
+export function recordInternalHttpServerStartupError(config: InternalHttpServerConfig, error: unknown): void {
+  webServerStatus = createWebServerStatusState({
+    status: 'error',
+    host: config.host,
+    preferredPort: config.preferredPort,
+    actualPort: null,
+    lastError: error instanceof Error ? error.message : String(error)
+  })
 }
 
 const eventChannels = new Set<string>(Object.values(IPC_CHANNELS.events))
@@ -245,6 +330,11 @@ function listen(server: Server, host: string, port: number): Promise<number> {
 export async function startInternalHttpServer(context: AppContext, config: InternalHttpServerConfig): Promise<InternalHttpServerHandle> {
   let selectedServer: Server | undefined
   let selectedPort = config.preferredPort
+  webServerStatus = createWebServerStatusState({
+    status: 'starting',
+    host: config.host,
+    preferredPort: config.preferredPort
+  })
 
   for (let port = config.preferredPort; port < config.preferredPort + 20; port += 1) {
     const server = createServer((request, response) => {
@@ -302,13 +392,33 @@ export async function startInternalHttpServer(context: AppContext, config: Inter
   }
 
   if (!selectedServer) {
-    throw new Error(`No available Open Mission Control web port from ${config.preferredPort}`)
+    const error = new Error(`No available Open Mission Control web port from ${config.preferredPort}`)
+    recordInternalHttpServerStartupError(config, error)
+    throw error
   }
+
+  webServerStatus = createWebServerStatusState({
+    status: 'running',
+    host: config.host,
+    preferredPort: config.preferredPort,
+    actualPort: selectedPort
+  })
 
   return {
     server: selectedServer,
     port: selectedPort,
     url: `http://${config.host}:${selectedPort}`,
-    close: () => new Promise((resolve, reject) => selectedServer?.close((error) => error ? reject(error) : resolve()))
+    close: () => new Promise((resolve, reject) => selectedServer?.close((error) => {
+      if (error) {
+        reject(error)
+        return
+      }
+      webServerStatus = createWebServerStatusState({
+        status: 'stopped',
+        host: config.host,
+        preferredPort: config.preferredPort
+      })
+      resolve()
+    }))
   }
 }

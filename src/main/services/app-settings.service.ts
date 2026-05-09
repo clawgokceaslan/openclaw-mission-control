@@ -14,7 +14,8 @@ import {
   type PlannerQuestionAttentionBehavior
 } from '../../shared/utils/planner-question-attention.js'
 import { electronRuntime } from '../utils/electron-runtime.js'
-import type { DatabaseLocationState } from '../../shared/contracts/ipc.js'
+import type { DatabaseLocationState, WebServerStatusState } from '../../shared/contracts/ipc.js'
+import { getInternalHttpServerStatus } from '../internal-api/http-server.js'
 
 const ACTIVE_GATEWAY_KEY = 'activeGatewayId'
 const DEFAULT_AGENT_KEY = 'defaultAgentId'
@@ -147,6 +148,33 @@ export class AppSettingsService {
   async getDatabaseLocation(payload: { actorToken?: string }): Promise<ServiceResponse<DatabaseLocationState>> {
     await this.auth.requireActor(payload?.actorToken)
     return okResponse(getDatabaseLocationState())
+  }
+
+  async getWebServerStatus(payload: { actorToken?: string }): Promise<ServiceResponse<WebServerStatusState>> {
+    await this.auth.requireActor(payload?.actorToken)
+    return okResponse(getInternalHttpServerStatus())
+  }
+
+  async openWebServerUrl(payload: { actorToken?: string; url?: string | null }): Promise<ServiceResponse<{ opened: boolean; url: string }>> {
+    await this.auth.requireActor(payload?.actorToken)
+    const status = getInternalHttpServerStatus()
+    const targetUrl = payload?.url?.trim() || status.localUrl || status.url || ''
+    if (!targetUrl) return errorResponse(ErrorCodes.Validation, 'Web server URL is unavailable')
+    let parsed: URL
+    try {
+      parsed = new URL(targetUrl)
+    } catch {
+      return errorResponse(ErrorCodes.Validation, 'Web server URL is invalid')
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return errorResponse(ErrorCodes.Validation, 'Web server URL must use HTTP')
+    }
+    const shell = electronRuntime.shell
+    if (!shell) {
+      return errorResponse(ErrorCodes.Internal, 'Electron shell runtime is unavailable')
+    }
+    await shell.openExternal(parsed.toString())
+    return okResponse({ opened: true, url: parsed.toString() })
   }
 
   async pickDatabaseFolder(payload: { actorToken?: string }): Promise<ServiceResponse<{ folderPath: string } | null>> {
