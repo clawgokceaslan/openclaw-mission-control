@@ -324,13 +324,29 @@ export function ProfilePage() {
     )
   }
 
+  const buildCroppedAvatarDataUrl = (): string | null => {
+    if (!cropImageRef.current || !cropImageSize) return null
+    return cropImageToDataUrl(cropImageRef.current, cropImageSize, cropZoom, cropOffset)
+  }
+
   const saveCroppedAvatar = async () => {
-    if (!croppedPreview) {
+    let nextAvatarDataUrl: string | null = null
+
+    try {
+      nextAvatarDataUrl = buildCroppedAvatarDataUrl()
+    } catch (previewError) {
+      setAvatarError(previewError instanceof Error ? previewError.message : 'Preview could not be generated.')
+      return
+    }
+
+    if (!nextAvatarDataUrl) {
       setAvatarError('Choose an image before saving.')
       return
     }
+
+    setCroppedPreview(nextAvatarDataUrl)
     setAvatarPending(true)
-    const response = await updateAvatar(croppedPreview)
+    const response = await updateAvatar(nextAvatarDataUrl)
     setAvatarPending(false)
     if (!response.ok) {
       setAvatarError(response.message ?? 'Avatar could not be saved.')
