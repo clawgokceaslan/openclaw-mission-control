@@ -1,10 +1,13 @@
 .page {
+  min-width: 0;
   display: grid;
   gap: 18px;
   align-content: start;
 }
 
 .embeddedPage {
+  min-width: 0;
+
   .header {
     margin: 0;
     padding: 0 0 16px;
@@ -19,6 +22,7 @@
 }
 
 .header {
+  min-width: 0;
   margin: -22px -30px 14px;
   padding: 28px 30px;
   border-bottom: 1px solid var(--omc-border);
@@ -40,6 +44,7 @@
     margin: 6px 0 0;
     color: var(--omc-text-muted);
     font-size: 0.98rem;
+    overflow-wrap: anywhere;
   }
 
   @media (width <= 900px) {
@@ -63,6 +68,7 @@
 .actionsCell,
 .inlinePicker,
 .modalFooter {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -140,6 +146,8 @@
 }
 
 .tableCard {
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid var(--omc-border-subtle);
   border-radius: 14px;
   background: var(--omc-surface);
@@ -249,6 +257,7 @@
 }
 
 .modalHeader {
+  min-width: 0;
   min-height: 64px;
   border-bottom: 1px solid var(--omc-border-subtle);
   padding: 14px 16px 12px 18px;
@@ -268,6 +277,7 @@
     margin: 4px 0 0;
     color: var(--omc-text-muted);
     font-size: 0.9rem;
+    overflow-wrap: anywhere;
   }
 
   button {
@@ -309,7 +319,22 @@
 }
 
 .inlinePicker input {
+  min-width: 0;
   flex: 1;
+}
+
+@media (width <= 760px) {
+  .embeddedPage {
+    gap: 14px;
+
+    .header {
+      padding-bottom: 12px;
+    }
+
+    .tableCard {
+      overflow-x: hidden;
+    }
+  }
 }
 
 .modalFooter {

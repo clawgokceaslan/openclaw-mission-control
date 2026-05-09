@@ -1,4 +1,5 @@
 .page {
+  min-width: 0;
   display: grid;
   gap: 18px;
   align-content: start;
@@ -24,10 +25,12 @@
   p {
     margin: 6px 0 0;
     color: var(--omc-text-muted);
+    overflow-wrap: anywhere;
   }
 }
 
 .layout {
+  min-width: 0;
   display: grid;
   gap: 14px;
   align-items: start;
@@ -43,6 +46,7 @@
   gap: 5px;
   width: fit-content;
   max-width: 100%;
+  min-width: 0;
 
   .tabItem,
   .activeTabItem {
@@ -58,6 +62,11 @@
     font-weight: 800;
     text-align: left;
     white-space: nowrap;
+
+    span {
+      flex: 0 0 auto;
+      display: inline-flex;
+    }
   }
 
   .tabItem {
@@ -80,6 +89,7 @@
 }
 
 .panel {
+  min-width: 0;
   border: 1px solid var(--omc-border-subtle);
   border-radius: 12px;
   background: var(--omc-surface);
@@ -90,6 +100,7 @@
 }
 
 .panelHeader {
+  min-width: 0;
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -103,6 +114,7 @@
   p {
     margin: 4px 0 0;
     color: var(--omc-text-muted);
+    overflow-wrap: anywhere;
   }
 }
 
@@ -119,6 +131,7 @@
 }
 
 .surfaceSection {
+  min-width: 0;
   border: 1px solid var(--omc-border-subtle);
   border-radius: 10px;
   background: var(--omc-surface-muted);
@@ -134,6 +147,8 @@
   align-items: center;
   gap: 8px;
   font-size: 1rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .defaultAgentRow {
@@ -158,6 +173,7 @@
   color: var(--omc-text-muted);
   font-size: 0.84rem;
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .infoList {
@@ -201,6 +217,7 @@
 }
 
 .databaseHero {
+  min-width: 0;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 12px;
@@ -215,6 +232,7 @@
   p {
     margin: 5px 0 0;
     color: var(--omc-text-muted);
+    overflow-wrap: anywhere;
   }
 }
 
@@ -254,6 +272,7 @@
   gap: 18px;
 
   .webServerHero {
+    min-width: 0;
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 12px;
@@ -268,10 +287,12 @@
     p {
       margin: 5px 0 0;
       color: var(--omc-text-muted);
+      overflow-wrap: anywhere;
     }
   }
 
   .webServerNotice {
+    min-width: 0;
     border: 1px solid var(--omc-border-subtle);
     border-radius: 8px;
     background: var(--omc-surface-muted);
@@ -282,6 +303,11 @@
     gap: 9px;
     font-size: 0.88rem;
     font-weight: 800;
+
+    span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
   }
 
   .webServerGrid {
@@ -372,6 +398,10 @@
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+
+    button {
+      max-width: 100%;
+    }
   }
 
   .webServerChecks {
@@ -445,6 +475,7 @@
 }
 
 .databaseWarning {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -455,6 +486,11 @@
   padding: 10px 12px;
   font-size: 0.88rem;
   font-weight: 800;
+
+  span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
 }
 
 .databaseFlow {
@@ -633,6 +669,10 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+
+  button {
+    max-width: 100%;
+  }
 }
 
 .primaryButton,
@@ -703,5 +743,154 @@
     .databaseSummary {
       grid-template-columns: 1fr;
     }
+  }
+}
+
+@media (max-width: 768px) {
+  .page {
+    gap: 14px;
+  }
+
+  .header {
+    margin: -18px -18px 10px;
+    padding: 20px 18px;
+
+    h1 {
+      font-size: 1.45rem;
+    }
+  }
+
+  .tabBar {
+    width: 100%;
+    border-radius: 18px;
+    padding: 6px;
+
+    .tabItem,
+    .activeTabItem {
+      flex: 1 1 calc(50% - 5px);
+      justify-content: flex-start;
+      min-width: min(100%, 150px);
+      border-radius: 14px;
+      white-space: normal;
+    }
+  }
+
+  .panel {
+    border-radius: 10px;
+    padding: 14px;
+  }
+
+  .webServerPanel {
+    .webServerHero {
+      grid-template-columns: auto minmax(0, 1fr);
+
+      > span:last-child {
+        grid-column: 1 / -1;
+        justify-self: start;
+      }
+    }
+  }
+
+  .panelHeader {
+    h2 {
+      font-size: 1.08rem;
+    }
+  }
+
+  .databaseHero {
+    grid-template-columns: auto minmax(0, 1fr);
+
+    > span:last-child {
+      grid-column: 1 / -1;
+      justify-self: start;
+    }
+  }
+
+  .defaultAgentRow {
+    > span {
+      overflow: visible;
+      text-overflow: clip;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  .webServerPanel {
+    .webServerUrlRow {
+      button {
+        width: 100%;
+      }
+    }
+  }
+
+  .webServerPanel {
+    .webServerActions {
+      button {
+        flex: 1 1 180px;
+      }
+    }
+  }
+
+  .databaseFlow {
+    .stepStatusReady,
+    .stepStatusBlocked {
+      width: fit-content;
+      max-width: 100%;
+      white-space: normal;
+    }
+  }
+}
+
+@media (max-width: 520px) {
+  .header {
+    margin: -14px -14px 8px;
+    padding: 18px 14px;
+  }
+
+  .tabBar {
+    .tabItem,
+    .activeTabItem {
+      flex-basis: 100%;
+      min-width: 0;
+    }
+  }
+
+  .panel {
+    padding: 12px;
+  }
+
+  .panelHeader {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .webServerPanel {
+    .webServerHero {
+      h2 {
+        font-size: 1.12rem;
+      }
+    }
+  }
+
+  .databaseHero {
+    h2 {
+      font-size: 1.12rem;
+    }
+  }
+
+  .webServerPanel {
+    .webServerActions {
+      button {
+        flex-basis: 100%;
+        width: 100%;
+      }
+    }
+  }
+
+  .primaryButton,
+  .secondaryButton {
+    min-width: 0;
+    padding-inline: 12px;
+    text-align: center;
   }
 }

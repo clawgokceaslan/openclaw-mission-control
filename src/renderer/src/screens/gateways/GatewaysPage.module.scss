@@ -1,10 +1,13 @@
 .page {
+  min-width: 0;
   display: grid;
   gap: 18px;
   align-content: start;
 }
 
 .embeddedPage {
+  min-width: 0;
+
   .header {
     margin: 0;
     padding: 0 0 16px;
@@ -19,6 +22,7 @@
 }
 
 .header {
+  min-width: 0;
   margin: -22px -30px 14px;
   padding: 28px 30px;
   border-bottom: 1px solid var(--omc-border);
@@ -40,10 +44,12 @@
     margin: 6px 0 0;
     color: var(--omc-text-muted);
     font-size: 0.98rem;
+    overflow-wrap: anywhere;
   }
 }
 
 .headerActions {
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
@@ -58,6 +64,7 @@
   align-items: center;
 
   input {
+    min-width: 0;
     width: min(420px, 100%);
     height: var(--table-filter-control-height);
     line-height: var(--table-filter-control-height);
@@ -95,6 +102,8 @@
 }
 
 .tableCard {
+  min-width: 0;
+  max-width: 100%;
   overflow: auto;
   border: 1px solid var(--omc-border-subtle);
   border-radius: 14px;
@@ -363,6 +372,7 @@
   border-radius: 18px;
   background: var(--omc-surface);
   box-shadow: var(--omc-shadow-large);
+  max-width: 100%;
 }
 
 .modal {
@@ -660,6 +670,75 @@
   .headerActions {
     width: 100%;
     justify-content: flex-start;
+    flex-wrap: wrap;
+
+    button {
+      flex: 1 1 150px;
+    }
+  }
+
+  .toolbar {
+    input {
+      width: 100%;
+    }
+  }
+
+  .embeddedPage {
+    gap: 14px;
+
+    .tableCard {
+      overflow-x: hidden;
+      cursor: default;
+      user-select: auto;
+    }
+
+    .tableHead {
+      display: none;
+    }
+
+    .tableRow {
+      min-width: 0;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      margin: 10px;
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 12px;
+
+      > span {
+        padding: 0 12px;
+        overflow-wrap: anywhere;
+
+        &:first-child {
+          padding-top: 12px;
+        }
+
+        &:last-child {
+          padding-bottom: 12px;
+        }
+      }
+    }
+
+    .nameLine {
+      align-items: flex-start;
+      flex-wrap: wrap;
+
+      .nameButton {
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+    }
+
+    .mono {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  .actions {
+    button {
+      flex: 1 1 150px;
+      justify-content: center;
+    }
   }
 
   .backdrop {
@@ -678,10 +757,52 @@
     header,
     footer {
       align-items: stretch;
+      flex-direction: column;
     }
 
     footer button {
       flex: 1 1 140px;
+    }
+  }
+
+  .segmentedControl {
+    width: 100%;
+
+    button {
+      flex: 1 1 0;
+    }
+  }
+}
+
+@media (width <= 520px) {
+  .headerActions {
+    align-items: stretch;
+    flex-direction: column;
+
+    button {
+      width: 100%;
+    }
+  }
+
+  .backdrop {
+    align-items: stretch;
+    padding: 10px;
+  }
+
+  .modal,
+  .confirm {
+    max-height: calc(100vh - 20px);
+    overflow: auto;
+  }
+
+  .confirm {
+    footer {
+      align-items: stretch;
+      flex-direction: column;
+
+      button {
+        width: 100%;
+      }
     }
   }
 }
