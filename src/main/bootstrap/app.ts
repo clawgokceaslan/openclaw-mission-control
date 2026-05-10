@@ -442,7 +442,7 @@ function createCompanionWindow(): Electron.BrowserWindow {
     throw new Error('Electron BrowserWindow API is unavailable in this runtime')
   }
   const source = resolveRendererSource()
-  const url = source.startsWith('http') ? `${source.replace(/\/$/, '')}/companion` : source
+  const url = source.startsWith('http') ? `${source.replace(/\/$/, '')}/companion` : `${source}#/companion`
   const window = new BrowserWindow({
     width: 500,
     height: 680,
@@ -464,7 +464,7 @@ function createCompanionWindow(): Electron.BrowserWindow {
   })
   window.webContents.on('did-finish-load', () => {
     if (!source.startsWith('http')) {
-      void window.webContents.executeJavaScript("window.history.pushState({}, '', '/companion'); window.dispatchEvent(new PopStateEvent('popstate'))")
+      void window.webContents.executeJavaScript("if (window.location.hash !== '#/companion') window.location.hash = '#/companion'")
     }
   })
   window.loadURL(url)

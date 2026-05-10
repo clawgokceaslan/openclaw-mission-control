@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { BrowserRouter, HashRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useEffect, type ReactNode, useState } from 'react'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
@@ -247,9 +247,11 @@ function AppRouter() {
 }
 
 export function App() {
+  const Router = typeof window !== 'undefined' && window.location.protocol === 'file:' ? HashRouter : BrowserRouter
+
   return (
     <Provider store={store}>
-      <BrowserRouter>
+      <Router>
         <RendererHealthReporter />
         <ThemeProvider>
           <ConfirmationProvider>
@@ -258,7 +260,7 @@ export function App() {
             </AuthProvider>
           </ConfirmationProvider>
         </ThemeProvider>
-      </BrowserRouter>
+      </Router>
     </Provider>
   )
 }
