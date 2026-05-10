@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { RendererHealthMonitor } from './renderer-health.js'
+import { buildRendererRecoveryUrl, RendererHealthMonitor } from './renderer-health.js'
 
 function createMockWindow() {
   const webContentsHandlers = new Map<string, (...args: any[]) => void>()
@@ -22,6 +22,13 @@ function createMockWindow() {
 }
 
 describe('RendererHealthMonitor', () => {
+  it('builds route-aware recovery URLs for browser and file renderers', () => {
+    expect(buildRendererRecoveryUrl('http://localhost:5173', '/projects/1/tasks/2?tab=chat')).toBe('http://localhost:5173/projects/1/tasks/2?tab=chat')
+    expect(buildRendererRecoveryUrl('file:///app/index.html', '/projects/1/tasks/2')).toBe('file:///app/index.html#/projects/1/tasks/2')
+    expect(buildRendererRecoveryUrl('file:///app/index.html', '/app/dist/renderer/index.html#/projects/1')).toBe('file:///app/index.html#/projects/1')
+    expect(buildRendererRecoveryUrl('file:///app/index.html', '/')).toBe('file:///app/index.html')
+  })
+
   it('reloads when heartbeat reports an empty root', () => {
     vi.useFakeTimers()
     const win = createMockWindow()
@@ -33,7 +40,7 @@ describe('RendererHealthMonitor', () => {
     monitor.recordHealth({ path: '/projects/1', rootChildCount: 0, timestamp: 1 })
     vi.advanceTimersByTime(1)
 
-    expect(win.loadURL).toHaveBeenCalledWith('file:///app/index.html')
+    expect(win.loadURL).toHaveBeenCalledWith('file:///app/index.html#/projects/1')
     vi.useRealTimers()
   })
 
@@ -53,7 +60,7 @@ describe('RendererHealthMonitor', () => {
     expect(monitor.recoverIfStale('test-stale')).toBe(true)
     vi.advanceTimersByTime(1)
 
-    expect(win.loadURL).toHaveBeenCalledWith('file:///app/index.html')
+    expect(win.loadURL).toHaveBeenCalledWith('file:///app/index.html#/projects/1')
     vi.useRealTimers()
   })
 
@@ -89,8 +96,8 @@ describe('RendererHealthMonitor', () => {
     vi.advanceTimersByTime(1)
 
     expect(win.loadURL).toHaveBeenCalledTimes(3)
-    expect(win.loadURL.mock.calls[0][0]).toBe('file:///app/index.html')
-    expect(win.loadURL.mock.calls[1][0]).toBe('file:///app/index.html')
+    expect(win.loadURL.mock.calls[0][0]).toBe('file:///app/index.html#/projects/project-1')
+    expect(win.loadURL.mock.calls[1][0]).toBe('file:///app/index.html#/projects/project-1')
     expect(String(win.loadURL.mock.calls[2][0])).toContain('data:text/html')
     const diagnosticHtml = decodeURIComponent(String(win.loadURL.mock.calls[2][0]).split(',')[1] ?? '')
     expect(diagnosticHtml).toContain('react-hook')

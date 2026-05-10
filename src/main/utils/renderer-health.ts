@@ -79,6 +79,39 @@ function diagnosticUrl(reason: string, targetUrl: string, lastHealth?: RendererH
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
 }
 
+function routeFromHealthPath(path: string): string | null {
+  const hashRouteIndex = path.indexOf('#/')
+  if (hashRouteIndex >= 0) {
+    const route = path.slice(hashRouteIndex + 1)
+    return route.length > 1 ? route : null
+  }
+
+  if (!path.startsWith('/')) return null
+  if (path === '/' || path === '/index.html' || path.endsWith('/index.html')) return null
+  if (path.includes('/dist/renderer/') || path.includes('/src/renderer/')) return null
+  return path
+}
+
+export function buildRendererRecoveryUrl(source: string, lastPath: string): string {
+  const route = routeFromHealthPath(lastPath)
+  if (!route) return source
+
+  if (/^https?:\/\//i.test(source)) {
+    try {
+      return new URL(route, source).toString()
+    } catch {
+      return source
+    }
+  }
+
+  if (source.startsWith('file://')) {
+    const base = source.split('#')[0]
+    return `${base}#${route}`
+  }
+
+  return source
+}
+
 export class RendererHealthMonitor {
   private reloadTimestamps: number[] = []
   private lastHealthAt: number | null = null
@@ -172,7 +205,7 @@ export class RendererHealthMonitor {
     const reloadWindowMs = this.options.reloadWindowMs ?? DEFAULT_RELOAD_WINDOW_MS
     const maxReloads = this.options.maxReloads ?? DEFAULT_MAX_RELOADS
     this.reloadTimestamps = this.reloadTimestamps.filter((timestamp) => now - timestamp < reloadWindowMs)
-    const targetUrl = this.options.getRendererSource()
+    const targetUrl = buildRendererRecoveryUrl(this.options.getRendererSource(), this.lastPath)
 
     if (this.reloadTimestamps.length >= maxReloads) {
       this.options.logger?.error?.('[renderer-health] reload loop stopped', {
