@@ -83,6 +83,7 @@ describe('renderer resilience utilities', () => {
     const cspMatch = html.match(/http-equiv="Content-Security-Policy"[\s\S]*?content="([^"]+)"/)
 
     expect(cspMatch?.[1]).toContain("script-src 'self'")
+    expect(cspMatch?.[1]).toContain("img-src 'self' https: http://127.0.0.1:* http://localhost:* data: blob: file:")
     expect(cspMatch?.[1]).not.toContain('unsafe-eval')
     expect(cspMatch?.[1]).toContain("object-src 'none'")
   })

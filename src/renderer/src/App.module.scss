@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
-
 :global(:root) {
   --omc-bg: #f4f6fb;
   --omc-surface: #ffffff;
@@ -120,7 +118,7 @@
   background: var(--omc-app-background, var(--omc-bg));
   background-size: var(--omc-background-size, auto);
   color: var(--omc-text);
-  font-family: 'Montserrat', 'Segoe UI', Arial, sans-serif;
+  font-family: Inter, 'Segoe UI', Arial, system-ui, sans-serif;
   line-height: 1.45;
 }
 

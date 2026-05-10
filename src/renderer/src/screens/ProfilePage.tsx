@@ -27,9 +27,9 @@ import {
 } from 'react-icons/lu'
 import type { User } from '@shared/types/entities'
 import { UserAvatar } from '@renderer/components/avatar/UserAvatar'
+import { resolveUserAvatarUrl } from '@renderer/components/avatar/avatarUrl'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { useTheme, type ThemeMode } from '@renderer/providers/theme/theme-state'
-import { apiBaseUrl } from '@renderer/utils/api'
 import styles from './ProfilePage.module.scss'
 
 const TITLE_OPTIONS: User['role'][] = ['owner', 'admin', 'member']
@@ -117,12 +117,6 @@ function loadImage(file: File): Promise<{ dataUrl: string; image: HTMLImageEleme
   })
 }
 
-function resolveAvatarUrl(avatarUrl: string | null | undefined): string | null {
-  if (!avatarUrl) return null
-  if (/^https?:\/\//i.test(avatarUrl) || avatarUrl.startsWith('data:')) return avatarUrl
-  return `${apiBaseUrl()}${avatarUrl.startsWith('/') ? avatarUrl : `/${avatarUrl}`}`
-}
-
 export function ProfilePage() {
   const { user, updateProfile, updateAvatar, removeAvatar: removeProfileAvatar, changePassword, refresh } = useAuth()
   const { mode, resolvedMode, paletteId, backgroundId, palettes, backgrounds, setMode, setPaletteId, setBackgroundId } = useTheme()
@@ -152,7 +146,7 @@ export function ProfilePage() {
   const [croppedPreview, setCroppedPreview] = useState<string | null>(null)
   const fullName = `${firstName} ${lastName}`.trim() || user?.name?.trim() || 'Mission Operator'
   const accountEmail = email.trim() || user?.email || '-'
-  const activeAvatarUrl = croppedPreview ?? resolveAvatarUrl(user?.avatarUrl)
+  const activeAvatarUrl = croppedPreview ?? resolveUserAvatarUrl(user?.avatarUrl)
   const displayScale = cropImageSize ? getBaseScale(cropImageSize) * cropZoom : 1
   const cropImageStyle = cropImageSize
     ? ({

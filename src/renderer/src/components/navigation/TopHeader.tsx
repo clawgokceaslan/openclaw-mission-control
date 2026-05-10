@@ -5,7 +5,7 @@ import { LuArrowRight, LuMenu, LuMessageCircleQuestion, LuPlus, LuSearch, LuX } 
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import type { User } from '@shared/types/entities'
 import { UserAvatar } from '@renderer/components/avatar/UserAvatar'
-import { apiBaseUrl } from '@renderer/utils/api'
+import { resolveUserAvatarUrl } from '@renderer/components/avatar/avatarUrl'
 import { RunningGatewayMenu } from './RunningCodexMenu'
 import { usePlannerQuestions } from '@renderer/components/planner/PlannerQuestionHost'
 import { useOutsidePointerDown } from './useOutsidePointerDown'
@@ -15,12 +15,6 @@ import { PlannedTasksMenu } from './PlannedTasksMenu'
 import { UniversalCommand, type GlobalTaskCreateInitial } from './UniversalCommand'
 
 const appIconSrc = new URL('../../../../../app-icon.png', import.meta.url).href
-
-function resolveAvatarUrl(avatarUrl: string | null | undefined): string | null {
-  if (!avatarUrl) return null
-  if (/^https?:\/\//i.test(avatarUrl) || avatarUrl.startsWith('data:')) return avatarUrl
-  return `${apiBaseUrl()}${avatarUrl.startsWith('/') ? avatarUrl : `/${avatarUrl}`}`
-}
 
 function hasMacWindowControlsInset(): boolean {
   const isElectron = typeof navigator !== 'undefined' && /Electron/.test(navigator.userAgent)
@@ -44,7 +38,7 @@ export function TopHeader({ user, sidebarOpen, onToggleSidebar }: TopHeaderProps
   const [questionPanelOpen, setQuestionPanelOpen] = useState(false)
   const questionPanelRef = useRef<HTMLDivElement | null>(null)
   const { queue: plannerQuestions, hasConfigurationWarning, openQuestion } = usePlannerQuestions()
-  const avatarUrl = resolveAvatarUrl(user?.avatarUrl)
+  const avatarUrl = resolveUserAvatarUrl(user?.avatarUrl)
   const brandAreaClassName = `${styles.brandArea} ${hasMacWindowControlsInset() ? styles.brandAreaMacInset : ''}`
 
   useEffect(() => {
