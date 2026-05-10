@@ -176,16 +176,21 @@ export function SplashOverlay({ ready, onExited }: SplashOverlayProps) {
   const motivation = useMemo(() => getBootMotivation(), [])
   const taskRain = useMemo(() => buildTaskRain(), [])
   const [minimumElapsed, setMinimumElapsed] = useState(false)
+  const [maximumElapsed, setMaximumElapsed] = useState(false)
   const [exiting, setExiting] = useState(false)
   const [visible, setVisible] = useState(true)
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setMinimumElapsed(true), splashConfig.minimumDurationMs)
-    return () => window.clearTimeout(timer)
+    const minimumTimer = window.setTimeout(() => setMinimumElapsed(true), splashConfig.minimumDurationMs)
+    const maximumTimer = window.setTimeout(() => setMaximumElapsed(true), splashConfig.maximumDurationMs)
+    return () => {
+      window.clearTimeout(minimumTimer)
+      window.clearTimeout(maximumTimer)
+    }
   }, [])
 
   useEffect(() => {
-    if (!ready || !minimumElapsed) {
+    if ((!ready && !maximumElapsed) || !minimumElapsed) {
       return
     }
 
@@ -195,7 +200,7 @@ export function SplashOverlay({ ready, onExited }: SplashOverlayProps) {
       onExited?.()
     }, splashConfig.exitDurationMs)
     return () => window.clearTimeout(timer)
-  }, [minimumElapsed, onExited, ready])
+  }, [maximumElapsed, minimumElapsed, onExited, ready])
 
   if (!visible) {
     return null

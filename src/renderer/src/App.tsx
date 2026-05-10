@@ -1,5 +1,5 @@
 import { BrowserRouter, HashRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { useCallback, useEffect, type ReactNode, useState } from 'react'
+import { useEffect, type ReactNode, useState } from 'react'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { AppNavigateEvent, AppNavigateState } from '@shared/contracts/ipc'
@@ -146,12 +146,10 @@ function AppRouter() {
   const isElectron = typeof navigator !== 'undefined' && /Electron/.test(navigator.userAgent)
   const [autoRetried, setAutoRetried] = useState(false)
   const [manualRetried, setManualRetried] = useState(false)
-  const [bootSplashVisible, setBootSplashVisible] = useState(true)
   const isRuntimeError = isElectron && typeof errorMessage === 'string' && /IPC|ipc|bridge|runtime|renderer/i.test(errorMessage)
   const authNotice = errorMessage && !isRuntimeError ? errorMessage : null
   const retryExhausted = autoRetried && manualRetried
   const splashReady = initialized || Boolean(errorMessage)
-  const handleSplashExited = useCallback(() => setBootSplashVisible(false), [])
 
   useEffect(() => {
     const onCompanionNavigate = (...args: unknown[]) => {
@@ -242,8 +240,8 @@ function AppRouter() {
 
   return (
     <>
-      {!bootSplashVisible && appContent}
-      <SplashOverlay ready={splashReady} onExited={handleSplashExited} />
+      {appContent}
+      <SplashOverlay ready={splashReady} />
     </>
   )
 }

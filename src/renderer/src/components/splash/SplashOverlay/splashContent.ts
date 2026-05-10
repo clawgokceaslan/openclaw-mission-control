@@ -9,6 +9,7 @@ export interface SplashConfig {
   iconAlt: string
   spinnerLabel: string
   minimumDurationMs: number
+  maximumDurationMs: number
   exitDurationMs: number
 }
 
@@ -19,6 +20,7 @@ export const splashConfig: SplashConfig = {
   iconAlt: 'Open Mission Control logo',
   spinnerLabel: 'Mission runtime hazirlaniyor',
   minimumDurationMs: isDevRuntime ? 2800 : 1800,
+  maximumDurationMs: isDevRuntime ? 6000 : 4200,
   exitDurationMs: 520
 }
 
@@ -65,4 +67,3 @@ export function getBootMotivation(): SplashMotivation {
 
   return splashMotivations[bootMotivationIndex]
 }
-
