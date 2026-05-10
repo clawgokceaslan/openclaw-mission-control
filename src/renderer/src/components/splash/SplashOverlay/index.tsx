@@ -169,9 +169,10 @@ function buildTaskRain() {
 
 interface SplashOverlayProps {
   ready: boolean
+  onExited?: () => void
 }
 
-export function SplashOverlay({ ready }: SplashOverlayProps) {
+export function SplashOverlay({ ready, onExited }: SplashOverlayProps) {
   const motivation = useMemo(() => getBootMotivation(), [])
   const taskRain = useMemo(() => buildTaskRain(), [])
   const [minimumElapsed, setMinimumElapsed] = useState(false)
@@ -189,9 +190,12 @@ export function SplashOverlay({ ready }: SplashOverlayProps) {
     }
 
     setExiting(true)
-    const timer = window.setTimeout(() => setVisible(false), splashConfig.exitDurationMs)
+    const timer = window.setTimeout(() => {
+      setVisible(false)
+      onExited?.()
+    }, splashConfig.exitDurationMs)
     return () => window.clearTimeout(timer)
-  }, [minimumElapsed, ready])
+  }, [minimumElapsed, onExited, ready])
 
   if (!visible) {
     return null
