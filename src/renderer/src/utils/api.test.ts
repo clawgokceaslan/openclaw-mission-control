@@ -122,6 +122,43 @@ describe('renderer API bridge', () => {
     vi.unstubAllGlobals()
   })
 
+  it('uses the Electron desktop API port when opened from a packaged file renderer', () => {
+    vi.stubGlobal('window', {
+      location: {
+        protocol: 'file:',
+        hostname: '',
+        port: '',
+        origin: 'file://'
+      }
+    })
+    vi.stubGlobal('navigator', { userAgent: 'Electron Test' })
+
+    expect(apiBaseUrl()).toBe('http://127.0.0.1:19219')
+
+    vi.unstubAllGlobals()
+  })
+
+  it('uses the Electron runtime API URL when the main process publishes the actual fallback port', () => {
+    vi.stubGlobal('window', {
+      location: {
+        protocol: 'file:',
+        hostname: '',
+        port: '',
+        origin: 'file://'
+      }
+    })
+    vi.stubGlobal('navigator', { userAgent: 'Electron Test' })
+    vi.stubGlobal('process', {
+      env: {
+        OMC_INTERNAL_API_BASE_URL: 'http://127.0.0.1:19220/'
+      }
+    })
+
+    expect(apiBaseUrl()).toBe('http://127.0.0.1:19220')
+
+    vi.unstubAllGlobals()
+  })
+
   it('does not fall back to HTTP internal API for renderer health without IPC', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)

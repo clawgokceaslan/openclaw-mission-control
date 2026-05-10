@@ -613,7 +613,7 @@ export async function bootstrapApp(): Promise<void> {
     }
   })
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     if (!ipcRoutesRegistered) {
       registerIpcRoutes(context)
       registerCompanionIpcRoutes()
@@ -636,10 +636,12 @@ export async function bootstrapApp(): Promise<void> {
         restartApp: relaunchApp
       }
     }
-    void startInternalHttpServer(context, internalHttpServerConfig).then((server) => {
+    await startInternalHttpServer(context, internalHttpServerConfig).then((server) => {
       internalHttpServerRef = server
+      process.env.OMC_INTERNAL_API_BASE_URL = server.url
       safeConsole.log('[main] Internal web API listening', { url: server.url })
     }).catch((error) => {
+      delete process.env.OMC_INTERNAL_API_BASE_URL
       recordInternalHttpServerStartupError(internalHttpServerConfig, error)
       safeConsole.error('[main] Internal web API failed', { message: error instanceof Error ? error.message : String(error) })
     })

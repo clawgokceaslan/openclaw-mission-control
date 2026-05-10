@@ -57,6 +57,11 @@ export function isElectronRuntime(): boolean {
   return typeof navigator !== 'undefined' && /Electron/.test(navigator.userAgent)
 }
 
+function runtimeEnvValue(key: string): string | undefined {
+  const runtimeProcess = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+  return runtimeProcess?.env?.[key]?.trim()
+}
+
 function nextRequestId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID()
@@ -136,7 +141,9 @@ function normalizePayload(payload?: unknown, requestId?: string): Record<string,
 export function apiBaseUrl(): string {
   const envBase = (import.meta.env.VITE_OMC_API_BASE_URL as string | undefined)?.trim()
   if (envBase) return envBase.replace(/\/$/, '')
-  if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
+  const runtimeBase = runtimeEnvValue('OMC_INTERNAL_API_BASE_URL')
+  if (runtimeBase) return runtimeBase.replace(/\/$/, '')
+  if (typeof window !== 'undefined' && window.location?.protocol.startsWith('http')) {
     const hostname = window.location.hostname
     const port = window.location.port
     if (port === '5173' || port === '5174') {
@@ -145,7 +152,8 @@ export function apiBaseUrl(): string {
     }
     return window.location.origin
   }
-  return 'http://127.0.0.1:3000'
+  const desktopPort = runtimeEnvValue('OMC_WEB_PORT') || (isElectronRuntime() ? '19219' : '3000')
+  return `http://127.0.0.1:${desktopPort}`
 }
 
 function authTokenFromPayload(payload?: unknown): string | null {
