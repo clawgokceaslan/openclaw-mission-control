@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { ErrorCodes } from '@shared/contracts/error-codes'
-import { apiBaseUrl, getMeWithAuthApi, loginWithAuthApi, setRefreshToken, setSessionToken, invokeBridge } from './api'
+import { apiBaseUrl, getMeWithAuthApi, loginWithAuthApi, setRefreshToken, setSessionToken, invokeBridge, subscribeToChannel, unsubscribeFromChannel } from './api'
 
 const axiosRequestMock = vi.hoisted(() => vi.fn())
 
@@ -396,6 +396,67 @@ describe('renderer API bridge', () => {
     expect(response.error?.code).toBe(ErrorCodes.Unauthenticated)
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(axiosRequestMock).toHaveBeenCalledTimes(2)
+
+    vi.unstubAllGlobals()
+  })
+
+  it('reconnects web event subscriptions when the restored access token changes', () => {
+    stubWebRuntime()
+    const instances: Array<{
+      url: string
+      closed: boolean
+      listeners: Map<string, (event: MessageEvent) => void>
+      close: () => void
+      addEventListener: (channel: string, listener: (event: MessageEvent) => void) => void
+    }> = []
+    class MockEventSource {
+      url: string
+      closed = false
+      listeners = new Map<string, (event: MessageEvent) => void>()
+
+      constructor(url: string) {
+        this.url = url
+        instances.push(this)
+      }
+
+      addEventListener(channel: string, listener: (event: MessageEvent) => void) {
+        this.listeners.set(channel, listener)
+      }
+
+      close() {
+        this.closed = true
+      }
+    }
+    vi.stubGlobal('EventSource', MockEventSource)
+    vi.stubGlobal('CustomEvent', class {
+      type: string
+
+      constructor(type: string) {
+        this.type = type
+      }
+    })
+
+    setSessionToken('access-token')
+    const listener = vi.fn()
+    subscribeToChannel(IPC_CHANNELS.events.taskUpdated, listener)
+
+    expect(instances).toHaveLength(1)
+    expect(instances[0].url).toContain('access-token')
+    expect(() => instances[0].listeners.get(IPC_CHANNELS.events.taskUpdated)?.({ data: '{' } as MessageEvent)).not.toThrow()
+
+    instances[0].listeners.get(IPC_CHANNELS.events.taskUpdated)?.({
+      data: JSON.stringify({ payload: { action: 'created' } })
+    } as MessageEvent)
+    expect(listener).toHaveBeenCalledWith({ action: 'created' })
+
+    setSessionToken('fresh-access-token')
+
+    expect(instances[0].closed).toBe(true)
+    expect(instances).toHaveLength(2)
+    expect(instances[1].url).toContain('fresh-access-token')
+
+    unsubscribeFromChannel(IPC_CHANNELS.events.taskUpdated, listener)
+    expect(instances[1].closed).toBe(true)
 
     vi.unstubAllGlobals()
   })

@@ -89,8 +89,7 @@ function volatileStorage(): Storage | null {
 
 function emitAuthTokenChanged(): void {
   if (typeof window !== 'undefined') {
-    eventSource?.close()
-    eventSource = null
+    closeEventSource()
     if (httpListeners.size > 0) ensureEventSource()
     window.dispatchEvent(new CustomEvent(AUTH_TOKEN_CHANGED_EVENT))
   }
@@ -466,6 +465,20 @@ export function unsubscribeFromChannel(channel: string, listener: (...args: unkn
 
 const httpListeners = new Map<string, Set<(...args: unknown[]) => void>>()
 let eventSource: EventSource | null = null
+let eventSourceRetryTimer: number | null = null
+
+function clearEventSourceRetry(): void {
+  if (eventSourceRetryTimer && typeof window !== 'undefined') {
+    window.clearTimeout(eventSourceRetryTimer)
+  }
+  eventSourceRetryTimer = null
+}
+
+function closeEventSource(): void {
+  clearEventSourceRetry()
+  eventSource?.close()
+  eventSource = null
+}
 
 function ensureEventSource(): void {
   if (eventSource || typeof EventSource === 'undefined') return
@@ -475,10 +488,21 @@ function ensureEventSource(): void {
   eventSource.onerror = () => {
     eventSource?.close()
     eventSource = null
+    if (httpListeners.size > 0 && typeof window !== 'undefined' && !eventSourceRetryTimer) {
+      eventSourceRetryTimer = window.setTimeout(() => {
+        eventSourceRetryTimer = null
+        ensureEventSource()
+      }, 1000)
+    }
   }
   for (const channel of Object.values(IPC_CHANNELS.events)) {
     eventSource.addEventListener(channel, (event) => {
-      const parsed = JSON.parse((event as MessageEvent).data || '{}') as { payload?: unknown }
+      let parsed: { payload?: unknown }
+      try {
+        parsed = JSON.parse((event as MessageEvent).data || '{}') as { payload?: unknown }
+      } catch {
+        return
+      }
       const listeners = httpListeners.get(channel)
       if (!listeners) return
       for (const listener of listeners) listener(parsed.payload)
@@ -499,7 +523,6 @@ function unsubscribeFromHttpChannel(channel: string, listener: (...args: unknown
   listeners.delete(listener)
   if (listeners.size === 0) httpListeners.delete(channel)
   if (httpListeners.size === 0 && eventSource) {
-    eventSource.close()
-    eventSource = null
+    closeEventSource()
   }
 }

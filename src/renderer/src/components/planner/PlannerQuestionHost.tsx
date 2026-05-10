@@ -145,14 +145,19 @@ export function PlannerQuestionProvider({ children }: { children: ReactNode }) {
       const response = await invokeBridge<TaskEntity[]>(IPC_CHANNELS.tasks.list, { actorToken: token })
       if (cancelled || !response.ok || !Array.isArray(response.data)) return
       const questions = unansweredPlannerQuestionsFromTasks(response.data)
-      setQueue((current) => {
-        const next = questions.reduce((items, item) => enqueuePlannerQuestion(items, item), current)
-        if (next.length > 0 && behavior !== 'off') {
-          setActiveQuestionId((currentActive) => currentActive && next.some((item) => item.id === currentActive) ? currentActive : next[0].id)
-          setIsModalOpen((currentOpen) => currentOpen || current.length === 0)
+      setQueue(questions)
+      if (questions.length === 0) {
+        setActiveQuestionId(null)
+        setIsModalOpen(false)
+        return
+      }
+      if (behavior !== 'off') {
+        setActiveQuestionId((currentActive) => currentActive && questions.some((item) => item.id === currentActive) ? currentActive : questions[0].id)
+        setIsModalOpen(true)
+        if (behavior === 'focus-and-modal') {
+          void invokeBridge(IPC_CHANNELS.app.focusPlannerQuestion, {})
         }
-        return next
-      })
+      }
     }
 
     void bootstrapQuestions()
