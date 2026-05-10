@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { networkInterfaces } from 'node:os'
-import { join, normalize } from 'node:path'
+import { basename, join, normalize } from 'node:path'
 import { URL } from 'node:url'
 import type { AppContext } from '../services/service-container.js'
 import { ErrorCodes } from '../../shared/contracts/error-codes.js'
@@ -245,6 +245,9 @@ function withRequestMeta(body: unknown, request: IncomingMessage): unknown {
 function contentType(pathname: string): string {
   if (pathname.endsWith('.js')) return 'text/javascript; charset=utf-8'
   if (pathname.endsWith('.css')) return 'text/css; charset=utf-8'
+  if (pathname.endsWith('.webmanifest')) return 'application/manifest+json; charset=utf-8'
+  if (pathname.endsWith('.json')) return 'application/json; charset=utf-8'
+  if (pathname.endsWith('.ico')) return 'image/x-icon'
   if (pathname.endsWith('.svg')) return 'image/svg+xml'
   if (pathname.endsWith('.png')) return 'image/png'
   if (pathname.endsWith('.jpg') || pathname.endsWith('.jpeg')) return 'image/jpeg'
@@ -270,8 +273,22 @@ async function proxyDevRenderer(devRendererUrl: string, request: IncomingMessage
 function serveStatic(staticRoot: string, requestUrl: URL, response: ServerResponse): boolean {
   const pathname = decodeURIComponent(requestUrl.pathname)
   const normalizedPath = normalize(pathname).replace(/^(\.\.(\/|\\|$))+/, '')
-  const candidate = join(staticRoot, normalizedPath === '/' ? 'index.html' : normalizedPath)
-  const filePath = existsSync(candidate) && statSync(candidate).isFile() ? candidate : join(staticRoot, 'index.html')
+  const assetPathIndex = normalizedPath.indexOf('/assets/')
+  const iconPathIndex = normalizedPath.indexOf('/icons/')
+  const publicFileNames = new Set([
+    'apple-touch-icon.png',
+    'favicon.ico',
+    'favicon-16x16.png',
+    'favicon-32x32.png',
+    'site.webmanifest'
+  ])
+  const candidates = [
+    join(staticRoot, normalizedPath === '/' ? 'index.html' : normalizedPath),
+    ...(assetPathIndex >= 0 ? [join(staticRoot, normalizedPath.slice(assetPathIndex + 1))] : []),
+    ...(iconPathIndex >= 0 ? [join(staticRoot, normalizedPath.slice(iconPathIndex + 1))] : []),
+    ...(publicFileNames.has(basename(normalizedPath)) ? [join(staticRoot, basename(normalizedPath))] : [])
+  ]
+  const filePath = candidates.find((candidate) => existsSync(candidate) && statSync(candidate).isFile()) ?? join(staticRoot, 'index.html')
   if (!existsSync(filePath) || !statSync(filePath).isFile()) return false
 
   response.writeHead(200, { 'Content-Type': contentType(filePath) })

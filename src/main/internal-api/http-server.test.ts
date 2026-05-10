@@ -1,6 +1,6 @@
 import EventEmitter from 'node:events'
 import { createReadStream } from 'node:fs'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -354,6 +354,40 @@ describe('startInternalHttpServer', () => {
 
       const missing = await fetch(`${server.url}/api/profile/avatar/../../secret`)
       expect(missing.status).toBe(404)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('serves renderer assets from nested SPA routes instead of returning index HTML', async () => {
+    const staticRoot = await mkdtemp(join(tmpdir(), 'omc-static-test-'))
+    await mkdir(join(staticRoot, 'assets'))
+    await mkdir(join(staticRoot, 'icons'))
+    await writeFile(join(staticRoot, 'index.html'), '<!doctype html><script type="module" src="./assets/app.js"></script>')
+    await writeFile(join(staticRoot, 'assets', 'app.js'), 'export const app = true')
+    await writeFile(join(staticRoot, 'site.webmanifest'), '{"name":"OpenMissionControl","icons":[{"src":"icons/icon-192x192.png"}]}')
+    await writeFile(join(staticRoot, 'icons', 'icon-192x192.png'), Buffer.from('icon-image'))
+
+    const server = await startInternalHttpServer(createContext(), {
+      preferredPort: 30190,
+      host: '127.0.0.1',
+      staticRoot
+    })
+    try {
+      const scriptResponse = await fetch(`${server.url}/projects/project-1/assets/app.js`)
+      expect(scriptResponse.status).toBe(200)
+      expect(scriptResponse.headers.get('content-type')).toContain('text/javascript')
+      expect(await scriptResponse.text()).toBe('export const app = true')
+
+      const manifestResponse = await fetch(`${server.url}/projects/project-1/site.webmanifest`)
+      expect(manifestResponse.status).toBe(200)
+      expect(manifestResponse.headers.get('content-type')).toContain('application/manifest+json')
+      expect(await manifestResponse.json()).toEqual({ name: 'OpenMissionControl', icons: [{ src: 'icons/icon-192x192.png' }] })
+
+      const iconResponse = await fetch(`${server.url}/projects/project-1/icons/icon-192x192.png`)
+      expect(iconResponse.status).toBe(200)
+      expect(iconResponse.headers.get('content-type')).toContain('image/png')
+      expect(Buffer.from(await iconResponse.arrayBuffer()).toString('utf8')).toBe('icon-image')
     } finally {
       await server.close()
     }
