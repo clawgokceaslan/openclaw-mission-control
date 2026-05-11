@@ -182,16 +182,17 @@ function TaskPipelinePanel({
       </header>
       <div className={styles.pipelineSteps}>
         {pipelineSteps.map((item) => {
-          const Icon = item.tone === 'failed' ? LuTriangleAlert : item.tone === 'not-planned' ? LuClock3 : LuCircleCheck
+          const isActive = ['planning', 'working', 'post-running', 'following-up'].includes(item.tone)
+          const Icon = item.tone === 'failed' ? LuTriangleAlert : isActive ? LuRefreshCw : item.tone === 'not-planned' ? LuClock3 : LuCircleCheck
           const ActionIcon = item.action.icon
           return (
-            <article key={item.key} className={`${styles.pipelineStep} ${styles[`pipelineTone_${item.tone}`] ?? ''}`}>
+            <article key={item.key} className={`${styles.pipelineStep} ${styles[`pipelineTone_${item.tone}`] ?? ''} ${item.action.disabled ? styles.pipelineStepDisabled : ''}`}>
               <div className={styles.pipelineStepIcon}><Icon size={15} /></div>
               <div className={styles.pipelineStepBody}>
-                <div><strong>{item.title}</strong><span>{item.state}</span></div>
+                <div className={styles.pipelineStepMeta}><strong>{item.title}</strong><span>{item.state}</span></div>
                 <p>{item.body}</p>
               </div>
-              <button type="button" onClick={item.action.onClick} disabled={item.action.disabled}>
+              <button type="button" className={styles.pipelineStepAction} onClick={item.action.onClick} disabled={item.action.disabled} aria-label={`${item.title}: ${item.action.label}`}>
                 <ActionIcon size={14} /> {item.action.label}
               </button>
             </article>

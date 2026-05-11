@@ -460,11 +460,12 @@
 .tagInlineSelect :global(.app-select__menu) { margin-top: 8px; border-radius: 14px; }
 .pipelinePanel {
   display: grid;
-  gap: 10px;
-  border: 1px solid var(--omc-border-subtle);
+  gap: 12px;
+  border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 88%, transparent);
   border-radius: 12px;
-  background: var(--omc-table-header);
-  padding: 12px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--omc-table-header) 88%, var(--omc-surface) 12%) 0%, var(--omc-table-header) 100%);
+  padding: 14px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--omc-surface) 72%, transparent);
 
   .pipelineHeader {
     display: flex;
@@ -487,112 +488,166 @@
 
       strong {
         color: var(--omc-text-strong);
-        font-size: 0.95rem;
+        font-size: 1rem;
         font-weight: 900;
+        line-height: 1.18;
       }
     }
 
     p {
+      max-width: min(460px, 44%);
       margin: 0;
       color: var(--omc-text-muted);
       font-size: 0.76rem;
       font-weight: 800;
+      line-height: 1.35;
       text-align: right;
+      overflow-wrap: anywhere;
     }
   }
 
   .pipelineSteps {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
+    gap: 10px;
 
     .pipelineStep {
       --pipeline-accent: var(--omc-text-soft);
+      --pipeline-tint: color-mix(in srgb, var(--pipeline-accent) 9%, var(--omc-surface));
+      --pipeline-ring: color-mix(in srgb, var(--pipeline-accent) 32%, var(--omc-border-subtle));
+
       min-width: 0;
       display: grid;
       grid-template-rows: auto minmax(0, 1fr) auto;
-      gap: 9px;
-      border: 1px solid var(--omc-border-subtle);
-      border-top: 3px solid var(--pipeline-accent);
+      gap: 10px;
+      min-height: 210px;
+      border: 1px solid var(--pipeline-ring);
       border-radius: 10px;
-      background: var(--omc-surface);
-      padding: 10px;
+      background:
+        linear-gradient(180deg, var(--pipeline-tint) 0%, var(--omc-surface) 58%),
+        var(--omc-surface);
+      padding: 11px;
+      box-shadow: 0 10px 28px color-mix(in srgb, var(--omc-bg) 24%, transparent);
+      overflow: hidden;
 
       .pipelineStepIcon {
-        width: 28px;
-        height: 28px;
+        width: 30px;
+        height: 30px;
         display: grid;
         place-items: center;
+        border: 1px solid color-mix(in srgb, var(--pipeline-accent) 28%, transparent);
         border-radius: 8px;
-        background: color-mix(in srgb, var(--pipeline-accent) 12%, var(--omc-surface));
+        background: color-mix(in srgb, var(--pipeline-accent) 14%, var(--omc-surface));
         color: var(--pipeline-accent);
+        box-shadow: inset 0 1px 0 color-mix(in srgb, var(--omc-surface) 64%, transparent);
+
+        svg {
+          stroke-width: 2.35;
+        }
       }
 
       .pipelineStepBody {
         min-width: 0;
         display: grid;
         align-content: start;
-        gap: 7px;
+        gap: 9px;
 
-        div {
+        .pipelineStepMeta {
           min-width: 0;
-          display: grid;
-          gap: 2px;
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 8px;
 
-          strong,
-          span {
+          strong {
             min-width: 0;
+            color: var(--omc-text-strong);
+            font-size: 0.86rem;
+            font-weight: 900;
+            line-height: 1.22;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
           }
 
-          strong {
-            color: var(--omc-text-strong);
-            font-size: 0.84rem;
-            font-weight: 900;
-          }
-
           span {
+            flex: 0 1 auto;
+            max-width: 58%;
+            min-height: 22px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid color-mix(in srgb, var(--pipeline-accent) 26%, transparent);
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--pipeline-accent) 11%, var(--omc-surface));
             color: var(--pipeline-accent);
-            font-size: 0.72rem;
+            padding: 0 8px;
+            font-size: 0.68rem;
             font-weight: 900;
+            line-height: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
           }
         }
 
         p {
           margin: 0;
           color: var(--omc-text-muted);
-          font-size: 0.76rem;
+          font-size: 0.78rem;
           font-weight: 700;
-          line-height: 1.4;
+          line-height: 1.45;
+          overflow-wrap: anywhere;
         }
       }
 
-      button {
-        min-height: 30px;
-        border: 1px solid var(--omc-border-subtle);
+      .pipelineStepAction {
+        min-width: 0;
+        min-height: 34px;
+        border: 1px solid color-mix(in srgb, var(--pipeline-accent) 24%, var(--omc-border-subtle));
         border-radius: 8px;
-        background: var(--omc-surface-muted);
+        background: color-mix(in srgb, var(--pipeline-accent) 8%, var(--omc-surface-muted));
         color: var(--omc-text-strong);
         display: inline-flex;
         align-items: center;
         justify-content: center;
         gap: 6px;
-        padding: 0 8px;
-        font-size: 0.76rem;
+        padding: 0 10px;
+        font-size: 0.78rem;
         font-weight: 850;
         white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+
+        svg {
+          flex: 0 0 auto;
+          color: var(--pipeline-accent);
+          stroke-width: 2.35;
+        }
 
         &:disabled {
           cursor: not-allowed;
-          opacity: 0.55;
+          background: var(--omc-surface-muted);
+          color: var(--omc-text-soft);
+          opacity: 0.72;
         }
 
         &:not(:disabled):hover {
-          border-color: var(--omc-border-strong);
-          background: var(--omc-hover-bg);
+          border-color: color-mix(in srgb, var(--pipeline-accent) 46%, var(--omc-border-strong));
+          background: color-mix(in srgb, var(--pipeline-accent) 14%, var(--omc-hover-bg));
         }
+
+        &:focus-visible {
+          outline: 2px solid color-mix(in srgb, var(--pipeline-accent) 42%, transparent);
+          outline-offset: 2px;
+        }
+      }
+    }
+
+    .pipelineStepDisabled {
+      .pipelineStepIcon {
+        background: var(--omc-surface-muted);
+        color: color-mix(in srgb, var(--pipeline-accent) 68%, var(--omc-text-soft));
       }
     }
 
@@ -619,6 +674,7 @@
 
     .pipelineTone_failed {
       --pipeline-accent: var(--omc-danger);
+      --pipeline-tint: color-mix(in srgb, var(--omc-danger-bg) 64%, var(--omc-surface));
     }
   }
 
@@ -736,6 +792,18 @@
   color: var(--omc-text-strong);
   padding: 0 12px;
   font-weight: 850;
+}
+
+@media (width <= 1280px) {
+  .pipelinePanel {
+    .pipelineSteps {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+
+      .pipelineStep {
+        min-height: 190px;
+      }
+    }
+  }
 }
 
 @media (width <= 900px) {
@@ -948,6 +1016,7 @@
       display: grid;
 
       p {
+        max-width: none;
         text-align: left;
       }
     }
@@ -961,8 +1030,17 @@
         grid-template-columns: auto minmax(0, 1fr) auto;
         grid-template-rows: auto;
         align-items: center;
+        min-height: 0;
 
         .pipelineStepBody {
+          .pipelineStepMeta {
+            align-items: center;
+
+            span {
+              max-width: 48%;
+            }
+          }
+
           p {
             display: -webkit-box;
             overflow: hidden;
@@ -1039,8 +1117,21 @@
       .pipelineStep {
         grid-template-columns: auto minmax(0, 1fr);
 
-        button {
+        .pipelineStepBody {
+          .pipelineStepMeta {
+            display: grid;
+            gap: 6px;
+
+            span {
+              justify-self: start;
+              max-width: 100%;
+            }
+          }
+        }
+
+        .pipelineStepAction {
           grid-column: 1 / -1;
+          width: 100%;
         }
       }
     }
