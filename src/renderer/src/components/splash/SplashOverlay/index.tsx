@@ -1,16 +1,12 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import hljs from 'highlight.js/lib/core'
-import typescript from 'highlight.js/lib/languages/typescript'
 import styles from './index.module.scss'
 import { getBootMotivation, splashConfig } from './splashContent'
 
 import appIconSrc from './app-icon-splash.png'
 
-hljs.registerLanguage('typescript', typescript)
-
 interface CodeLine {
   lane: number
-  html: string
+  code: string
 }
 
 interface CodeBlock {
@@ -35,24 +31,17 @@ const codeSamples = [
   'notifyOperators({ tag: "renderer", signal: "desktop-and-mobile-splash-balanced" })'
 ]
 
-function highlightStaticCode(code: string): string {
-  return hljs.highlight(code, { language: 'typescript', ignoreIllegals: true }).value
-}
-
 const codeRain: CodeLine[] = codeSamples.map((code, index) => ({
   lane: index * 7,
-  html: highlightStaticCode(code)
+  code
 }))
 
 const codeBlocks: CodeBlock[] = [
-  { lane: -8, lines: [codeRain[0], codeRain[1], codeRain[2], codeRain[3], codeRain[4], codeRain[5], codeRain[6], codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11]] },
-  { lane: 4, lines: [codeRain[1], codeRain[2], codeRain[3], codeRain[4], codeRain[5], codeRain[6], codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11], codeRain[0]] },
-  { lane: 18, lines: [codeRain[2], codeRain[3], codeRain[4], codeRain[5], codeRain[6], codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11], codeRain[0], codeRain[1]] },
-  { lane: 32, lines: [codeRain[3], codeRain[4], codeRain[5], codeRain[6], codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11], codeRain[0], codeRain[1], codeRain[2]] },
-  { lane: 46, lines: [codeRain[4], codeRain[5], codeRain[6], codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11], codeRain[0], codeRain[1], codeRain[2], codeRain[3]] },
-  { lane: 60, lines: [codeRain[5], codeRain[6], codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11], codeRain[0], codeRain[1], codeRain[2], codeRain[3], codeRain[4]] },
-  { lane: 74, lines: [codeRain[6], codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11], codeRain[0], codeRain[1], codeRain[2], codeRain[3], codeRain[4], codeRain[5]] },
-  { lane: 88, lines: [codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11], codeRain[0], codeRain[1], codeRain[2], codeRain[3], codeRain[4], codeRain[5], codeRain[6]] }
+  { lane: -8, lines: [codeRain[0], codeRain[1], codeRain[2], codeRain[3], codeRain[4], codeRain[5], codeRain[6], codeRain[7]] },
+  { lane: 9, lines: [codeRain[2], codeRain[3], codeRain[4], codeRain[5], codeRain[6], codeRain[7], codeRain[8], codeRain[9]] },
+  { lane: 26, lines: [codeRain[4], codeRain[5], codeRain[6], codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11]] },
+  { lane: 43, lines: [codeRain[6], codeRain[7], codeRain[8], codeRain[9], codeRain[10], codeRain[11], codeRain[12], codeRain[13]] },
+  { lane: 60, lines: [codeRain[8], codeRain[9], codeRain[10], codeRain[11], codeRain[12], codeRain[13], codeRain[0], codeRain[1]] }
 ]
 
 interface TaskRainTemplate {
@@ -149,23 +138,17 @@ const taskTemplates: TaskRainTemplate[] = [
   }
 ]
 
-const taskAccents = ['blue', 'green', 'violet', 'amber']
-const taskLanes = [0, 1, 2, 3, 4, 5]
+const taskAccents = ['blue', 'green', 'violet', 'amber'] as const
+const taskLanes = [0, 1, 2, 3, 4, 5] as const
 const statusNodes = ['CONTEXT', 'TASKS', 'GATEWAY', 'AGENTS', 'BUILD', 'REVIEW']
 
-function pickRandom<T>(items: T[]): T {
-  return items[Math.floor(Math.random() * items.length)]
-}
-
-function buildTaskRain() {
-  return Array.from({ length: 30 }, (_, index) => ({
-    ...pickRandom(taskTemplates),
-    id: `${index}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    accent: pickRandom(taskAccents),
-    lane: pickRandom(taskLanes),
-    progress: 34 + Math.floor(Math.random() * 63)
-  }))
-}
+const taskRain = Array.from({ length: 18 }, (_, index) => ({
+  ...taskTemplates[index % taskTemplates.length],
+  id: `splash-task-${index}`,
+  accent: taskAccents[index % taskAccents.length],
+  lane: taskLanes[(index * 2 + Math.floor(index / 3)) % taskLanes.length],
+  progress: 42 + ((index * 11) % 57)
+}))
 
 interface SplashOverlayProps {
   ready: boolean
@@ -174,7 +157,6 @@ interface SplashOverlayProps {
 
 export function SplashOverlay({ ready, onExited }: SplashOverlayProps) {
   const motivation = useMemo(() => getBootMotivation(), [])
-  const taskRain = useMemo(() => buildTaskRain(), [])
   const [minimumElapsed, setMinimumElapsed] = useState(false)
   const [maximumElapsed, setMaximumElapsed] = useState(false)
   const [exiting, setExiting] = useState(false)
@@ -209,6 +191,8 @@ export function SplashOverlay({ ready, onExited }: SplashOverlayProps) {
   return (
     <section
       className={`${styles.splashOverlay} ${exiting ? styles.splashOverlayExit : ''}`}
+      role="status"
+      aria-label="Open Mission Control aciliyor"
       aria-live="polite"
       aria-busy={!exiting}
     >
@@ -234,8 +218,9 @@ export function SplashOverlay({ ready, onExited }: SplashOverlayProps) {
                     key={`${blockIndex}-${lineIndex}-${line.lane}`}
                     className={styles.codeLine}
                     style={{ '--line-index': lineIndex } as CSSProperties}
-                    dangerouslySetInnerHTML={{ __html: line.html }}
-                  />
+                  >
+                    {line.code}
+                  </code>
                 ))}
               </div>
             </div>

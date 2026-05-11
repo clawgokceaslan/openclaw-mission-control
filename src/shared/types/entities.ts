@@ -210,12 +210,28 @@ export interface PipelineStatusWatchToken {
   createdAt: number
 }
 
+export interface PipelineStatusTaskSummary {
+  id: string
+  title: string
+  status: string
+  projectId: string
+  projectName?: string
+  updatedAt: number
+}
+
+export interface PipelineStatusProjectSummary {
+  id: string
+  name: string
+}
+
 export interface PipelineStatusSnapshot {
   generatedAt: number
   scope: 'all' | 'run_pipeline'
   planBatches: PlanPipelineBatch[]
   planRecords: PlanPipelineRecord[]
   pipelines: RunPipelineGraph[]
+  taskSummaries: PipelineStatusTaskSummary[]
+  projectSummaries: PipelineStatusProjectSummary[]
 }
 
 export interface TaskChecklistItem {

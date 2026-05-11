@@ -22,9 +22,9 @@ const LEGACY_BACKGROUND_MAP: Record<string, ThemeBackgroundId> = {
 }
 
 function resolveThemeMode(): ThemeMode {
-  if (typeof window === 'undefined') return 'system'
+  if (typeof window === 'undefined') return 'dark'
   const saved = window.localStorage.getItem(THEME_MODE_KEY)
-  return saved === 'system' || saved === 'light' || saved === 'dark' ? (saved as ThemeMode) : 'system'
+  return saved === 'system' || saved === 'light' || saved === 'dark' ? (saved as ThemeMode) : 'dark'
 }
 
 function resolvePaletteId(): ThemePaletteId {

@@ -128,7 +128,7 @@ export async function createAppContext(): Promise<AppContext> {
     projectGroups: new ProjectGroupService(auth, groupRepo, projectRepo),
     planPipelines,
     runPipelines,
-    pipelineStatus: new PipelineStatusService(auth, runPipelineRepo, planPipelineRepo),
+    pipelineStatus: new PipelineStatusService(auth, runPipelineRepo, planPipelineRepo, projectRepo, taskRepo),
     customFields: new CustomFieldService(auth, customFieldRepo, tagRepo),
     outputFormats: new OutputFormatService(auth, outputFormatRepo),
     jobs: new JobService(auth, jobRepo),

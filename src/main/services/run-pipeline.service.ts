@@ -6,6 +6,8 @@ import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 import type {
   PipelineStatusSnapshot,
   PipelineStatusWatchToken,
+  PipelineStatusProjectSummary,
+  PipelineStatusTaskSummary,
   RunPipelineGraph,
   RunPipelineItem,
   RunPipelineStatus
@@ -300,7 +302,9 @@ export class PipelineStatusService {
   constructor(
     private readonly auth: AuthService,
     private readonly repo: RunPipelineRepository,
-    private readonly planRepo: PlanPipelineRepository
+    private readonly planRepo: PlanPipelineRepository,
+    private readonly projectRepo: ProjectRepository,
+    private readonly taskRepo: TaskRepository
   ) {}
 
   async snapshot(payload: { actorToken?: string; runPipelineId?: string }): Promise<ServiceResponse<PipelineStatusSnapshot>> {
@@ -308,7 +312,15 @@ export class PipelineStatusService {
     const pipelines = await this.resolvePipelines(actor.user.organizationId, payload?.runPipelineId)
     const planBatches = payload?.runPipelineId ? [] : await this.planRepo.listBatches(actor.user.organizationId)
     const planRecords = payload?.runPipelineId ? [] : await this.planRepo.list(actor.user.organizationId)
-    return okResponse({ generatedAt: Date.now(), scope: payload?.runPipelineId ? 'run_pipeline' : 'all', planBatches, planRecords, pipelines })
+    const summaries = await this.resolveSummaries([actor.user.organizationId])
+    return okResponse({
+      generatedAt: Date.now(),
+      scope: payload?.runPipelineId ? 'run_pipeline' : 'all',
+      planBatches,
+      planRecords,
+      pipelines,
+      ...summaries
+    })
   }
 
   async createWatchToken(payload: { actorToken?: string; label?: string; runPipelineId?: string; expiresAt?: number | null }): Promise<ServiceResponse<{ token: string; record: PipelineStatusWatchToken }>> {
@@ -339,12 +351,19 @@ export class PipelineStatusService {
       const graphs = await Promise.all(batches.map((batch) => this.repo.get(batch.organizationId, batch.id)))
       const planBatches = await this.planRepo.listAllBatches()
       const planRecords = await this.planRepo.listAll()
+      const organizationIds = Array.from(new Set([
+        ...batches.map((batch) => batch.organizationId),
+        ...planBatches.map((batch) => batch.organizationId),
+        ...planRecords.map((record) => record.organizationId)
+      ]))
+      const summaries = await this.resolveSummaries(organizationIds)
       return okResponse({
         generatedAt: Date.now(),
         scope: 'all',
         planBatches,
         planRecords,
-        pipelines: graphs.filter((item): item is RunPipelineGraph => Boolean(item))
+        pipelines: graphs.filter((item): item is RunPipelineGraph => Boolean(item)),
+        ...summaries
       })
     }
     const record = await this.repo.getStatusTokenByHash(this.hashToken(token))
@@ -353,7 +372,8 @@ export class PipelineStatusService {
     const pipelines = await this.resolvePipelines(record.organizationId, record.scope === 'run_pipeline' ? record.scopeId : undefined)
     const planBatches = record.scope === 'run_pipeline' ? [] : await this.planRepo.listBatches(record.organizationId)
     const planRecords = record.scope === 'run_pipeline' ? [] : await this.planRepo.list(record.organizationId)
-    return okResponse({ generatedAt: Date.now(), scope: record.scope, planBatches, planRecords, pipelines })
+    const summaries = await this.resolveSummaries([record.organizationId])
+    return okResponse({ generatedAt: Date.now(), scope: record.scope, planBatches, planRecords, pipelines, ...summaries })
   }
 
   private async resolvePipelines(organizationId: string, runPipelineId?: string): Promise<RunPipelineGraph[]> {
@@ -368,5 +388,26 @@ export class PipelineStatusService {
 
   private hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex')
+  }
+
+  private async resolveSummaries(organizationIds: string[]): Promise<{ taskSummaries: PipelineStatusTaskSummary[]; projectSummaries: PipelineStatusProjectSummary[] }> {
+    const uniqueOrganizationIds = Array.from(new Set(organizationIds.filter(Boolean)))
+    const projects = (await Promise.all(uniqueOrganizationIds.map((organizationId) => this.projectRepo.list(organizationId)))).flat()
+    const tasks = (await Promise.all(uniqueOrganizationIds.map((organizationId) => this.taskRepo.listAll(organizationId)))).flat()
+    const projectById = new Map(projects.map((project) => [project.id, project]))
+    return {
+      projectSummaries: projects.map((project) => ({
+        id: project.id,
+        name: project.name
+      })),
+      taskSummaries: tasks.map((task) => ({
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        projectId: task.projectId,
+        projectName: projectById.get(task.projectId)?.name,
+        updatedAt: task.updatedAt
+      }))
+    }
   }
 }

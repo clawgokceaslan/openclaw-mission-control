@@ -150,37 +150,6 @@
               left: 18px;
               color: rgba(227, 238, 255, 0.2);
             }
-
-            span {
-              &:global(.hljs-keyword),
-              &:global(.hljs-literal) {
-                color: rgba(255, 127, 185, 0.96);
-              }
-
-              &:global(.hljs-title),
-              &:global(.hljs-title.function_),
-              &:global(.hljs-title.class_) {
-                color: rgba(116, 196, 255, 0.94);
-              }
-
-              &:global(.hljs-string) {
-                color: rgba(126, 231, 169, 0.9);
-              }
-
-              &:global(.hljs-variable),
-              &:global(.hljs-property),
-              &:global(.hljs-attr) {
-                color: rgba(255, 216, 122, 0.9);
-              }
-
-              &:global(.hljs-number) {
-                color: rgba(183, 154, 255, 0.92);
-              }
-
-              &:global(.hljs-built_in) {
-                color: rgba(255, 188, 121, 0.9);
-              }
-            }
           }
         }
       }
