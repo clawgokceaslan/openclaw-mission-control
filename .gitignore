@@ -5,3 +5,4 @@ electron/electron-dist/
 .omc/
 .npm-cache/
 data/*.sqlite
+db/*.sqlite

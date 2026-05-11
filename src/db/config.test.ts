@@ -104,10 +104,11 @@ describe('Database location persistence', () => {
     })
   })
 
-  it('uses the repo data database as the current development folder when stored metadata is missing file', async () => {
+  it('copies the repo data database into the writable development db folder when stored metadata is missing file', async () => {
     await withTemporaryWorkspace(async () => {
       process.env.NODE_ENV = 'development'
       const repoDataFolder = join(process.cwd(), 'data')
+      const defaultFolder = join(process.cwd(), 'db')
       const staleFolder = join(process.cwd(), 'missing-user-data')
       const metadataDirectory = join(process.cwd(), '.omc')
       const metadataPath = join(metadataDirectory, 'database-location.json')
@@ -121,9 +122,10 @@ describe('Database location persistence', () => {
 
       const state = getDatabaseLocationState()
 
-      expect(state.currentFolderPath).toBe(repoDataFolder)
-      expect(state.currentDbPath).toBe(join(repoDataFolder, 'mission-control.sqlite'))
+      expect(state.currentFolderPath).toBe(defaultFolder)
+      expect(state.currentDbPath).toBe(join(defaultFolder, 'mission-control.sqlite'))
       expect(state.currentDbExists).toBe(true)
+      expect(readFileSync(join(defaultFolder, 'mission-control.sqlite'), 'utf8')).toBe('dev db')
     })
   })
 
@@ -131,6 +133,7 @@ describe('Database location persistence', () => {
     await withTemporaryWorkspace(async () => {
       process.env.NODE_ENV = 'development'
       const repoDataFolder = join(process.cwd(), 'data')
+      const defaultFolder = join(process.cwd(), 'db')
       const prodFolder = join(process.cwd(), 'prod-db')
       const pendingFolder = join(process.cwd(), 'pending-prod')
       const metadataDirectory = join(process.cwd(), '.omc')
@@ -148,11 +151,11 @@ describe('Database location persistence', () => {
 
       const state = getDatabaseLocationState()
 
-      expect(state.currentFolderPath).toBe(repoDataFolder)
-      expect(state.currentDbPath).toBe(join(repoDataFolder, 'mission-control.sqlite'))
+      expect(state.currentFolderPath).toBe(defaultFolder)
+      expect(state.currentDbPath).toBe(join(defaultFolder, 'mission-control.sqlite'))
       expect(state.currentDbExists).toBe(true)
       expect(state.pendingFolderPath).toBeNull()
-      expect(getDbPath()).toBe(join(repoDataFolder, 'mission-control.sqlite'))
+      expect(getDbPath()).toBe(join(defaultFolder, 'mission-control.sqlite'))
     })
   })
 
@@ -233,7 +236,7 @@ describe('Database location persistence', () => {
     })
   })
 
-  it('does not adopt legacy app data in development runtime', async () => {
+  it('adopts repo data but not legacy app data in development runtime', async () => {
     await withTemporaryWorkspace(async () => {
       process.env.NODE_ENV = 'development'
       const originalApp = electronRuntime.app
@@ -252,7 +255,7 @@ describe('Database location persistence', () => {
 
       try {
         const dbPath = getDbPath()
-        expect(dbPath).toBe(join(process.cwd(), 'data', 'mission-control.sqlite'))
+        expect(dbPath).toBe(join(legacyAppData, 'db', 'mission-control.sqlite'))
         expect(existsSync(dbPath)).toBe(false)
         expect(existsSync(legacyDbPath)).toBe(true)
       } finally {

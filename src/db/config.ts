@@ -52,10 +52,6 @@ function dbLocationMetaPath(): string {
 }
 
 function defaultDbFolder(): string {
-  if (isDevelopmentRuntime()) {
-    return getRepoDataFolder()
-  }
-  
   return join(resolveUserDataRoot(), DEFAULT_DB_FOLDER_NAME)
 }
 
@@ -201,14 +197,10 @@ function sqliteSidecarPaths(dbPath: string): string[] {
 }
 
 function adoptLegacyDefaultDatabaseIfNeeded(activeDbFolder: string): string {
-  if (isDevelopmentRuntime()) {
-    return activeDbFolder
-  }
-
   if (activeDbFolder !== defaultDbFolder()) return activeDbFolder
 
   const targetDbPath = join(activeDbFolder, DB_FILENAME)
-  const legacyFolder = legacyDefaultDbFolder()
+  const legacyFolder = isDevelopmentRuntime() ? getRepoDataFolder() : legacyDefaultDbFolder()
   const legacyDbPath = join(legacyFolder, DB_FILENAME)
   if (isFilePath(targetDbPath) || !isFilePath(legacyDbPath)) {
     return activeDbFolder
@@ -233,10 +225,11 @@ function adoptLegacyDefaultDatabaseIfNeeded(activeDbFolder: string): string {
 
 function getCurrentDbLocationState(): DatabaseLocationState {
   const source = normalizeState(readDbLocationMeta())
-  const currentDbPath = join(source.activeDbFolder, DB_FILENAME)
+  const activeDbFolder = adoptLegacyDefaultDatabaseIfNeeded(source.activeDbFolder)
+  const currentDbPath = join(activeDbFolder, DB_FILENAME)
   const pendingDbPath = source.pendingDbFolder ? join(source.pendingDbFolder, DB_FILENAME) : null
   return {
-    currentFolderPath: source.activeDbFolder,
+    currentFolderPath: activeDbFolder,
     currentDbPath,
     currentDbExists: isFilePath(currentDbPath),
     pendingFolderPath: source.pendingDbFolder,
