@@ -26,7 +26,7 @@ import { useProjectGatewayFlow } from './detail/hooks/useProjectGatewayFlow'
 import { useProjectSelection } from './detail/hooks/useProjectSelection'
 import { useProjectDerivedState } from './detail/hooks/useProjectDerivedState'
 import { useProjectWorkspaceSettings } from './detail/hooks/useProjectWorkspaceSettings'
-import { buildAgentMarkdown, buildSkillsMarkdown, buildTaskImportJson, buildTaskJson, buildTaskMarkdown, buildTaskToon, downloadMarkdownFile, downloadTaskZip, downloadTextFile } from './detail/taskExport'
+import { buildSelectedTaskFile, buildTaskImportJson, downloadTaskZip, downloadTextFile } from './detail/taskExport'
 import { resolveProjectStatusColumn } from './detail/status'
 import { useProjectDetailDispatcher, useProjectDetailReducer } from './detail/state/projectDetailState'
 import {
@@ -3507,26 +3507,14 @@ export function ProjectDetailPage() {
             onDownloadZip={() => {
               if (selectedTaskExportContext) void downloadTaskZip(selectedTaskExportContext).catch(() => setError('Unable to export task ZIP'))
             }}
-            onDownloadTaskMarkdown={() => {
-              if (selectedTaskExportContext) downloadMarkdownFile('Task.md', buildTaskMarkdown(selectedTaskExportContext))
-            }}
-            onDownloadTaskJson={() => {
-              if (selectedTaskExportContext) downloadTextFile('Task.json', buildTaskJson(selectedTaskExportContext), 'application/json;charset=utf-8')
+            onDownloadTask={() => {
+              if (!selectedTaskExportContext) return
+              const taskFile = buildSelectedTaskFile(selectedTaskExportContext)
+              downloadTextFile(taskFile.taskFileName, taskFile.taskFileContent, taskFile.contentType)
             }}
             onExportTaskJson={() => {
               if (selectedTaskExportContext) downloadTextFile(`${selectedTask?.title || 'Task'}.json`, buildTaskImportJson(selectedTaskExportContext), 'application/json;charset=utf-8')
             }}
-            onDownloadTaskToon={() => {
-              if (selectedTaskExportContext) downloadTextFile('Task.toon', buildTaskToon(selectedTaskExportContext), 'text/plain;charset=utf-8')
-            }}
-            onDownloadAgentMarkdown={selectedTaskExportContext ? () => {
-              const markdown = buildAgentMarkdown(selectedTaskExportContext)
-              if (markdown.trim()) downloadMarkdownFile('Agents.md', markdown)
-            } : undefined}
-            onDownloadSkillsMarkdown={selectedTaskExportContext ? () => {
-              const markdown = buildSkillsMarkdown(selectedTaskExportContext)
-              if (markdown.trim()) downloadMarkdownFile('Skills.md', markdown)
-            } : undefined}
             onRunGateway={handleRunSelectedTaskWithCodex}
             isRunGatewayBusy={gatewayRunLaunching}
             isRunGatewayDisabled={!canRunSelectedTaskWithCodex}

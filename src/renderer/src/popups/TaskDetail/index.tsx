@@ -257,12 +257,8 @@ interface TaskDetailPopupProps {
   hideTaskActions?: boolean
   onFilesDrop?: (files: File[]) => void
   onDownloadZip?: () => void
-  onDownloadTaskMarkdown?: () => void
-  onDownloadTaskJson?: () => void
+  onDownloadTask?: () => void
   onExportTaskJson?: () => void
-  onDownloadTaskToon?: () => void
-  onDownloadAgentMarkdown?: () => void
-  onDownloadSkillsMarkdown?: () => void
   onRunGateway?: () => void
   isRunGatewayBusy?: boolean
   isRunGatewayDisabled?: boolean
@@ -318,6 +314,17 @@ function useTaskDetailCompactLayout() {
   }, [])
 
   return isCompact
+}
+
+function normalizeTaskDetailTab(tab: string | undefined, compact: boolean) {
+  if (tab === 'comments') return compact ? 'comments' : 'subtasks'
+  return tab ?? 'subtasks'
+}
+
+function normalizeSubtaskDetailTab(tab: string | undefined, compact: boolean) {
+  if (tab === 'comments') return compact ? 'comments' : 'agent'
+  if (tab === 'subtasks' || tab === 'model') return 'agent'
+  return tab ?? 'agent'
 }
 
 function CommentsPane({ scope, inline = false }: { scope: Record<string, any>; inline?: boolean }) {
@@ -464,9 +471,9 @@ function ModelTab({ scope }: { scope: Record<string, any> }) {
 function TaskDetailBody({ scope }: { scope: Record<string, any> }) {
   const task = scope.selectedTask
   const isCompactLayout = useTaskDetailCompactLayout()
-  const [detailTab, setDetailTab] = useState(scope.detailTab ?? 'subtasks')
+  const [detailTab, setDetailTab] = useState(() => normalizeTaskDetailTab(scope.detailTab, isCompactLayout))
   const [acceptanceDraft, setAcceptanceDraft] = useState(() => acceptanceCriteriaOf(task))
-  useEffect(() => setDetailTab(scope.detailTab ?? 'subtasks'), [task?.id])
+  useEffect(() => setDetailTab(normalizeTaskDetailTab(scope.detailTab, isCompactLayout)), [task?.id, scope.detailTab, isCompactLayout])
   useEffect(() => setAcceptanceDraft(acceptanceCriteriaOf(task)), [task?.id, task?.payload])
   if (!task) return null
   const completed = new Set(scope.completedStatusIds ?? [])
@@ -475,14 +482,28 @@ function TaskDetailBody({ scope }: { scope: Record<string, any> }) {
   const selectedTaskAgent = scope.selectedTaskAgent
   const selectedTaskAgentIsDefault = scope.selectedTaskAgentIsDefault === true
   const selectedTaskSkillOptions = scope.selectedTaskSkillOptions ?? []
+  const compactPanel = isCompactLayout && detailTab === 'comments' ? 'comments' : 'detail'
   const selectTab = (tab: string) => {
-    setDetailTab(tab)
-    scope.setDetailTab?.(tab)
+    const nextTab = normalizeTaskDetailTab(tab, isCompactLayout)
+    setDetailTab(nextTab)
+    scope.setDetailTab?.(nextTab)
   }
 
   return (
     <div className={styles.modalBody} ref={scope.modalBodyRef} style={scope.splitTemplate ? { gridTemplateColumns: scope.splitTemplate } as CSSProperties : undefined}>
       <div className={styles.detailPane}>
+        {isCompactLayout ? (
+          <section className={styles.compactPanelSwitch} aria-label="Task detail view">
+            <button type="button" className={compactPanel === 'detail' ? styles.compactPanelActive : styles.compactPanelButton} onClick={() => selectTab(detailTab === 'comments' ? 'subtasks' : detailTab)}>Detail</button>
+            <button type="button" className={compactPanel === 'comments' ? styles.compactPanelActive : styles.compactPanelButton} onClick={() => selectTab('comments')}>Comments {(task.comments ?? []).length}</button>
+          </section>
+        ) : null}
+        {compactPanel === 'comments' ? (
+          <section className={styles.drawerSection}>
+            <CommentsPane inline scope={{ ...scope, comments: task.comments ?? [] }} />
+          </section>
+        ) : (
+          <>
         <section className={styles.breadcrumbRow}>
           <button type="button" className={styles.breadcrumbBtn} onClick={() => (scope.closeTaskDetail ?? scope.clearSelection)?.()}>{scope.project?.name ?? 'Project'}</button>
           <span className={styles.breadcrumbSep}>&gt;</span>
@@ -543,7 +564,7 @@ function TaskDetailBody({ scope }: { scope: Record<string, any> }) {
         <section className={styles.drawerSection}>
           <div className={styles.tabRow}>
             {[
-              ['subtasks', LuListChecks, 'Subtasks'], ['comments', LuMessageSquare, `Comments ${(task.comments ?? []).length}`], ['customFields', LuSlidersHorizontal, 'Custom fields'], ['checklist', LuListChecks, 'Checklist'], ['attachments', LuPaperclip, 'Attachments'], ['agent', LuBot, 'Agent'], ['skills', LuSparkles, 'Skills'], ['model', LuSettings2, 'Model']
+              ['subtasks', LuListChecks, 'Subtasks'], ['customFields', LuSlidersHorizontal, 'Custom fields'], ['checklist', LuListChecks, 'Checklist'], ['attachments', LuPaperclip, 'Attachments'], ['agent', LuBot, 'Agent'], ['skills', LuSparkles, 'Skills'], ['model', LuSettings2, 'Model']
             ].map(([tab, Icon, label]: any) => <button key={tab} type="button" className={detailTab === tab ? styles.tabActive : styles.tabBtn} onClick={() => selectTab(tab)}><Icon size={15} />{label}</button>)}
           </div>
           {detailTab === 'subtasks' ? (
@@ -555,8 +576,6 @@ function TaskDetailBody({ scope }: { scope: Record<string, any> }) {
                 return <div key={subtask.id} className={`${styles.subtaskRow} ${scope.pendingDeleteSubtaskId === subtask.id ? styles.subtaskDeleteArmed : ''}`}><button type="button" className={`${styles.subtaskStatusToggle} ${completed.has(subtask.status) ? styles.subtaskStatusDone : ''}`} onClick={(event) => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); scope.setSubtaskStatusMenu?.((current: any) => current?.subtaskId === subtask.id ? null : { subtaskId: subtask.id, left: rect.left, top: rect.bottom + 6 }) }}><span />{subtaskStatusColumn.title}<LuChevronDown size={13} /></button><label><span className={styles.editableSubtaskTitle} onClick={(event) => { event.stopPropagation(); scope.scheduleOpenSubtaskDetail?.(subtask.id) }} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); scope.startSubtaskRename?.(subtask) }}>{subtask.title}</span></label><button type="button" className={styles.subtaskRemoveBtn} onClick={() => void scope.removeSubtask?.(subtask.id)}><LuTrash2 size={14} /></button></div>
               })}</Stack>
             </>
-          ) : detailTab === 'comments' ? (
-            <CommentsPane inline scope={{ ...scope, comments: task.comments ?? [] }} />
           ) : detailTab === 'customFields' ? (
             <><div className={styles.detailSectionHeader}><div><h4>Custom fields</h4><p>{(scope.assignedCustomFieldValues ?? []).length} assigned</p></div></div><div className={styles.tabCtaCard}><div><strong>Add custom field</strong><span>Attach a field value to this task.</span></div><button type="button" className={styles.tabActionButton} onClick={scope.openCustomFieldModal}><LuPlus size={15} />Add custom field</button></div><CustomFieldsList scope={scope} values={scope.assignedCustomFieldValues ?? []} /></>
           ) : detailTab === 'checklist' ? (
@@ -570,6 +589,8 @@ function TaskDetailBody({ scope }: { scope: Record<string, any> }) {
           ) : detailTab === 'model' ? <ModelTab scope={scope} /> : null}
         </section>
         <section className={styles.drawerSection}><h4>Dependencies</h4><p>No dependencies.</p></section>
+          </>
+        )}
       </div>
       {!isCompactLayout ? <CommentsPane scope={{ ...scope, comments: task.comments ?? [] }} /> : null}
     </div>
@@ -584,20 +605,34 @@ function SubtaskDetailBody({ scope }: { scope: Record<string, any> }) {
   const subtask = scope.selectedSubtask
   const task = scope.selectedTask
   const isCompactLayout = useTaskDetailCompactLayout()
-  const [detailTab, setDetailTab] = useState(scope.detailTab === 'subtasks' || scope.detailTab === 'model' ? 'agent' : scope.detailTab ?? 'agent')
-  useEffect(() => setDetailTab(scope.detailTab === 'subtasks' || scope.detailTab === 'model' ? 'agent' : scope.detailTab ?? 'agent'), [subtask?.id])
+  const [detailTab, setDetailTab] = useState(() => normalizeSubtaskDetailTab(scope.detailTab, isCompactLayout))
+  useEffect(() => setDetailTab(normalizeSubtaskDetailTab(scope.detailTab, isCompactLayout)), [subtask?.id, scope.detailTab, isCompactLayout])
   if (!subtask || !task) return null
   const resolveColumn = typeof scope.resolveColumnByStatus === 'function' ? scope.resolveColumnByStatus : fallbackStatusColumn
   const subtaskStatusColumn = resolveColumn(subtask.status)
   const checklistItems = subtaskChecklistItems(subtask)
   const comments = scope.comments ?? []
+  const compactPanel = isCompactLayout && detailTab === 'comments' ? 'comments' : 'detail'
   const selectTab = (tab: string) => {
-    setDetailTab(tab)
-    scope.setDetailTab?.(tab)
+    const nextTab = normalizeSubtaskDetailTab(tab, isCompactLayout)
+    setDetailTab(nextTab)
+    scope.setDetailTab?.(nextTab)
   }
   return (
     <div className={styles.modalBody} ref={scope.modalBodyRef} style={scope.splitTemplate ? { gridTemplateColumns: scope.splitTemplate } as CSSProperties : undefined}>
       <div className={styles.detailPane}>
+        {isCompactLayout ? (
+          <section className={styles.compactPanelSwitch} aria-label="Subtask detail view">
+            <button type="button" className={compactPanel === 'detail' ? styles.compactPanelActive : styles.compactPanelButton} onClick={() => selectTab(detailTab === 'comments' ? 'agent' : detailTab)}>Detail</button>
+            <button type="button" className={compactPanel === 'comments' ? styles.compactPanelActive : styles.compactPanelButton} onClick={() => selectTab('comments')}>Comments {comments.length}</button>
+          </section>
+        ) : null}
+        {compactPanel === 'comments' ? (
+          <section className={styles.drawerSection}>
+            <CommentsPane inline scope={{ ...scope, comments }} />
+          </section>
+        ) : (
+          <>
         <section className={styles.breadcrumbRow}>
           <button type="button" className={styles.breadcrumbBtn} onClick={() => { scope.closeSubtaskDetail?.(); if (!scope.closeSubtaskDetail) { scope.setSelectedSubtaskId?.(null); scope.setDetailViewMode?.('task'); scope.setDetailTab?.('subtasks') } }}>{task.title}</button>
           <span className={styles.breadcrumbSep}>&gt;</span>
@@ -627,15 +662,16 @@ function SubtaskDetailBody({ scope }: { scope: Record<string, any> }) {
         </section>
         <section className={styles.drawerSection}>
           <div className={styles.tabRow}>
-            {[[ 'agent', LuBot, 'Agent' ], [ 'skills', LuSparkles, 'Skills' ], [ 'comments', LuMessageSquare, `Comments ${comments.length}` ], [ 'customFields', LuSlidersHorizontal, 'Custom fields' ], [ 'checklist', LuListChecks, 'Checklist' ], [ 'attachments', LuPaperclip, 'Attachments' ]].map(([tab, Icon, label]: any) => <button key={tab} type="button" className={detailTab === tab ? styles.tabActive : styles.tabBtn} onClick={() => selectTab(tab)}><Icon size={15} />{label}</button>)}
+            {[[ 'agent', LuBot, 'Agent' ], [ 'skills', LuSparkles, 'Skills' ], [ 'customFields', LuSlidersHorizontal, 'Custom fields' ], [ 'checklist', LuListChecks, 'Checklist' ], [ 'attachments', LuPaperclip, 'Attachments' ]].map(([tab, Icon, label]: any) => <button key={tab} type="button" className={detailTab === tab ? styles.tabActive : styles.tabBtn} onClick={() => selectTab(tab)}><Icon size={15} />{label}</button>)}
           </div>
           {detailTab === 'agent' ? <><div className={styles.detailSectionHeader}><div><h4>Agent</h4><p>{scope.selectedSubtaskAgent?.name ?? 'Unassigned'}</p></div></div><AgentAssignmentPanel agent={scope.selectedSubtaskAgent} agents={scope.agents ?? []} ctaDescription="Choose the agent responsible for this subtask." onChange={scope.setSubtaskAgent} /></> : null}
           {detailTab === 'skills' ? <><div className={styles.detailSectionHeader}><div><h4>Skills</h4><p>{(scope.selectedSubtaskSkillOptions ?? []).length} selected</p></div></div><SkillsAssignmentPanel selectedSkills={scope.selectedSubtaskSkills ?? []} skills={scope.skills ?? []} source="Subtask" ctaDescription="Select one or more skills needed for this subtask." onChange={scope.setSubtaskSkills} /></> : null}
-          {detailTab === 'comments' ? <CommentsPane inline scope={{ ...scope, comments }} /> : null}
           {detailTab === 'customFields' ? <><div className={styles.detailSectionHeader}><div><h4>Custom fields</h4><p>{(scope.assignedSubtaskCustomFieldValues ?? []).length} assigned</p></div></div><div className={styles.tabCtaCard}><div><strong>Add custom field</strong><span>Attach a field value to this subtask.</span></div><button type="button" className={styles.tabActionButton} onClick={scope.openCustomFieldModal}><LuPlus size={15} />Add custom field</button></div><CustomFieldsList scope={scope} values={scope.assignedSubtaskCustomFieldValues ?? []} /></> : null}
           {detailTab === 'checklist' ? <><div className={styles.detailSectionHeader}><div><h4>Checklist</h4><p>{checklistItems.filter((item: any) => item.checked).length} checked / {checklistItems.length} total</p></div></div><ChecklistPanel items={checklistItems} emptyLabel="No checklist items on this subtask." onAdd={() => scope.openChecklistModal?.()} onToggle={(itemId) => scope.toggleSubtaskChecklistItem?.(itemId)} onRemove={(itemId) => scope.removeSubtaskChecklistItem?.(itemId)} /></> : null}
           {detailTab === 'attachments' ? <><div className={styles.detailSectionHeader}><div><h4>Attachments</h4><p>{(scope.subtaskAttachmentRows ?? []).length} files</p></div></div><AttachmentTable rows={scope.subtaskAttachmentRows ?? []} uploading={scope.isAttachmentUploading} onUpload={(files) => void scope.uploadSubtaskAttachments(files)} onRemove={(row) => void scope.removeSubtaskAttachment(row)} onError={scope.setError} /></> : null}
         </section>
+          </>
+        )}
       </div>
       {!isCompactLayout ? <CommentsPane scope={scope} /> : null}
     </div>
@@ -673,12 +709,8 @@ export function TaskDetailPopup({
   hideTaskActions = false,
   onFilesDrop,
   onDownloadZip,
-  onDownloadTaskMarkdown,
-  onDownloadTaskJson,
+  onDownloadTask,
   onExportTaskJson,
-  onDownloadTaskToon,
-  onDownloadAgentMarkdown,
-  onDownloadSkillsMarkdown,
   onRunGateway,
   isRunGatewayBusy = false,
   isRunGatewayDisabled = false,
@@ -698,7 +730,7 @@ export function TaskDetailPopup({
   const menuRef = useRef<HTMLDivElement | null>(null)
   const downloadMenuRef = useRef<HTMLDivElement | null>(null)
   const dragDepthRef = useRef(0)
-  const hasDownloadActions = Boolean(onDownloadZip || onDownloadTaskMarkdown || onDownloadTaskJson || onDownloadTaskToon || onDownloadAgentMarkdown || onDownloadSkillsMarkdown)
+  const hasDownloadActions = Boolean(onDownloadZip || onDownloadTask)
 
   useEffect(() => lockModalInteractionRegion(), [])
 
@@ -768,12 +800,8 @@ export function TaskDetailPopup({
                 </button>
                 {isDownloadMenuOpen ? (
                   <div className={styles.menu} role="menu">
+                    {onDownloadTask ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadTask() }}><LuFileText size={15} /> Download Task</button> : null}
                     {onDownloadZip ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadZip() }}><LuDownload size={15} /> Download ZIP</button> : null}
-                    {onDownloadTaskMarkdown ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadTaskMarkdown() }}><LuFileText size={15} /> Download Task.md</button> : null}
-                    {onDownloadTaskJson ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadTaskJson() }}><LuFileText size={15} /> Download Task.json</button> : null}
-                    {onDownloadTaskToon ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadTaskToon() }}><LuFileText size={15} /> Download Task.toon</button> : null}
-                    {onDownloadAgentMarkdown ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadAgentMarkdown() }}><LuFileText size={15} /> Download Agents.md</button> : null}
-                    {onDownloadSkillsMarkdown ? <button type="button" onClick={() => { setIsDownloadMenuOpen(false); onDownloadSkillsMarkdown() }}><LuFileText size={15} /> Download Skills.md</button> : null}
                   </div>
                 ) : null}
               </div>
@@ -825,12 +853,8 @@ export function TaskDetailPopup({
               <div className={styles.menu} role="menu">
                 {onImportJson ? <button type="button" className={styles.mobileMenuOnly} onClick={() => { setIsMenuOpen(false); onImportJson() }}><LuUpload size={15} /> Import JSON</button> : null}
                 {onExportTaskJson ? <button type="button" className={styles.mobileMenuOnly} onClick={() => { setIsMenuOpen(false); onExportTaskJson() }}><LuDownload size={15} /> Export JSON</button> : null}
+                {onDownloadTask ? <button type="button" className={styles.mobileMenuOnly} onClick={() => { setIsMenuOpen(false); onDownloadTask() }}><LuFileText size={15} /> Download Task</button> : null}
                 {onDownloadZip ? <button type="button" className={styles.mobileMenuOnly} onClick={() => { setIsMenuOpen(false); onDownloadZip() }}><LuDownload size={15} /> Download ZIP</button> : null}
-                {onDownloadTaskMarkdown ? <button type="button" className={styles.mobileMenuOnly} onClick={() => { setIsMenuOpen(false); onDownloadTaskMarkdown() }}><LuFileText size={15} /> Download Task.md</button> : null}
-                {onDownloadTaskJson ? <button type="button" className={styles.mobileMenuOnly} onClick={() => { setIsMenuOpen(false); onDownloadTaskJson() }}><LuFileText size={15} /> Download Task.json</button> : null}
-                {onDownloadTaskToon ? <button type="button" className={styles.mobileMenuOnly} onClick={() => { setIsMenuOpen(false); onDownloadTaskToon() }}><LuFileText size={15} /> Download Task.toon</button> : null}
-                {onDownloadAgentMarkdown ? <button type="button" className={styles.mobileMenuOnly} onClick={() => { setIsMenuOpen(false); onDownloadAgentMarkdown() }}><LuFileText size={15} /> Download Agents.md</button> : null}
-                {onDownloadSkillsMarkdown ? <button type="button" className={styles.mobileMenuOnly} onClick={() => { setIsMenuOpen(false); onDownloadSkillsMarkdown() }}><LuFileText size={15} /> Download Skills.md</button> : null}
                 <button type="button" onClick={copyTaskLink}><LuExternalLink size={15} /> Copy link</button>
                 <button type="button" onClick={copyTaskId}><LuCopy size={15} /> Copy task ID</button>
                 <button type="button" onClick={() => { setIsMenuOpen(false); onEditTitle() }}><LuPencil size={15} /> Edit title</button>

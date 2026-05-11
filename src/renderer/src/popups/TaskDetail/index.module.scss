@@ -443,6 +443,13 @@
 .breadcrumbBtnActive { border: none; background: transparent; color: var(--omc-text-muted); font-size: 0.84rem; font-weight: 600; padding: 0; }
 .breadcrumbBtnActive { color: var(--omc-text-strong); }
 .breadcrumbSep { color: var(--omc-text-soft); font-size: 0.8rem; }
+.compactPanelSwitch {
+  display: none;
+}
+.compactPanelButton,
+.compactPanelActive {
+  min-width: 0;
+}
 .detailTop { padding: 18px 22px 16px; border-bottom: 1px solid var(--omc-surface-muted); display: grid; gap: 12px; }
 .taskTypeRow { display: flex; align-items: center; gap: 8px; }
 .projectContext { color: var(--omc-text-soft); font-size: 0.86rem; font-weight: 600; }
@@ -820,6 +827,39 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     padding-bottom: max(14px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .compactPanelSwitch {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--omc-border);
+    background: var(--omc-surface);
+
+    .compactPanelButton,
+    .compactPanelActive {
+      min-height: 36px;
+      border: 1px solid var(--omc-border);
+      border-radius: 8px;
+      padding: 0 10px;
+      background: var(--omc-surface-muted);
+      color: var(--omc-text-muted);
+      font-size: 0.84rem;
+      font-weight: 850;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .compactPanelActive {
+      border-color: var(--omc-primary);
+      background: var(--omc-active-bg);
+      color: var(--omc-primary-strong);
+    }
   }
 
   .splitHandle,

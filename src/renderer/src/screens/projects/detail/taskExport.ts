@@ -684,10 +684,17 @@ export function parseTaskToon(value: string) {
   return data
 }
 
-function taskFileForShape(shape: GatewayPromptShape, taskMarkdown: string, taskJson: string, taskToon: string): { taskFileName: ProjectWorkspaceExportTaskPayload['taskFileName']; taskFileContent: string } {
-  if (shape === 'json') return { taskFileName: 'Task.json', taskFileContent: taskJson }
-  if (shape === 'toon') return { taskFileName: 'Task.toon', taskFileContent: taskToon }
-  return { taskFileName: 'Task.md', taskFileContent: taskMarkdown }
+function taskFileForShape(shape: GatewayPromptShape, taskMarkdown: string, taskJson: string, taskToon: string): { taskFileName: ProjectWorkspaceExportTaskPayload['taskFileName']; taskFileContent: string; contentType: string } {
+  if (shape === 'json') return { taskFileName: 'Task.json', taskFileContent: taskJson, contentType: 'application/json;charset=utf-8' }
+  if (shape === 'toon') return { taskFileName: 'Task.toon', taskFileContent: taskToon, contentType: 'text/plain;charset=utf-8' }
+  return { taskFileName: 'Task.md', taskFileContent: taskMarkdown, contentType: 'text/markdown;charset=utf-8' }
+}
+
+export function buildSelectedTaskFile(context: ExportContext, exportStatuses: AttachmentExportStatus[] = [], subtaskExportStatuses: SubtaskExportStatusMap = {}): { taskFileName: ProjectWorkspaceExportTaskPayload['taskFileName']; taskFileContent: string; contentType: string } {
+  const taskMarkdown = buildTaskMarkdown(context, exportStatuses, subtaskExportStatuses)
+  const taskJson = buildTaskJson(context, exportStatuses, subtaskExportStatuses)
+  const taskToon = buildTaskToon(context, exportStatuses, subtaskExportStatuses)
+  return taskFileForShape(contextPromptShape(context), taskMarkdown, taskJson, taskToon)
 }
 
 export function buildAgentMarkdown(context: ExportContext): string {
@@ -919,16 +926,8 @@ export async function buildTaskZipArchive(context: ExportContext): Promise<{ fil
     subtaskExportStatuses[subtask.id] = subtaskStatuses
     exportStatuses.push(...subtaskStatuses)
   }
-  const agentMarkdown = buildAgentMarkdown(context)
-  const skillsMarkdown = buildSkillsMarkdown(context)
-  const taskMarkdown = buildTaskMarkdown(context, exportStatuses, subtaskExportStatuses)
-  const taskJson = buildTaskJson(context, exportStatuses, subtaskExportStatuses)
-  const taskToon = buildTaskToon(context, exportStatuses, subtaskExportStatuses)
-  if (agentMarkdown.trim()) zip['Agents.md'] = strToU8(agentMarkdown)
-  if (skillsMarkdown.trim()) zip['Skills.md'] = strToU8(skillsMarkdown)
-  if (taskMarkdown.trim()) zip['Task.md'] = strToU8(taskMarkdown)
-  if (taskJson.trim()) zip['Task.json'] = strToU8(taskJson)
-  if (taskToon.trim()) zip['Task.toon'] = strToU8(taskToon)
+  const taskFile = buildSelectedTaskFile(context, exportStatuses, subtaskExportStatuses)
+  if (taskFile.taskFileContent.trim()) zip[taskFile.taskFileName] = strToU8(taskFile.taskFileContent)
   const archive = zipSync(zip)
   return { fileName: `${safeName(context.task.title, 'task')}.zip`, archive }
 }

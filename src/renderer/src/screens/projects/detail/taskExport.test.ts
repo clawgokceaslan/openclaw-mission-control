@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { unzipSync, strFromU8 } from 'fflate'
 import type { TaskChecklistItem, TaskEntity, TaskSubtask } from '@shared/types/entities'
-import { buildProjectWorkspaceExportTaskPayload, buildTaskImportJson, buildTaskJson, buildTaskMarkdown, buildTaskToon, parseTaskToon } from './taskExport'
+import { buildProjectWorkspaceExportTaskPayload, buildSelectedTaskFile, buildTaskImportJson, buildTaskJson, buildTaskMarkdown, buildTaskToon, buildTaskZipArchive, parseTaskToon } from './taskExport'
 
 function checklist(title: string): TaskChecklistItem {
   return { id: `check-${title}`, title, checked: false, createdAt: 1, updatedAt: 1 }
@@ -119,6 +120,90 @@ describe('buildTaskMarkdown', () => {
     expect(payload.taskFileName).toBe('Task.json')
     expect(payload.taskJson).toContain('"format": "open_mission_control_task"')
     expect(payload.taskToon).toContain('format: "open_mission_control_task"')
+  })
+
+  it('selects one normal task download file and falls back invalid shapes to Markdown', () => {
+    const jsonFile = buildSelectedTaskFile({
+      task: task(),
+      project: {
+        id: 'project-1',
+        organizationId: 'org-1',
+        name: 'Mission project',
+        archived: false,
+        metrics: { gateway: { promptShape: 'json' } },
+        createdAt: 1,
+        updatedAt: 1
+      },
+      projectGroup: null,
+      agents: [],
+      skills: [],
+      tags: [],
+      customFields: [],
+      projectStatuses: []
+    })
+    const fallbackFile = buildSelectedTaskFile({
+      task: task(),
+      project: {
+        id: 'project-1',
+        organizationId: 'org-1',
+        name: 'Mission project',
+        archived: false,
+        metrics: { gateway: { promptShape: 'yaml' } },
+        createdAt: 1,
+        updatedAt: 1
+      },
+      projectGroup: null,
+      agents: [],
+      skills: [],
+      tags: [],
+      customFields: [],
+      projectStatuses: []
+    })
+
+    expect(jsonFile.taskFileName).toBe('Task.json')
+    expect(jsonFile.contentType).toBe('application/json;charset=utf-8')
+    expect(JSON.parse(jsonFile.taskFileContent).task.title).toBe('Planner task export')
+    expect(fallbackFile.taskFileName).toBe('Task.md')
+    expect(fallbackFile.taskFileContent).toContain('Planner task export')
+  })
+
+  it('zips only the selected task file and attachments without Agents or Skills files', async () => {
+    const zipTask = {
+      ...task(),
+      agentId: 'agent-1',
+      skills: [{ id: 'skill-1', organizationId: 'org-1', name: 'Runtime Skill', slug: 'runtime-skill', category: 'runtime', version: '1.0.0', enabled: true, status: 'active', createdAt: 1, updatedAt: 1 }],
+      payload: {
+        attachments: [{ id: 'attachment-1', taskId: 'task-1', name: 'brief.txt', url: 'https://example.com/brief.txt', createdAt: 1 }]
+      }
+    } as TaskEntity
+    const { archive } = await buildTaskZipArchive({
+      task: zipTask,
+      project: {
+        id: 'project-1',
+        organizationId: 'org-1',
+        name: 'Mission project',
+        archived: false,
+        metrics: { gateway: { promptShape: 'toon' } },
+        createdAt: 1,
+        updatedAt: 1
+      },
+      projectGroup: null,
+      agents: [{ id: 'agent-1', organizationId: 'org-1', name: 'Runtime Agent', title: 'Agent', description: 'Runs tasks', prompt: 'Do work', tags: [], createdAt: 1, updatedAt: 1 }] as any,
+      skills: zipTask.skills as any,
+      tags: [],
+      customFields: [],
+      projectStatuses: []
+    })
+    const files = unzipSync(archive)
+    const names = Object.keys(files).sort()
+
+    expect(names).toEqual(['Task.toon'])
+    expect(strFromU8(files['Task.toon'])).toContain('format: "open_mission_control_task"')
+    expect(strFromU8(files['Task.toon'])).toContain('brief.txt')
+    expect(names).not.toContain('Agents.md')
+    expect(names).not.toContain('Skills.md')
+    expect(names).not.toContain('Task.md')
+    expect(names).not.toContain('Task.json')
   })
 
   it('exports task JSON in the task import contract without runtime activity', () => {
