@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type RefObject } from 'react'
 import type { IconType } from 'react-icons'
-import { LuBot, LuCircleCheck, LuCircleStop, LuCloudUpload, LuEllipsis, LuFileText, LuHistory, LuMessageSquare, LuPaperclip, LuPlay, LuPlus, LuRefreshCw, LuSend, LuSettings2, LuSignal, LuSparkles, LuX } from 'react-icons/lu'
+import { LuBot, LuCircleCheck, LuCircleStop, LuCloudUpload, LuEllipsis, LuEye, LuFileText, LuHistory, LuImage, LuMessageSquare, LuPaperclip, LuPlay, LuPlus, LuRefreshCw, LuSend, LuSettings2, LuSignal, LuSparkles, LuX } from 'react-icons/lu'
 import { formatUsageSummary } from '@shared/utils/gateway-events'
 import type { Agent, Gateway, Skill, TaskEntity, Workspace } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
@@ -24,6 +24,7 @@ interface ChatPopupFlatProps {
   chatHistoryCount: number
   contextEntries: GeneratedContextEntry[]
   chatSettingsOpen: boolean
+  chatMode?: 'chat' | 'plan' | 'steer'
   selectedChatCanStop: boolean
   chatStopping: boolean
   gatewayPlanLaunching: boolean
@@ -270,6 +271,18 @@ function ChatHeaderOverflowMenu({ actions }: { actions: ChatHeaderAction[] }) {
   )
 }
 
+function formatAttachmentSize(size: number): string {
+  if (!Number.isFinite(size) || size <= 0) return '0 B'
+  if (size < 1024) return `${Math.round(size)} B`
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`
+  return `${(size / (1024 * 1024)).toFixed(size < 10 * 1024 * 1024 ? 1 : 0)} MB`
+}
+
+function attachmentExtension(name: string): string {
+  const ext = name.includes('.') ? name.split('.').pop()?.trim() : ''
+  return ext ? ext.slice(0, 6).toUpperCase() : 'FILE'
+}
+
 export function ChatPopup({
   chatState,
   chatHandlers,
@@ -281,7 +294,7 @@ export function ChatPopup({
   const [isConfigurationDetailsOpen, setIsConfigurationDetailsOpen] = useState(false)
   const [isContextDrawerOpen, setIsContextDrawerOpen] = useState(false)
   const [selectedContextEntryId, setSelectedContextEntryId] = useState<string>('')
-  const isSteerMode = state?.chatMode === 'steer'
+  const activeCommand = state?.chatMode === 'plan' || state?.chatMode === 'steer' ? state.chatMode : null
 
   useEffect(() => lockModalInteractionRegion(), [])
 
@@ -506,6 +519,7 @@ export function ChatPopup({
     return styles[`chatSource_${gatewayChatPhaseTone(conversation.phase)}`] ?? ''
   }
   const selectedChatStatusMeta = selectedChatSummary ? conversationStatusMeta(selectedChatSummary) : null
+  const sendButtonStopsConversation = selectedChatCanStop && activeCommand !== 'steer'
   const latestConversationForPhase = (phase: 'PLAN' | 'RUN' | 'POST-RUNNING') => conversations
     .filter((conversation) => conversation.phase === phase)
     .slice()
@@ -845,13 +859,24 @@ export function ChatPopup({
           </div>
           <footer className={`${styles.chatComposer} ${popupStyles.chatComposer}`}>
             {attachments.length > 0 ? (
-              <div className={styles.chatAttachmentChips}>
+              <div className={styles.chatAttachmentPreviewGrid} aria-label="Giden mesaj ekleri">
                 {attachments.map((attachment) => (
-                  <span key={attachment.id}>
-                    <LuPaperclip size={13} />
-                    <span className={styles.chatAttachmentName}>{attachment.name}</span>
-                    <button type="button" onClick={() => onAttachmentRemove(attachment.id)} aria-label={`Remove ${attachment.name}`}><LuX size={12} /></button>
-                  </span>
+                  <details key={attachment.id} className={styles.chatAttachmentPreviewTile}>
+                    <summary>
+                      <span className={styles.chatAttachmentThumb}>
+                        {attachment.previewUrl ? <img src={attachment.previewUrl} alt="" /> : attachment.mimeType?.startsWith('image/') ? <LuImage size={18} /> : <LuFileText size={18} />}
+                      </span>
+                      <span className={styles.chatAttachmentMeta}>
+                        <b title={attachment.name}>{attachment.name}</b>
+                        <small>{attachmentExtension(attachment.name)} · {formatAttachmentSize(attachment.size)}</small>
+                      </span>
+                      <span className={styles.chatAttachmentPreviewIcon}><LuEye size={13} /></span>
+                    </summary>
+                    <div className={styles.chatAttachmentPreviewBody}>
+                      {attachment.previewUrl ? <img src={attachment.previewUrl} alt={attachment.name} /> : <span><LuPaperclip size={15} /> {attachment.name}</span>}
+                      <button type="button" onClick={() => onAttachmentRemove(attachment.id)} aria-label={`Remove ${attachment.name}`}><LuX size={13} /> Remove</button>
+                    </div>
+                  </details>
                 ))}
               </div>
             ) : null}
@@ -866,10 +891,13 @@ export function ChatPopup({
                   ))}
                 </div>
               ) : null}
-              {isSteerMode ? (
+              {activeCommand ? (
                 <div className={styles.chatSteerModeRow}>
-                  <span>Steer</span>
-                  <small>Send steering instructions to the selected conversation</small>
+                  <span>{activeCommand === 'plan' ? '/plan' : '/steer'}</span>
+                  <small>{activeCommand === 'plan' ? 'Plan metadata will be sent separately from the prompt body' : 'Steering metadata will target the selected conversation'}</small>
+                  <button type="button" onClick={onClearSlashDraft} aria-label={`Remove ${activeCommand} command`} title="Remove command">
+                    <LuX size={13} />
+                  </button>
                 </div>
               ) : null}
               <div className={styles.chatComposerBox}>
@@ -894,8 +922,8 @@ export function ChatPopup({
                   }}
                 />
                 <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => onFilesSelected(event.currentTarget.files)} />
-                <button type="button" className={[styles.chatSendButton, selectedChatCanStop ? styles.chatStopButton : ''].filter(Boolean).join(' ')} onClick={() => selectedChatCanStop ? onStopChat() : onSend()} disabled={chatSending || isChatStopping || (!selectedChatCanStop && (!canSendChat || selectedChatIsRunning))} aria-label={selectedChatCanStop ? 'Stop Codex chat' : 'Send message'} title={selectedChatCanStop ? 'Stop' : 'Send'}>
-                  {selectedChatCanStop ? <LuCircleStop size={17} /> : chatSending ? <span className={styles.thinkingDots}><i /><i /><i /></span> : <LuSend size={16} />}
+                <button type="button" className={[styles.chatSendButton, sendButtonStopsConversation ? styles.chatStopButton : ''].filter(Boolean).join(' ')} onClick={() => sendButtonStopsConversation ? onStopChat() : onSend()} disabled={chatSending || isChatStopping || (!sendButtonStopsConversation && (!canSendChat || (selectedChatIsRunning && activeCommand !== 'steer')))} aria-label={sendButtonStopsConversation ? 'Stop Codex chat' : 'Send message'} title={sendButtonStopsConversation ? 'Stop' : 'Send'}>
+                  {sendButtonStopsConversation ? <LuCircleStop size={17} /> : chatSending ? <span className={styles.thinkingDots}><i /><i /><i /></span> : <LuSend size={16} />}
                 </button>
                 <div className={styles.chatComposerFooter}>
                   <button type="button" className={styles.chatAttachButton} onClick={onAttachFilesClick} aria-label="Attach files"><LuPaperclip size={16} /></button>

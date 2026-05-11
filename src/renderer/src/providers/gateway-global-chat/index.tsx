@@ -319,7 +319,7 @@ export function GlobalGatewayChatProvider({ children }: { children: ReactNode })
     task,
     chatDragDepth: 0,
     conversations,
-    sidebarConversations: conversations.slice(0, 30),
+    sidebarConversations: conversations.slice(0, 120),
     selectedConversationId: activeConversationId,
     isStartingNewChat: false,
     runningConversationIds,

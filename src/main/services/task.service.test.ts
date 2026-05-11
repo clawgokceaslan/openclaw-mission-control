@@ -1083,7 +1083,7 @@ describe('codex activity persistence', () => {
       title: 'Task',
       status: 'active',
       payload: {
-        activityMessages: Array.from({ length: 299 }, (_, index) => ({
+        activityMessages: Array.from({ length: 999 }, (_, index) => ({
           id: `old-${index}`,
           runId: 'run-1',
           source: 'gateway-run',
@@ -1119,7 +1119,7 @@ describe('codex activity persistence', () => {
 
     const messages = task.payload?.activityMessages as Array<{ id: string; body: string; phase?: string }>
     expect(updates).toHaveLength(1)
-    expect(messages).toHaveLength(300)
+    expect(messages).toHaveLength(1000)
     expect(messages[0].id).toBe('old-1')
     expect(messages.at(-1)?.body).toBe('done')
     expect(messages.at(-1)?.phase).toBe('RUN')

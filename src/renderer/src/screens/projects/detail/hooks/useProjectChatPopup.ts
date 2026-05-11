@@ -33,7 +33,7 @@ export interface ChatPopupState {
   chatHistoryCount: number
   contextEntries: GeneratedContextEntry[]
   chatSettingsOpen: boolean
-  chatMode?: 'chat' | 'steer'
+  chatMode?: 'chat' | 'plan' | 'steer'
   selectedChatCanStop: boolean
   chatStopping: boolean
   gatewayPlanLaunching: boolean
@@ -185,7 +185,7 @@ interface ChatPopupParams {
   setSelectedChatConversationId: Setter<string>
   isStartingNewChat: boolean
   setIsStartingNewChat: Setter<boolean>
-  setChatComposerMode: Setter<'chat' | 'steer'>
+  setChatComposerMode: Setter<'chat' | 'plan' | 'steer'>
   setGatewayRunFeedback: Setter<ChatOperationFeedbackData | null>
   setChatDraft: Setter<string>
   setChatAttachments: Setter<ChatAttachmentDraft[]>
@@ -196,7 +196,7 @@ interface ChatPopupParams {
   chatStopping: boolean
   selectedTaskAgent: Agent | null
   taskContextSkills: Skill[]
-  chatMode: 'chat' | 'steer'
+  chatMode: 'chat' | 'plan' | 'steer'
   setSlashCommandIndex: Setter<number>
   setChatSettingsOpen: Setter<boolean>
   setChatModel: Setter<string>
@@ -350,12 +350,12 @@ export function useProjectChatPopup({
   }, [chatConversations, settledConversationState])
 
   const sidebarConversations = useMemo(() => {
-    if (chatConversations.length <= 30) return chatConversations
+    if (chatConversations.length <= 120) return chatConversations
     const selectedConversation = chatConversations.find((conversation) => conversation.id === selectedChatConversationId)
-    const selectedInRecent = chatConversations.slice(0, 30).some((conversation) => conversation.id === selectedChatConversationId)
+    const selectedInRecent = chatConversations.slice(0, 120).some((conversation) => conversation.id === selectedChatConversationId)
     return selectedConversation && !selectedInRecent
-      ? [selectedConversation, ...chatConversations.slice(0, 29)]
-      : chatConversations.slice(0, 30)
+      ? [selectedConversation, ...chatConversations.slice(0, 119)]
+      : chatConversations.slice(0, 120)
   }, [chatConversations, selectedChatConversationId])
 
   const chatHistoryCount = isChatModalMounted ? chatConversations.length : 0
@@ -708,7 +708,11 @@ export function useProjectChatPopup({
       setChatIncludeContext(value)
       closeSettingsOnCompactViewport()
     },
-    onAttachmentRemove: (attachmentId) => setChatAttachments((current) => current.filter((item) => item.id !== attachmentId)),
+    onAttachmentRemove: (attachmentId) => setChatAttachments((current) => current.filter((item) => {
+      if (item.id !== attachmentId) return true
+      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+      return false
+    })),
     onAttachFilesClick: () => chatFileInputRef.current?.click(),
     onFilesSelected: (files) => {
       if (files) void addChatAttachments(files)
@@ -724,7 +728,10 @@ export function useProjectChatPopup({
     onComposerFocusChange: setChatComposerFocused,
     onSlashCommandApply: applySlashCommand,
     onSlashCommandIndexChange: (updater) => setSlashCommandIndex((value) => updater(value)),
-    onClearSlashDraft: () => setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, '')),
+    onClearSlashDraft: () => {
+      setChatComposerMode('chat')
+      setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))
+    },
     onSend: () => {
       closeSettingsOnCompactViewport()
       void sendGatewayChatMessage()

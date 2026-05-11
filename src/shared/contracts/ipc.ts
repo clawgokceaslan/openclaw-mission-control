@@ -587,7 +587,12 @@ export interface GatewayChatSendRequest {
   conversationId?: string
   includeTaskContext?: boolean
   mode?: 'chat' | 'plan' | 'steer'
-  attachments?: Array<{ name: string; bytes: ArrayBuffer | Uint8Array | number[] }>
+  command?: {
+    id?: 'chat' | 'plan' | 'steer'
+    source?: 'slash' | 'button' | 'chip'
+    label?: string
+  }
+  attachments?: Array<{ name: string; bytes: ArrayBuffer | Uint8Array | number[]; size?: number; mimeType?: string }>
   followUpContext?: string
 }
 

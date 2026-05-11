@@ -1315,7 +1315,7 @@ export function gatewayChatPrompt(input: {
   context?: unknown
   mode?: 'chat' | 'plan' | 'steer'
   followUpContext?: string
-  attachments?: Array<{ name: string; path: string }>
+  attachments?: Array<{ name: string; path: string; size?: number; mimeType?: string }>
   language?: string
   languages?: GatewayLanguagePair
   promptShape?: GatewayPromptShape
@@ -1338,7 +1338,7 @@ export function gatewayChatPrompt(input: {
       ? 'The user is steering an existing Codex conversation. Treat the user steer instruction and task comments as high-signal guidance for continuing the existing conversation.'
       : 'Continue the task chat normally. Primary instruction is the user follow-up prompt; use task details as supporting context.'
   const attachments = input.attachments?.length
-    ? `Attached files for this message:\n${input.attachments.map((item) => `- ${item.name}: ${item.path}`).join('\n')}`
+    ? `Attached files for this message:\n${input.attachments.map((item) => `- ${item.name}: ${item.path}${item.mimeType ? ` (${item.mimeType})` : ''}`).join('\n')}`
     : ''
   const contextRecord = input.context && typeof input.context === 'object' && !Array.isArray(input.context) ? input.context as Record<string, unknown> : {}
   const projectInstructions = projectInstructionsFromPlannerContext(input.context)
@@ -1423,7 +1423,7 @@ type CodexActivityStreamer = {
   latestUsage: () => GatewayUsageSummary | undefined
 }
 
-const ACTIVITY_MESSAGE_LIMIT = 300
+const ACTIVITY_MESSAGE_LIMIT = 1000
 const ACTIVITY_BODY_LIMIT = 18_000
 const ACTIVITY_METADATA_STRING_LIMIT = 2_000
 const CODEX_COMMAND_OUTPUT_LIMIT = 4_000
@@ -5119,7 +5119,7 @@ export class TaskService {
     const runtimeWorkspacePath = runtimeWorkspace.rootPath
     const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-gateway-chat-'))
     const attachmentRoot = join(runFolderPath, 'attachments')
-    const attachments: Array<{ name: string; path: string }> = []
+    const attachments: Array<{ name: string; path: string; size?: number; mimeType?: string }> = []
     if (Array.isArray(payload.attachments) && payload.attachments.length > 0) {
       await mkdir(attachmentRoot, { recursive: true })
       for (const [index, attachment] of payload.attachments.entries()) {
@@ -5127,7 +5127,12 @@ export class TaskService {
         const fileName = safeAttachmentName(attachment.name, index)
         const filePath = join(attachmentRoot, fileName)
         await writeFile(filePath, attachmentBytes(attachment.bytes))
-        attachments.push({ name: attachment.name, path: filePath })
+        attachments.push({
+          name: attachment.name,
+          path: filePath,
+          size: typeof attachment.size === 'number' ? attachment.size : undefined,
+          mimeType: typeof attachment.mimeType === 'string' ? attachment.mimeType : undefined
+        })
       }
     }
     const eventsPath = join(runFolderPath, 'gateway-events.jsonl')
@@ -5166,8 +5171,20 @@ export class TaskService {
         source: activitySource,
         role: 'user',
         status: 'completed',
-        body: mode === 'plan' ? `/plan ${normalizedMessage}` : normalizedMessage,
-        metadata: { gatewayId: gateway.id, model, language, reasoningEffort, mode, attachments }
+        body: normalizedMessage,
+        metadata: {
+          gatewayId: gateway.id,
+          model,
+          language,
+          reasoningEffort,
+          mode,
+          command: {
+            id: typeof payload.command?.id === 'string' ? payload.command.id : mode,
+            source: typeof payload.command?.source === 'string' ? payload.command.source : 'button',
+            label: typeof payload.command?.label === 'string' ? payload.command.label : mode
+          },
+          attachments
+        }
       },
       {
         runId,

@@ -11,6 +11,12 @@ const slashPlanToken = /(?:^|\s)\/[a-z]*$/i
 const CHAT_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024
 const CHAT_ATTACHMENT_MAX_COUNT = 10
 
+function revokeChatAttachmentPreviews(attachments: ChatAttachmentDraft[]): void {
+  attachments.forEach((attachment) => {
+    if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl)
+  })
+}
+
 interface GatewayRunResponse {
   runFolderPath: string
   workspacePath: string
@@ -92,7 +98,7 @@ export interface ProjectGatewayFlowContext {
   planReasoningEffort?: string
   runReasoningEffort?: string
   chatIncludeContext: boolean
-  chatComposerMode: 'chat' | 'steer'
+  chatComposerMode: 'chat' | 'plan' | 'steer'
   selectedChatConversationId: string
   isStartingNewChat: boolean
   selectedChatSummary: ChatConversationSummary | null
@@ -443,12 +449,18 @@ export function useProjectGatewayFlow({
 
   const sendGatewayChatMessage = useCallback(async (draftOverride?: string) => {
     if (!selectedTask || !project) return
+    if (chatSending || gatewayPlanLaunching || gatewayRunLaunching) return
     const draftText = draftOverride ?? chatDraft
     if (!draftText.trim() && chatAttachments.length === 0) return
     const effectiveSelectedChatSummary = isStartingNewChat ? null : selectedChatSummary
     const sendAsPlanRevision = chatMode !== 'steer' && !isStartingNewChat && effectiveSelectedChatSummary?.source === 'gateway-plan'
     const effectiveChatMode = chatMode === 'steer' ? 'steer' : sendAsPlanRevision ? 'plan' : chatMode
     const sendAsPlannerClarification = !isStartingNewChat && effectiveSelectedChatSummary?.source === 'gateway-plan'
+    if (selectedChatSummary?.status === 'running' && effectiveChatMode !== 'steer') {
+      setGatewayRunFeedback({ kind: 'error', message: 'Codex is still working in this conversation. Stop it or wait before sending another message.' })
+      return
+    }
+    const cleanDraftText = draftText.replace(/^\/(?:plan|steer)\s*/i, '').trim()
     const resolvedChatModel = sendAsPlannerClarification || effectiveChatMode === 'plan'
       ? (chatPlanModel || chatModel)
       : (chatRunModel || chatModel)
@@ -480,7 +492,7 @@ export function useProjectGatewayFlow({
           language: gatewayLanguage,
           reasoningEffort: planReasoningEffort,
           conversationId: selectedChatConversationId,
-          clarificationMessage: draftText.trim()
+          clarificationMessage: cleanDraftText
         })
         if (!response.ok || !response.data) {
           setGatewayRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to send planner clarification.' })
@@ -489,6 +501,7 @@ export function useProjectGatewayFlow({
         setSelectedChatConversationId(response.data.conversationId ?? selectedChatConversationId)
         setIsStartingNewChat(false)
         setChatDraft('')
+        revokeChatAttachmentPreviews(chatAttachments)
         setChatAttachments([])
         setChatComposerMode('chat')
         setGatewayRunFeedback(response.data.executionMode === 'terminal'
@@ -501,7 +514,7 @@ export function useProjectGatewayFlow({
         actorToken: token,
         taskId: selectedTask.id,
         projectId: project.id,
-        message: draftText.trim() || 'Review the attached file(s) in the task context.',
+        message: cleanDraftText || 'Review the attached file(s) in the task context.',
         gatewayId: chatGatewayId,
         followUpContext: isStartingNewChat ? chatFollowUpContext?.trim() || undefined : undefined,
         model: resolvedChatModel,
@@ -510,7 +523,17 @@ export function useProjectGatewayFlow({
         conversationId: isStartingNewChat ? undefined : selectedChatConversationId || undefined,
         includeTaskContext: isStartingNewChat ? false : chatIncludeContext,
         mode: effectiveChatMode,
-        attachments: chatAttachments.map((attachment) => ({ name: attachment.name, bytes: attachment.bytes }))
+        command: {
+          id: effectiveChatMode,
+          source: chatMode === 'plan' || chatMode === 'steer' ? 'chip' : 'button',
+          label: effectiveChatMode === 'plan' ? '/plan' : effectiveChatMode === 'steer' ? '/steer' : 'chat'
+        },
+        attachments: chatAttachments.map((attachment) => ({
+          name: attachment.name,
+          bytes: attachment.bytes,
+          size: attachment.size,
+          mimeType: attachment.mimeType
+        }))
       })
       if (!response.ok || !response.data) {
         setGatewayRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to send Codex chat message.' })
@@ -519,6 +542,7 @@ export function useProjectGatewayFlow({
       setSelectedChatConversationId(response.data.conversationId)
       setIsStartingNewChat(false)
       setChatDraft('')
+      revokeChatAttachmentPreviews(chatAttachments)
       setChatAttachments([])
       setChatComposerMode('chat')
       if (response.data.executionMode === 'terminal') {
@@ -552,6 +576,8 @@ export function useProjectGatewayFlow({
     selectedChatSummary,
     chatMode,
     chatFollowUpContext,
+    gatewayPlanLaunching,
+    gatewayRunLaunching,
     token,
     setChatSending,
     setGatewayRunFeedback,
@@ -615,7 +641,14 @@ export function useProjectGatewayFlow({
       }
       try {
         const bytes = Array.from(new Uint8Array(await file.arrayBuffer()))
-        next.push({ id: createLocalId(), name: file.name, size: file.size, bytes })
+        next.push({
+          id: createLocalId(),
+          name: file.name,
+          size: file.size,
+          bytes,
+          mimeType: file.type || undefined,
+          previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined
+        })
       } catch (error) {
         setGatewayRunFeedback({ kind: 'error', message: error instanceof Error ? error.message : `Unable to read ${file.name}.` })
       }
@@ -627,8 +660,8 @@ export function useProjectGatewayFlow({
 
   const applySlashCommand = useCallback(async (command: SlashCommand) => {
     if (command.id === 'plan') {
-      setChatDraft((value) => value.replace(slashPlanToken, (match) => `${match.startsWith(' ') ? ' ' : ''}/plan `))
-      setChatComposerMode('chat')
+      setChatDraft((value) => value.replace(slashPlanToken, ''))
+      setChatComposerMode('plan')
       return
     }
     if (command.id === 'run') {

@@ -74,12 +74,14 @@ export type GeneratedContextEntry = {
   metadata: Array<{ key: string; value: string }>
 }
 
-export type ChatComposerMode = 'chat' | 'steer'
+export type ChatComposerMode = 'chat' | 'plan' | 'steer'
 export type ChatAttachmentDraft = {
   id: string
   name: string
   size: number
   bytes: number[]
+  mimeType?: string
+  previewUrl?: string
 }
 export type GatewayRunFeedback = { kind: 'error' | 'success'; message: string }
 export type PlannerClarificationMode = 'ask-first' | 'direct'

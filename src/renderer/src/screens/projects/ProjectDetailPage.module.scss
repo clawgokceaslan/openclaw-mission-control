@@ -2716,6 +2716,35 @@
   text-transform: none !important;
 }
 
+.chatMessageCommandRow {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  color: var(--omc-text-muted);
+
+  span {
+    min-height: 24px;
+    border: 1px solid color-mix(in srgb, var(--omc-primary) 34%, var(--omc-border-subtle));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--omc-primary) 10%, var(--omc-surface-muted));
+    color: var(--omc-primary-strong);
+    padding: 0 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.72rem;
+    font-weight: 950;
+  }
+
+  small {
+    color: var(--omc-text-muted);
+    font-size: 0.68rem;
+    font-weight: 800;
+  }
+}
+
 .chatMessageBody {
   min-width: 0;
   max-width: 100%;
@@ -2753,6 +2782,62 @@
     overflow-wrap: anywhere;
     word-break: break-word;
     color: var(--omc-text-strong);
+  }
+}
+
+.chatSentAttachmentGrid {
+  min-width: 0;
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
+  gap: 8px;
+}
+
+.chatSentAttachmentTile {
+  min-width: 0;
+  aspect-ratio: 1;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--omc-surface) 74%, var(--omc-bg));
+  padding: 8px;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 4px;
+  align-items: start;
+
+  > span {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    background: var(--omc-surface-muted);
+    color: var(--omc-text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  b,
+  small,
+  em {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  b {
+    color: var(--omc-text-strong);
+    font-size: 0.72rem;
+    font-weight: 950;
+  }
+
+  small,
+  em {
+    color: var(--omc-text-muted);
+    font-size: 0.68rem;
+    font-style: normal;
+    font-weight: 780;
   }
 }
 
@@ -3054,6 +3139,8 @@
   border-radius: 10px;
   background: color-mix(in srgb, var(--omc-surface-muted) 72%, var(--omc-bg));
   display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
   gap: 2px;
   padding: 8px 10px;
   color: var(--omc-text-muted);
@@ -3065,8 +3152,29 @@
   }
 
   small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--omc-text-muted);
     font-size: 0.72rem;
+  }
+
+  button {
+    width: 26px;
+    height: 26px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--omc-text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    &:hover {
+      color: var(--omc-text-strong);
+      background: var(--omc-hover-bg);
+    }
   }
 }
 
@@ -3324,6 +3432,156 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.chatAttachmentPreviewGrid {
+  width: var(--chat-content-width);
+  max-width: 100%;
+  min-width: 0;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+}
+
+.chatAttachmentPreviewTile {
+  min-width: 0;
+  position: relative;
+
+  summary {
+    min-width: 0;
+    aspect-ratio: 1;
+    list-style: none;
+    cursor: pointer;
+    border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 82%, transparent);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--omc-surface-muted) 66%, var(--omc-bg));
+    padding: 8px;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto auto;
+    gap: 6px;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+  }
+
+  &[open] {
+    z-index: 15;
+
+    summary {
+      border-color: color-mix(in srgb, var(--omc-primary) 42%, var(--omc-border-subtle));
+      background: color-mix(in srgb, var(--omc-active-bg) 38%, var(--omc-surface-muted));
+    }
+  }
+}
+
+.chatAttachmentThumb {
+  min-width: 0;
+  min-height: 0;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--omc-bg) 62%, var(--omc-surface-muted));
+  color: var(--omc-text-muted);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}
+
+.chatAttachmentMeta {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+
+  b,
+  small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  b {
+    color: var(--omc-text-strong);
+    font-size: 0.72rem;
+    font-weight: 900;
+  }
+
+  small {
+    color: var(--omc-text-muted);
+    font-size: 0.66rem;
+    font-weight: 800;
+  }
+}
+
+.chatAttachmentPreviewIcon {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--omc-bg) 74%, transparent);
+  color: var(--omc-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chatAttachmentPreviewBody {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: min(320px, calc(100vw - 32px));
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 10px;
+  background: var(--omc-surface);
+  box-shadow: var(--omc-shadow-medium);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+
+  img {
+    width: 100%;
+    max-height: 220px;
+    border-radius: 8px;
+    object-fit: contain;
+    background: var(--omc-bg);
+  }
+
+  > span {
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--omc-text-strong);
+    font-size: 0.8rem;
+    font-weight: 850;
+    overflow-wrap: anywhere;
+  }
+
+  button {
+    min-height: 30px;
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 8px;
+    background: var(--omc-surface-muted);
+    color: var(--omc-text-strong);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 0.76rem;
+    font-weight: 900;
+
+    &:hover {
+      background: var(--omc-hover-bg);
+    }
+  }
 }
 
 .chatComposerBox {
@@ -8282,6 +8540,28 @@
     &::-webkit-scrollbar {
       display: none;
     }
+  }
+
+  .chatAttachmentPreviewGrid {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: visible;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
+  .chatAttachmentPreviewTile {
+    flex: 0 0 112px;
+  }
+
+  .chatAttachmentPreviewBody {
+    left: 0;
+    bottom: calc(100% + 6px);
+    width: min(300px, calc(100vw - 20px));
   }
 
   .chatConfigModalOverlay {

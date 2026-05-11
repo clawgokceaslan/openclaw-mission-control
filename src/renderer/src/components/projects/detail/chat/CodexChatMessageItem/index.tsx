@@ -208,6 +208,46 @@ function shortenPath(value: string): string {
   return `${value.slice(0, 24)}...${value.slice(-28)}`
 }
 
+function formatAttachmentSize(size: number): string {
+  if (!Number.isFinite(size) || size <= 0) return ''
+  if (size < 1024) return `${Math.round(size)} B`
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`
+  return `${(size / (1024 * 1024)).toFixed(size < 10 * 1024 * 1024 ? 1 : 0)} MB`
+}
+
+function attachmentExtension(name: string): string {
+  const ext = name.includes('.') ? name.split('.').pop()?.trim() : ''
+  return ext ? ext.slice(0, 6).toUpperCase() : 'FILE'
+}
+
+function messageCommandLabel(metadata: Record<string, unknown> | undefined): string {
+  const command = metadata?.command && typeof metadata.command === 'object' && !Array.isArray(metadata.command)
+    ? metadata.command as Record<string, unknown>
+    : null
+  const label = typeof command?.label === 'string' && command.label.trim() ? command.label.trim() : ''
+  const mode = typeof metadata?.mode === 'string' ? metadata.mode : ''
+  if (label) return label.startsWith('/') ? label : `/${label}`
+  if (mode === 'plan') return '/plan'
+  if (mode === 'steer') return '/steer'
+  return ''
+}
+
+function messageAttachments(metadata: Record<string, unknown> | undefined): Array<{ name: string; size?: number; mimeType?: string; path?: string }> {
+  const raw = Array.isArray(metadata?.attachments) ? metadata.attachments : []
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+    const record = item as Record<string, unknown>
+    const name = typeof record.name === 'string' && record.name.trim() ? record.name.trim() : ''
+    if (!name) return []
+    return [{
+      name,
+      size: typeof record.size === 'number' ? record.size : undefined,
+      mimeType: typeof record.mimeType === 'string' ? record.mimeType : undefined,
+      path: typeof record.path === 'string' ? record.path : undefined
+    }]
+  })
+}
+
 function metadataPathEntries(metadata: Record<string, unknown> | undefined): Array<{ key: string; value: string }> {
   if (!metadata) return []
   return ['changesPath', 'finalMessagePath']
@@ -585,6 +625,8 @@ export const GatewayChatMessageItem = memo(function GatewayChatMessageItem({ mes
   const messageBody = useMemo(() => renderMarkdownLite(visibleMessageBody), [visibleMessageBody])
   const toolBodyRendered = useMemo(() => renderMarkdownLite(toolBody), [toolBody])
   const pathEntries = useMemo(() => metadataPathEntries(message.metadata), [message.metadata])
+  const commandLabel = messageCommandLabel(message.metadata)
+  const attachments = messageAttachments(message.metadata)
 
   if (message.role !== 'user') {
     return renderCodexTranscriptMessage({
@@ -615,6 +657,12 @@ export const GatewayChatMessageItem = memo(function GatewayChatMessageItem({ mes
         <span className={styles.chatMessageMeta}>{statusLabel} · {formatChatTime(message.createdAt)}</span>
         {usage ? <span className={styles.chatMessageMeta}>{formatUsageSummary(usage)}</span> : null}
       </div>
+      {commandLabel ? (
+        <div className={styles.chatMessageCommandRow}>
+          <span><LuSparkles size={13} /> {commandLabel}</span>
+          <small>structured command metadata</small>
+        </div>
+      ) : null}
       <div className={styles.chatMessageBody}>
         {message.role === 'thinking' ? (
           <div className={styles.chatThinkingBlock}>
@@ -648,6 +696,18 @@ export const GatewayChatMessageItem = memo(function GatewayChatMessageItem({ mes
           <div className={styles.gatewayRunComplete}><LuCircleCheck size={15} /> {message.body}</div>
         ) : message.role !== 'thinking' ? (
           messageBody
+        ) : null}
+        {attachments.length > 0 ? (
+          <div className={styles.chatSentAttachmentGrid}>
+            {attachments.map((attachment) => (
+              <div key={`${attachment.name}-${attachment.path ?? ''}`} className={styles.chatSentAttachmentTile} title={attachment.path ?? attachment.name}>
+                <span><LuFileText size={15} /></span>
+                <b>{attachmentExtension(attachment.name)}</b>
+                <small>{attachment.name}</small>
+                {attachment.size ? <em>{formatAttachmentSize(attachment.size)}</em> : null}
+              </div>
+            ))}
+          </div>
         ) : null}
       </div>
       {message.body.trim() ? (
