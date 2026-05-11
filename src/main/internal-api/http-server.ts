@@ -464,6 +464,17 @@ export async function startInternalHttpServer(context: AppContext, config: Inter
           await serveActiveProfileAvatar(context, request, response)
           return
         }
+        if (request.method === 'GET' && requestUrl.pathname === '/api/public/pipeline-status') {
+          const result = await context.services.pipelineStatus.publicSnapshot({})
+          sendJson(response, statusForResult(result), result)
+          return
+        }
+        if (request.method === 'GET' && requestUrl.pathname.startsWith('/api/public/pipeline-status/')) {
+          const token = decodeURIComponent(requestUrl.pathname.slice('/api/public/pipeline-status/'.length))
+          const result = await context.services.pipelineStatus.publicSnapshot({ token })
+          sendJson(response, statusForResult(result), result)
+          return
+        }
         if (request.method === 'GET' && requestUrl.pathname === '/api/events') {
           await handleEvents(context, request, response, requestUrl)
           return

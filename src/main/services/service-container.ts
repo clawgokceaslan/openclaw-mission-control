@@ -14,6 +14,7 @@ import { SkillRepository, PackRepository } from '../../db/repositories/skill-rep
 import { OrganizationRepository } from '../../db/repositories/org-repo.js'
 import { GroupRepository } from '../../db/repositories/group-repo.js'
 import { PlanPipelineRepository } from '../../db/repositories/plan-pipeline-repo.js'
+import { RunPipelineRepository } from '../../db/repositories/run-pipeline-repo.js'
 import { CustomFieldRepository, TagRepository } from '../../db/repositories/custom-field-repo.js'
 import { JobRepository } from '../../db/repositories/job-repo.js'
 import { StatusRepository } from '../../db/repositories/status-repo.js'
@@ -32,6 +33,7 @@ import { SkillService } from './skill.service.js'
 import { OrganizationService } from './organization.service.js'
 import { ProjectGroupService } from './project-group.service.js'
 import { PlanPipelineService } from './plan-pipeline.service.js'
+import { PipelineStatusService, RunPipelineService } from './run-pipeline.service.js'
 import { CustomFieldService } from './custom-field.service.js'
 import { JobService } from './job.service.js'
 import { StatusService } from './status.service.js'
@@ -56,6 +58,8 @@ export interface AppServices {
   organization: OrganizationService
   projectGroups: ProjectGroupService
   planPipelines: PlanPipelineService
+  runPipelines: RunPipelineService
+  pipelineStatus: PipelineStatusService
   customFields: CustomFieldService
   outputFormats: OutputFormatService
   jobs: JobService
@@ -91,6 +95,7 @@ export async function createAppContext(): Promise<AppContext> {
   const orgRepo = new OrganizationRepository(db)
   const groupRepo = new GroupRepository(db)
   const planPipelineRepo = new PlanPipelineRepository(db)
+  const runPipelineRepo = new RunPipelineRepository(db)
   const customFieldRepo = new CustomFieldRepository(db)
   const tagRepo = new TagRepository(db)
   const jobRepo = new JobRepository(db)
@@ -101,6 +106,11 @@ export async function createAppContext(): Promise<AppContext> {
 
   const auth = new AuthService(authRepo, eventBus)
   const tasks = new TaskService(auth, taskRepo, taskSubtaskRepo, taskTagRepo, taskSkillRepo, projectRepo, tagRepo, skillRepo, customFieldRepo, agentRepo, statusRepo, workspaceRepo, gatewayRepo, appSettingsRepo, eventBus)
+  const planPipelines = new PlanPipelineService(auth, planPipelineRepo, projectRepo, taskRepo)
+  const runPipelines = new RunPipelineService(auth, runPipelineRepo, planPipelineRepo, projectRepo, taskRepo, tasks, eventBus)
+  planPipelines.setRunPipelineCreator((organizationId, planBatchId, actorToken, createdByName) =>
+    runPipelines.createFromPlanBatchForActor(organizationId, planBatchId, actorToken, createdByName)
+  )
   const services: AppServices = {
     auth,
     projects: new ProjectService(auth, projectRepo, workspaceRepo, gatewayRepo, taskRepo, taskSubtaskRepo),
@@ -116,7 +126,9 @@ export async function createAppContext(): Promise<AppContext> {
     skills: new SkillService(auth, skillRepo, packRepo),
     organization: new OrganizationService(auth, orgRepo, authRepo),
     projectGroups: new ProjectGroupService(auth, groupRepo, projectRepo),
-    planPipelines: new PlanPipelineService(auth, planPipelineRepo, projectRepo, taskRepo),
+    planPipelines,
+    runPipelines,
+    pipelineStatus: new PipelineStatusService(auth, runPipelineRepo),
     customFields: new CustomFieldService(auth, customFieldRepo, tagRepo),
     outputFormats: new OutputFormatService(auth, outputFormatRepo),
     jobs: new JobService(auth, jobRepo),

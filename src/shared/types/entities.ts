@@ -105,6 +105,7 @@ export type PlanPipelineRunMode = 'questioned' | 'silent'
 export interface PlanPipelineRecord {
   id: string
   organizationId: string
+  batchId?: string
   sourceDraftName: string
   groupName: string
   groupDescription?: string
@@ -121,6 +122,98 @@ export interface PlanPipelineRecord {
   completedAt?: number
   createdAt: number
   updatedAt: number
+}
+
+export interface PlanPipelineBatch {
+  id: string
+  organizationId: string
+  name: string
+  projectIds: string[]
+  status: PlanPipelineStatus
+  runPipelineOnPlanComplete: boolean
+  linkedRunPipelineId?: string
+  createdByName?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export type RunPipelineStatus = 'pending' | 'running' | 'blocked' | 'paused' | 'completed' | 'failed' | 'cancelled'
+export type RunPipelineItemStatus = 'queued' | 'running' | 'completed' | 'failed' | 'skipped' | 'blocked'
+export type RunPipelineFailurePolicy = 'stop_on_failure'
+
+export interface RunPipelineBatch {
+  id: string
+  organizationId: string
+  name: string
+  sourcePlanBatchId?: string
+  status: RunPipelineStatus
+  progress: number
+  currentStageId?: string
+  currentItemId?: string
+  failurePolicy: RunPipelineFailurePolicy
+  projectIds: string[]
+  createdByName?: string
+  createdAt: number
+  updatedAt: number
+  completedAt?: number
+}
+
+export interface RunPipelineStage {
+  id: string
+  batchId: string
+  organizationId: string
+  name: string
+  description?: string
+  stageOrder: number
+  sourcePlanRecordId?: string
+  status: RunPipelineStatus
+  progress: number
+  createdAt: number
+  updatedAt: number
+  completedAt?: number
+}
+
+export interface RunPipelineItem {
+  id: string
+  batchId: string
+  stageId: string
+  organizationId: string
+  taskId: string
+  projectId: string
+  itemOrder: number
+  attempt: number
+  taskGatewayRunId?: string
+  status: RunPipelineItemStatus
+  progress: number
+  lastError?: string
+  startedAt?: number
+  completedAt?: number
+  createdAt: number
+  updatedAt: number
+}
+
+export interface RunPipelineGraph {
+  batch: RunPipelineBatch
+  stages: RunPipelineStage[]
+  items: RunPipelineItem[]
+}
+
+export interface PipelineStatusWatchToken {
+  id: string
+  organizationId: string
+  tokenHash: string
+  scope: 'all' | 'run_pipeline'
+  scopeId?: string
+  label: string
+  revokedAt?: number
+  expiresAt?: number
+  createdAt: number
+}
+
+export interface PipelineStatusSnapshot {
+  generatedAt: number
+  scope: 'all' | 'run_pipeline'
+  pipelines: RunPipelineGraph[]
 }
 
 export interface TaskChecklistItem {

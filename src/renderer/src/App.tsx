@@ -21,6 +21,8 @@ import { ProjectNewPage } from '@renderer/screens/projects/ProjectNewPage'
 import { ProjectDetailPage } from '@renderer/screens/projects/ProjectDetailPage'
 import { PlanPipelinePage } from '@renderer/screens/plan-pipeline'
 import { PlanPipelineRunsPage } from '@renderer/screens/plan-pipeline-runs'
+import { RunPipelinePage } from '@renderer/screens/run-pipeline'
+import { PipelineStatusPage } from '@renderer/screens/pipeline-status'
 import { AgentsPage } from '@renderer/screens/agents/AgentsPage'
 import { AgentNewPage } from '@renderer/screens/agents/AgentNewPage'
 import { SettingsPage } from '@renderer/screens/settings/SettingsPage'
@@ -84,6 +86,9 @@ const SIGNED_IN_ROUTES: RouteConfig[] = [
   { path: APP_ROUTES.PLAN_PIPELINE, element: <PlanPipelinePage /> },
   { path: APP_ROUTES.PLAN_PIPELINE_RUNS, element: <PlanPipelineRunsRedirect /> },
   { path: APP_ROUTES.PLAN_PIPELINE_RUN_DETAIL, element: <PlanPipelineRunsPage /> },
+  { path: APP_ROUTES.RUN_PIPELINE, element: <RunPipelinePage /> },
+  { path: APP_ROUTES.PIPELINE_STATUS, element: <PipelineStatusPage /> },
+  { path: APP_ROUTES.PIPELINE_STATUS_STANDALONE, element: <PipelineStatusPage /> },
   { path: APP_ROUTES.PROJECTS_NEW, element: <ProjectNewPage /> },
   { path: APP_ROUTES.PROJECT_DETAIL, element: <ProjectDetailPage /> },
   { path: APP_ROUTES.PROJECT_TASK_DETAIL, element: <ProjectDetailPage /> },
@@ -141,6 +146,7 @@ function SignedInRouter() {
 function AppRouter() {
   const { initialized, user, errorMessage, refresh } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   useRouteMetadata()
   const [taskCreateInitial, setTaskCreateInitial] = useState<GlobalTaskCreateInitial | null>(null)
   const isElectron = typeof navigator !== 'undefined' && /Electron/.test(navigator.userAgent)
@@ -193,7 +199,15 @@ function AppRouter() {
 
   let appContent: ReactNode
 
-  if (!initialized) {
+  if (location.pathname === APP_ROUTES.PIPELINE_STATUS_STANDALONE || location.pathname.startsWith('/pipeline-status/watch/')) {
+    appContent = (
+      <Routes>
+        <Route path={APP_ROUTES.PIPELINE_STATUS_STANDALONE} element={<PipelineStatusPage />} />
+        <Route path={APP_ROUTES.PIPELINE_STATUS_WATCH} element={<PipelineStatusPage />} />
+        <Route path="*" element={<PipelineStatusPage />} />
+      </Routes>
+    )
+  } else if (!initialized) {
     appContent = (
       <div className={styles.pageState}>
         <h2>Yukleniyor...</h2>
@@ -208,16 +222,24 @@ function AppRouter() {
       </Routes>
     )
   } else if (user) {
-    appContent = (
-      <>
-        <SignedInRouter />
-        <GlobalCreateTaskModal
-          open={Boolean(taskCreateInitial)}
-          initial={taskCreateInitial}
-          onClose={() => setTaskCreateInitial(null)}
-        />
-      </>
-    )
+    if (location.pathname === APP_ROUTES.PIPELINE_STATUS_STANDALONE) {
+      appContent = (
+        <ProtectedRoute>
+          <PipelineStatusPage />
+        </ProtectedRoute>
+      )
+    } else {
+      appContent = (
+        <>
+          <SignedInRouter />
+          <GlobalCreateTaskModal
+            open={Boolean(taskCreateInitial)}
+            initial={taskCreateInitial}
+            onClose={() => setTaskCreateInitial(null)}
+          />
+        </>
+      )
+    }
   } else if (isElectron && (isRuntimeError || !user)) {
     appContent = (
       <div className={styles.pageState}>

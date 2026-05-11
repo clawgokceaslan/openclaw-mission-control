@@ -1842,16 +1842,19 @@ export function ProjectDetailPage() {
     descriptionAutosaveSnapshotRef.current = normalizedDraft
     descriptionSavedSnapshotRef.current = normalizedDraft
     descriptionDraftRef.current = normalizedDraft
+    const responseTask = response.data ? withTaskMeta(response.data) : null
     const nextTask = {
       ...task,
+      ...(responseTask ?? {}),
       description: normalizedDraft,
       payload: {
-        ...(task.payload ?? {}),
+        ...((responseTask ?? task).payload ?? {}),
         inputFormatId: '',
         outputFormatId: ''
       }
     } as TaskEntity
     selectedTaskRef.current = nextTask
+    setSelectedTaskDetail((current) => current?.id === taskId ? withTaskMeta({ ...current, ...nextTask }) : current)
     setTasks((current) => current.map((item) => item.id === taskId ? nextTask : item))
     if (descriptionAutosavePendingRef.current) {
       descriptionAutosavePendingRef.current = false
@@ -2850,11 +2853,28 @@ export function ProjectDetailPage() {
     subtaskDescriptionAutosaveSnapshotRef.current = normalizedDraft
     subtaskDescriptionSavedSnapshotRef.current = normalizedDraft
     subtaskDescriptionDraftRef.current = normalizedDraft
+    const responseSubtask = response.data ?? null
     const nextSubtask = {
       ...subtask,
+      ...(responseSubtask ?? {}),
       payload: nextPayload
     } as TaskSubtask
     selectedSubtaskRef.current = nextSubtask
+    const currentSelectedTask = selectedTaskRef.current
+    if (currentSelectedTask && (currentSelectedTask.subtasks ?? []).some((item) => item.id === subtaskId)) {
+      selectedTaskRef.current = {
+        ...currentSelectedTask,
+        subtasks: (currentSelectedTask.subtasks ?? []).map((item) => item.id === subtaskId ? nextSubtask : item)
+      } as TaskEntity
+    }
+    setSelectedTaskDetail((current) => {
+      if (!current || !(current.subtasks ?? []).some((item) => item.id === subtaskId)) return current
+      const nextTask = {
+        ...current,
+        subtasks: (current.subtasks ?? []).map((item) => item.id === subtaskId ? nextSubtask : item)
+      } as TaskEntity
+      return withTaskMeta(nextTask)
+    })
     setTasks((current) => current.map((task) => {
       if (!(task.subtasks ?? []).some((item) => item.id === subtaskId)) return task
       return {

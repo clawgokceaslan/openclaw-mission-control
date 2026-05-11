@@ -3718,6 +3718,62 @@ export class TaskService {
     return okResponse({ exportFolderPath, writtenFiles, skippedFiles })
   }
 
+  async runGatewayForTask(payload: { actorToken?: string; taskId?: string }): Promise<ServiceResponse<{ runId?: string; gatewayId: string; model: string }>> {
+    if (!payload?.taskId) return errorResponse(ErrorCodes.Validation, 'Task id is required')
+    const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
+    if (!access.ok || !access.data) return access as ServiceResponse<{ runId?: string; gatewayId: string; model: string }>
+    const task = access.data.task
+    const project = await this.projects.get(task.projectId)
+    if (!project || project.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
+
+    const taskGateway = taskGatewayMetrics(task)
+    const projectGateway = projectGatewayMetrics(project.metrics)
+    const activeGatewayId = await this.appSettings.get<string | null>(access.data.actorOrgId, 'activeGatewayId')
+    const gatewayId = stringOrEmpty(taskGateway.gatewayId)
+      || stringOrEmpty(projectGateway.gatewayId)
+      || stringOrEmpty(activeGatewayId)
+    const model = stringOrEmpty(taskGateway.runModel)
+      || stringOrEmpty(taskGateway.model)
+      || stringOrEmpty(projectGateway.runModel)
+      || stringOrEmpty(projectGateway.defaultModel)
+    if (!gatewayId) return errorResponse(ErrorCodes.Validation, 'Task or project has no Codex gateway configured')
+    if (!model) return errorResponse(ErrorCodes.Validation, 'Task or project has no Codex run model configured')
+
+    const taskPayload = asPayload(task.payload)
+    const taskMarkdown = [
+      `# ${task.title}`,
+      '',
+      typeof taskPayload.description === 'string' && taskPayload.description.trim()
+        ? taskPayload.description.trim()
+        : typeof task.description === 'string'
+          ? task.description.trim()
+          : '',
+      '',
+      `Task id: ${task.id}`,
+      `Project id: ${project.id}`,
+      `Current status: ${task.status}`
+    ].filter((line) => line !== '').join('\n')
+    const taskJson = JSON.stringify({ task, project: { id: project.id, name: project.name, description: project.description ?? '' } }, null, 2)
+    const response = await this.runGateway({
+      actorToken: payload.actorToken,
+      taskId: task.id,
+      projectId: project.id,
+      gatewayId,
+      model,
+      taskMarkdown,
+      taskJson,
+      generalContext: project.generalContext ?? '',
+      generalPrompt: project.generalPrompt ?? '',
+      defaultOutput: project.defaultOutput ?? ''
+    })
+    if (!response.ok) return response as ServiceResponse<{ runId?: string; gatewayId: string; model: string }>
+    return okResponse({
+      runId: response.data?.runId,
+      gatewayId,
+      model
+    })
+  }
+
   async runGateway(payload: RunTaskGatewayRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ runFolderPath: string; workspacePath: string; exportWorkspacePath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; command: string; executionMode?: GatewayExecutionMode; runId?: string; pid?: number; eventsPath?: string; finalMessagePath?: string }>> {
     if (!payload?.taskId || !payload.projectId) return errorResponse(ErrorCodes.Validation, 'Task and project id are required')
     if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex gateway is required')

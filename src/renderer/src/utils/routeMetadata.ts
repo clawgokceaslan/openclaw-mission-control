@@ -75,6 +75,26 @@ export const ROUTE_METADATA = {
     description: 'Inspect task lists and generated outputs for a selected plan pipeline run.',
     keywords: ['pipeline detail', 'run detail', 'generated tasks']
   },
+  RUN_PIPELINE: {
+    title: 'Run Pipeline',
+    description: 'Run ordered task pipelines, monitor active stages, and resolve blocked execution items.',
+    keywords: ['run pipeline', 'task execution', 'pipeline status']
+  },
+  PIPELINE_STATUS: {
+    title: 'Pipeline Status',
+    description: 'Monitor run pipelines and create read-only TV status board links.',
+    keywords: ['pipeline status', 'status board', 'TV dashboard']
+  },
+  PIPELINE_STATUS_STANDALONE: {
+    title: 'Pipeline Status Board',
+    description: 'Monitor run pipelines in a standalone full-page status board.',
+    keywords: ['pipeline status', 'standalone board', 'status dashboard']
+  },
+  PIPELINE_STATUS_WATCH: {
+    title: 'Pipeline Watch',
+    description: 'Read-only pipeline status board for large screens and TV monitoring.',
+    keywords: ['pipeline watch', 'TV status', 'read only dashboard']
+  },
   PROJECTS_NEW: {
     title: 'New project',
     description: 'Create a new OpenMissionControl project with mission context and workspace settings.',
@@ -239,5 +259,5 @@ export function metadataForPath(pathname: string): PageMetadata {
     return DEFAULT_METADATA
   }
 
-  return ROUTE_METADATA[matchedEntry[0]]
+  return ROUTE_METADATA[matchedEntry[0]] ?? DEFAULT_METADATA
 }

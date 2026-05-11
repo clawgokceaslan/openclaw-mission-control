@@ -1,6 +1,6 @@
 import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
-import type { PlanPipelineRecord, PlanPipelineRunMode, PlanPipelineStatus } from '../../shared/types/entities.js'
+import type { PlanPipelineBatch, PlanPipelineRecord, PlanPipelineRunMode, PlanPipelineStatus } from '../../shared/types/entities.js'
 import { PlanPipelineRepository } from '../../db/repositories/plan-pipeline-repo.js'
 import { ProjectRepository } from '../../db/repositories/project-repo.js'
 import { TaskRepository } from '../../db/repositories/task-repo.js'
@@ -18,7 +18,14 @@ export interface CreatePlanPipelinePayload {
   projectIds?: string[]
   runMode?: PlanPipelineRunMode
   createdByName?: string
+  runPipelineOnPlanComplete?: boolean
   groups?: CreatePlanPipelineGroupPayload[]
+}
+
+export interface UpdatePlanPipelineBatchPayload {
+  actorToken?: string
+  id?: string
+  runPipelineOnPlanComplete?: boolean
 }
 
 export interface UpdatePlanPipelineStatePayload {
@@ -33,6 +40,8 @@ export interface UpdatePlanPipelineStatePayload {
 }
 
 export class PlanPipelineService {
+  private runPipelineCreator?: (organizationId: string, planBatchId: string, actorToken?: string, createdByName?: string) => Promise<ServiceResponse<{ batch: { id: string } }>>
+
   constructor(
     private readonly auth: AuthService,
     private readonly repo: PlanPipelineRepository,
@@ -40,9 +49,18 @@ export class PlanPipelineService {
     private readonly taskRepo: TaskRepository
   ) {}
 
+  setRunPipelineCreator(creator: (organizationId: string, planBatchId: string, actorToken?: string, createdByName?: string) => Promise<ServiceResponse<{ batch: { id: string } }>>): void {
+    this.runPipelineCreator = creator
+  }
+
   async list(payload: { actorToken?: string }): Promise<ServiceResponse<PlanPipelineRecord[]>> {
     const actor = await this.auth.requireActor(payload?.actorToken)
     return okResponse(await this.repo.list(actor.user.organizationId))
+  }
+
+  async listBatches(payload: { actorToken?: string }): Promise<ServiceResponse<PlanPipelineBatch[]>> {
+    const actor = await this.auth.requireActor(payload?.actorToken)
+    return okResponse(await this.repo.listBatches(actor.user.organizationId))
   }
 
   async createFromGroups(payload: CreatePlanPipelinePayload): Promise<ServiceResponse<PlanPipelineRecord[]>> {
@@ -80,6 +98,7 @@ export class PlanPipelineService {
     const invalidTaskIds = selectedTaskIds.filter((taskId) => !scopedTaskIdSet.has(taskId))
     if (invalidTaskIds.length > 0) return errorResponse(ErrorCodes.Validation, 'Geçersiz task seçimi', { invalidTaskIds })
 
+    const createdByName = payload?.createdByName?.trim() || actor.user.name || actor.user.email
     const created = await this.repo.createMany(normalizedGroups.map((group) => ({
       organizationId: actor.user.organizationId,
       sourceDraftName,
@@ -89,14 +108,32 @@ export class PlanPipelineService {
       projectIds,
       taskIds: group.taskIds,
       runMode: payload?.runMode === 'silent' ? 'silent' : 'questioned',
-      createdByName: payload?.createdByName?.trim() || actor.user.name || actor.user.email
-    })))
+      createdByName
+    })), {
+      organizationId: actor.user.organizationId,
+      name: sourceDraftName,
+      projectIds,
+      runPipelineOnPlanComplete: Boolean(payload?.runPipelineOnPlanComplete),
+      createdByName
+    })
 
     return okResponse(created)
   }
 
+  async updateBatch(payload: UpdatePlanPipelineBatchPayload): Promise<ServiceResponse<PlanPipelineBatch>> {
+    const actor = await this.auth.requireActor(payload?.actorToken)
+    if (!payload?.id) return errorResponse(ErrorCodes.Validation, 'Plan batch id gerekli')
+    const updated = await this.repo.updateBatch({
+      organizationId: actor.user.organizationId,
+      id: payload.id,
+      runPipelineOnPlanComplete: Boolean(payload.runPipelineOnPlanComplete)
+    })
+    if (!updated) return errorResponse(ErrorCodes.NotFound, 'Plan batch bulunamadı')
+    return okResponse(updated)
+  }
+
   async updateState(payload: UpdatePlanPipelineStatePayload): Promise<ServiceResponse<PlanPipelineRecord>> {
-    await this.auth.requireActor(payload?.actorToken)
+    const actor = await this.auth.requireActor(payload?.actorToken)
     if (!payload?.id) return errorResponse(ErrorCodes.Validation, 'Pipeline id gerekli')
     const progress = typeof payload.progress === 'number' ? Math.min(100, Math.max(0, Math.round(payload.progress))) : undefined
     const updated = await this.repo.updateState({
@@ -109,7 +146,26 @@ export class PlanPipelineService {
       completedAt: payload.completedAt
     })
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Pipeline kaydı bulunamadı')
+    if (updated.batchId) {
+      await this.prepareRunPipelineIfBatchCompleted(actor.user.organizationId, updated.batchId, payload.actorToken, actor.user.name || actor.user.email)
+    }
     return okResponse(updated)
+  }
+
+  private async prepareRunPipelineIfBatchCompleted(organizationId: string, batchId: string, actorToken?: string, createdByName?: string): Promise<void> {
+    if (!this.runPipelineCreator) return
+    const batch = await this.repo.getBatch(organizationId, batchId)
+    if (!batch || !batch.runPipelineOnPlanComplete || batch.linkedRunPipelineId || batch.status !== 'completed') return
+    const created = await this.runPipelineCreator(organizationId, batch.id, actorToken, createdByName)
+    if (created.ok && created.data?.batch?.id) {
+      await this.repo.updateBatch({
+        organizationId,
+        id: batch.id,
+        runPipelineOnPlanComplete: batch.runPipelineOnPlanComplete,
+        linkedRunPipelineId: created.data.batch.id,
+        status: batch.status
+      })
+    }
   }
 
   private normalizeIds(input: string[] | undefined): string[] {

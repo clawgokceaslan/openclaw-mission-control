@@ -154,8 +154,28 @@ export const IPC_CHANNELS = {
   },
   planPipelines: {
     list: 'plan-pipelines:list',
+    listBatches: 'plan-pipelines:list-batches',
     createFromGroups: 'plan-pipelines:create-from-groups',
-    updateState: 'plan-pipelines:update-state'
+    updateState: 'plan-pipelines:update-state',
+    updateBatch: 'plan-pipelines:update-batch'
+  },
+  runPipelines: {
+    list: 'run-pipelines:list',
+    get: 'run-pipelines:get',
+    createManual: 'run-pipelines:create-manual',
+    createFromPlanBatch: 'run-pipelines:create-from-plan-batch',
+    update: 'run-pipelines:update',
+    start: 'run-pipelines:start',
+    pause: 'run-pipelines:pause',
+    resume: 'run-pipelines:resume',
+    retryItem: 'run-pipelines:retry-item',
+    skipItem: 'run-pipelines:skip-item',
+    cancel: 'run-pipelines:cancel'
+  },
+  pipelineStatus: {
+    snapshot: 'pipeline-status:snapshot',
+    createWatchToken: 'pipeline-status:create-watch-token',
+    revokeWatchToken: 'pipeline-status:revoke-watch-token'
   },
   customFields: {
     list: 'custom-fields:list',
@@ -182,7 +202,8 @@ export const IPC_CHANNELS = {
     gatewayStatus: 'events:gateway-status',
     taskUpdated: 'events:task-updated',
     jobProgress: 'events:job-progress',
-    taskActivity: 'events:task-activity'
+    taskActivity: 'events:task-activity',
+    runPipelineUpdated: 'events:run-pipeline-updated'
   }
 } as const
 
@@ -702,7 +723,9 @@ export const SERVICE_MAP = {
   skills: ['list', 'listPage', 'create', 'update', 'remove', 'listPacks'],
   organization: ['me', 'listMembers', 'createInvite'],
   projectGroups: ['list', 'create', 'update', 'remove'],
-  planPipelines: ['list', 'createFromGroups', 'updateState'],
+  planPipelines: ['list', 'listBatches', 'createFromGroups', 'updateState', 'updateBatch'],
+  runPipelines: ['list', 'get', 'createManual', 'createFromPlanBatch', 'update', 'start', 'pause', 'resume', 'retryItem', 'skipItem', 'cancel'],
+  pipelineStatus: ['snapshot', 'createWatchToken', 'revokeWatchToken'],
   customFields: ['list', 'create', 'update', 'remove', 'tagsList', 'tagsCreate', 'tagsUpdate', 'tagsRemove'],
   outputFormats: ['list', 'create', 'update', 'remove'],
   jobs: ['list', 'metrics']
@@ -1563,6 +1586,13 @@ export const SERVICE_ROUTING: {
       channel: IPC_CHANNELS.planPipelines.list,
       requiresAuth: true
     },
+    listBatches: {
+      domain: 'planPipelines',
+      action: 'listBatches',
+      method: 'listBatches',
+      channel: IPC_CHANNELS.planPipelines.listBatches,
+      requiresAuth: true
+    },
     createFromGroups: {
       domain: 'planPipelines',
       action: 'createFromGroups',
@@ -1575,6 +1605,115 @@ export const SERVICE_ROUTING: {
       action: 'updateState',
       method: 'updateState',
       channel: IPC_CHANNELS.planPipelines.updateState,
+      requiresAuth: true
+    },
+    updateBatch: {
+      domain: 'planPipelines',
+      action: 'updateBatch',
+      method: 'updateBatch',
+      channel: IPC_CHANNELS.planPipelines.updateBatch,
+      requiresAuth: true
+    }
+  },
+  runPipelines: {
+    list: {
+      domain: 'runPipelines',
+      action: 'list',
+      method: 'list',
+      channel: IPC_CHANNELS.runPipelines.list,
+      requiresAuth: true
+    },
+    get: {
+      domain: 'runPipelines',
+      action: 'get',
+      method: 'get',
+      channel: IPC_CHANNELS.runPipelines.get,
+      requiresAuth: true
+    },
+    createManual: {
+      domain: 'runPipelines',
+      action: 'createManual',
+      method: 'createManual',
+      channel: IPC_CHANNELS.runPipelines.createManual,
+      requiresAuth: true
+    },
+    createFromPlanBatch: {
+      domain: 'runPipelines',
+      action: 'createFromPlanBatch',
+      method: 'createFromPlanBatch',
+      channel: IPC_CHANNELS.runPipelines.createFromPlanBatch,
+      requiresAuth: true
+    },
+    update: {
+      domain: 'runPipelines',
+      action: 'update',
+      method: 'update',
+      channel: IPC_CHANNELS.runPipelines.update,
+      requiresAuth: true
+    },
+    start: {
+      domain: 'runPipelines',
+      action: 'start',
+      method: 'start',
+      channel: IPC_CHANNELS.runPipelines.start,
+      requiresAuth: true
+    },
+    pause: {
+      domain: 'runPipelines',
+      action: 'pause',
+      method: 'pause',
+      channel: IPC_CHANNELS.runPipelines.pause,
+      requiresAuth: true
+    },
+    resume: {
+      domain: 'runPipelines',
+      action: 'resume',
+      method: 'resume',
+      channel: IPC_CHANNELS.runPipelines.resume,
+      requiresAuth: true
+    },
+    retryItem: {
+      domain: 'runPipelines',
+      action: 'retryItem',
+      method: 'retryItem',
+      channel: IPC_CHANNELS.runPipelines.retryItem,
+      requiresAuth: true
+    },
+    skipItem: {
+      domain: 'runPipelines',
+      action: 'skipItem',
+      method: 'skipItem',
+      channel: IPC_CHANNELS.runPipelines.skipItem,
+      requiresAuth: true
+    },
+    cancel: {
+      domain: 'runPipelines',
+      action: 'cancel',
+      method: 'cancel',
+      channel: IPC_CHANNELS.runPipelines.cancel,
+      requiresAuth: true
+    }
+  },
+  pipelineStatus: {
+    snapshot: {
+      domain: 'pipelineStatus',
+      action: 'snapshot',
+      method: 'snapshot',
+      channel: IPC_CHANNELS.pipelineStatus.snapshot,
+      requiresAuth: true
+    },
+    createWatchToken: {
+      domain: 'pipelineStatus',
+      action: 'createWatchToken',
+      method: 'createWatchToken',
+      channel: IPC_CHANNELS.pipelineStatus.createWatchToken,
+      requiresAuth: true
+    },
+    revokeWatchToken: {
+      domain: 'pipelineStatus',
+      action: 'revokeWatchToken',
+      method: 'revokeWatchToken',
+      channel: IPC_CHANNELS.pipelineStatus.revokeWatchToken,
       requiresAuth: true
     }
   },
