@@ -553,7 +553,7 @@ export function ProfilePage() {
                       key={background.id}
                       type="button"
                       className={backgroundId === background.id ? styles.backgroundActive : undefined}
-                      style={{ '--background-preview': background.preview } as CSSProperties}
+                      style={{ '--background-preview': background[resolvedMode] } as CSSProperties}
                       onClick={() => setBackgroundId(background.id)}
                       aria-label={`${background.name} arka planını kullan`}
                       aria-pressed={backgroundId === background.id}
