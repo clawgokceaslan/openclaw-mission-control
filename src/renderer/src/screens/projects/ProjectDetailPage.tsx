@@ -860,6 +860,24 @@ export function ProjectDetailPage() {
     subtaskDescriptionAutosaveTimerRef.current = null
   }
 
+  const scheduleDescriptionAutosaveRetry = () => {
+    clearDescriptionAutosaveTimer()
+    descriptionAutosaveTimerRef.current = window.setTimeout(() => {
+      if (!selectedTaskRef.current || detailViewMode !== 'task') return
+      if (descriptionDraftRef.current === descriptionSavedSnapshotRef.current) return
+      void saveDescription({ finalize: false })
+    }, DESCRIPTION_AUTOSAVE_DELAY_MS)
+  }
+
+  const scheduleSubtaskDescriptionAutosaveRetry = () => {
+    clearSubtaskDescriptionAutosaveTimer()
+    subtaskDescriptionAutosaveTimerRef.current = window.setTimeout(() => {
+      if (!selectedSubtaskRef.current || detailViewMode !== 'subtask') return
+      if (subtaskDescriptionDraftRef.current === subtaskDescriptionSavedSnapshotRef.current) return
+      void saveSubtaskDetail({ finalize: false })
+    }, DESCRIPTION_AUTOSAVE_DELAY_MS)
+  }
+
   useEffect(() => {
     return () => {
       clearDescriptionAutosaveTimer()
@@ -1818,6 +1836,7 @@ export function ProjectDetailPage() {
       descriptionDraftRef.current = latestDraft
       descriptionAutosavePendingRef.current = false
       setIsDescriptionEditing(true)
+      scheduleDescriptionAutosaveRetry()
       return false
     }
     descriptionAutosaveSnapshotRef.current = normalizedDraft
@@ -2824,6 +2843,7 @@ export function ProjectDetailPage() {
       subtaskDescriptionDraftRef.current = latestDraft
       subtaskDescriptionAutosavePendingRef.current = false
       setIsSubtaskDescriptionDirty(true)
+      scheduleSubtaskDescriptionAutosaveRetry()
       return false
     }
 

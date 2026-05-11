@@ -331,6 +331,17 @@ export function MarkdownDescriptionEditor({
     return nextMarkdown
   }
 
+  const commitCurrentMarkdown = () => {
+    flushPendingMarkdown()
+    onCommit?.()
+  }
+
+  const closeFullscreen = (commit = true) => {
+    isEditorFocusedRef.current = false
+    if (commit) commitCurrentMarkdown()
+    setIsFullscreen(false)
+  }
+
   const scheduleMarkdownChange = () => {
     if (loadingRef.current) return
     pendingMarkdownRef.current = ''
@@ -373,8 +384,7 @@ export function MarkdownDescriptionEditor({
     isEditorFocusedRef.current = false
     if (isFullscreen) return
     if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-      if (pendingMarkdownRef.current !== null || pendingMarkdownTimerRef.current) flushPendingMarkdown()
-      onCommit?.()
+      commitCurrentMarkdown()
     }
   }
 
@@ -391,7 +401,7 @@ export function MarkdownDescriptionEditor({
       }
       if (isFullscreen) {
         event.preventDefault()
-        setIsFullscreen(false)
+        closeFullscreen()
         return
       }
       isEditorFocusedRef.current = false
@@ -410,7 +420,13 @@ export function MarkdownDescriptionEditor({
         type="button"
         className={styles.fullscreenButton}
         onMouseDown={(event) => event.preventDefault()}
-        onClick={() => setIsFullscreen((value) => !value)}
+        onClick={() => {
+          if (isFullscreen) {
+            closeFullscreen()
+            return
+          }
+          setIsFullscreen(true)
+        }}
         aria-label={isFullscreen ? 'Exit fullscreen description editor' : 'Open fullscreen description editor'}
       >
         {isFullscreen ? <LuMinimize2 size={16} /> : <LuMaximize2 size={16} />}
@@ -493,7 +509,7 @@ export function MarkdownDescriptionEditor({
       </div>
       {isFullscreen ? createPortal(
         <>
-          <div className={styles.fullscreenBackdrop} onMouseDown={() => setIsFullscreen(false)} />
+          <div className={styles.fullscreenBackdrop} onMouseDown={() => closeFullscreen()} />
           <section
             className={styles.fullscreenShell}
             role="dialog"
@@ -504,13 +520,13 @@ export function MarkdownDescriptionEditor({
             onFocusCapture={handleFocusCapture}
             onBlur={(event) => {
               isEditorFocusedRef.current = false
-              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onCommit?.()
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) commitCurrentMarkdown()
             }}
             onKeyDownCapture={handleKeyDownCapture}
           >
             <header className={styles.fullscreenHeader}>
               <span>Description</span>
-              <button type="button" onClick={() => setIsFullscreen(false)} aria-label="Close fullscreen description editor">
+              <button type="button" onClick={() => closeFullscreen()} aria-label="Close fullscreen description editor">
                 <LuX size={18} />
               </button>
             </header>
