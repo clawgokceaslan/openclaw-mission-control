@@ -674,7 +674,7 @@ export function ChatPopup({
             </div>
           </header>
           <div className={`${styles.chatWorkspace} ${popupStyles.chatWorkspace}`}>
-            <div className={styles.chatTranscript} ref={chatFeedRef} onScroll={onChatScroll}>
+            <div className={`${styles.chatTranscript} ${popupStyles.chatTranscript}`} ref={chatFeedRef} onScroll={onChatScroll}>
               {visibleMessages.length > 0 ? (
                 <div className={styles.chatMessageList}>
                   {transcriptItems.map((item) => (
@@ -825,7 +825,7 @@ export function ChatPopup({
                   </button>
                 </div>
               ) : null}
-              <div className={styles.chatComposerBox}>
+              <div className={`${styles.chatComposerBox} ${popupStyles.chatComposerBox}`}>
                 <textarea
                   ref={draftTextareaRef}
                   value={draft}

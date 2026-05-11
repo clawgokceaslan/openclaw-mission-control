@@ -6,6 +6,7 @@
 
 .chatMain {
   overflow: hidden;
+  background: var(--omc-surface);
 }
 
 .chatTopbar {
@@ -18,10 +19,24 @@
 
 .chatWorkspace {
   min-width: 0;
+  background:
+    linear-gradient(to bottom, color-mix(in srgb, var(--omc-surface-muted) 32%, transparent), transparent 132px),
+    color-mix(in srgb, var(--omc-surface) 82%, var(--omc-surface-muted) 18%);
+}
+
+.chatTranscript {
+  background: transparent;
 }
 
 .chatComposer {
   min-width: 0;
+  border-top: 1px solid color-mix(in srgb, var(--omc-border-subtle) 72%, transparent);
+  background: color-mix(in srgb, var(--omc-surface) 86%, var(--omc-surface-muted) 14%);
+}
+
+.chatComposerBox {
+  border-color: color-mix(in srgb, var(--omc-border) 46%, transparent);
+  background: color-mix(in srgb, var(--omc-surface-muted) 64%, var(--omc-surface) 36%);
 }
 
 .chatTopbarActions {

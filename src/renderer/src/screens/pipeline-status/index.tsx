@@ -26,6 +26,8 @@ type LiveEvent = {
   at: number
 }
 
+type PipelineStatusRouteMode = 'authenticated' | 'standalone' | 'watch'
+
 function statusText(status?: string) {
   const map: Record<string, string> = {
     pending: 'Ready',
@@ -123,8 +125,15 @@ export function PipelineStatusPage() {
   const location = useLocation()
   const params = useParams<{ token?: string }>()
   const watchToken = params.token
-  const standalone = location.pathname === APP_ROUTES.PIPELINE_STATUS_STANDALONE
-  const publicMode = standalone || Boolean(watchToken)
+  const routeMode: PipelineStatusRouteMode = watchToken
+    ? 'watch'
+    : location.pathname === APP_ROUTES.PIPELINE_STATUS_STANDALONE
+      ? 'standalone'
+      : 'authenticated'
+  const standalone = routeMode === 'standalone'
+  const watchMode = routeMode === 'watch'
+  const authenticatedMode = routeMode === 'authenticated'
+  const publicMode = standalone || watchMode
   const broadcastMode = standalone
   const [snapshot, setSnapshot] = useState<PipelineStatusSnapshot | null>(null)
   const [watchUrl, setWatchUrl] = useState<string | null>(null)
@@ -222,7 +231,7 @@ export function PipelineStatusPage() {
   }, [playChime, pushEvent])
 
   const loadSnapshot = useCallback(async () => {
-    if (standalone && !token) {
+    if (standalone) {
       const response = await fetch('/api/public/pipeline-status')
       const body = await response.json() as { ok?: boolean; data?: PipelineStatusSnapshot; error?: { message?: string } }
       if (!body.ok || !body.data) {
@@ -232,7 +241,7 @@ export function PipelineStatusPage() {
       ingestSnapshot(body.data)
       return
     }
-    if (watchToken) {
+    if (watchMode && watchToken) {
       const response = await fetch(`/api/public/pipeline-status/${encodeURIComponent(watchToken)}`)
       const body = await response.json() as { ok?: boolean; data?: PipelineStatusSnapshot; error?: { message?: string } }
       if (!body.ok || !body.data) {
@@ -248,7 +257,7 @@ export function PipelineStatusPage() {
       return
     }
     ingestSnapshot(response.data)
-  }, [ingestSnapshot, standalone, token, watchToken])
+  }, [ingestSnapshot, standalone, token, watchMode, watchToken])
 
   const scheduleSnapshotReload = useCallback(() => {
     if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
@@ -285,7 +294,7 @@ export function PipelineStatusPage() {
   }, [loadSnapshot])
 
   useEffect(() => {
-    if (standalone || watchToken) return
+    if (!authenticatedMode) return
     const onPlanPipelineUpdated = () => handlePipelineEvent('Plan pipeline', 'Plan status changed')
     const onRunPipelineUpdated = () => handlePipelineEvent('Run pipeline', 'Execution status changed')
     subscribeToChannel(IPC_CHANNELS.events.planPipelineUpdated, onPlanPipelineUpdated)
@@ -295,7 +304,7 @@ export function PipelineStatusPage() {
       unsubscribeFromChannel(IPC_CHANNELS.events.planPipelineUpdated, onPlanPipelineUpdated)
       unsubscribeFromChannel(IPC_CHANNELS.events.runPipelineUpdated, onRunPipelineUpdated)
     }
-  }, [handlePipelineEvent, standalone, watchToken])
+  }, [authenticatedMode, handlePipelineEvent])
 
   useEffect(() => {
     if (!publicMode) return
@@ -363,13 +372,17 @@ export function PipelineStatusPage() {
   }, [pipelines, planRecords])
 
   return (
-    <section className={`${styles.page} ${broadcastMode ? styles.broadcast : ''}`}>
+    <section
+      className={`${styles.page} ${broadcastMode ? styles.broadcast : ''}`}
+      data-pipeline-status-route={routeMode}
+      data-pipeline-status-mode={broadcastMode ? 'broadcast' : undefined}
+    >
       <header className={styles.header}>
         <div className={styles.brand}>
           <img src={appIconSrc} alt="Open Mission Control" />
           <div>
             <span><LuSatellite size={17} /> Open Mission Control</span>
-            <h1>Live pipeline broadcast</h1>
+            <h1>{broadcastMode ? 'Live pipeline broadcast' : 'Pipeline status'}</h1>
             <p>
               <em className={`${styles.liveBadge} ${liveState === 'live' ? styles.live : styles.reconnecting}`}>{liveState === 'live' ? 'Live' : 'Reconnecting'}</em>
               Last updated {formatClock(snapshot?.generatedAt)}
