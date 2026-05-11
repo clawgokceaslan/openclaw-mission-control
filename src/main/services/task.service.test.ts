@@ -381,6 +381,17 @@ describe('planner quality gate', () => {
     expect(issues).toContain('At least one planned subtask is required.')
   })
 
+  it('rejects planner outputs with more than 10 subtasks', () => {
+    const issues = validatePlannerTaskJsonQuality(plannedTask({
+      subtasks: Array.from({ length: 11 }, (_, index) => plannedSubtask({
+        title: `Implement focused workflow ${index + 1}`,
+        description: `Detailed implementation guidance for workflow ${index + 1}.`
+      }))
+    }))
+
+    expect(issues).toContain('At most 10 planned subtasks are allowed.')
+  })
+
   it('rejects generic checklist items when provided', () => {
     const issues = validatePlannerTaskJsonQuality(plannedTask({
       subtasks: [plannedSubtask({ checklistItems: [checklist('Test yap'), checklist('Run tests'), checklist('Fix bugs'), checklist('Implement feature')] })]
@@ -642,7 +653,7 @@ describe('planner quality gate', () => {
     expect(prompt).not.toContain('Clarification mode: ASK FIRST')
     expect(instructions).toContain('refactor the entire subtasks array')
     expect(instructions).toContain('Planning granularity is balanced')
-    expect(instructions).toContain('at most 12 subtasks')
+    expect(instructions).toContain('at most 10 subtasks')
     expect(instructions).toContain('Non-negotiable planner rules')
     expect(instructions).toContain('Title + Description subtask shape')
     expect(instructions).toContain('Checklist items are optional')
@@ -1029,13 +1040,14 @@ describe('codex activity persistence', () => {
     })
   })
 
-  it('advances planned tasks from first workflow status to second status only', async () => {
+  it('advances planned tasks from the first workflow status to the first active status only', async () => {
     const eventBus = new EventEmitter()
     const taskUpdatedEvents: unknown[] = []
     eventBus.on(IPC_CHANNELS.events.taskUpdated, (payload) => taskUpdatedEvents.push(payload))
     const statuses: ProjectStatus[] = [
       { id: 'status-1', organizationId: 'org-1', projectId: 'project-1', name: 'Backlog', category: 'not_started', color: '#8A99B4', sortOrder: 0, isDefault: true, createdAt: 1, updatedAt: 1 },
-      { id: 'status-2', organizationId: 'org-1', projectId: 'project-1', name: 'Doing', category: 'active', color: '#2F80ED', sortOrder: 1, isDefault: false, createdAt: 2, updatedAt: 2 }
+      { id: 'status-2', organizationId: 'org-1', projectId: 'project-1', name: 'Ready', category: 'not_started', color: '#8A99B4', sortOrder: 1, isDefault: false, createdAt: 2, updatedAt: 2 },
+      { id: 'status-3', organizationId: 'org-1', projectId: 'project-1', name: 'Doing', category: 'active', color: '#2F80ED', sortOrder: 2, isDefault: false, createdAt: 3, updatedAt: 3 }
     ]
     let task: TaskEntity = {
       id: 'task-1',
@@ -1065,9 +1077,27 @@ describe('codex activity persistence', () => {
     await service.advanceTaskFromFirstStatusAfterPlanning('task-1', 'org-1')
 
     expect(updates).toHaveLength(1)
-    expect(task.status).toBe('status-2')
+    expect(task.status).toBe('status-3')
     expect(taskUpdatedEvents).toHaveLength(1)
     expect((taskUpdatedEvents[0] as { action: string }).action).toBe('plan_status_advanced')
+  })
+
+  it('interrupts active conversation before applying a steer turn', () => {
+    const killed: string[] = []
+    const service = Object.create(TaskService.prototype) as any
+    const activeRun = {
+      taskId: 'task-1',
+      conversationId: 'conversation-1',
+      runId: 'run-1',
+      child: { kill: (signal: string) => killed.push(signal) }
+    }
+    service.activeGatewayChatRuns = new Map([['run-1', activeRun]])
+
+    const interrupted = service.interruptActiveGatewayConversationForSteer('task-1', 'conversation-1')
+
+    expect(interrupted).toBe(1)
+    expect(activeRun.stopRequested).toBe(true)
+    expect(killed).toEqual(['SIGTERM'])
   })
 
   it('batch appends activity messages with one repo update and per-message activity events', async () => {

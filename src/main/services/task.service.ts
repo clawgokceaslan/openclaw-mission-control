@@ -954,7 +954,7 @@ export function plannerJsonGuidance() {
       clarificationMode: 'Plan launch chooses either ask-first or direct. ask-first must ask questions before task JSON updates; direct must not ask questions.',
       subtaskRewrite: 'Refactor the entire subtasks array on every planning update, including completed/done/closed subtasks. Treat current subtasks as input context, not immutable history.',
       granularity: 'balanced',
-      subtaskCount: 'Use 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 12 subtasks for very large tasks.',
+      subtaskCount: 'Use 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 10 subtasks for very large tasks.',
       primaryExecutionPlan: 'Subtasks are the primary execution plan that will later be exported into Task.md for Codex Run.',
       noGenericWork: 'No generic tasks or checklist items such as Test yap, Run tests, Fix bugs, Implement feature, Implement UI, or Check everything.',
       overrideProjectGuide: 'These planner rules are non-negotiable and override weaker or conflicting project plan guide instructions, including any instruction that says user input is not needed.',
@@ -991,7 +991,7 @@ export function initialPlannerPrompt(
     'Non-negotiable planner rules in this prompt override weaker or conflicting project Plan Guide instructions, including any instruction that says user input is not needed.',
     'Use task description for the general goal, implementation scope, and overall AI guidance. Use task comments for important flows, risks, dependencies, edge cases, and decision notes. Preserve existing user comments.',
     'Refactor the entire subtasks array. Completed, done, and closed subtasks are input context and may be rewritten in the planned task JSON.',
-    'Use balanced decomposition: produce 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 12 subtasks for very large tasks.',
+    'Use balanced decomposition: produce 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 10 subtasks for very large tasks.',
     'Create a subtask only for a cohesive implementation area, independent workflow, separate ownership boundary, or meaningful verification path.',
     'Subtasks must be ordered by the exact execution sequence the agent should follow.',
     'Use the Title + Description subtask shape. Each planned subtask must have a short action-oriented title and a concise AI-guiding description.',
@@ -1181,6 +1181,7 @@ export function validatePlannerTaskJsonQuality(normalized: NormalizedTaskJsonImp
   if (!normalized.description.trim()) issues.push('Task description is required for planner updates.')
   if (!normalized.agenticInputs.acceptanceCriteria?.trim()) issues.push('agenticInputs.acceptanceCriteria is required for planner updates.')
   if (normalized.subtasks.length === 0) issues.push('At least one planned subtask is required.')
+  if (normalized.subtasks.length > 10) issues.push('At most 10 planned subtasks are allowed.')
 
   normalized.subtasks.forEach((subtask, index) => {
     const label = `subtasks[${index}]`
@@ -1335,7 +1336,7 @@ export function gatewayChatPrompt(input: {
   const modeInstruction = input.mode === 'plan'
     ? 'The user invoked /plan. Stay in planning mode: reason about the work, propose a clear plan, and do not make code or file changes unless the user explicitly asks.'
     : input.mode === 'steer'
-      ? 'The user is steering an existing Codex conversation. Treat the user steer instruction and task comments as high-signal guidance for continuing the existing conversation.'
+      ? 'The user is steering an existing Codex conversation. Treat the user steer instruction and task comments as high-signal guidance for continuing the existing conversation; if this follows an interrupted active turn, resume from the latest transcript and change direction without repeating completed work.'
       : 'Continue the task chat normally. Primary instruction is the user follow-up prompt; use task details as supporting context.'
   const attachments = input.attachments?.length
     ? `Attached files for this message:\n${input.attachments.map((item) => `- ${item.name}: ${item.path}${item.mimeType ? ` (${item.mimeType})` : ''}`).join('\n')}`
@@ -2774,7 +2775,7 @@ export function omcCliInstructions(context: {
     '- Non-negotiable planner rules in these instructions override weaker or conflicting project Plan Guide instructions, including any instruction that says user input is not needed.',
     '- Use task description for the general goal, implementation scope, and overall AI guidance. Use task comments for important flows, risks, dependencies, edge cases, and decision notes. Preserve existing user comments.',
     '- Planning runs must refactor the entire subtasks array, including completed/done/closed subtasks. Existing subtasks are context, not protected history.',
-    '- Planning granularity is balanced: use 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 12 subtasks for very large tasks.',
+    '- Planning granularity is balanced: use 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 10 subtasks for very large tasks.',
     '- Create subtasks for cohesive implementation areas, independent workflows, separate ownership boundaries, or meaningful verification paths.',
     '- Subtasks must be ordered by the exact execution sequence the agent should follow.',
     '- Use the Title + Description subtask shape. Each planned subtask needs a short action-oriented title plus a concise AI-guiding description.',
@@ -2915,13 +2916,16 @@ export class TaskService {
     if (!task) return
     const statuses = await this.statuses.ensureProjectDefaults(task.projectId, organizationId)
     const ordered = [...statuses].sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt)
-    const first = ordered[0]
-    const second = ordered[1]
-    if (!first || !second) return
-    const isFirstStatus = task.status === first.id || task.status === first.name
-    if (!isFirstStatus) return
-    const payload = await this.payloadWithPrependStatusOrder(task.projectId, second.id, asPayload(task.payload))
-    const updated = await this.repo.update(task.id, { status: second.id, payload })
+    const currentStatus = ordered.find((item) => item.id === task.status || item.name === task.status)
+    const target = ordered.find((item) => item.category === 'active')
+      ?? ordered.find((item) => item.category !== 'not_started')
+      ?? ordered[1]
+    if (!target) return
+    if (task.status === target.id || task.status === target.name) return
+    if (currentStatus?.category === 'active' || currentStatus?.category === 'done') return
+    if (currentStatus && currentStatus.sortOrder > target.sortOrder) return
+    const payload = await this.payloadWithPrependStatusOrder(task.projectId, target.id, asPayload(task.payload))
+    const updated = await this.repo.update(task.id, { status: target.id, payload })
     if (updated) this.emitTaskUpdated(task.projectId, task.id, 'plan_status_advanced')
   }
 
@@ -3149,6 +3153,17 @@ export class TaskService {
     setTimeout(() => {
       void closeTerminalWindowByTitle(run.terminalTitle)
     }, 1_500).unref?.()
+  }
+
+  private interruptActiveGatewayConversationForSteer(taskId: string, conversationId: string): number {
+    const matches = Array.from(this.activeGatewayChatRuns.values()).filter((run) => (
+      run.taskId === taskId && run.conversationId === conversationId
+    ))
+    for (const run of matches) {
+      run.stopRequested = true
+      run.child.kill('SIGTERM')
+    }
+    return matches.length
   }
 
   private async enrichTasks(tasks: TaskEntity[]): Promise<TaskEntity[]> {
@@ -5162,6 +5177,9 @@ export class TaskService {
       prompt
     ]
     const execCommand = [shellQuote(codexPath), ...execArgs.map(shellQuote)].join(' ')
+    const steerInterruptedRuns = mode === 'steer'
+      ? this.interruptActiveGatewayConversationForSteer(taskId, conversationId)
+      : 0
 
     await mkdir(runtimeWorkspacePath, { recursive: true })
     await this.appendTaskActivityMessages(taskId, [
@@ -5194,8 +5212,12 @@ export class TaskService {
         status: 'running',
         body: mode === 'plan'
           ? executionMode === 'exec' ? 'Codex is revising the plan...' : 'Opening Codex terminal to revise the plan...'
+          : mode === 'steer'
+            ? steerInterruptedRuns > 0
+              ? 'Codex is applying the steer instruction after interrupting the active turn...'
+              : 'Codex is applying the steer instruction...'
           : executionMode === 'exec' ? 'Codex is thinking...' : 'Opening Codex terminal...',
-        metadata: { executionMode, runtimeWorkspacePath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath }
+        metadata: { executionMode, runtimeWorkspacePath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, mode, steerInterruptedRuns }
       }
     ])
 

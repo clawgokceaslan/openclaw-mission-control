@@ -40,7 +40,7 @@ Use this guide when planning or revising tasks. Read every available task field 
 - Make the task implementation-ready for Codex Run.
 - Prefer clear, verifiable scope over broad or vague instructions.
 - Refactor the entire subtasks array during planning. Treat existing subtasks, including completed/done/closed ones, as input context that can be rewritten into a clearer execution plan.
-- Use balanced subtask decomposition: 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 12 subtasks for very large tasks.
+- Use balanced subtask decomposition: 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 10 subtasks for very large tasks.
 - Create subtasks for cohesive implementation areas, independent workflows, separate ownership boundaries, or meaningful verification paths.
 - Do not create a separate subtask for every file, UI state, edge case, or verification command; put those details inside the relevant subtask description.
 - Keep subtasks ordered by execution dependency.
