@@ -1140,7 +1140,7 @@
 .taskGatewayTone_failed {
   border-color: color-mix(in srgb, var(--omc-danger, #dc2626) 42%, var(--omc-border));
   background: var(--omc-danger, #dc2626);
-  color: #fff;
+  color: var(--omc-primary-text);
 }
 
 .taskGatewayActionChip {
@@ -1799,7 +1799,7 @@
 
   &:hover {
     background: color-mix(in srgb, var(--omc-danger-strong, #f43f5e) 22%, transparent);
-    color: #fff;
+    color: var(--omc-danger-text);
   }
 
   &:focus-visible {
