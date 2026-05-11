@@ -1,5 +1,4 @@
-:global(:root[data-pipeline-status-mode='broadcast']),
-:global(:root[data-pipeline-status-mode='app']) {
+:global(:root[data-pipeline-status-mode='broadcast']) {
   color-scheme: dark;
   --omc-bg: #000000;
   --omc-app-background: #000000;
@@ -19,31 +18,30 @@
 }
 
 .page {
-  --status-bg: #000000;
-  --status-surface: #101216;
-  --status-surface-muted: #161a21;
-  --status-surface-soft: #1b2029;
-  --status-border: #2d3441;
-  --status-border-subtle: #232a35;
-  --status-border-strong: #3a4352;
-  --status-text: #e7edf8;
-  --status-text-strong: #f5f8ff;
-  --status-text-muted: #9aabc4;
-  --status-success: #7dd3a8;
-  --status-success-border: #246b4a;
-  --status-warning: #f4c96b;
-  --status-warning-border: #665021;
+  --status-bg: var(--omc-bg);
+  --status-surface: var(--omc-surface);
+  --status-surface-muted: var(--omc-surface-muted);
+  --status-surface-soft: var(--omc-surface-soft);
+  --status-border: var(--omc-border);
+  --status-border-subtle: var(--omc-border-subtle);
+  --status-border-strong: var(--omc-border-strong);
+  --status-text: var(--omc-text);
+  --status-text-strong: var(--omc-text-strong);
+  --status-text-muted: var(--omc-text-muted);
+  --status-success: var(--omc-success-strong);
+  --status-success-border: var(--omc-success-border);
+  --status-warning: var(--omc-warning);
+  --status-warning-border: var(--omc-warning-border);
 
   min-height: 100%;
   padding: 28px 30px 32px;
   display: grid;
   gap: 16px;
   align-content: start;
-  background: #000000;
-  background-color: #000000;
-  color: #e7edf8;
+  background: var(--status-bg);
+  background-color: var(--status-bg);
   color: var(--omc-text);
-  overflow: hidden;
+  overflow: auto;
 
   .header {
     margin: 0;
@@ -53,12 +51,34 @@
     border-radius: 12px;
     background: #101216;
     background: var(--omc-surface);
-    background-color: #101216;
+    background-color: var(--status-surface);
     display: grid;
     grid-template-columns: minmax(360px, 1fr) minmax(260px, 360px) auto;
     align-items: center;
     gap: 16px;
     box-shadow: var(--omc-shadow-medium);
+  }
+
+  &.broadcast {
+    --status-bg: #000000;
+    --status-surface: #101216;
+    --status-surface-muted: #161a21;
+    --status-surface-soft: #1b2029;
+    --status-border: #2d3441;
+    --status-border-subtle: #232a35;
+    --status-border-strong: #3a4352;
+    --status-text: #e7edf8;
+    --status-text-strong: #f5f8ff;
+    --status-text-muted: #9aabc4;
+    --status-success: #7dd3a8;
+    --status-success-border: #246b4a;
+    --status-warning: #f4c96b;
+    --status-warning-border: #665021;
+
+    background: #000000;
+    background-color: #000000;
+    color: #e7edf8;
+    overflow: hidden;
   }
 
   .brand {

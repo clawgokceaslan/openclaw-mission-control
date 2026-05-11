@@ -1474,8 +1474,8 @@
   inset: 0;
   -webkit-app-region: no-drag;
   background:
-    radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--omc-primary) 14%, transparent), transparent 32%),
-    color-mix(in srgb, var(--omc-overlay-strong) 92%, #000 8%);
+    radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--omc-primary) 10%, transparent), transparent 32%),
+    color-mix(in srgb, var(--omc-overlay) 88%, var(--omc-bg) 12%);
   z-index: 1490;
 }
 
@@ -1507,7 +1507,7 @@
   grid-template-rows: 1fr;
   border: 1px solid color-mix(in srgb, var(--omc-border-strong) 58%, transparent);
   border-radius: 20px;
-  background: color-mix(in srgb, var(--omc-bg) 94%, var(--omc-surface) 6%);
+  background: var(--omc-surface);
   box-shadow: 0 28px 90px color-mix(in srgb, #000 42%, transparent);
   box-sizing: border-box;
 }
@@ -1905,7 +1905,7 @@
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  background: var(--omc-bg);
+  background: var(--omc-surface);
 }
 
 .chatTopbar {
@@ -1919,7 +1919,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  background: color-mix(in srgb, var(--omc-bg) 88%, var(--omc-surface) 12%);
+  background: var(--omc-surface);
 }
 
 .chatTopbarTitle {
@@ -2102,8 +2102,8 @@
   display: block;
   overflow: hidden;
   background:
-    linear-gradient(to bottom, color-mix(in srgb, var(--omc-surface-muted) 16%, transparent), transparent 130px),
-    var(--omc-bg);
+    linear-gradient(to bottom, color-mix(in srgb, var(--omc-surface-muted) 28%, transparent), transparent 130px),
+    color-mix(in srgb, var(--omc-surface) 88%, var(--omc-bg) 12%);
 }
 
 .chatTranscript {
@@ -3012,7 +3012,7 @@
   padding: 8px clamp(12px, 3vw, 36px) 10px;
   display: grid;
   gap: 5px;
-  background: var(--omc-bg);
+  background: color-mix(in srgb, var(--omc-surface) 92%, var(--omc-bg) 8%);
 }
 
 .chatComposerFrame {
@@ -3486,7 +3486,7 @@
 .chatComposerBox {
   border: 1px solid color-mix(in srgb, var(--omc-border) 34%, transparent);
   border-radius: 13px;
-  background: var(--omc-bg);
+  background: color-mix(in srgb, var(--omc-surface-muted) 74%, var(--omc-surface) 26%);
   display: grid;
   grid-template-columns: minmax(0, 1fr) 42px;
   grid-template-rows: auto 42px;
@@ -3500,7 +3500,7 @@
 
   &:focus-within {
     border-color: color-mix(in srgb, var(--omc-border-strong) 70%, var(--omc-primary) 30%);
-    background: color-mix(in srgb, var(--omc-bg) 94%, var(--omc-surface) 6%);
+    background: color-mix(in srgb, var(--omc-surface-muted) 82%, var(--omc-surface) 18%);
     box-shadow: 0 6px 18px color-mix(in srgb, var(--omc-shadow-color) 28%, transparent);
   }
 

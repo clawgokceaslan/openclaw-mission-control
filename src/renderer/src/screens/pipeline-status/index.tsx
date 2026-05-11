@@ -124,7 +124,8 @@ export function PipelineStatusPage() {
   const params = useParams<{ token?: string }>()
   const watchToken = params.token
   const standalone = location.pathname === APP_ROUTES.PIPELINE_STATUS_STANDALONE
-  const broadcastMode = standalone || Boolean(watchToken)
+  const publicMode = standalone || Boolean(watchToken)
+  const broadcastMode = standalone
   const [snapshot, setSnapshot] = useState<PipelineStatusSnapshot | null>(null)
   const [watchUrl, setWatchUrl] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
@@ -266,7 +267,8 @@ export function PipelineStatusPage() {
   }, [playChime, pushEvent, scheduleSnapshotReload])
 
   useEffect(() => {
-    document.documentElement.dataset.pipelineStatusMode = broadcastMode ? 'broadcast' : 'app'
+    if (broadcastMode) document.documentElement.dataset.pipelineStatusMode = 'broadcast'
+    else delete document.documentElement.dataset.pipelineStatusMode
     return () => {
       delete document.documentElement.dataset.pipelineStatusMode
     }
@@ -296,7 +298,7 @@ export function PipelineStatusPage() {
   }, [handlePipelineEvent, standalone, watchToken])
 
   useEffect(() => {
-    if (!standalone && !watchToken) return
+    if (!publicMode) return
     if (typeof EventSource === 'undefined') return
     const source = new EventSource('/api/public/pipeline-status/events')
     const onLive = () => setLiveState('live')
@@ -311,7 +313,7 @@ export function PipelineStatusPage() {
       pushEvent({ label: 'Live stream', detail: 'Reconnecting', tone: 'warning' })
     }
     return () => source.close()
-  }, [handlePipelineEvent, pushEvent, standalone, watchToken])
+  }, [handlePipelineEvent, publicMode, pushEvent])
 
   const standaloneUrl = async (): Promise<string | null> => {
     const serverResponse = await invokeBridge<WebServerStatusState>(IPC_CHANNELS.appSettings.getWebServerStatus, { actorToken: token })
@@ -387,7 +389,7 @@ export function PipelineStatusPage() {
         {!watchToken ? (
           <div className={styles.actions}>
             <button type="button" onClick={toggleSound}>{soundEnabled && soundReady ? <LuVolume2 size={15} /> : <LuVolumeX size={15} />} {soundEnabled && soundReady ? 'Sound on' : soundEnabled ? 'Sound pending' : 'Sound off'}</button>
-            <button type="button" onClick={() => void loadSnapshot()}><LuRefreshCw size={15} /> Hard refresh</button>
+            {standalone ? <button type="button" onClick={() => void loadSnapshot()}><LuRefreshCw size={15} /> Hard refresh</button> : null}
             {!standalone ? (
               <button type="button" onClick={() => void openStandalone()}><LuTv size={15} /> Standalone page</button>
             ) : null}

@@ -588,8 +588,8 @@ export function LastChatsPage() {
     if (!draftText.trim() && chatAttachments.length === 0) return
     const effectiveSelectedChatSummary = isStartingNewChat ? null : selectedChatSummary
     const sendAsPlanRevision = !isStartingNewChat && effectiveSelectedChatSummary?.source === 'gateway-plan'
-    const isPlanDraft = draftText.trim().toLowerCase().startsWith('/plan')
-    const mode = sendAsPlanRevision || isPlanDraft ? 'plan' : 'chat'
+    const planCommandRequested = draftText.trim().toLowerCase().startsWith('/plan')
+    const mode = sendAsPlanRevision || planCommandRequested ? 'plan' : 'chat'
     const resolvedModel = mode === 'plan' ? (chatPlanModel || chatModel) : (chatRunModel || chatModel)
 
     if (!chatGatewayId || !resolvedModel) {

@@ -149,7 +149,6 @@ export interface UseProjectGatewayFlowResult {
   canRunSelectedTaskWithCodex: boolean
   canPlanSelectedTaskWithCodex: boolean
   canSendChat: boolean
-  isPlanDraft: boolean
   chatOperationFeedback: ChatOperationFeedbackData | null
   planChoiceOpen: boolean
   selectedTaskSummary: string
@@ -730,7 +729,6 @@ export function useProjectGatewayFlow({
     canRunSelectedTaskWithCodex,
     canPlanSelectedTaskWithCodex,
     canSendChat,
-    isPlanDraft,
     chatOperationFeedback,
     planChoiceOpen,
     selectedTaskSummary,
