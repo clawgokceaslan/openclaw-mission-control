@@ -147,6 +147,9 @@ type ActiveGatewayChatRun = {
   taskId: string
   conversationId: string
   runId: string
+  source: TaskActivityMessage['source']
+  eventsPath?: string
+  finalMessagePath?: string
   stopRequested?: boolean
 }
 
@@ -1309,6 +1312,67 @@ function compactFollowUpTaskMetadata(task: TaskEntity, context: unknown): Record
   }
 }
 
+function chatContextFileName(shape: GatewayPromptShape): string {
+  if (shape === 'json') return 'ChatContext.json'
+  if (shape === 'toon') return 'ChatContext.toon'
+  return 'ChatContext.md'
+}
+
+function buildChatContextFileContent(input: {
+  task: TaskEntity
+  transcript: TaskActivityMessage[]
+  context?: unknown
+  followUpContext?: string
+  includeTaskContext?: boolean
+  mode: 'chat' | 'plan' | 'steer'
+  promptShape: GatewayPromptShape
+}): string {
+  const contextRecord = input.context && typeof input.context === 'object' && !Array.isArray(input.context) ? input.context as Record<string, unknown> : {}
+  const routedContext = routedProjectContextForPrompt(input.context, input.mode === 'plan' ? 'plan' : 'chat')
+  const promptContext = input.includeTaskContext === false && !input.followUpContext?.trim()
+    ? undefined
+    : input.followUpContext?.trim()
+      ? compactFollowUpTaskMetadata(input.task, routedContext ?? input.context)
+      : compactGatewayPromptContext(input.task, routedContext)
+  const compactTranscript = input.transcript.slice(-18).map((message) => ({
+    role: message.role,
+    source: message.source,
+    status: message.status,
+    body: compactPromptText(message.body, 900),
+    createdAt: message.createdAt
+  }))
+  const payload = {
+    format: 'open_mission_control_chat_context',
+    mode: input.mode,
+    task: {
+      id: input.task.id,
+      title: input.task.title,
+      status: input.task.status,
+      description: input.task.description ?? ''
+    },
+    contextSummary: contextRecord.contextSummary ?? gatewayCompactContextSummary(input.task, taskActivityMessagesFromPayload(input.task.payload)),
+    followUpContext: input.followUpContext?.trim() || '',
+    currentTaskContext: promptContext,
+    projectGuide: asRecord(contextRecord.project).planGuide || asRecord(contextRecord.project).generalPrompt || '',
+    recentTranscript: compactTranscript
+  }
+  if (input.promptShape === 'json') return JSON.stringify(payload, null, 2)
+  if (input.promptShape === 'toon') return serializeToonRecord(payload as Record<string, unknown>)
+  return [
+    '# Chat Context',
+    '',
+    `Mode: ${payload.mode}`,
+    `Task: ${payload.task.title} (${payload.task.id})`,
+    `Status: ${payload.task.status}`,
+    payload.task.description ? `\n## Task Description\n${payload.task.description}` : '',
+    payload.followUpContext ? `\n## Latest Handoff\n${payload.followUpContext}` : '',
+    `\n## Context Summary\n${JSON.stringify(payload.contextSummary, null, 2)}`,
+    payload.projectGuide ? `\n## Project Guide\n${payload.projectGuide}` : '',
+    `\n## Current Task Context\n${JSON.stringify(payload.currentTaskContext ?? {}, null, 2)}`,
+    `\n## Recent Transcript\n${payload.recentTranscript.map((message) => `${String(message.role).toUpperCase()} [${message.source}/${message.status ?? 'unknown'}]: ${message.body}`).join('\n\n') || 'No prior transcript.'}`
+  ].filter(Boolean).join('\n')
+}
+
 export function gatewayChatPrompt(input: {
   task: TaskEntity
   message: string
@@ -1316,6 +1380,7 @@ export function gatewayChatPrompt(input: {
   context?: unknown
   mode?: 'chat' | 'plan' | 'steer'
   followUpContext?: string
+  contextFilePath?: string
   includeTaskContext?: boolean
   attachments?: Array<{ name: string; path: string; size?: number; mimeType?: string }>
   language?: string
@@ -1363,6 +1428,9 @@ export function gatewayChatPrompt(input: {
   const followUpContext = input.followUpContext?.trim()
     ? `Latest run output context:\n${input.followUpContext.trim()}`
     : ''
+  const contextFileReference = input.contextFilePath?.trim()
+    ? `Compact chat context file: ${input.contextFilePath.trim()}\nRead this file before answering. It contains the latest handoff, generated context, task guide, and compact prior transcript for continuity.`
+    : ''
   const importantComments = importantTaskCommentsSection(input.task, input.context)
   const rows = [
     'You are continuing an Open Mission Control task chat.',
@@ -1370,6 +1438,7 @@ export function gatewayChatPrompt(input: {
     gatewayLanguageInstruction(language),
     projectSettingsSectionFromPlannerContext(input.context),
     `${userPromptLabel}:\n${input.message}`,
+    contextFileReference,
     followUpContext,
     projectInstructionsSection(projectInstructions, { audience: instructionAudience }),
     effectiveAgentSection(effectiveAgent),
@@ -1389,6 +1458,7 @@ export function gatewayChatPrompt(input: {
     { name: 'language_instruction', value: gatewayLanguageInstruction(language) },
     { name: 'project_settings', value: projectSettingsSectionFromPlannerContext(input.context) },
     { name: userPromptLabel.replace(/\s+/g, '_').toLowerCase(), value: input.message },
+    { name: 'compact_chat_context_file', value: input.contextFilePath?.trim() || '' },
     { name: 'latest_run_output_context', value: input.followUpContext?.trim() || '' },
     { name: 'project_instructions', value: projectInstructionsSection(projectInstructions, { audience: instructionAudience }) },
     { name: 'effective_agent', value: effectiveAgentSection(effectiveAgent) },
@@ -2356,6 +2426,12 @@ function extractCodexSessionId(rawEvents: string): string | undefined {
   return undefined
 }
 
+async function extractCodexSessionIdFromFile(path: string | undefined): Promise<string | undefined> {
+  if (!path) return undefined
+  const raw = await readFile(path, 'utf8').catch(() => '')
+  return extractCodexSessionId(raw)
+}
+
 export function postRunContinuationPrompt(input: {
   language?: string
   promptShape?: GatewayPromptShape
@@ -3158,7 +3234,7 @@ export class TaskService {
     }, 1_500).unref?.()
   }
 
-  private interruptActiveGatewayConversationForSteer(taskId: string, conversationId: string): number {
+  private async interruptActiveGatewayConversationForSteer(taskId: string, conversationId: string): Promise<{ count: number; interruptedRunId?: string; codexSessionId?: string }> {
     const matches = Array.from(this.activeGatewayChatRuns.values()).filter((run) => (
       run.taskId === taskId && run.conversationId === conversationId
     ))
@@ -3166,7 +3242,16 @@ export class TaskService {
       run.stopRequested = true
       run.child.kill('SIGTERM')
     }
-    return matches.length
+    const primary = matches[0]
+    return {
+      count: matches.length,
+      interruptedRunId: primary?.runId,
+      codexSessionId: await extractCodexSessionIdFromFile(primary?.eventsPath)
+    }
+  }
+
+  async stopGatewayConversation(payload: { actorToken?: string; taskId?: string; conversationId?: string }): Promise<ServiceResponse<{ stopped: number }>> {
+    return this.gatewayChatStop(payload)
   }
 
   private async enrichTasks(tasks: TaskEntity[]): Promise<TaskEntity[]> {
@@ -3659,11 +3744,87 @@ export class TaskService {
     return this.importJson({ actorToken: payload.actorToken, projectId: payload.projectId, json: payload.json })
   }
 
+  private async plannerUpdateJsonWithPreservedContent(currentTask: TaskEntity, json: string): Promise<string> {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(json)
+    } catch {
+      return json
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return json
+
+    const [task] = await this.enrichTasks([currentTask])
+    const record = parsed as Record<string, unknown>
+    const payloadDescription = asPayload(task.payload).description
+    record.title = task.title
+    record.description = task.description ?? (typeof payloadDescription === 'string' ? payloadDescription : '')
+
+    const mergeComments = (preserved: TaskComment[], incoming: TaskComment[]): TaskComment[] => {
+      const seen = new Set<string>()
+      const merged: TaskComment[] = []
+      for (const comment of [...preserved, ...incoming]) {
+        const body = comment.body.trim()
+        if (!body) continue
+        const key = `${comment.authorName.trim().toLowerCase()}::${body}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        merged.push(comment)
+      }
+      return merged
+    }
+
+    const existingRootComments = task.comments?.length
+      ? task.comments
+      : asComments(asPayload(task.payload).comments)
+    record.comments = mergeComments(existingRootComments, asComments(record.comments))
+
+    const subtasks = Array.isArray(record.subtasks) ? record.subtasks.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item))) : []
+    const existingByTitle = new Map<string, TaskSubtask>()
+    for (const subtask of task.subtasks ?? []) {
+      const key = subtask.title.trim().toLowerCase()
+      if (key && !existingByTitle.has(key)) existingByTitle.set(key, subtask)
+    }
+
+    const matchedSubtaskIds = new Set<string>()
+    for (const subtaskRecord of subtasks.slice(0, 10)) {
+      const title = typeof subtaskRecord.title === 'string' ? subtaskRecord.title.trim().toLowerCase() : ''
+      const existing = title ? existingByTitle.get(title) : undefined
+      if (!existing) continue
+      matchedSubtaskIds.add(existing.id)
+      subtaskRecord.comments = mergeComments(asComments(asPayload(existing.payload).comments), asComments(subtaskRecord.comments))
+    }
+    if (subtasks.length > 10) record.subtasks = subtasks.slice(0, 10)
+
+    const preservedNotes: TaskComment[] = []
+    for (const subtask of task.subtasks ?? []) {
+      if (matchedSubtaskIds.has(subtask.id)) continue
+      const comments = asComments(asPayload(subtask.payload).comments)
+      if (comments.length === 0) continue
+      preservedNotes.push({
+        id: randomUUID(),
+        authorName: 'Planner',
+        body: [
+          `Preserved subtask comments from "${subtask.title}":`,
+          ...comments.map((comment) => `- ${comment.authorName}: ${comment.body}`)
+        ].join('\n'),
+        createdAt: Date.now()
+      })
+    }
+    if (preservedNotes.length > 0) {
+      record.comments = mergeComments(asComments(record.comments), preservedNotes)
+    }
+
+    return JSON.stringify(record, null, 2)
+  }
+
   async plannerUpdateFromJson(payload: PlannerJsonRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<TaskJsonImportResult>> {
     if (!payload?.taskId) return errorResponse(ErrorCodes.Validation, 'Task id required')
-    const validation = await this.plannerValidateJson(payload)
+    const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
+    if (!access.ok || !access.data) return access as ServiceResponse<TaskJsonImportResult>
+    const preservedJson = await this.plannerUpdateJsonWithPreservedContent(access.data.task, payload.json)
+    const validation = await this.plannerValidateJson({ ...payload, json: preservedJson })
     if (!validation.ok) return validation as ServiceResponse<TaskJsonImportResult>
-    return this.importJson({ actorToken: payload.actorToken, taskId: payload.taskId, json: payload.json })
+    return this.importJson({ actorToken: payload.actorToken, taskId: payload.taskId, json: preservedJson })
   }
 
   async markTaskReadyForReview(payload: { actorToken?: string; projectId?: string; taskId?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ taskId: string; statusId: string; statusName: string }>> {
@@ -3792,7 +3953,7 @@ export class TaskService {
     })
   }
 
-  async runGateway(payload: RunTaskGatewayRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ runFolderPath: string; workspacePath: string; exportWorkspacePath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; command: string; executionMode?: GatewayExecutionMode; runId?: string; pid?: number; eventsPath?: string; finalMessagePath?: string }>> {
+  async runGateway(payload: RunTaskGatewayRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ runFolderPath: string; workspacePath: string; exportWorkspacePath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; command: string; executionMode?: GatewayExecutionMode; runId?: string; conversationId?: string; pid?: number; eventsPath?: string; finalMessagePath?: string }>> {
     if (!payload?.taskId || !payload.projectId) return errorResponse(ErrorCodes.Validation, 'Task and project id are required')
     if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex gateway is required')
     if (!payload.model?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex model is required')
@@ -3808,7 +3969,7 @@ export class TaskService {
     if (!zipBuffer?.length && !hasSnapshotPayload) return errorResponse(ErrorCodes.Validation, 'Task snapshot or ZIP bytes are required')
 
     const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
-    if (!access.ok || !access.data) return access as ServiceResponse<{ runFolderPath: string; workspacePath: string; exportWorkspacePath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; command: string; executionMode?: GatewayExecutionMode; runId?: string; pid?: number; eventsPath?: string; finalMessagePath?: string }>
+    if (!access.ok || !access.data) return access as ServiceResponse<{ runFolderPath: string; workspacePath: string; exportWorkspacePath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; command: string; executionMode?: GatewayExecutionMode; runId?: string; conversationId?: string; pid?: number; eventsPath?: string; finalMessagePath?: string }>
     const project = await this.projects.get(payload.projectId)
     if (!project || project.id !== access.data.task.projectId) return errorResponse(ErrorCodes.NotFound, 'Project not found')
     if (project.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
@@ -4063,6 +4224,16 @@ export class TaskService {
           stdio: ['ignore', 'pipe', 'pipe']
         })
         let spawnFailed = false
+        const activeRun: ActiveGatewayChatRun = {
+          child,
+          taskId,
+          conversationId: runId,
+          runId,
+          source: 'gateway-run',
+          eventsPath: execEventsPath,
+          finalMessagePath: execFinalMessagePath
+        }
+        this.activeGatewayChatRuns.set(runId, activeRun)
         const streamer = createCodexActivityStreamer({
           taskId,
           runId,
@@ -4262,6 +4433,7 @@ export class TaskService {
         }
         child.on('error', (error) => {
           spawnFailed = true
+          this.activeGatewayChatRuns.delete(runId)
           void this.appendTaskActivityMessage(taskId, {
             runId,
             source: 'gateway-run',
@@ -4280,8 +4452,39 @@ export class TaskService {
         })
         child.on('close', (code, signal) => {
           void (async () => {
+            this.activeGatewayChatRuns.delete(runId)
             if (spawnFailed) return
             await streamer.flush()
+            if (activeRun.stopRequested) {
+              await this.appendTaskActivityMessages(taskId, [
+                {
+                  runId,
+                  conversationId: runId,
+                  source: 'gateway-run',
+                  role: 'system',
+                  status: 'completed',
+                  body: 'Codex run stopped.',
+                  metadata: { code, signal, eventsPath: execEventsPath, stopped: true, stopRequested: true, gatewayBlock: 'run-complete' }
+                },
+                {
+                  runId,
+                  conversationId: runId,
+                  source: 'gateway-run',
+                  role: 'assistant',
+                  status: 'completed',
+                  body: 'Stopped by user.',
+                  metadata: { code, signal, eventsPath: execEventsPath, stopped: true, stopRequested: true }
+                }
+              ], { emitTaskUpdatedAction: 'activity_complete' })
+              notifyRunCompletion('stopped', code)
+              await bridge?.close()
+              if (workspaceRunPathForCleanup) {
+                setTimeout(() => {
+                  void rm(workspaceRunPathForCleanup ?? '', { recursive: true, force: true })
+                }, 2_000).unref?.()
+              }
+              return
+            }
             const finalMessageRaw = await readFile(execFinalMessagePath, 'utf8').catch(() => '')
             const eventRaw = await readFile(execEventsPath, 'utf8').catch(() => '')
             const eventSummary = summarizeCodexExecEvents(eventRaw, { startedAt: executionStartedAt, endedAt: Date.now() })
@@ -4363,6 +4566,7 @@ export class TaskService {
           command: execCommand,
           executionMode,
           runId,
+          conversationId: runId,
           pid: child.pid,
           eventsPath: execEventsPath,
           finalMessagePath: execFinalMessagePath
@@ -4423,7 +4627,8 @@ export class TaskService {
         gatewayId: gateway.id,
         command: codexCommand,
         executionMode,
-        runId
+        runId,
+        conversationId: runId
       })
     } catch (error) {
       await bridge?.close()
@@ -4850,6 +5055,16 @@ export class TaskService {
           stdio: ['ignore', 'pipe', 'pipe']
         })
         let spawnFailed = false
+        const activeRun: ActiveGatewayChatRun = {
+          child,
+          taskId,
+          conversationId,
+          runId,
+          source: 'gateway-plan',
+          eventsPath: execEventsPath,
+          finalMessagePath: execFinalMessagePath
+        }
+        this.activeGatewayChatRuns.set(runId, activeRun)
         const streamer = createCodexActivityStreamer({
           taskId,
           runId,
@@ -4878,6 +5093,7 @@ export class TaskService {
         }
         child.on('error', (error) => {
           spawnFailed = true
+          this.activeGatewayChatRuns.delete(runId)
           void this.appendTaskActivityMessage(taskId, {
             runId,
             conversationId,
@@ -4897,9 +5113,40 @@ export class TaskService {
         })
         child.on('close', (code, signal) => {
           void (async () => {
+            this.activeGatewayChatRuns.delete(runId)
             if (spawnFailed) return
             await streamer.flush()
             if (this.pausedPlannerRunIds.delete(runId)) {
+              await bridge?.close()
+              if (workspaceRunPathForCleanup) {
+                setTimeout(() => {
+                  void rm(workspaceRunPathForCleanup ?? '', { recursive: true, force: true })
+                }, 2_000).unref?.()
+              }
+              return
+            }
+            if (activeRun.stopRequested) {
+              await this.appendTaskActivityMessages(taskId, [
+                {
+                  runId,
+                  conversationId,
+                  source: 'gateway-plan',
+                  role: 'system',
+                  status: 'completed',
+                  body: 'Codex planner stopped.',
+                  metadata: { gatewayBlock: 'run-complete', code, signal, stopped: true, stopRequested: true, eventsPath: execEventsPath }
+                },
+                {
+                  runId,
+                  conversationId,
+                  source: 'gateway-plan',
+                  role: 'assistant',
+                  status: 'completed',
+                  body: 'Stopped by user.',
+                  metadata: { code, signal, stopped: true, stopRequested: true, eventsPath: execEventsPath }
+                }
+              ], { emitTaskUpdatedAction: 'activity_complete' })
+              notifyPlanCompletion('failed', code)
               await bridge?.close()
               if (workspaceRunPathForCleanup) {
                 setTimeout(() => {
@@ -5074,8 +5321,9 @@ export class TaskService {
 
   async gatewayChatSend(payload: GatewayChatSendRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ runId: string; conversationId: string; executionMode: GatewayExecutionMode; command: string; pid?: number; runFolderPath: string; runtimeWorkspacePath: string }>> {
     if (!payload?.taskId || !payload.projectId) return errorResponse(ErrorCodes.Validation, 'Task and project id are required')
-    const message = payload.message?.trim()
-    if (!message) return errorResponse(ErrorCodes.Validation, 'Message is required')
+    const message = payload.message?.trim() ?? ''
+    const hasAttachmentPayload = Array.isArray(payload.attachments) && payload.attachments.length > 0
+    if (!message && !hasAttachmentPayload) return errorResponse(ErrorCodes.Validation, 'Message is required')
     if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex gateway is required')
     if (!payload.model?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex model is required')
 
@@ -5105,7 +5353,8 @@ export class TaskService {
       ? message.replace(/^\/plan\s*/i, '').trim()
       : message
     const mode = hasPlanPrefix ? 'plan' : requestedMode
-    if (!normalizedMessage) return errorResponse(ErrorCodes.Validation, 'Message is required')
+    if (!normalizedMessage && !hasAttachmentPayload) return errorResponse(ErrorCodes.Validation, 'Message is required')
+    const effectiveMessage = normalizedMessage || 'Please review the attached file(s).'
     const conversationId = payload.conversationId?.trim() || `${mode}-${runId}`
     const transcript = taskActivityMessagesFromPayload(access.data.task.payload)
       .filter((item) => !item.conversationId || item.conversationId === conversationId)
@@ -5153,24 +5402,42 @@ export class TaskService {
     }
     const eventsPath = join(runFolderPath, 'gateway-events.jsonl')
     const finalMessagePath = join(runFolderPath, 'final-message.md')
-    const reasoningEffort = projectGatewayReasoningEffort(project, mode === 'plan' ? 'plan' : 'run', payload.reasoningEffort)
-    const prompt = gatewayChatPrompt({
+    const contextFilePath = join(runFolderPath, chatContextFileName(promptShape))
+    await writeFile(contextFilePath, buildChatContextFileContent({
       task: access.data.task,
-      message: normalizedMessage,
       transcript,
       context,
       followUpContext: typeof payload.followUpContext === 'string' ? payload.followUpContext : undefined,
+      includeTaskContext: payload.includeTaskContext !== false,
+      mode,
+      promptShape
+    }), 'utf8')
+    const reasoningEffort = projectGatewayReasoningEffort(project, mode === 'plan' ? 'plan' : 'run', payload.reasoningEffort)
+    const steerInterrupt = mode === 'steer'
+      ? await this.interruptActiveGatewayConversationForSteer(taskId, conversationId)
+      : { count: 0, interruptedRunId: undefined, codexSessionId: undefined }
+    const prompt = gatewayChatPrompt({
+      task: access.data.task,
+      message: effectiveMessage,
+      transcript,
+      context,
+      followUpContext: typeof payload.followUpContext === 'string' ? payload.followUpContext : undefined,
+      contextFilePath,
       includeTaskContext: payload.includeTaskContext !== false,
       mode,
       attachments,
       language,
       promptShape
     })
+    const resumeArgs = mode === 'steer' && steerInterrupt.codexSessionId
+      ? ['resume', steerInterrupt.codexSessionId]
+      : []
     const execArgs = [
       'exec',
+      ...resumeArgs,
       '--json',
       '--output-last-message', finalMessagePath,
-      '--cd', runtimeWorkspacePath,
+      ...(resumeArgs.length > 0 ? [] : ['--cd', runtimeWorkspacePath]),
       '--model', model,
       '-c', codexReasoningConfigArg(reasoningEffort),
       '--skip-git-repo-check',
@@ -5179,9 +5446,6 @@ export class TaskService {
       prompt
     ]
     const execCommand = [shellQuote(codexPath), ...execArgs.map(shellQuote)].join(' ')
-    const steerInterruptedRuns = mode === 'steer'
-      ? this.interruptActiveGatewayConversationForSteer(taskId, conversationId)
-      : 0
 
     await mkdir(runtimeWorkspacePath, { recursive: true })
     await this.appendTaskActivityMessages(taskId, [
@@ -5191,7 +5455,7 @@ export class TaskService {
         source: activitySource,
         role: 'user',
         status: 'completed',
-        body: normalizedMessage,
+        body: effectiveMessage,
         metadata: {
           gatewayId: gateway.id,
           model,
@@ -5203,7 +5467,8 @@ export class TaskService {
             source: typeof payload.command?.source === 'string' ? payload.command.source : 'button',
             label: typeof payload.command?.label === 'string' ? payload.command.label : mode
           },
-          attachments
+          attachments,
+          contextFilePath
         }
       },
       {
@@ -5215,11 +5480,23 @@ export class TaskService {
         body: mode === 'plan'
           ? executionMode === 'exec' ? 'Codex is revising the plan...' : 'Opening Codex terminal to revise the plan...'
           : mode === 'steer'
-            ? steerInterruptedRuns > 0
+            ? steerInterrupt.count > 0
               ? 'Codex is applying the steer instruction after interrupting the active turn...'
               : 'Codex is applying the steer instruction...'
           : executionMode === 'exec' ? 'Codex is thinking...' : 'Opening Codex terminal...',
-        metadata: { executionMode, runtimeWorkspacePath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, mode, steerInterruptedRuns }
+        metadata: {
+          executionMode,
+          runtimeWorkspacePath,
+          codexPath,
+          configuredCodexPath,
+          attemptedCodexPaths,
+          codexEnvPath,
+          mode,
+          contextFilePath,
+          steerInterruptedRuns: steerInterrupt.count,
+          interruptedRunId: steerInterrupt.interruptedRunId,
+          resumedFromSessionId: steerInterrupt.codexSessionId
+        }
       }
     ])
 
@@ -5260,7 +5537,7 @@ export class TaskService {
     const executionStartedAt = Date.now()
     const child = spawn(codexPath, execArgs, { cwd: runtimeWorkspacePath, env: codexEnv, stdio: ['ignore', 'pipe', 'pipe'] })
     let spawnFailed = false
-    const activeRun: ActiveGatewayChatRun = { child, taskId, conversationId, runId }
+    const activeRun: ActiveGatewayChatRun = { child, taskId, conversationId, runId, source: activitySource, eventsPath, finalMessagePath }
     this.activeGatewayChatRuns.set(runId, activeRun)
     const streamer = createCodexActivityStreamer({
       taskId,
@@ -5402,17 +5679,21 @@ export class TaskService {
     const conversationId = payload.conversationId?.trim()
     const matches = Array.from(this.activeGatewayChatRuns.values()).filter((run) => {
       if (run.taskId !== access.data?.task.id) return false
-      return conversationId ? run.conversationId === conversationId : true
+      return conversationId ? run.conversationId === conversationId || run.runId === conversationId : true
     })
     for (const run of matches) {
       run.stopRequested = true
       run.child.kill('SIGTERM')
     }
     if (matches.length === 0 && conversationId) {
+      const conversationMessages = taskActivityMessagesFromPayload(asPayload(access.data.task.payload))
+        .filter((message) => message.conversationId === conversationId || message.runId === conversationId)
+        .sort((a, b) => a.createdAt - b.createdAt)
+      const lastSource = [...conversationMessages].reverse().find((message) => message.source.startsWith('gateway-'))?.source ?? 'gateway-chat'
       await this.appendTaskActivityMessage(access.data.task.id, {
         runId: conversationId,
         conversationId,
-        source: 'gateway-chat',
+        source: lastSource,
         role: 'system',
         status: 'completed',
         body: 'No running Codex chat was found. Marked as stopped.',

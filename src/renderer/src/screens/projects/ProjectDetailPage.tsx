@@ -614,18 +614,22 @@ export function ProjectDetailPage() {
       return
     }
 
-    if (selectedTaskId !== routeTaskId) setSelectedTaskId(routeTaskId)
+    const isChangingTaskSelection = selectedTaskId !== routeTaskId
+    const isLeavingSubtaskView = Boolean(selectedSubtaskId) || detailViewMode !== 'task'
+    if (isChangingTaskSelection) setSelectedTaskId(routeTaskId)
 
     if (routeSubtaskId) {
-      if (selectedSubtaskId !== routeSubtaskId) setSelectedSubtaskId(routeSubtaskId)
-      if (detailViewMode !== 'subtask') setDetailViewMode('subtask')
-      if (detailTab === 'subtasks' || detailTab === 'model') setDetailTab('agent')
+      const isChangingSubtaskSelection = selectedSubtaskId !== routeSubtaskId
+      const isEnteringSubtaskView = detailViewMode !== 'subtask'
+      if (isChangingSubtaskSelection) setSelectedSubtaskId(routeSubtaskId)
+      if (isEnteringSubtaskView) setDetailViewMode('subtask')
+      if ((isChangingSubtaskSelection || isEnteringSubtaskView) && (detailTab === 'subtasks' || detailTab === 'model')) setDetailTab('agent')
       return
     }
 
     if (selectedSubtaskId) setSelectedSubtaskId(null)
     if (detailViewMode !== 'task') setDetailViewMode('task')
-    if (detailTab !== 'subtasks') setDetailTab('subtasks')
+    if ((isChangingTaskSelection || isLeavingSubtaskView) && detailTab !== 'subtasks') setDetailTab('subtasks')
   }, [
     routeTaskId,
     routeSubtaskId,

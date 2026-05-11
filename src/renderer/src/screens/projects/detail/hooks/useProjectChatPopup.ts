@@ -351,12 +351,21 @@ export function useProjectChatPopup({
 
   const sidebarConversations = useMemo(() => {
     if (chatConversations.length <= 120) return chatConversations
-    const selectedConversation = chatConversations.find((conversation) => conversation.id === selectedChatConversationId)
-    const selectedInRecent = chatConversations.slice(0, 120).some((conversation) => conversation.id === selectedChatConversationId)
-    return selectedConversation && !selectedInRecent
-      ? [selectedConversation, ...chatConversations.slice(0, 119)]
-      : chatConversations.slice(0, 120)
-  }, [chatConversations, selectedChatConversationId])
+    const pinnedIds = new Set<string>(runningConversationIds)
+    if (selectedChatConversationId) pinnedIds.add(selectedChatConversationId)
+    const merged: ChatConversationSummary[] = []
+    const seen = new Set<string>()
+    const push = (conversation: ChatConversationSummary | undefined) => {
+      if (!conversation || seen.has(conversation.id)) return
+      seen.add(conversation.id)
+      merged.push(conversation)
+    }
+    for (const conversation of chatConversations) {
+      if (pinnedIds.has(conversation.id)) push(conversation)
+    }
+    for (const conversation of chatConversations.slice(0, 120)) push(conversation)
+    return merged
+  }, [chatConversations, runningConversationIds, selectedChatConversationId])
 
   const chatHistoryCount = isChatModalMounted ? chatConversations.length : 0
 

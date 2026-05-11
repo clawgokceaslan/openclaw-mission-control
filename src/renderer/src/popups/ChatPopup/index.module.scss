@@ -30,13 +30,38 @@
 
 .chatComposer {
   min-width: 0;
-  border-top: 1px solid color-mix(in srgb, var(--omc-border-subtle) 72%, transparent);
   background: color-mix(in srgb, var(--omc-surface) 86%, var(--omc-surface-muted) 14%);
 }
 
 .chatComposerBox {
   border-color: color-mix(in srgb, var(--omc-border) 46%, transparent);
   background: color-mix(in srgb, var(--omc-surface-muted) 64%, var(--omc-surface) 36%);
+}
+
+.chatComposerBox .chatAttachButton,
+.chatComposerBox .chatSendButton,
+.chatComposerBox .chatConfigurationButton {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
+  border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 82%, transparent) !important;
+  border-radius: 10px !important;
+  background: color-mix(in srgb, var(--omc-surface-muted) 74%, transparent) !important;
+  color: var(--omc-text-muted) !important;
+  box-shadow: none !important;
+}
+
+.chatComposerBox .chatConfigurationButton {
+  width: auto;
+  max-width: 100%;
+  padding: 0 10px;
+}
+
+.chatComposerBox .chatSendButton:not(:disabled) {
+  background: var(--omc-primary) !important;
+  color: var(--omc-primary-text) !important;
+  border-color: color-mix(in srgb, var(--omc-primary) 64%, var(--omc-border-subtle)) !important;
 }
 
 .chatTopbarActions {

@@ -158,6 +158,28 @@ describe('gatewayChatPrompt', () => {
     expect(prompt.indexOf('Important task comments:')).toBeLessThan(prompt.indexOf('Recent chat transcript:'))
   })
 
+  it('references compact chat context files in prompt shapes', () => {
+    const markdownPrompt = gatewayChatPrompt({
+      task: taskWithComments(),
+      message: 'Continue.',
+      transcript: [],
+      contextFilePath: '/tmp/omc-run/ChatContext.md',
+      mode: 'chat'
+    })
+    const jsonPrompt = gatewayChatPrompt({
+      task: taskWithComments(),
+      message: 'Continue.',
+      transcript: [],
+      contextFilePath: '/tmp/omc-run/ChatContext.json',
+      promptShape: 'json',
+      mode: 'chat'
+    })
+
+    expect(markdownPrompt).toContain('Compact chat context file: /tmp/omc-run/ChatContext.md')
+    expect(jsonPrompt).toContain('"name": "compact_chat_context_file"')
+    expect(jsonPrompt).toContain('"value": "/tmp/omc-run/ChatContext.json"')
+  })
+
   it('omits the comments section when the task has no comments', () => {
     const task = { ...taskWithComments(), comments: [], subtasks: [] }
     const prompt = gatewayChatPrompt({
@@ -405,10 +427,12 @@ describe('planner quality gate', () => {
 
   it('blocks planner update when validation fails', async () => {
     let imported = false
-    const service = Object.create(TaskService.prototype) as TaskService & {
+    const service = Object.create(TaskService.prototype) as TaskService & any & {
       importJson: () => Promise<unknown>
       plannerValidateJson: () => Promise<unknown>
     }
+    service.ensureTaskAccess = async () => ({ ok: true, data: { task: taskWithComments() } })
+    service.plannerUpdateJsonWithPreservedContent = async (_task: TaskEntity, json: unknown) => JSON.stringify(json)
     service.plannerValidateJson = async () => ({ ok: false, error: { code: 'validation', message: 'Planner JSON quality check failed' } })
     service.importJson = async () => {
       imported = true
@@ -1082,7 +1106,7 @@ describe('codex activity persistence', () => {
     expect((taskUpdatedEvents[0] as { action: string }).action).toBe('plan_status_advanced')
   })
 
-  it('interrupts active conversation before applying a steer turn', () => {
+  it('interrupts active conversation before applying a steer turn', async () => {
     const killed: string[] = []
     const service = Object.create(TaskService.prototype) as any
     const activeRun = {
@@ -1093,9 +1117,10 @@ describe('codex activity persistence', () => {
     }
     service.activeGatewayChatRuns = new Map([['run-1', activeRun]])
 
-    const interrupted = service.interruptActiveGatewayConversationForSteer('task-1', 'conversation-1')
+    const interrupted = await service.interruptActiveGatewayConversationForSteer('task-1', 'conversation-1')
 
-    expect(interrupted).toBe(1)
+    expect(interrupted.count).toBe(1)
+    expect(interrupted.interruptedRunId).toBe('run-1')
     expect(activeRun.stopRequested).toBe(true)
     expect(killed).toEqual(['SIGTERM'])
   })

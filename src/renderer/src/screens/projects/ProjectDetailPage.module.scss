@@ -162,9 +162,9 @@
 .header {
   margin: -22px -30px 0;
   border-bottom: 1px solid var(--omc-border);
-  padding: 16px 30px 0;
+  padding: 12px 30px 0;
   display: grid;
-  gap: 12px;
+  gap: 8px;
   background: var(--omc-surface);
 
   @media (width <= 900px) {
@@ -185,7 +185,7 @@
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
-  min-height: 46px;
+  min-height: 38px;
 
   @media (width <= 900px) {
     gap: 8px;
@@ -214,7 +214,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 1.72rem;
+  font-size: 1.5rem;
   font-weight: 800;
   line-height: 1.12;
 
@@ -1031,7 +1031,7 @@
 .taskGatewayStrip {
   min-width: 0;
   max-width: 100%;
-  margin-top: 8px;
+  margin-top: 5px;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -1069,8 +1069,8 @@
 
 .taskGatewayStateBadge,
 .taskGatewayActionChip {
-  height: 22px;
-  max-width: 150px;
+  height: 20px;
+  max-width: 132px;
   border-radius: 999px;
   padding: 0 7px;
   display: inline-flex;
@@ -1080,7 +1080,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.68rem;
+  font-size: 0.64rem;
   font-weight: 900;
   line-height: 1;
 }
@@ -1171,7 +1171,7 @@
 
 .taskGatewayMenuButton {
   width: 24px;
-  height: 22px;
+  height: 20px;
   border: 1px solid var(--omc-border-subtle);
   border-radius: 7px;
   background: color-mix(in srgb, var(--omc-surface-muted) 58%, transparent);
@@ -3888,6 +3888,32 @@
   }
 }
 
+.chatComposerBox .chatAttachButton,
+.chatComposerBox .chatSendButton,
+.chatComposerBox .chatConfigurationButton {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
+  border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 82%, transparent) !important;
+  border-radius: 10px !important;
+  background: color-mix(in srgb, var(--omc-surface-muted) 74%, transparent) !important;
+  color: var(--omc-text-muted) !important;
+  box-shadow: none !important;
+}
+
+.chatComposerBox .chatConfigurationButton {
+  width: auto;
+  max-width: 100%;
+  padding: 0 10px;
+}
+
+.chatComposerBox .chatSendButton:not(:disabled) {
+  background: var(--omc-primary) !important;
+  color: var(--omc-primary-text) !important;
+  border-color: color-mix(in srgb, var(--omc-primary) 64%, var(--omc-border-subtle)) !important;
+}
+
 .chatOperationFeedback {
   width: 100%;
   max-width: 100%;
@@ -4254,7 +4280,7 @@
 
 .commentsPane {
   min-height: 0;
-  background: var(--omc-bg);
+  background: color-mix(in srgb, var(--omc-surface-muted) 52%, var(--omc-surface) 48%);
   display: grid;
   grid-template-rows: auto 1fr auto;
   border-left: 1px solid var(--omc-border);
@@ -4295,7 +4321,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: var(--omc-bg);
+  background: color-mix(in srgb, var(--omc-surface-muted) 46%, var(--omc-surface) 54%);
 
   &::before {
     content: '';
@@ -8396,7 +8422,6 @@
 
   .chatComposer {
     padding: 6px max(10px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px));
-    border-top: 1px solid color-mix(in srgb, var(--omc-border-subtle) 66%, transparent);
     overflow: hidden;
   }
 

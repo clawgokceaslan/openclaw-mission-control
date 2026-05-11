@@ -391,7 +391,7 @@
 
 .commentsPane {
   min-height: 0;
-  background: var(--omc-bg);
+  background: color-mix(in srgb, var(--omc-surface-muted) 52%, var(--omc-surface) 48%);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   border-left: 1px solid var(--omc-border);
@@ -415,7 +415,7 @@
 
 .commentsHeader h4 { margin: 0; color: var(--omc-text-strong); font-size: 0.84rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 .commentsHeader span { color: var(--omc-text-muted); font-size: 0.78rem; font-weight: 750; }
-.commentsFeed { min-height: 0; overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; background: var(--omc-bg); }
+.commentsFeed { min-height: 0; overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; background: color-mix(in srgb, var(--omc-surface-muted) 46%, var(--omc-surface) 54%); }
 .commentsFeed::before { content: ''; margin-top: auto; }
 .commentItem { flex: 0 0 auto; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; border: 1px solid var(--omc-border-subtle); border-radius: 14px; padding: 10px; background: var(--omc-surface); box-shadow: var(--omc-shadow-soft); }
 .commentItem:hover .commentActions { opacity: 1; }

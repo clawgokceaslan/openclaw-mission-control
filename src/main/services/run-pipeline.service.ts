@@ -145,7 +145,15 @@ export class RunPipelineService {
   async pause(payload: { actorToken?: string; id?: string }): Promise<ServiceResponse<RunPipelineGraph>> {
     const actor = await this.auth.requireActor(payload?.actorToken)
     if (!payload?.id) return errorResponse(ErrorCodes.Validation, 'Run pipeline id gerekli')
+    const graph = await this.repo.get(actor.user.organizationId, payload.id)
+    if (!graph) return errorResponse(ErrorCodes.NotFound, 'Run pipeline bulunamadı')
     await this.repo.setBatchState(actor.user.organizationId, payload.id, { status: 'paused' })
+    const active = graph.items.find((item) => item.status === 'running' && item.taskGatewayRunId)
+    if (active?.taskGatewayRunId) {
+      await this.repo.setItemState(actor.user.organizationId, active.id, { status: 'queued', progress: 0, taskGatewayRunId: null, lastError: 'Paused by user', startedAt: null, completedAt: null })
+      await this.repo.setStageState(actor.user.organizationId, active.stageId, { status: 'paused' })
+      await this.tasks.stopGatewayConversation({ actorToken: payload.actorToken, taskId: active.taskId, conversationId: active.taskGatewayRunId })
+    }
     this.emitUpdated(payload.id)
     return this.get({ actorToken: payload.actorToken, id: payload.id })
   }
@@ -159,6 +167,10 @@ export class RunPipelineService {
     if (!payload?.id) return errorResponse(ErrorCodes.Validation, 'Run pipeline id gerekli')
     const graph = await this.repo.get(actor.user.organizationId, payload.id)
     if (!graph) return errorResponse(ErrorCodes.NotFound, 'Run pipeline bulunamadı')
+    const active = graph.items.find((item) => item.status === 'running' && item.taskGatewayRunId)
+    if (active?.taskGatewayRunId) {
+      await this.tasks.stopGatewayConversation({ actorToken: payload.actorToken, taskId: active.taskId, conversationId: active.taskGatewayRunId })
+    }
     await this.repo.setBatchState(actor.user.organizationId, payload.id, { status: 'cancelled', currentItemId: null, currentStageId: null, completedAt: Date.now() })
     await Promise.all(graph.stages.filter((stage) => stage.status !== 'completed').map((stage) => this.repo.setStageState(actor.user.organizationId, stage.id, { status: 'cancelled' })))
     await Promise.all(graph.items.filter((item) => !['completed', 'skipped'].includes(item.status)).map((item) => this.repo.setItemState(actor.user.organizationId, item.id, { status: 'blocked', lastError: 'Pipeline cancelled' })))
@@ -234,11 +246,13 @@ export class RunPipelineService {
     if (!runId) return
     const item = await this.repo.getByGatewayRunId(runId)
     if (!item) return
+    const graph = await this.repo.get(item.organizationId, item.batchId)
+    if (!graph || graph.batch.status === 'paused' || graph.batch.status === 'cancelled') return
     if (message?.status === 'completed') {
       await this.repo.setItemState(item.organizationId, item.id, { status: 'completed', progress: 100, completedAt: Date.now(), lastError: null })
       await this.recalculate(item.organizationId, item.batchId)
-      const graph = await this.repo.get(item.organizationId, item.batchId)
-      if (graph?.batch.status === 'running') await this.launchNext(item.organizationId, item.batchId)
+      const latestGraph = await this.repo.get(item.organizationId, item.batchId)
+      if (latestGraph?.batch.status === 'running') await this.launchNext(item.organizationId, item.batchId)
       return
     }
     if (message?.status === 'failed') {
