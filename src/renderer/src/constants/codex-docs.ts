@@ -386,6 +386,89 @@ Type \`/\` in the composer to open the slash command picker. While a task is run
 - \`/apps\`: browse apps and insert app mentions.
 - \`/plugins\`: browse installed and discoverable plugins.
 - \`/statusline\`, \`/title\`, and \`/keymap\`: customize the TUI.`
+  },
+  {
+    id: 'agents-skills-tools-gateway-guide',
+    title: 'Agents, Skills, Tools and Gateway Guide',
+    category: 'Capabilities',
+    summary: 'OpenAI-aligned mental model and Open Mission Control architecture for agents, skills, tools, and gateway execution.',
+    sourceFiles: [
+      'src/shared/types/entities.ts',
+      'src/main/services/agent.service.ts',
+      'src/main/services/skill.service.ts',
+      'src/main/services/tool.service.ts',
+      'src/main/services/gateway/*',
+      'src/renderer/src/screens/tools/ToolsPage.tsx'
+    ],
+    terms: [
+      { term: 'Agent', description: 'A model-facing operating profile: name, instructions, tags, attached skills, attached tools, and future orchestration policy.' },
+      { term: 'Tool', description: 'A callable capability definition. In OMC v1 tools are catalog records only and are not executed.' },
+      { term: 'Skill', description: 'A reusable instruction/workflow bundle concept aligned with SKILL.md-style guidance.' },
+      { term: 'Gateway', description: 'The runtime bridge that launches Codex CLI or connects to OpenClaw RPC capabilities.' }
+    ],
+    markdown: `# Agents, Skills, Tools and Gateway Guide
+
+This guide defines how Open Mission Control models AI capabilities.
+
+## Mental model
+
+- Agent: the orchestration profile. It tells the AI who is responsible for a task, what behavior to follow, and which catalog capabilities are relevant.
+- Tool: a callable capability surface. A tool has a name, description, schema, function/code detail, command preparation, and execution flow.
+- Skill: reusable instructions, conventions, scripts, references, and assets. Skills teach a workflow; tools perform actions.
+- Gateway: the runtime bridge. Codex CLI execution and OpenClaw RPC live here, not in the catalog editor.
+
+## Current OMC architecture
+
+Agents, Skills, and Tools are first-class capability records. Tasks can resolve an effective agent and export supporting files into the Codex runtime workspace.
+
+In this phase, Tools are exported as \`Tools.md\` catalog context only. The runtime prompt explicitly says that listed commands must not be executed as tool invocations. This preserves safety while making the future execution contract visible.
+
+## Tool schema guidance
+
+Good tool definitions include:
+
+- a short action-oriented name;
+- a usage description that says when the AI should consider the tool;
+- strict input and output JSON object schemas when the tool has structured data;
+- a function name when the implementation is function-shaped;
+- code or command snippets only as implementation reference;
+- a clear execution flow with expected validation, approval, and result parsing.
+
+Avoid vague descriptions such as "does project stuff." Prefer concrete capability boundaries such as "List changed files in the runtime workspace and return relative paths plus status labels."
+
+## Local command model
+
+Local command is the chosen future runtime shape. A local command tool can store:
+
+- prepare command;
+- command template;
+- working directory hint;
+- timeout;
+- approval requirement;
+- input/output schemas;
+- execution flow notes.
+
+OMC v1 does not execute these commands. A future phase should add explicit approval, command allow/deny policy, timeout enforcement, audit logs, stdout/stderr capture, and deterministic tool result records before any agent can invoke a local command.
+
+## Gateway relationship
+
+Codex CLI task execution already launches through Gateway configuration. OpenClaw method catalog already includes \`tools.catalog\`, \`tools.effective\`, and \`tools.invoke\` concepts. OMC Tools should remain provider-neutral so a future adapter can map catalog definitions to either local command execution or OpenClaw RPC invocation.
+
+## Safety rules
+
+- Skills are user-priority instructions, not security policy.
+- Tool definitions are not permission grants.
+- Write-capable or shell-capable tools must require explicit approval.
+- Tool outputs should be logged and tied to task/run/conversation ids.
+- Third-party MCP or remote tools need scoped credentials and prompt-injection review.
+
+## Roadmap
+
+1. Catalog phase: define and attach tools to agents.
+2. Export phase: include \`Tools.md\` with task runtime context.
+3. Approval phase: add command preview and approval records.
+4. Execution phase: run local commands through a sandboxed service.
+5. Invocation phase: allow agent loops to request approved tools and feed structured outputs back into the conversation.`
   }
 ]
 

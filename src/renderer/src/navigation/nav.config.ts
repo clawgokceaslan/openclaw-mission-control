@@ -15,6 +15,7 @@ import {
   LuLayers,
   LuMessageSquare,
   LuRocket,
+  LuWrench,
   LuTv,
   LuWorkflow
 } from 'react-icons/lu'
@@ -53,6 +54,7 @@ export const NAV_BY_GROUP: Record<NavGroupKey, NavItem[]> = {
   ],
   Capabilities: [
     { label: 'Agents', path: APP_ROUTES.AGENTS, group: 'Capabilities', icon: LuBot },
+    { label: 'Tools', path: APP_ROUTES.TOOLS, group: 'Capabilities', icon: LuWrench },
     { label: 'Skills', path: APP_ROUTES.SKILLS, group: 'Capabilities', icon: LuSparkles }
   ],
   Administration: [

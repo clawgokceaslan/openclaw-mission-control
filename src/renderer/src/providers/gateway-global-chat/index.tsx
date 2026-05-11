@@ -245,6 +245,7 @@ export function GlobalGatewayChatProvider({ children }: { children: ReactNode })
         taskToon: snapshot.taskToon,
         agentMarkdown: snapshot.agentMarkdown,
         skillsMarkdown: snapshot.skillsMarkdown,
+        toolsMarkdown: snapshot.toolsMarkdown,
         attachments: snapshot.attachments
       })
       const errorMessage = response.ok ? '' : response.error?.message ?? ''

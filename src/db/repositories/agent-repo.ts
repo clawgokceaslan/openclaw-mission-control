@@ -1,7 +1,7 @@
 import { BaseRepository } from './base-repo.js'
 import { randomUUID } from 'node:crypto'
 import { SqliteAdapter } from '../adapter/sqlite.js'
-import type { Agent, Tag } from '../../shared/types/entities.js'
+import type { Agent, AiTool, Tag } from '../../shared/types/entities.js'
 import { resolveTagColor } from './tag-color.js'
 
 function asConfig(value: unknown): Record<string, unknown> {
@@ -31,7 +31,7 @@ export class AgentRepository extends BaseRepository<Agent> {
     return agent
   }
 
-  async create(input: Omit<Agent, 'id' | 'createdAt' | 'updatedAt' | 'heartbeatAt' | 'tags'> & { tagIds?: string[] }): Promise<Agent> {
+  async create(input: Omit<Agent, 'id' | 'createdAt' | 'updatedAt' | 'heartbeatAt' | 'tags' | 'tools'> & { tagIds?: string[]; toolIds?: string[] }): Promise<Agent> {
     const now = Date.now()
     const row: Agent = {
       id: randomUUID(),
@@ -60,6 +60,7 @@ export class AgentRepository extends BaseRepository<Agent> {
           updatedAt: row.updatedAt
         })
       await this.replaceAgentTags(row.id, input.tagIds ?? [])
+      await this.replaceAgentTools(row.id, input.toolIds ?? [])
     })
     return (await this.get(row.id)) ?? row
   }
@@ -74,7 +75,7 @@ export class AgentRepository extends BaseRepository<Agent> {
     return { ...row, heartbeatAt: now, updatedAt: now }
   }
 
-  async update(id: string, patch: Partial<Agent> & { tagIds?: string[] }): Promise<Agent | undefined> {
+  async update(id: string, patch: Partial<Agent> & { tagIds?: string[]; toolIds?: string[] }): Promise<Agent | undefined> {
     const current = await this.get(id)
     if (!current) return undefined
     const next = { ...current, ...patch, updatedAt: Date.now() }
@@ -90,6 +91,9 @@ export class AgentRepository extends BaseRepository<Agent> {
         })
       if (patch.tagIds !== undefined) {
         await this.replaceAgentTags(id, patch.tagIds)
+      }
+      if (patch.toolIds !== undefined) {
+        await this.replaceAgentTools(id, patch.toolIds)
       }
     })
     return this.get(id)
@@ -136,14 +140,42 @@ export class AgentRepository extends BaseRepository<Agent> {
     return byAgentId
   }
 
+  async listToolsByAgentIds(agentIds: string[]): Promise<Record<string, AiTool[]>> {
+    if (agentIds.length === 0) return {}
+    const placeholders = agentIds.map((_, index) => `@id${index}`).join(', ')
+    const params = agentIds.reduce<Record<string, string>>((acc, id, index) => {
+      acc[`id${index}`] = id
+      return acc
+    }, {})
+    const rows = await this.db
+      .prepare(
+        `SELECT at.agent_id, t.*
+         FROM agent_tools at
+         INNER JOIN ai_tools t ON t.id = at.tool_id
+         WHERE at.agent_id IN (${placeholders})
+         ORDER BY at.agent_id ASC, t.name ASC`
+      )
+      .all(params) as Array<Record<string, unknown> & { agent_id: string }>
+    const byAgentId: Record<string, AiTool[]> = {}
+    for (const row of rows) {
+      byAgentId[row.agent_id] = byAgentId[row.agent_id] ?? []
+      byAgentId[row.agent_id].push(this.mapTool(row))
+    }
+    return byAgentId
+  }
+
   private async hydrateTags(agents: Agent[]): Promise<Agent[]> {
     const tagsByAgentId = await this.listTagsByAgentIds(agents.map((agent) => agent.id))
+    const toolsByAgentId = await this.listToolsByAgentIds(agents.map((agent) => agent.id))
     return agents.map((agent) => {
       const tags = tagsByAgentId[agent.id] ?? []
+      const tools = toolsByAgentId[agent.id] ?? []
       return {
         ...agent,
         tags,
-        tagIds: tags.map((tag) => tag.id)
+        tagIds: tags.map((tag) => tag.id),
+        tools,
+        toolIds: tools.map((tool) => tool.id)
       }
     })
   }
@@ -159,6 +191,22 @@ export class AgentRepository extends BaseRepository<Agent> {
           id: randomUUID(),
           agentId,
           tagId,
+          createdAt: now
+        })
+    }
+  }
+
+  private async replaceAgentTools(agentId: string, toolIds: string[]): Promise<void> {
+    const normalized = Array.from(new Set(toolIds.filter((item) => typeof item === 'string' && item.length > 0)))
+    const now = Date.now()
+    await this.db.prepare('DELETE FROM agent_tools WHERE agent_id = @agentId').run({ agentId })
+    for (const toolId of normalized) {
+      await this.db
+        .prepare('INSERT INTO agent_tools (id, agent_id, tool_id, created_at) VALUES (@id, @agentId, @toolId, @createdAt)')
+        .run({
+          id: randomUUID(),
+          agentId,
+          toolId,
           createdAt: now
         })
     }
@@ -187,6 +235,31 @@ export class AgentRepository extends BaseRepository<Agent> {
       title: typeof config.title === 'string' ? config.title : '',
       description: typeof config.description === 'string' ? config.description : '',
       trainingMarkdown: typeof config.trainingMarkdown === 'string' ? config.trainingMarkdown : '',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }
+  }
+
+  private mapTool(row: any): AiTool {
+    return {
+      id: row.id,
+      organizationId: row.organization_id,
+      name: row.name,
+      slug: row.slug,
+      status: row.status === 'inactive' ? 'inactive' : 'active',
+      toolType: ['local_command', 'function', 'code', 'reference'].includes(row.tool_type) ? row.tool_type : 'local_command',
+      descriptionMarkdown: row.description_markdown ?? '',
+      codeLanguage: row.code_language ?? '',
+      codeBody: row.code_body ?? '',
+      functionName: row.function_name ?? '',
+      commandTemplate: row.command_template ?? '',
+      prepareCommand: row.prepare_command ?? '',
+      workingDirectoryHint: row.working_directory_hint ?? '',
+      inputSchemaJson: this.parseJson<Record<string, unknown>>(row.input_schema_json),
+      outputSchemaJson: this.parseJson<Record<string, unknown>>(row.output_schema_json),
+      executionFlowMarkdown: row.execution_flow_markdown ?? '',
+      approvalRequired: Boolean(row.approval_required),
+      timeoutSeconds: row.timeout_seconds === null || row.timeout_seconds === undefined ? null : Number(row.timeout_seconds),
       createdAt: row.created_at,
       updatedAt: row.updated_at
     }

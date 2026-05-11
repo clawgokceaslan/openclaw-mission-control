@@ -75,16 +75,17 @@ export function AppSelect(props: AppSelectProps) {
       borderRadius: 8,
       padding: '8px 10px',
       backgroundColor: state.isSelected
-        ? 'var(--omc-primary)'
+        ? 'var(--omc-active-bg)'
         : state.isFocused
           ? 'var(--omc-hover-bg)'
           : 'var(--omc-surface)',
-      color: state.isSelected ? 'var(--omc-inverse-text)' : 'var(--omc-text)',
+      color: state.isSelected ? 'var(--omc-primary-strong)' : 'var(--omc-text)',
       fontSize: '0.9rem',
       fontWeight: 600,
       cursor: 'pointer',
       ':active': {
-        backgroundColor: state.isSelected ? 'var(--omc-primary)' : 'var(--omc-active-bg)'
+        backgroundColor: 'var(--omc-active-bg)',
+        color: 'var(--omc-primary-strong)'
       }
     }),
     multiValue: (base, state) => {

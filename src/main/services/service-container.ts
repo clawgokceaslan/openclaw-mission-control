@@ -11,6 +11,7 @@ import { AgentRepository } from '../../db/repositories/agent-repo.js'
 import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
 import { WebhookRepository } from '../../db/repositories/webhook-repo.js'
 import { SkillRepository, PackRepository } from '../../db/repositories/skill-repo.js'
+import { ToolRepository } from '../../db/repositories/tool-repo.js'
 import { OrganizationRepository } from '../../db/repositories/org-repo.js'
 import { GroupRepository } from '../../db/repositories/group-repo.js'
 import { PlanPipelineRepository } from '../../db/repositories/plan-pipeline-repo.js'
@@ -30,6 +31,7 @@ import { GatewayService } from './gateway/index.js'
 import { OpenClawGatewayRuntimeRegistry } from './gateway/index.js'
 import { WebhookService } from './webhook.service.js'
 import { SkillService } from './skill.service.js'
+import { ToolService } from './tool.service.js'
 import { OrganizationService } from './organization.service.js'
 import { ProjectGroupService } from './project-group.service.js'
 import { PlanPipelineService } from './plan-pipeline.service.js'
@@ -55,6 +57,7 @@ export interface AppServices {
   gateways: GatewayService
   webhooks: WebhookService
   skills: SkillService
+  tools: ToolService
   organization: OrganizationService
   projectGroups: ProjectGroupService
   planPipelines: PlanPipelineService
@@ -91,6 +94,7 @@ export async function createAppContext(): Promise<AppContext> {
   const gatewayRuntime = new OpenClawGatewayRuntimeRegistry()
   const webhookRepo = new WebhookRepository(db)
   const skillRepo = new SkillRepository(db)
+  const toolRepo = new ToolRepository(db)
   const packRepo = new PackRepository(db)
   const orgRepo = new OrganizationRepository(db)
   const groupRepo = new GroupRepository(db)
@@ -120,10 +124,11 @@ export async function createAppContext(): Promise<AppContext> {
     tasks,
     taskTemplates: new TaskTemplateService(auth, taskTemplateRepo, agentRepo, tagRepo, skillRepo, customFieldRepo),
     projectInstructionTemplates: new ProjectInstructionTemplateService(auth, projectInstructionTemplateRepo),
-    agents: new AgentService(auth, agentRepo, tagRepo),
+    agents: new AgentService(auth, agentRepo, tagRepo, toolRepo),
     gateways: new GatewayService(auth, gatewayRepo, eventBus, gatewayRuntime, appSettingsRepo),
     webhooks: new WebhookService(auth, webhookRepo),
     skills: new SkillService(auth, skillRepo, packRepo),
+    tools: new ToolService(auth, toolRepo, agentRepo),
     organization: new OrganizationService(auth, orgRepo, authRepo),
     projectGroups: new ProjectGroupService(auth, groupRepo, projectRepo),
     planPipelines,

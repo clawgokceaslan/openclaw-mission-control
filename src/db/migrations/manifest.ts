@@ -69,7 +69,8 @@ export function resolveMigrations(basePath: string): MigrationPlan[] {
     '022_web_refresh_tokens.sql',
     '023_remove_owner_default_email.sql',
     '024_user_avatar_path.sql',
-    '025_run_pipelines.sql'
+    '025_run_pipelines.sql',
+    '026_ai_tools.sql'
   ]
   return filenames.map((filename) => {
     const searchPaths = [

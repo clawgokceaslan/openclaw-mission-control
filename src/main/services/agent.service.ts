@@ -4,6 +4,7 @@ import { Agent } from '../../shared/types/entities.js'
 import { AuthService } from './auth.service.js'
 import { AgentRepository } from '../../db/repositories/agent-repo.js'
 import { TagRepository } from '../../db/repositories/custom-field-repo.js'
+import { ToolRepository } from '../../db/repositories/tool-repo.js'
 
 function withoutOutputFormatId(config: Record<string, unknown>): Record<string, unknown> {
   const { outputFormatId: _outputFormatId, ...rest } = config
@@ -24,13 +25,15 @@ type AgentWritePayload = {
   description?: string
   trainingMarkdown?: string
   tagIds?: string[]
+  toolIds?: string[]
 }
 
 export class AgentService {
   constructor(
     private readonly auth: AuthService,
     private readonly repo: AgentRepository,
-    private readonly tags: TagRepository
+    private readonly tags: TagRepository,
+    private readonly tools?: ToolRepository
   ) {}
 
   async list(payload: { actorToken?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<Agent[]>> {
@@ -52,6 +55,8 @@ export class AgentService {
     if (!payload?.name) return errorResponse(ErrorCodes.Validation, 'Agent name required')
     const tagIds = await this.validateTagIds(payload.tagIds, actor.user.organizationId)
     if (!tagIds.ok) return tagIds.response
+    const toolIds = await this.validateToolIds(payload.toolIds, actor.user.organizationId)
+    if (!toolIds.ok) return toolIds.response
     const config = {
       ...withoutLegacyAgentConfigKeys(withoutOutputFormatId(payload.config ?? {})),
       title: payload.title ?? '',
@@ -62,7 +67,8 @@ export class AgentService {
       organizationId: actor.user.organizationId,
       name: payload.name,
       config,
-      tagIds: tagIds.value
+      tagIds: tagIds.value,
+      toolIds: toolIds.value
     })
     return okResponse(created)
   }
@@ -75,6 +81,8 @@ export class AgentService {
     if (current.organizationId !== actor.user.organizationId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
     const tagIds = await this.validateTagIds(payload.tagIds, actor.user.organizationId)
     if (!tagIds.ok) return tagIds.response
+    const toolIds = await this.validateToolIds(payload.toolIds, actor.user.organizationId)
+    if (!toolIds.ok) return toolIds.response
     const config = {
       ...withoutLegacyAgentConfigKeys(withoutOutputFormatId(current.config ?? {})),
       ...withoutLegacyAgentConfigKeys(withoutOutputFormatId(payload.config ?? {})),
@@ -86,7 +94,8 @@ export class AgentService {
       name: payload.name ?? current.name,
       status: current.status,
       config,
-      ...(payload.tagIds !== undefined ? { tagIds: tagIds.value } : {})
+      ...(payload.tagIds !== undefined ? { tagIds: tagIds.value } : {}),
+      ...(payload.toolIds !== undefined ? { toolIds: toolIds.value } : {})
     })
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Agent not found')
     return okResponse(updated)
@@ -115,6 +124,24 @@ export class AgentService {
     const invalid = normalized.filter((tagId) => !allowed.has(tagId))
     if (invalid.length > 0) {
       return { ok: false, response: errorResponse(ErrorCodes.Validation, `Invalid agent tag ids: ${invalid.join(', ')}`) }
+    }
+    return { ok: true, value: normalized }
+  }
+
+  private async validateToolIds(toolIds: unknown, organizationId: string): Promise<
+    { ok: true; value: string[] | undefined } |
+    { ok: false; response: ServiceResponse<Agent> }
+  > {
+    if (toolIds === undefined) return { ok: true, value: undefined }
+    if (!Array.isArray(toolIds) || !toolIds.every((toolId) => typeof toolId === 'string')) {
+      return { ok: false, response: errorResponse(ErrorCodes.Validation, 'toolIds must be an array of strings') }
+    }
+    const normalized = Array.from(new Set(toolIds.filter((toolId) => toolId.trim()).map((toolId) => toolId.trim())))
+    if (!this.tools) return { ok: true, value: normalized }
+    const allowed = new Set((await this.tools.list(organizationId)).map((tool) => tool.id))
+    const invalid = normalized.filter((toolId) => !allowed.has(toolId))
+    if (invalid.length > 0) {
+      return { ok: false, response: errorResponse(ErrorCodes.Validation, `Invalid agent tool ids: ${invalid.join(', ')}`) }
     }
     return { ok: true, value: normalized }
   }

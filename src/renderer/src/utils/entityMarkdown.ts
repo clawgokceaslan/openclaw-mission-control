@@ -1,4 +1,4 @@
-import type { Agent, Skill } from '@shared/types/entities'
+import type { Agent, AiTool, Skill } from '@shared/types/entities'
 
 function markdownCell(value: unknown): string {
   return String(value ?? '')
@@ -8,6 +8,7 @@ function markdownCell(value: unknown): string {
 
 export function buildSingleAgentMarkdown(agent: Agent): string {
   const tagNames = (agent.tags ?? []).map((tag) => tag.name).filter(Boolean).join(', ')
+  const toolNames = (agent.tools ?? []).map((tool) => tool.name).filter(Boolean).join(', ')
   const extraConfig = agent.config && typeof agent.config === 'object' ? { ...agent.config } : {}
   delete extraConfig.title
   delete extraConfig.description
@@ -25,7 +26,8 @@ export function buildSingleAgentMarkdown(agent: Agent): string {
       `| Name | ${markdownCell(agent.name)} |`,
       `| Title | ${markdownCell(agent.title || '-')} |`,
       `| Description | ${markdownCell(agent.description || '-')} |`,
-      `| Tags | ${markdownCell(tagNames || '-')} |`
+      `| Tags | ${markdownCell(tagNames || '-')} |`,
+      `| Tools | ${markdownCell(toolNames || '-')} |`
     ].join('\n')
   ]
   if (agent.trainingMarkdown?.trim()) sections.push(`## Agent Prompt\n${agent.trainingMarkdown.trim()}`)
@@ -51,5 +53,32 @@ export function buildSingleSkillMarkdown(skill: Skill): string {
     ].join('\n')
   ]
   if (skill.descriptionMarkdown?.trim()) sections.push(`## Instructions\n${skill.descriptionMarkdown.trim()}`)
+  return `${sections.join('\n\n')}\n`
+}
+
+export function buildSingleToolMarkdown(tool: AiTool): string {
+  const sections = [
+    `# ${tool.name}`,
+    [
+      '## Tool Metadata',
+      `- ID: ${tool.id}`,
+      `- Name: ${tool.name}`,
+      `- Slug: ${tool.slug}`,
+      `- Type: ${tool.toolType}`,
+      `- Status: ${tool.status}`,
+      `- Approval required: ${tool.approvalRequired ? 'yes' : 'no'}`,
+      `- Timeout seconds: ${tool.timeoutSeconds ?? '-'}`,
+      `- Updated: ${tool.updatedAt ? new Date(tool.updatedAt).toLocaleString() : '-'}`
+    ].join('\n'),
+    '## Catalog-only boundary\nThis tool is a catalog definition in Open Mission Control v1. It is not executed by the agent runtime yet.'
+  ]
+  if (tool.descriptionMarkdown?.trim()) sections.push(`## AI Usage Notes\n${tool.descriptionMarkdown.trim()}`)
+  if (tool.functionName?.trim()) sections.push(`## Function\n\`${tool.functionName.trim()}\``)
+  if (tool.inputSchemaJson) sections.push(`## Input Schema\n\`\`\`json\n${JSON.stringify(tool.inputSchemaJson, null, 2)}\n\`\`\``)
+  if (tool.outputSchemaJson) sections.push(`## Output Schema\n\`\`\`json\n${JSON.stringify(tool.outputSchemaJson, null, 2)}\n\`\`\``)
+  if (tool.prepareCommand?.trim()) sections.push(`## Prepare Command\n\`\`\`bash\n${tool.prepareCommand.trim()}\n\`\`\``)
+  if (tool.commandTemplate?.trim()) sections.push(`## Command Template\n\`\`\`bash\n${tool.commandTemplate.trim()}\n\`\`\``)
+  if (tool.codeBody?.trim()) sections.push(`## Code\n\`\`\`${tool.codeLanguage || 'text'}\n${tool.codeBody.trim()}\n\`\`\``)
+  if (tool.executionFlowMarkdown?.trim()) sections.push(`## Execution Flow\n${tool.executionFlowMarkdown.trim()}`)
   return `${sections.join('\n\n')}\n`
 }

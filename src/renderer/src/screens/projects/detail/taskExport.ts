@@ -1,5 +1,5 @@
 import { strToU8, zipSync } from 'fflate'
-import type { Agent, CustomField, Project, ProjectGroup, ProjectStatus, Skill, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskSubtask } from '@shared/types/entities'
+import type { Agent, AiTool, CustomField, Project, ProjectGroup, ProjectStatus, Skill, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskSubtask } from '@shared/types/entities'
 import { normalizeGatewayPromptShape, type GatewayPromptShape } from '@shared/utils/gateway-prompt-shape'
 import { parseToonRecord, serializeToonRecord, stringifyCompactJson } from '@shared/utils/toon'
 
@@ -37,6 +37,7 @@ export type ProjectWorkspaceExportTaskPayload = {
   taskFileContent: string
   agentMarkdown: string
   skillsMarkdown: string
+  toolsMarkdown: string
   attachments: Array<TaskAttachment & { ownerId: string; exportName: string }>
 }
 
@@ -184,10 +185,11 @@ function buildTaskFormatContract(context: ExportContext, exportStatuses: Attachm
         toon: 'Task.toon',
         agents: 'Agents.md',
         skills: 'Skills.md',
+        tools: 'Tools.md',
         attachments: 'attachments/'
       },
       generatedFor: 'Codex and Claude CLI task context',
-      agentSkillPolicy: 'Task files include short summaries and refs only. Full prompts/instructions are lazy-loaded from Agents.md and Skills.md.'
+      agentSkillPolicy: 'Task files include short summaries and refs only. Full prompts/instructions are lazy-loaded from Agents.md, Skills.md, and Tools.md. Tools.md is catalog context only in v1.'
     },
     project: {
       id: task.projectId,
@@ -348,6 +350,10 @@ function agentTags(agent: Agent): string {
   return (agent.tags ?? []).map((tag) => tag.name).filter(Boolean).join(', ')
 }
 
+function agentTools(agent: Agent): AiTool[] {
+  return (agent.tools ?? []).filter((tool) => tool.status === 'active')
+}
+
 function commentsMarkdown(comments: TaskComment[]): string {
   return comments
     .slice()
@@ -471,7 +477,7 @@ function buildAiExecutionFlow(context: ExportContext): string {
     ? `Execute ${actionableSubtasks.length} actionable subtask${actionableSubtasks.length === 1 ? '' : 's'} in Subtasks Index order.${bypassedSubtasks ? ` Bypass ${bypassedSubtasks} done/closed subtask${bypassedSubtasks === 1 ? '' : 's'}.` : ''}`
     : 'No subtasks are defined; execute from the parent task details.'
   return [
-    '1. Read Project Inputs, Task Details, Agents.md, Skills.md, and attachments if present.',
+    '1. Read Project Inputs, Task Details, Agents.md, Skills.md, Tools.md, and attachments if present.',
     `2. ${subtaskHint} Use each subtask description as the main AI guidance; checklist items are optional supporting detail.`,
     `3. Implement, verify, and finalize output.${metadataHint}`
   ].join('\n')
@@ -724,6 +730,7 @@ export function buildAgentMarkdown(context: ExportContext): string {
         `| Title | ${markdownCell(agent.title ?? '-')} |`,
         `| Description | ${markdownCell(description || '-')} |`,
         `| Tags | ${markdownCell(agentTags(agent) || '-')} |`,
+        `| Tools | ${markdownCell(agentTools(agent).map((tool) => tool.name).join(', ') || '-')} |`,
         `| Last heartbeat | ${markdownCell(formatDate(agent.heartbeatAt))} |`,
         `| Created | ${markdownCell(formatDate(agent.createdAt))} |`,
         `| Updated | ${markdownCell(formatDate(agent.updatedAt))} |`
@@ -736,6 +743,54 @@ export function buildAgentMarkdown(context: ExportContext): string {
       agentSections.push(`### Extra Config\n\`\`\`json\n${JSON.stringify(extraConfig, null, 2)}\n\`\`\``)
     }
     sections.push(agentSections.join('\n\n'))
+  }
+  return `${sections.join(SECTION_SEPARATOR)}\n`
+}
+
+export function buildToolsMarkdown(context: ExportContext): string {
+  const refs = new Map<string, { tool: AiTool; sources: string[] }>()
+  const addAgentTools = (agentId: string | undefined | null, source: string) => {
+    if (!agentId) return
+    const agent = context.agents.find((item) => item.id === agentId)
+    if (!agent) return
+    for (const tool of agentTools(agent)) {
+      const current = refs.get(tool.id) ?? { tool, sources: [] }
+      current.sources.push(`${source} via agent ${agent.name}`)
+      refs.set(tool.id, current)
+    }
+  }
+  addAgentTools(context.task.agentId, `Task: ${context.task.title}`)
+  for (const [index, subtask] of (context.task.subtasks ?? []).entries()) addAgentTools(getSubtaskAgentId(subtask), subtaskLabel(subtask, index))
+  if (!refs.size) return ''
+  const sections = [
+    '# Tools',
+    'These AI tools are catalog definitions only. Open Mission Control v1 exports them as context for the effective agent; do not execute listed commands unless a future runtime explicitly enables tool invocation.'
+  ]
+  for (const { tool, sources } of Array.from(refs.values()).sort((a, b) => a.tool.name.localeCompare(b.tool.name, 'tr'))) {
+    const rows = [
+      `## ${tool.name}\n<a id="${anchorFor('tool', tool.id)}"></a>`,
+      [
+        '### Tool Details',
+        '| Field | Value |',
+        '| --- | --- |',
+        `| ID | ${markdownCell(tool.id)} |`,
+        `| Slug | ${markdownCell(tool.slug)} |`,
+        `| Type | ${markdownCell(tool.toolType)} |`,
+        `| Status | ${markdownCell(tool.status)} |`,
+        `| Approval required | ${tool.approvalRequired ? 'yes' : 'no'} |`,
+        `| Timeout seconds | ${markdownCell(tool.timeoutSeconds ?? '-')} |`
+      ].join('\n'),
+      `### References\n${sources.map((source) => `- ${source}`).join('\n')}`
+    ]
+    if (tool.descriptionMarkdown?.trim()) rows.push(`### AI Usage Notes\n${tool.descriptionMarkdown.trim()}`)
+    if (tool.functionName?.trim()) rows.push(`### Function\n\`${tool.functionName.trim()}\``)
+    if (tool.inputSchemaJson) rows.push(`### Input Schema\n\`\`\`json\n${JSON.stringify(tool.inputSchemaJson, null, 2)}\n\`\`\``)
+    if (tool.outputSchemaJson) rows.push(`### Output Schema\n\`\`\`json\n${JSON.stringify(tool.outputSchemaJson, null, 2)}\n\`\`\``)
+    if (tool.prepareCommand?.trim()) rows.push(`### Prepare Command\n\`\`\`bash\n${tool.prepareCommand.trim()}\n\`\`\``)
+    if (tool.commandTemplate?.trim()) rows.push(`### Command Template\n\`\`\`bash\n${tool.commandTemplate.trim()}\n\`\`\``)
+    if (tool.codeBody?.trim()) rows.push(`### Code\n\`\`\`${tool.codeLanguage || 'text'}\n${tool.codeBody.trim()}\n\`\`\``)
+    if (tool.executionFlowMarkdown?.trim()) rows.push(`### Execution Flow\n${tool.executionFlowMarkdown.trim()}`)
+    sections.push(rows.join('\n\n'))
   }
   return `${sections.join(SECTION_SEPARATOR)}\n`
 }
@@ -853,11 +908,12 @@ export function buildWorkspaceSnapshotPayload(context: ExportContext) {
   const taskToon = buildTaskToon(context)
   const agentMarkdown = buildAgentMarkdown(context)
   const skillsMarkdown = buildSkillsMarkdown(context)
+  const toolsMarkdown = buildToolsMarkdown(context)
   const attachments = [
     ...getTaskAttachments(context.task).map((attachment) => ({ ...attachment, ownerId: context.task.id })),
     ...(context.task.subtasks ?? []).flatMap((subtask) => getSubtaskAttachments(subtask).map((attachment) => ({ ...attachment, ownerId: subtask.id })))
   ]
-  return { taskMarkdown, taskJson, taskToon, agentMarkdown, skillsMarkdown, attachments }
+  return { taskMarkdown, taskJson, taskToon, agentMarkdown, skillsMarkdown, toolsMarkdown, attachments }
 }
 
 export function buildProjectWorkspaceExportTaskPayload(context: ExportContext): ProjectWorkspaceExportTaskPayload {
@@ -902,6 +958,7 @@ export function buildProjectWorkspaceExportTaskPayload(context: ExportContext): 
   const taskFile = taskFileForShape(contextPromptShape(context), taskMarkdown, taskJson, taskToon)
   const agentMarkdown = buildAgentMarkdown(context)
   const skillsMarkdown = buildSkillsMarkdown(context)
+  const toolsMarkdown = buildToolsMarkdown(context)
   const attachments = [
     ...taskExportStatuses.map((status) => {
       const attachment = getTaskAttachments(context.task).find((item) => item.url === status.url)
@@ -912,7 +969,7 @@ export function buildProjectWorkspaceExportTaskPayload(context: ExportContext): 
       return attachment ? { ...attachment, ownerId: subtask.id, exportName: status.name } : null
     }))
   ]
-  return { taskId: context.task.id, taskMarkdown, taskJson, taskToon, ...taskFile, agentMarkdown, skillsMarkdown, attachments: attachments.filter((attachment): attachment is TaskAttachment & { ownerId: string; exportName: string } => Boolean(attachment)) }
+  return { taskId: context.task.id, taskMarkdown, taskJson, taskToon, ...taskFile, agentMarkdown, skillsMarkdown, toolsMarkdown, attachments: attachments.filter((attachment): attachment is TaskAttachment & { ownerId: string; exportName: string } => Boolean(attachment)) }
 }
 
 export async function buildTaskZipArchive(context: ExportContext): Promise<{ fileName: string; archive: Uint8Array }> {

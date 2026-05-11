@@ -224,6 +224,7 @@ export class ProjectService {
       await writeMarkdown('Task.toon', input.taskToon)
       await writeMarkdown('Agents.md', input.agentMarkdown)
       await writeMarkdown('Skills.md', input.skillsMarkdown)
+      await writeMarkdown('Tools.md', input.toolsMarkdown)
 
       const usedNames = new Set<string>()
       const attachmentsDir = join(exportFolderPath, 'attachments')

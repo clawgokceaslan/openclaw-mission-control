@@ -318,6 +318,7 @@ export function useProjectGatewayFlow({
         taskToon: snapshot.taskToon,
         agentMarkdown: snapshot.agentMarkdown,
         skillsMarkdown: snapshot.skillsMarkdown,
+        toolsMarkdown: snapshot.toolsMarkdown,
         attachments: snapshot.attachments
       })
       const errorMessage = response.ok ? '' : response.error?.message ?? ''

@@ -352,6 +352,8 @@ export interface Agent {
   trainingMarkdown?: string
   tags?: Tag[]
   tagIds?: string[]
+  tools?: AiTool[]
+  toolIds?: string[]
   createdAt: number
   updatedAt: number
 }
@@ -572,6 +574,34 @@ export interface Skill {
   descriptionMarkdown?: string
   status: 'active' | 'inactive'
   updatedAt?: number
+}
+
+export type AiToolType = 'local_command' | 'function' | 'code' | 'reference'
+export type AiToolStatus = 'active' | 'inactive'
+
+export interface AiTool {
+  id: string
+  organizationId: string
+  name: string
+  slug: string
+  status: AiToolStatus
+  toolType: AiToolType
+  descriptionMarkdown?: string
+  codeLanguage?: string
+  codeBody?: string
+  functionName?: string
+  commandTemplate?: string
+  prepareCommand?: string
+  workingDirectoryHint?: string
+  inputSchemaJson?: Record<string, unknown>
+  outputSchemaJson?: Record<string, unknown>
+  executionFlowMarkdown?: string
+  approvalRequired: boolean
+  timeoutSeconds?: number | null
+  agents?: Agent[]
+  agentIds?: string[]
+  createdAt: number
+  updatedAt: number
 }
 
 export interface Pack {

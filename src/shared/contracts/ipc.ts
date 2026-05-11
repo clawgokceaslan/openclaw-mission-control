@@ -141,6 +141,13 @@ export const IPC_CHANNELS = {
     remove: 'skills:remove',
     listPacks: 'skills:packs',
   },
+  tools: {
+    listPage: 'tools:list-page',
+    get: 'tools:get',
+    create: 'tools:create',
+    update: 'tools:update',
+    remove: 'tools:remove'
+  },
   organization: {
     me: 'organization:me',
     listMembers: 'organization:members',
@@ -385,6 +392,44 @@ export interface RemoveSkillRequest {
   id?: string
 }
 
+export interface ListToolsPageRequest {
+  actorToken?: string
+  page?: number
+  pageSize?: number
+  query?: string
+  status?: 'active' | 'inactive'
+  toolType?: 'local_command' | 'function' | 'code' | 'reference'
+}
+
+export interface CreateToolRequest {
+  actorToken?: string
+  name?: string
+  status?: 'active' | 'inactive'
+  toolType?: 'local_command' | 'function' | 'code' | 'reference'
+  descriptionMarkdown?: string
+  codeLanguage?: string
+  codeBody?: string
+  functionName?: string
+  commandTemplate?: string
+  prepareCommand?: string
+  workingDirectoryHint?: string
+  inputSchemaJson?: unknown
+  outputSchemaJson?: unknown
+  executionFlowMarkdown?: string
+  approvalRequired?: boolean
+  timeoutSeconds?: number | null
+  agentIds?: string[]
+}
+
+export interface UpdateToolRequest extends CreateToolRequest {
+  id?: string
+}
+
+export interface RemoveToolRequest {
+  actorToken?: string
+  id?: string
+}
+
 export interface UpdateProjectRequest {
   actorToken?: string
   id?: string
@@ -431,6 +476,7 @@ export interface ProjectExportTaskInput {
   taskToon?: string
   agentMarkdown?: string
   skillsMarkdown?: string
+  toolsMarkdown?: string
   attachments?: ProjectExportAttachmentInput[]
 }
 
@@ -547,6 +593,7 @@ export interface ExportTaskSnapshotRequest {
   taskToon?: string
   agentMarkdown?: string
   skillsMarkdown?: string
+  toolsMarkdown?: string
   attachments?: ProjectExportAttachmentInput[]
 }
 
@@ -561,6 +608,7 @@ export interface RunTaskGatewayRequest {
   taskToon?: string
   agentMarkdown?: string
   skillsMarkdown?: string
+  toolsMarkdown?: string
   attachments?: ProjectExportAttachmentInput[]
   gatewayId?: string
   model?: string
@@ -727,6 +775,7 @@ export const SERVICE_MAP = {
   gateways: ['list', 'get', 'create', 'update', 'remove', 'status', 'sessions', 'commands', 'commandsHistory', 'gatewayModels', 'templates'],
   webhooks: ['list', 'create', 'update', 'remove'],
   skills: ['list', 'listPage', 'create', 'update', 'remove', 'listPacks'],
+  tools: ['listPage', 'get', 'create', 'update', 'remove'],
   organization: ['me', 'listMembers', 'createInvite'],
   projectGroups: ['list', 'create', 'update', 'remove'],
   planPipelines: ['list', 'listBatches', 'createFromGroups', 'updateState', 'updateBatch'],
@@ -1528,6 +1577,43 @@ export const SERVICE_ROUTING: {
       action: 'listPacks',
       method: 'listPacks',
       channel: IPC_CHANNELS.skills.listPacks,
+      requiresAuth: true
+    }
+  },
+  tools: {
+    listPage: {
+      domain: 'tools',
+      action: 'listPage',
+      method: 'listPage',
+      channel: IPC_CHANNELS.tools.listPage,
+      requiresAuth: true
+    },
+    get: {
+      domain: 'tools',
+      action: 'get',
+      method: 'get',
+      channel: IPC_CHANNELS.tools.get,
+      requiresAuth: true
+    },
+    create: {
+      domain: 'tools',
+      action: 'create',
+      method: 'create',
+      channel: IPC_CHANNELS.tools.create,
+      requiresAuth: true
+    },
+    update: {
+      domain: 'tools',
+      action: 'update',
+      method: 'update',
+      channel: IPC_CHANNELS.tools.update,
+      requiresAuth: true
+    },
+    remove: {
+      domain: 'tools',
+      action: 'remove',
+      method: 'remove',
+      channel: IPC_CHANNELS.tools.remove,
       requiresAuth: true
     }
   },

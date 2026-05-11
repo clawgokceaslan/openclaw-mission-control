@@ -57,7 +57,7 @@ describe('buildTaskMarkdown', () => {
     })
 
     expect(markdown).toContain('## Subtasks as Primary Execution Plan')
-    expect(markdown).toContain('1. Read Project Inputs, Task Details, Agents.md, Skills.md, and attachments if present.')
+    expect(markdown).toContain('1. Read Project Inputs, Task Details, Agents.md, Skills.md, Tools.md, and attachments if present.')
     expect(markdown).toContain('2. Execute 1 actionable subtask in Subtasks Index order.')
     expect(markdown).not.toContain('```text')
     expect(markdown).toContain('Subtasks are the authoritative execution plan for this task.')

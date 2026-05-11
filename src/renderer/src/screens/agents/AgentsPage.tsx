@@ -13,9 +13,9 @@ import {
   type AgentFilterState,
   type AgentPromptFilter
 } from './agentFilters'
-import { IPC_CHANNELS } from '@shared/contracts/ipc'
+import { IPC_CHANNELS, type PaginatedResponse } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
-import { Agent, Tag } from '@shared/types/entities'
+import { Agent, AiTool, Tag } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { LoadingState } from '@renderer/components/loading'
@@ -45,6 +45,7 @@ export function AgentsPage() {
   const [notice, setNotice] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [tags, setTags] = useState<Tag[]>([])
+  const [tools, setTools] = useState<AiTool[]>([])
   const [tagsLoading, setTagsLoading] = useState(false)
   const [tagsError, setTagsError] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -57,6 +58,7 @@ export function AgentsPage() {
   const [trainingMarkdown, setTrainingMarkdown] = useState('')
   const [config, setConfig] = useState<Record<string, unknown>>({})
   const [selectedTags, setSelectedTags] = useState<AppSelectOption[]>([])
+  const [selectedTools, setSelectedTools] = useState<AppSelectOption[]>([])
   const [formError, setFormError] = useState<string | null>(null)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [importJson, setImportJson] = useState('')
@@ -68,6 +70,7 @@ export function AgentsPage() {
   const dragScrollRef = useRef({ active: false, startX: 0, scrollLeft: 0 })
 
   const tagOptions: AppSelectOption[] = useMemo(() => toTagOptions(tags), [tags])
+  const toolOptions: AppSelectOption[] = useMemo(() => tools.filter((tool) => tool.status === 'active').map((tool) => ({ label: tool.name, value: tool.id })), [tools])
   const selectedTagOption = useMemo(() => tagOptions.find((option) => option.value === tagFilter) ?? null, [tagFilter, tagOptions])
   const selectedPromptOption = useMemo(() => AGENT_PROMPT_FILTER_OPTIONS.find((option) => option.value === promptFilter) ?? AGENT_PROMPT_FILTER_OPTIONS[0], [promptFilter])
 
@@ -127,9 +130,20 @@ export function AgentsPage() {
     setTagsError(null)
   }
 
+  const refreshTools = async () => {
+    const response = await invokeBridge<PaginatedResponse<AiTool>>(IPC_CHANNELS.tools.listPage, {
+      actorToken: token,
+      page: 1,
+      pageSize: 100,
+      status: 'active'
+    })
+    if (response.ok && response.data) setTools(response.data.rows)
+  }
+
   useEffect(() => {
     void refresh()
     void refreshTags()
+    void refreshTools()
   }, [token])
 
   useEffect(() => {
@@ -184,6 +198,7 @@ export function AgentsPage() {
     setTrainingMarkdown(agent.trainingMarkdown ?? '')
     setConfig(agent.config ?? {})
     setSelectedTags((agent.tags ?? []).map((tag) => ({ label: tag.name, value: tag.id, color: tag.color })))
+    setSelectedTools((agent.tools ?? []).map((tool) => ({ label: tool.name, value: tool.id })))
     setFormError(null)
     setIsImportModalOpen(false)
     setImportJson('')
@@ -257,6 +272,7 @@ export function AgentsPage() {
     setTrainingMarkdown('')
     setConfig({})
     setSelectedTags([])
+    setSelectedTools([])
     setFormError(null)
     setIsImportModalOpen(false)
     setImportJson('')
@@ -368,7 +384,8 @@ export function AgentsPage() {
       description: description.trim(),
       trainingMarkdown,
       config,
-      tagIds: selectedTags.map((tag) => tag.value)
+      tagIds: selectedTags.map((tag) => tag.value),
+      toolIds: selectedTools.map((tool) => tool.value)
     })
     setLoading(false)
     if (!response.ok) {
@@ -494,7 +511,7 @@ export function AgentsPage() {
             </span>
             <span className={styles.agentCell}>
               <strong>{agent.title || 'No title'}</strong>
-              <small>{agent.description || 'No description'}</small>
+              <small>{agent.description || 'No description'}{(agent.tools ?? []).length ? ` · ${(agent.tools ?? []).length} tool(s)` : ''}</small>
             </span>
             <span className={styles.tagList}>
               {(agent.tags ?? []).length > 0 ? (agent.tags ?? []).slice(0, 3).map((tag) => <TagPill key={tag.id} tag={tag} compact />) : <em>No tags</em>}
@@ -571,6 +588,17 @@ export function AgentsPage() {
                   ) : tags.length === 0 && !tagsLoading ? (
                     <small className={styles.fieldHelp}>No tags exist yet. Type a tag name and press Enter to create one.</small>
                   ) : null}
+                </label>
+                <label>
+                  <span>Tools</span>
+                  <AppSelect
+                    mode="multi"
+                    value={selectedTools}
+                    options={toolOptions}
+                    placeholder={toolOptions.length ? 'Attach catalog tools...' : 'No active tools available'}
+                    onChange={setSelectedTools}
+                  />
+                  <small className={styles.fieldHelp}>Attached tools are exported as catalog context only. They are not executed in v1.</small>
                 </label>
                 <label>
                   <span>Agent prompt</span>

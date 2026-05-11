@@ -19,6 +19,7 @@ export const APP_ROUTES = {
   WORKSPACES: '/workspaces',
   AGENTS: '/agents',
   AGENTS_NEW: '/agents/new',
+  TOOLS: '/tools',
   GATEWAYS: '/gateways',
   GATEWAYS_NEW: '/gateways/new',
   GATEWAY_DETAIL: '/gateways/:gatewayId',

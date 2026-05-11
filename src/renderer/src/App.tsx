@@ -28,6 +28,7 @@ import { AgentNewPage } from '@renderer/screens/agents/AgentNewPage'
 import { SettingsPage } from '@renderer/screens/settings/SettingsPage'
 import { DocumentationPage } from '@renderer/screens/documentation/DocumentationPage'
 import { SkillsPage } from '@renderer/screens/skills/SkillsPage'
+import { ToolsPage } from '@renderer/screens/tools/ToolsPage'
 import { ProjectGroupsPage } from '@renderer/screens/project-groups/ProjectGroupsPage'
 import { ProjectGroupNewPage } from '@renderer/screens/project-groups/ProjectGroupNewPage'
 import { ProjectGroupDetailPage } from '@renderer/screens/project-groups/ProjectGroupDetailPage'
@@ -96,6 +97,7 @@ const SIGNED_IN_ROUTES: RouteConfig[] = [
   { path: APP_ROUTES.WORKSPACES, element: <SettingsTabRedirect tab="workspaces" /> },
   { path: APP_ROUTES.AGENTS, element: <AgentsPage /> },
   { path: APP_ROUTES.AGENTS_NEW, element: <AgentNewPage /> },
+  { path: APP_ROUTES.TOOLS, element: <ToolsPage /> },
   { path: APP_ROUTES.GATEWAYS, element: <SettingsTabRedirect tab="gateways" /> },
   { path: APP_ROUTES.GATEWAYS_NEW, element: <SettingsTabRedirect tab="gateways" /> },
   { path: APP_ROUTES.GATEWAY_DETAIL, element: <GatewayDetailRedirect /> },

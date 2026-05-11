@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Agent } from '@shared/types/entities'
-import { buildSingleAgentMarkdown } from './entityMarkdown'
-import { buildAgentMarkdown } from '../screens/projects/detail/taskExport'
+import { buildSingleAgentMarkdown, buildSingleToolMarkdown } from './entityMarkdown'
+import { buildAgentMarkdown, buildToolsMarkdown } from '../screens/projects/detail/taskExport'
 
 function agent(): Agent {
   return {
@@ -26,6 +26,23 @@ function agent(): Agent {
   }
 }
 
+function tool() {
+  return {
+    id: 'tool-1',
+    organizationId: 'org-1',
+    name: 'List changed files',
+    slug: 'list-changed-files',
+    status: 'active' as const,
+    toolType: 'local_command' as const,
+    descriptionMarkdown: 'Use to inspect changed files.',
+    commandTemplate: 'git status --short',
+    approvalRequired: true,
+    timeoutSeconds: 120,
+    createdAt: 1,
+    updatedAt: 2
+  }
+}
+
 describe('agent markdown builders', () => {
   it('builds AGENT.md with tags and prompt without step sections', () => {
     const markdown = buildSingleAgentMarkdown(agent())
@@ -39,7 +56,16 @@ describe('agent markdown builders', () => {
     expect(markdown).not.toContain('### Step')
   })
 
+  it('builds TOOL.md as catalog-only documentation', () => {
+    const markdown = buildSingleToolMarkdown(tool())
+
+    expect(markdown).toContain('# List changed files')
+    expect(markdown).toContain('Catalog-only boundary')
+    expect(markdown).toContain('git status --short')
+  })
+
   it('builds Agents.md with active agent settings only', () => {
+    const runtimeAgent = { ...agent(), tools: [tool()], toolIds: ['tool-1'] }
     const markdown = buildAgentMarkdown({
       task: {
         id: 'task-1',
@@ -52,17 +78,43 @@ describe('agent markdown builders', () => {
       },
       project: null,
       projectGroup: null,
-      agents: [agent()],
+      agents: [runtimeAgent],
       skills: [],
       tags: [],
       customFields: []
     })
 
     expect(markdown).toContain('| Tags | research, codex |')
+    expect(markdown).toContain('| Tools | List changed files |')
     expect(markdown).toContain('### Agent Prompt')
     expect(markdown).toContain('Always cite the task context.')
     expect(markdown).not.toContain('| Status |')
     expect(markdown).not.toContain('Reasoning level')
     expect(markdown).not.toContain('Execution Steps')
+  })
+
+  it('builds Tools.md from effective agent tool links', () => {
+    const runtimeAgent = { ...agent(), tools: [tool()], toolIds: ['tool-1'] }
+    const markdown = buildToolsMarkdown({
+      task: {
+        id: 'task-1',
+        projectId: 'project-1',
+        title: 'Task',
+        status: 'active',
+        agentId: 'agent-1',
+        createdAt: 1,
+        updatedAt: 1
+      },
+      project: null,
+      projectGroup: null,
+      agents: [runtimeAgent],
+      skills: [],
+      tags: [],
+      customFields: []
+    })
+
+    expect(markdown).toContain('# Tools')
+    expect(markdown).toContain('catalog definitions only')
+    expect(markdown).toContain('git status --short')
   })
 })

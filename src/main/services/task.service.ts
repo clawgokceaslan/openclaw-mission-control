@@ -841,7 +841,7 @@ function effectiveAgentSection(agent?: (Partial<Agent> & { inherited?: boolean }
     agent.trainingMarkdown?.trim() ? 'generalPrompt=available' : '',
     agent.inherited ? 'source=default inherited agent' : 'source=task/project agent'
   ].filter(Boolean)
-  return `Effective agent: ${parts.join(', ')}. Apply this agent's instructions as execution guidance; full active settings are available in Agents.md when exported.`
+  return `Effective agent: ${parts.join(', ')}. Apply this agent's instructions as execution guidance; full active settings are available in Agents.md when exported. Tool definitions for this agent may be available in Tools.md as catalog context only.`
 }
 
 function codexTrustedProjectConfig(path: string): string {
@@ -911,7 +911,7 @@ export function initialGatewayPrompt(
     projectInstructionsSection(options.projectPrompt, { audience: 'run' }),
     effectiveAgentSection(options.effectiveAgent),
     `Before making changes, read the run-specific .omc CLI instructions at ${omcInstructionsPath} in the runtime workspace.`,
-    `Read ${exportWorkspacePath}/${taskFileName} as the primary task context. Read ${exportWorkspacePath}/Agents.md, ${exportWorkspacePath}/Skills.md, and ${exportWorkspacePath}/attachments/ only if present and needed.`,
+    `Read ${exportWorkspacePath}/${taskFileName} as the primary task context. Read ${exportWorkspacePath}/Agents.md, ${exportWorkspacePath}/Skills.md, ${exportWorkspacePath}/Tools.md, and ${exportWorkspacePath}/attachments/ only if present and needed. Tools.md contains catalog definitions only; do not execute any listed command unless a future runtime explicitly enables tool invocation.`,
     `Apply the Project Rules section in ${taskFileName} before making implementation decisions.`,
     `Apply the Plan Guide section in ${taskFileName} when planning or interpreting the task execution strategy.`,
     `Execute the task described in ${taskFileName}.`,
@@ -930,7 +930,7 @@ export function initialGatewayPrompt(
     { name: 'effective_agent', value: effectiveAgentSection(options.effectiveAgent) },
     { name: 'omc_cli_instructions_path', value: omcInstructionsPath },
     { name: 'primary_task_file', value: `${exportWorkspacePath}/${taskFileName}` },
-    { name: 'required_reads', value: [`${exportWorkspacePath}/${taskFileName}`, `${exportWorkspacePath}/Agents.md if needed`, `${exportWorkspacePath}/Skills.md if needed`, `${exportWorkspacePath}/attachments/ if present`] },
+    { name: 'required_reads', value: [`${exportWorkspacePath}/${taskFileName}`, `${exportWorkspacePath}/Agents.md if needed`, `${exportWorkspacePath}/Skills.md if needed`, `${exportWorkspacePath}/Tools.md if needed`, `${exportWorkspacePath}/attachments/ if present`] },
     { name: 'execution_instructions', value: rows.slice(8) }
   ])
 }
@@ -2911,6 +2911,7 @@ export async function writeTaskSnapshotToExportWorkspace(
     taskToon?: string
     agentMarkdown?: string
     skillsMarkdown?: string
+    toolsMarkdown?: string
     attachments?: ProjectExportAttachmentInput[]
   }
 ): Promise<{ writtenFiles: string[]; skippedFiles: string[] }> {
@@ -2928,6 +2929,7 @@ export async function writeTaskSnapshotToExportWorkspace(
   await writeMarkdown('Task.toon', payload.taskToon)
   await writeMarkdown('Agents.md', payload.agentMarkdown)
   await writeMarkdown('Skills.md', payload.skillsMarkdown)
+  await writeMarkdown('Tools.md', payload.toolsMarkdown)
 
   const usedNames = new Set<string>()
   const attachmentsDir = join(exportWorkspacePath, 'attachments')
@@ -3876,6 +3878,7 @@ export class TaskService {
     await writeMarkdown('Task.toon', payload.taskToon)
     await writeMarkdown('Agents.md', payload.agentMarkdown)
     await writeMarkdown('Skills.md', payload.skillsMarkdown)
+    await writeMarkdown('Tools.md', payload.toolsMarkdown)
 
     const usedNames = new Set<string>()
     const attachmentsDir = join(exportFolderPath, 'attachments')
@@ -3964,6 +3967,7 @@ export class TaskService {
       || payload.taskToon?.trim()
       || payload.agentMarkdown?.trim()
       || payload.skillsMarkdown?.trim()
+      || payload.toolsMarkdown?.trim()
       || (Array.isArray(payload.attachments) && payload.attachments.length > 0)
     )
     if (!zipBuffer?.length && !hasSnapshotPayload) return errorResponse(ErrorCodes.Validation, 'Task snapshot or ZIP bytes are required')
