@@ -60,6 +60,7 @@ const baseLight: ThemeTokens = {
   textMuted: '#7284a4',
   textSoft: '#8392aa',
   inverseText: '#ffffff',
+  primaryText: '#ffffff',
   danger: '#c73e4f',
   dangerStrong: '#ab2f43',
   dangerBg: '#fff1f4',
@@ -134,6 +135,7 @@ const baseDark: ThemeTokens = {
   textMuted: '#9aabc4',
   textSoft: '#7f91ad',
   inverseText: '#ffffff',
+  primaryText: '#ffffff',
   danger: '#fb7185',
   dangerStrong: '#fecdd3',
   dangerBg: '#3a1720',
@@ -243,7 +245,7 @@ export const THEME_PALETTES: ThemePalette[] = [
     name: 'Graphite',
     swatch: '#111827',
     light: { primary: '#111827', primaryStrong: '#030712', accent: '#6b7280', primarySoft: '#f3f4f6', activeBg: '#eef0f3', iconBg: '#f3f4f6', primaryBorder: '#cbd5e1' },
-    dark: { primary: '#e5e7eb', primaryStrong: '#ffffff', accent: '#d1d5db', activeBg: '#20242c', primarySoft: '#181b22', primaryBorder: '#4b5563' }
+    dark: { primary: '#f3f4f6', primaryStrong: '#ffffff', primaryText: '#030712', accent: '#d1d5db', activeBg: '#20242c', primarySoft: '#181b22', primaryBorder: '#4b5563' }
   }),
   palette({
     id: 'blue',
@@ -294,22 +296,22 @@ export const THEME_BACKGROUNDS: ThemeBackground[] = [
     id: 'blue-haze',
     name: 'Blue haze',
     preview: 'linear-gradient(135deg, #eff6ff 0%, #ffffff 46%, #061020 100%)',
-    light: 'linear-gradient(rgba(37, 99, 235, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(37, 99, 235, 0.045) 1px, transparent 1px), #ffffff',
-    dark: 'linear-gradient(rgba(96, 165, 250, 0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(96, 165, 250, 0.04) 1px, transparent 1px), #01040a'
+    light: 'radial-gradient(circle at 18% 0%, rgba(37, 99, 235, 0.12), transparent 28%), repeating-linear-gradient(0deg, rgba(37, 99, 235, 0.055) 0 1px, transparent 1px 28px), repeating-linear-gradient(90deg, rgba(37, 99, 235, 0.055) 0 1px, transparent 1px 28px), #ffffff',
+    dark: 'radial-gradient(circle at 18% 0%, rgba(37, 99, 235, 0.32), transparent 34%), repeating-linear-gradient(0deg, rgba(96, 165, 250, 0.075) 0 1px, transparent 1px 28px), repeating-linear-gradient(90deg, rgba(96, 165, 250, 0.075) 0 1px, transparent 1px 28px), #020617'
   },
   {
     id: 'walnut',
     name: 'Walnut',
     preview: 'linear-gradient(135deg, #fbf7ef 0%, #ffffff 48%, #130d08 100%)',
-    light: 'radial-gradient(circle at top left, rgba(139, 94, 52, 0.12), transparent 35%), #ffffff',
-    dark: 'radial-gradient(circle at top left, rgba(184, 137, 93, 0.11), transparent 36%), #050302'
+    light: 'radial-gradient(circle at 15% 0%, rgba(139, 94, 52, 0.16), transparent 30%), linear-gradient(135deg, #ffffff 0%, #fffaf3 100%)',
+    dark: 'radial-gradient(circle at 15% 0%, rgba(184, 137, 93, 0.28), transparent 36%), linear-gradient(135deg, #050302 0%, #130d08 100%)'
   },
   {
     id: 'red-clay',
     name: 'Red clay',
     preview: 'linear-gradient(135deg, #fff1f2 0%, #ffffff 48%, #180709 100%)',
-    light: 'radial-gradient(circle at top left, rgba(220, 38, 38, 0.1), transparent 34%), #ffffff',
-    dark: 'radial-gradient(circle at top left, rgba(239, 68, 68, 0.1), transparent 36%), #050101'
+    light: 'radial-gradient(circle at 15% 0%, rgba(220, 38, 38, 0.14), transparent 31%), linear-gradient(135deg, #ffffff 0%, #fff7f7 100%)',
+    dark: 'radial-gradient(circle at 15% 0%, rgba(239, 68, 68, 0.26), transparent 36%), linear-gradient(135deg, #050101 0%, #180709 100%)'
   },
   {
     id: 'midnight',
@@ -340,7 +342,7 @@ function applyTheme(mode: ThemeMode, resolvedMode: ResolvedThemeMode, paletteIte
     root.style.setProperty(`--omc-${cssKey}`, value)
   })
   root.style.setProperty('--omc-app-background', background[resolvedMode])
-  root.style.setProperty('--omc-background-size', background.id === 'soft-grid' ? '24px 24px' : 'auto')
+  root.style.setProperty('--omc-background-size', 'auto')
 }
 
 function isThemeMode(value: string | null): value is ThemeMode {

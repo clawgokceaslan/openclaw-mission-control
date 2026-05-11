@@ -33,6 +33,7 @@
   --omc-text-strong: #17233a;
   --omc-text-soft: #8392aa;
   --omc-inverse-text: #ffffff;
+  --omc-primary-text: #ffffff;
   --omc-surface-soft: #fbfdff;
   --omc-surface-raised: #ffffff;
   --omc-border-subtle: #edf2fa;
@@ -288,12 +289,16 @@
 :global(.btn-primary) {
   --bs-btn-bg: var(--omc-primary);
   --bs-btn-border-color: var(--omc-primary);
-  --bs-btn-color: var(--omc-inverse-text);
+  --bs-btn-color: var(--omc-primary-text);
   --bs-btn-hover-bg: var(--omc-primary-strong);
   --bs-btn-hover-border-color: var(--omc-primary-strong);
-  --bs-btn-hover-color: var(--omc-inverse-text);
+  --bs-btn-hover-color: var(--omc-primary-text);
   --bs-btn-active-bg: var(--omc-primary-strong);
   --bs-btn-active-border-color: var(--omc-primary-strong);
+  --bs-btn-active-color: var(--omc-primary-text);
+  --bs-btn-disabled-bg: color-mix(in srgb, var(--omc-primary) 72%, var(--omc-surface-muted));
+  --bs-btn-disabled-border-color: color-mix(in srgb, var(--omc-primary) 72%, var(--omc-surface-muted));
+  --bs-btn-disabled-color: var(--omc-primary-text);
 }
 
 :global(.btn-outline-secondary),
@@ -307,6 +312,9 @@
   --bs-btn-active-bg: var(--omc-active-bg);
   --bs-btn-active-border-color: var(--omc-border-strong);
   --bs-btn-active-color: var(--omc-text-strong);
+  --bs-btn-disabled-bg: var(--omc-surface-muted);
+  --bs-btn-disabled-border-color: var(--omc-border-subtle);
+  --bs-btn-disabled-color: var(--omc-text-soft);
 }
 
 :global(.btn-link) {

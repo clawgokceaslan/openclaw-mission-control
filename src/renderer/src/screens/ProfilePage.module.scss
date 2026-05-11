@@ -185,7 +185,7 @@
             border: none;
             border-radius: 9px;
             background: var(--omc-primary);
-            color: var(--omc-inverse-text);
+            color: var(--omc-primary-text);
             padding: 0 13px;
             display: inline-flex;
             align-items: center;
@@ -195,6 +195,12 @@
 
             &:hover {
               background: var(--omc-primary-strong);
+            }
+
+            &:disabled {
+              background: color-mix(in srgb, var(--omc-primary) 72%, var(--omc-surface-muted));
+              color: var(--omc-primary-text);
+              cursor: not-allowed;
             }
           }
 
@@ -442,7 +448,7 @@
                 border: 2px solid var(--omc-surface);
                 border-radius: 999px;
                 background: var(--background-preview);
-                color: var(--omc-text-strong);
+                color: var(--omc-primary-text);
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
@@ -457,8 +463,8 @@
                   height: 22px;
                   border-radius: 999px;
                   padding: 4px;
-                  background: color-mix(in srgb, var(--omc-surface) 86%, transparent);
-                  color: var(--omc-primary);
+                  background: color-mix(in srgb, var(--omc-primary) 84%, transparent);
+                  color: var(--omc-primary-text);
                 }
 
                 &:hover {
@@ -605,7 +611,7 @@
             border: none;
             border-radius: 9px;
             background: var(--omc-primary);
-            color: var(--omc-inverse-text);
+            color: var(--omc-primary-text);
             padding: 0 16px;
             display: inline-flex;
             align-items: center;
@@ -614,7 +620,10 @@
             font-weight: 850;
 
             &:disabled {
-              opacity: 0.65;
+              background: color-mix(in srgb, var(--omc-primary) 72%, var(--omc-surface-muted));
+              color: var(--omc-primary-text);
+              cursor: not-allowed;
+              opacity: 0.78;
             }
           }
         }
