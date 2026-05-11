@@ -415,7 +415,9 @@
                 height: 34px;
                 border: 2px solid var(--omc-surface);
                 border-radius: 999px;
-                background: var(--palette-color);
+                background:
+                  radial-gradient(circle at 30% 28%, color-mix(in srgb, var(--omc-inverse-text) 34%, transparent), transparent 32%),
+                  linear-gradient(135deg, var(--palette-color), color-mix(in srgb, var(--palette-color) 62%, var(--omc-accent)));
                 color: var(--omc-inverse-text);
                 display: inline-flex;
                 align-items: center;
@@ -440,12 +442,24 @@
                 border: 2px solid var(--omc-surface);
                 border-radius: 999px;
                 background: var(--background-preview);
-                color: var(--omc-inverse-text);
+                color: var(--omc-text-strong);
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
                 box-shadow: 0 0 0 1px var(--omc-border);
                 overflow: hidden;
+                position: relative;
+
+                svg {
+                  position: relative;
+                  z-index: 1;
+                  width: 22px;
+                  height: 22px;
+                  border-radius: 999px;
+                  padding: 4px;
+                  background: color-mix(in srgb, var(--omc-surface) 86%, transparent);
+                  color: var(--omc-primary);
+                }
 
                 &:hover {
                   box-shadow: 0 0 0 3px var(--omc-input-focus-ring);

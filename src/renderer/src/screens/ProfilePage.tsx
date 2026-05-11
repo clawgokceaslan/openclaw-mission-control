@@ -157,9 +157,9 @@ export function ProfilePage() {
       } as CSSProperties)
     : undefined
   const modeOptions: Array<{ value: ThemeMode; label: string; icon: typeof LuMonitor }> = [
-    { value: 'system', label: 'System', icon: LuMonitor },
-    { value: 'light', label: 'Light', icon: LuSun },
-    { value: 'dark', label: 'Dark', icon: LuMoon }
+    { value: 'system', label: 'Sistem', icon: LuMonitor },
+    { value: 'light', label: 'Açık', icon: LuSun },
+    { value: 'dark', label: 'Koyu', icon: LuMoon }
   ]
 
   useEffect(() => {
@@ -484,17 +484,19 @@ export function ProfilePage() {
           <section className={styles.formPanel}>
             <div className={styles.panelHeader}>
               <div>
-                <h2>Appearance</h2>
-                <p>Theme and palette are saved on this device.</p>
+                <h2>Görünüm</h2>
+                <p>Tema, palet ve arka plan bu cihazda saklanır.</p>
               </div>
             </div>
 
             <div className={styles.appearanceGrid}>
               <div className={styles.settingBlock}>
                 <div className={styles.settingCopy}>
-                  <span className={styles.settingLabel}>Mode</span>
+                  <span className={styles.settingLabel}>Mod</span>
                   <p className={styles.settingHint}>
-                    {mode === 'system' ? `Using system: ${resolvedMode}` : `Using ${resolvedMode} mode`}
+                    {mode === 'system'
+                      ? `Sistem kullanılıyor: ${resolvedMode === 'dark' ? 'koyu' : 'açık'}`
+                      : `${resolvedMode === 'dark' ? 'Koyu' : 'Açık'} mod kullanılıyor`}
                   </p>
                 </div>
                 <div className={styles.modeSegment}>
@@ -506,6 +508,8 @@ export function ProfilePage() {
                         type="button"
                         className={mode === option.value ? styles.modeActive : undefined}
                         onClick={() => setMode(option.value)}
+                        aria-pressed={mode === option.value}
+                        title={`${option.label} modu kullan`}
                       >
                         <Icon size={15} />
                         {option.label}
@@ -517,8 +521,8 @@ export function ProfilePage() {
 
               <div className={styles.settingBlock}>
                 <div className={styles.settingCopy}>
-                  <span className={styles.settingLabel}>Palette</span>
-                  <p>Accent color used across controls.</p>
+                  <span className={styles.settingLabel}>Palet</span>
+                  <p>Yüzey, vurgu, kenarlık ve kontrol renklerini belirler.</p>
                 </div>
                 <div className={styles.paletteRow}>
                   {palettes.map((palette) => (
@@ -528,7 +532,8 @@ export function ProfilePage() {
                       className={paletteId === palette.id ? styles.paletteActive : undefined}
                       style={{ '--palette-color': palette.swatch } as CSSProperties}
                       onClick={() => setPaletteId(palette.id)}
-                      aria-label={`Use ${palette.name} palette`}
+                      aria-label={`${palette.name} paletini kullan`}
+                      aria-pressed={paletteId === palette.id}
                       title={palette.name}
                     >
                       {paletteId === palette.id ? <LuCheck size={16} /> : null}
@@ -539,8 +544,8 @@ export function ProfilePage() {
 
               <div className={styles.settingBlock}>
                 <div className={styles.settingCopy}>
-                  <span className={styles.settingLabel}>Background</span>
-                  <p>Canvas treatment for this device.</p>
+                  <span className={styles.settingLabel}>Arka plan</span>
+                  <p>Uygulama canvas davranışını belirler.</p>
                 </div>
                 <div className={styles.backgroundRow}>
                   {backgrounds.map((background) => (
@@ -550,7 +555,8 @@ export function ProfilePage() {
                       className={backgroundId === background.id ? styles.backgroundActive : undefined}
                       style={{ '--background-preview': background.preview } as CSSProperties}
                       onClick={() => setBackgroundId(background.id)}
-                      aria-label={`Use ${background.name} background`}
+                      aria-label={`${background.name} arka planını kullan`}
+                      aria-pressed={backgroundId === background.id}
                       title={background.name}
                     >
                       {backgroundId === background.id ? <LuCheck size={15} /> : null}

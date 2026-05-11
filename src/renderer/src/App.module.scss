@@ -1,5 +1,6 @@
 :global(:root) {
-  --omc-bg: #f4f6fb;
+  --omc-bg: #ffffff;
+  --omc-app-background: #ffffff;
   --omc-surface: #ffffff;
   --omc-surface-muted: #f8fafc;
   --omc-border: #d7deea;
@@ -68,9 +69,19 @@
   --omc-badge-text: #4d6383;
   --omc-icon-bg: #edf3ff;
   --omc-icon-text: #2f62dd;
+  --omc-modal-bg: #ffffff;
+  --omc-modal-shadow: 0 24px 70px rgba(14, 28, 52, 0.22);
+  --omc-primary-soft: #eef4ff;
+  --omc-primary-border: #b9cef8;
+  --omc-active-border: #b9cef8;
+  --omc-input-focus-border: #2d5fda;
+  --omc-accent-contrast: #0f172a;
+  --omc-code-text: #334155;
+  --omc-shadow-md: 0 12px 28px rgba(18, 32, 54, 0.14);
+  --omc-shadow-xl: 0 26px 78px rgba(14, 28, 52, 0.24);
 
   color-scheme: light;
-  --bs-body-bg: var(--omc-bg);
+  --bs-body-bg: var(--omc-app-background);
   --bs-body-color: var(--omc-text);
   --bs-border-color: var(--omc-border);
   --bs-border-color-translucent: var(--omc-border-subtle);
@@ -84,10 +95,10 @@
   --bs-table-bg: var(--omc-surface);
   --bs-table-color: var(--omc-text);
   --bs-table-border-color: var(--omc-table-border);
-  --bs-modal-bg: var(--omc-surface);
+  --bs-modal-bg: var(--omc-modal-bg);
   --bs-modal-color: var(--omc-text);
   --bs-modal-border-color: var(--omc-border);
-  --bs-dropdown-bg: var(--omc-surface);
+  --bs-dropdown-bg: var(--omc-modal-bg);
   --bs-dropdown-color: var(--omc-text);
   --bs-dropdown-link-color: var(--omc-text);
   --bs-dropdown-link-hover-bg: var(--omc-hover-bg);
@@ -137,7 +148,16 @@
 
 :global(.dropdown-menu) {
   border: 1px solid var(--omc-border);
-  background: var(--omc-surface);
+  background: var(--omc-modal-bg);
+  color: var(--omc-text);
+  box-shadow: var(--omc-shadow-medium);
+}
+
+:global(.modal-backdrop) {
+  --bs-backdrop-bg: var(--omc-modal-backdrop);
+}
+
+:global(.modal-dialog) {
   color: var(--omc-text);
 }
 
@@ -194,13 +214,21 @@
   --bs-card-bg: var(--omc-surface);
   --bs-card-color: var(--omc-text);
   --bs-card-border-color: var(--omc-border);
-  --bs-modal-bg: var(--omc-surface);
+  --bs-modal-bg: var(--omc-modal-bg);
   --bs-modal-color: var(--omc-text);
-  --bs-dropdown-bg: var(--omc-surface);
+  --bs-dropdown-bg: var(--omc-modal-bg);
   --bs-dropdown-color: var(--omc-text);
-  background-color: var(--omc-surface) !important;
+  background-color: var(--omc-modal-bg) !important;
   color: var(--omc-text) !important;
   border-color: var(--omc-border) !important;
+}
+
+:global(.card) {
+  background-color: var(--omc-surface) !important;
+}
+
+:global(.modal-content) {
+  box-shadow: var(--omc-modal-shadow);
 }
 
 :global(.table) {
@@ -213,6 +241,12 @@
   --bs-table-hover-color: var(--omc-text-strong);
   color: var(--omc-text) !important;
   border-color: var(--omc-table-border) !important;
+}
+
+:global(.table thead th),
+:global(.table thead td) {
+  background-color: var(--omc-table-header) !important;
+  color: var(--omc-text-strong) !important;
 }
 
 :global(.table > :not(caption) > * > *) {

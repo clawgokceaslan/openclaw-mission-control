@@ -47,14 +47,14 @@ const THEME_PALETTE_KEY = 'omc:theme-palette'
 const THEME_BACKGROUND_KEY = 'omc:theme-background'
 
 const baseLight: ThemeTokens = {
-  bg: '#f4f6fb',
+  bg: '#ffffff',
   surface: '#ffffff',
-  surfaceMuted: '#f8fafc',
+  surfaceMuted: '#f7f9fc',
   surfaceSoft: '#fbfdff',
   surfaceRaised: '#ffffff',
-  border: '#d7deea',
-  borderStrong: '#c3d0e0',
-  borderSubtle: '#edf2fa',
+  border: '#d8dee8',
+  borderStrong: '#bdc8d9',
+  borderSubtle: '#edf1f7',
   text: '#1f2a3f',
   textStrong: '#17233a',
   textMuted: '#7284a4',
@@ -106,19 +106,29 @@ const baseLight: ThemeTokens = {
   modalBackdrop: 'rgba(15, 24, 39, 0.38)',
   codeBg: '#f7f9fd',
   codeBorder: '#dce6f3',
+  modalBg: '#ffffff',
+  modalShadow: '0 24px 70px rgba(14, 28, 52, 0.22)',
+  primarySoft: '#eef4ff',
+  primaryBorder: '#b9cef8',
+  activeBorder: '#b9cef8',
+  inputFocusBorder: '#2d5fda',
+  accentContrast: '#0f172a',
+  codeText: '#334155',
+  shadowMd: '0 12px 28px rgba(18, 32, 54, 0.14)',
+  shadowXl: '0 26px 78px rgba(14, 28, 52, 0.24)',
   shadow: '0 1px 2px rgba(15, 30, 58, 0.08)',
   shadowRaised: '0 18px 34px rgba(19, 35, 58, 0.18)'
 }
 
 const baseDark: ThemeTokens = {
-  bg: '#101725',
-  surface: '#172033',
-  surfaceMuted: '#1d293d',
-  surfaceSoft: '#202d43',
-  surfaceRaised: '#1b263b',
-  border: '#33435d',
-  borderStrong: '#455a78',
-  borderSubtle: '#29384f',
+  bg: '#000000',
+  surface: '#101216',
+  surfaceMuted: '#161a21',
+  surfaceSoft: '#1b2029',
+  surfaceRaised: '#141922',
+  border: '#2d3441',
+  borderStrong: '#475467',
+  borderSubtle: '#232a35',
   text: '#e7edf8',
   textStrong: '#f5f8ff',
   textMuted: '#9aabc4',
@@ -150,50 +160,66 @@ const baseDark: ThemeTokens = {
   shadowLarge: '0 24px 70px rgba(0, 0, 0, 0.42)',
   shadowColor: 'rgba(0, 0, 0, 0.28)',
   shadowRaisedColor: 'rgba(0, 0, 0, 0.52)',
-  gradientSurface: 'linear-gradient(180deg, #1b263b 0%, #172033 100%)',
-  gradientSubtle: 'linear-gradient(135deg, #1d293d 0%, #172033 52%, #101725 100%)',
-  badgeBg: '#1d2d49',
+  gradientSurface: 'linear-gradient(180deg, #171c25 0%, #101216 100%)',
+  gradientSubtle: 'linear-gradient(135deg, #1b2029 0%, #101216 52%, #000000 100%)',
+  badgeBg: '#182133',
   badgeText: '#c6d8ff',
   iconBg: '#1d2d49',
   iconText: '#bfdbfe',
-  tableHeader: '#202d43',
-  tableBorder: '#2b3a52',
-  inputBg: '#111a2a',
-  inputBorder: '#394b66',
+  tableHeader: '#181d25',
+  tableBorder: '#252d39',
+  inputBg: '#090c12',
+  inputBorder: '#303947',
   inputFocusRing: 'rgba(96, 165, 250, 0.2)',
-  ctaBg: '#172842',
+  ctaBg: '#111827',
   ctaBorder: '#4a6386',
   pillBg: '#1d2d49',
   pillBorder: '#3d5272',
-  hoverBg: '#21324d',
-  activeBg: '#233a60',
+  hoverBg: '#1b2431',
+  activeBg: '#1d2a3f',
   modalBackdrop: 'rgba(3, 7, 18, 0.62)',
   codeBg: '#0f1724',
   codeBorder: '#33435d',
+  modalBg: '#101216',
+  modalShadow: '0 28px 90px rgba(0, 0, 0, 0.62)',
+  primarySoft: '#172842',
+  primaryBorder: '#31537d',
+  activeBorder: '#31537d',
+  inputFocusBorder: '#60a5fa',
+  accentContrast: '#020617',
+  codeText: '#dbeafe',
+  shadowMd: '0 14px 34px rgba(0, 0, 0, 0.34)',
+  shadowXl: '0 28px 92px rgba(0, 0, 0, 0.52)',
   shadow: '0 1px 2px rgba(0, 0, 0, 0.28)',
   shadowRaised: '0 18px 42px rgba(0, 0, 0, 0.38)'
 }
 
-function palette(
-  primary: string,
-  primaryStrong: string,
-  accent: string,
-  id: ThemePaletteId,
+function palette(config: {
+  id: ThemePaletteId
   name: string
-): ThemePalette {
+  swatch: string
+  light: Partial<ThemeTokens>
+  dark: Partial<ThemeTokens>
+}): ThemePalette {
+  const primary = config.swatch
+  const primaryStrong = config.light.primaryStrong ?? config.swatch
+  const accent = config.dark.accent ?? config.swatch
   return {
-    id,
-    name,
-    swatch: primary,
+    id: config.id,
+    name: config.name,
+    swatch: config.swatch,
     light: {
       ...baseLight,
       primary,
       primaryStrong,
-      accent,
+      accent: config.light.accent ?? primary,
       link: primaryStrong,
       navHoverBg: `${primary}17`,
       navActiveBg: `${primary}1f`,
-      navAccent: primaryStrong
+      navAccent: primaryStrong,
+      iconText: primaryStrong,
+      inputFocusBorder: primary,
+      ...config.light
     },
     dark: {
       ...baseDark,
@@ -203,54 +229,94 @@ function palette(
       link: accent,
       navHoverBg: `${primary}26`,
       navActiveBg: `${primary}33`,
-      navAccent: accent
+      navAccent: accent,
+      iconText: accent,
+      inputFocusBorder: accent,
+      ...config.dark
     }
   }
 }
 
 export const THEME_PALETTES: ThemePalette[] = [
-  palette('#2d5fda', '#264fb8', '#93b4ff', 'blue', 'Blue'),
-  palette('#059669', '#047857', '#6ee7b7', 'emerald', 'Emerald'),
-  palette('#7c3aed', '#6d28d9', '#c4b5fd', 'violet', 'Violet'),
-  palette('#d97706', '#b45309', '#fcd34d', 'amber', 'Amber'),
-  palette('#e11d48', '#be123c', '#fda4af', 'rose', 'Rose')
+  palette({
+    id: 'graphite',
+    name: 'Graphite',
+    swatch: '#111827',
+    light: { primary: '#111827', primaryStrong: '#030712', accent: '#6b7280', primarySoft: '#f3f4f6', activeBg: '#eef0f3', iconBg: '#f3f4f6', primaryBorder: '#cbd5e1' },
+    dark: { primary: '#e5e7eb', primaryStrong: '#ffffff', accent: '#d1d5db', activeBg: '#20242c', primarySoft: '#181b22', primaryBorder: '#4b5563' }
+  }),
+  palette({
+    id: 'blue',
+    name: 'Nocturne Blue',
+    swatch: '#2563eb',
+    light: { primary: '#2563eb', primaryStrong: '#1d4ed8', accent: '#0f766e', surfaceMuted: '#f5f8ff', activeBg: '#eaf1ff', primarySoft: '#eef4ff', primaryBorder: '#bfd2ff' },
+    dark: { primary: '#3b82f6', primaryStrong: '#bfdbfe', accent: '#67e8f9', surface: '#101624', surfaceMuted: '#172033', surfaceSoft: '#1b2740', activeBg: '#1d3153', primaryBorder: '#31537d' }
+  }),
+  palette({
+    id: 'brown',
+    name: 'Walnut',
+    swatch: '#8b5e34',
+    light: { primary: '#8b5e34', primaryStrong: '#684322', accent: '#b45309', bg: '#ffffff', surfaceMuted: '#faf7f2', surfaceSoft: '#f8f3eb', border: '#ded1c3', borderSubtle: '#eee5da', activeBg: '#f3e8d8', primarySoft: '#f7efe5', primaryBorder: '#d8bea2', iconBg: '#f7efe5', iconText: '#8b5e34' },
+    dark: { primary: '#b8895d', primaryStrong: '#fed7aa', accent: '#f59e0b', surface: '#15110d', surfaceMuted: '#1d1711', surfaceSoft: '#251d15', border: '#3a3027', borderSubtle: '#2b241d', activeBg: '#312417', primarySoft: '#241a12', primaryBorder: '#765334' }
+  }),
+  palette({
+    id: 'red',
+    name: 'Oxide Red',
+    swatch: '#dc2626',
+    light: { primary: '#dc2626', primaryStrong: '#991b1b', accent: '#be185d', surfaceMuted: '#fff7f7', surfaceSoft: '#fff4f2', border: '#ead0d0', borderSubtle: '#f4e3e3', activeBg: '#fee2e2', primarySoft: '#fff1f2', primaryBorder: '#fecaca', iconBg: '#fff1f2', iconText: '#b91c1c' },
+    dark: { primary: '#ef4444', primaryStrong: '#fecaca', accent: '#fb7185', surface: '#171011', surfaceMuted: '#201516', surfaceSoft: '#2a191a', border: '#3d292a', borderSubtle: '#2f2021', activeBg: '#3a1d21', primarySoft: '#2a1518', primaryBorder: '#7f2638' }
+  }),
+  palette({
+    id: 'green',
+    name: 'Sage Green',
+    swatch: '#0f766e',
+    light: { primary: '#0f766e', primaryStrong: '#115e59', accent: '#65a30d', surfaceMuted: '#f4faf7', surfaceSoft: '#eff8f3', activeBg: '#dff4ea', primarySoft: '#e8f7f1', primaryBorder: '#addccc', iconBg: '#e8f7f1', iconText: '#0f766e' },
+    dark: { primary: '#14b8a6', primaryStrong: '#99f6e4', accent: '#bef264', surface: '#0d1513', surfaceMuted: '#13211e', surfaceSoft: '#172a25', border: '#29433d', borderSubtle: '#203630', activeBg: '#173b34', primarySoft: '#112c28', primaryBorder: '#2f6d62' }
+  }),
+  palette({
+    id: 'purple',
+    name: 'Ink Purple',
+    swatch: '#7c3aed',
+    light: { primary: '#7c3aed', primaryStrong: '#5b21b6', accent: '#db2777', surfaceMuted: '#f9f7ff', surfaceSoft: '#f5f1ff', activeBg: '#ede9fe', primarySoft: '#f3efff', primaryBorder: '#d8b4fe', iconBg: '#f3efff', iconText: '#6d28d9' },
+    dark: { primary: '#8b5cf6', primaryStrong: '#ddd6fe', accent: '#f0abfc', surface: '#14111d', surfaceMuted: '#1d172b', surfaceSoft: '#251d38', border: '#3a3150', borderSubtle: '#2c253d', activeBg: '#30264d', primarySoft: '#211936', primaryBorder: '#5b4b80' }
+  })
 ]
 
 export const THEME_BACKGROUNDS: ThemeBackground[] = [
   {
     id: 'default',
     name: 'Default',
-    preview: 'linear-gradient(135deg, #f4f6fb, #ffffff)',
-    light: '#f4f6fb',
-    dark: '#05070d'
+    preview: 'linear-gradient(135deg, #ffffff 0%, #ffffff 48%, #000000 52%, #000000 100%)',
+    light: '#ffffff',
+    dark: '#000000'
   },
   {
-    id: 'soft-grid',
-    name: 'Soft grid',
-    preview: 'linear-gradient(135deg, #eef4ff 0%, #ffffff 50%, #07101d 100%)',
-    light: 'linear-gradient(rgba(45, 95, 218, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(45, 95, 218, 0.05) 1px, transparent 1px), #f7faff',
-    dark: 'linear-gradient(rgba(147, 180, 255, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(147, 180, 255, 0.035) 1px, transparent 1px), #050b14'
+    id: 'blue-haze',
+    name: 'Blue haze',
+    preview: 'linear-gradient(135deg, #eff6ff 0%, #ffffff 46%, #061020 100%)',
+    light: 'linear-gradient(rgba(37, 99, 235, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(37, 99, 235, 0.045) 1px, transparent 1px), #ffffff',
+    dark: 'linear-gradient(rgba(96, 165, 250, 0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(96, 165, 250, 0.04) 1px, transparent 1px), #01040a'
   },
   {
-    id: 'radial',
-    name: 'Radial',
-    preview: 'radial-gradient(circle at top left, #dbeafe, #ffffff 50%, #060a13 100%)',
-    light: 'radial-gradient(circle at top left, rgba(45, 95, 218, 0.14), transparent 34%), #f6f8fc',
-    dark: 'radial-gradient(circle at top left, rgba(96, 165, 250, 0.11), transparent 36%), #040813'
+    id: 'walnut',
+    name: 'Walnut',
+    preview: 'linear-gradient(135deg, #fbf7ef 0%, #ffffff 48%, #130d08 100%)',
+    light: 'radial-gradient(circle at top left, rgba(139, 94, 52, 0.12), transparent 35%), #ffffff',
+    dark: 'radial-gradient(circle at top left, rgba(184, 137, 93, 0.11), transparent 36%), #050302'
   },
   {
-    id: 'paper',
-    name: 'Paper',
-    preview: 'linear-gradient(135deg, #fbfaf7 0%, #f2f4f8 50%, #080a0f 100%)',
-    light: 'linear-gradient(135deg, #fbfaf7 0%, #f3f6fb 100%)',
-    dark: 'linear-gradient(135deg, #090c13 0%, #05070d 100%)'
+    id: 'red-clay',
+    name: 'Red clay',
+    preview: 'linear-gradient(135deg, #fff1f2 0%, #ffffff 48%, #180709 100%)',
+    light: 'radial-gradient(circle at top left, rgba(220, 38, 38, 0.1), transparent 34%), #ffffff',
+    dark: 'radial-gradient(circle at top left, rgba(239, 68, 68, 0.1), transparent 36%), #050101'
   },
   {
     id: 'midnight',
     name: 'Midnight',
-    preview: 'linear-gradient(135deg, #111827, #1e3a8a)',
-    light: 'linear-gradient(135deg, #eef2ff 0%, #f8fafc 50%, #eff6ff 100%)',
-    dark: 'linear-gradient(135deg, #02040a 0%, #050816 52%, #0b1020 100%)'
+    preview: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 45%, #020617 100%)',
+    light: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 52%, #eef2ff 100%)',
+    dark: 'linear-gradient(135deg, #000000 0%, #020617 52%, #07111f 100%)'
   }
 ]
 
@@ -299,6 +365,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useLayoutEffect(() => {
     applyTheme(mode, resolvedMode, activePalette, activeBackground)
   }, [activeBackground, activePalette, mode, resolvedMode])
+
+  useEffect(() => {
+    window.localStorage.setItem(THEME_MODE_KEY, mode)
+    window.localStorage.setItem(THEME_PALETTE_KEY, activePalette.id)
+    window.localStorage.setItem(THEME_BACKGROUND_KEY, activeBackground.id)
+  }, [activeBackground.id, activePalette.id, mode])
 
   useEffect(() => {
     const media = window.matchMedia?.('(prefers-color-scheme: dark)')

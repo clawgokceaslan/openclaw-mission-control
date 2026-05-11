@@ -1,14 +1,25 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
-export type ThemePaletteId = 'blue' | 'emerald' | 'violet' | 'amber' | 'rose'
-export type ThemeBackgroundId = 'default' | 'soft-grid' | 'radial' | 'paper' | 'midnight'
+export type ThemePaletteId = 'graphite' | 'blue' | 'brown' | 'red' | 'green' | 'purple'
+export type ThemeBackgroundId = 'default' | 'blue-haze' | 'walnut' | 'red-clay' | 'midnight'
 
 const THEME_MODE_KEY = 'omc:theme-mode'
 const THEME_PALETTE_KEY = 'omc:theme-palette'
 const THEME_BACKGROUND_KEY = 'omc:theme-background'
-const VALID_PALETTES: ThemePaletteId[] = ['blue', 'emerald', 'violet', 'amber', 'rose']
-const VALID_BACKGROUNDS: ThemeBackgroundId[] = ['default', 'soft-grid', 'radial', 'paper', 'midnight']
+const VALID_PALETTES: ThemePaletteId[] = ['graphite', 'blue', 'brown', 'red', 'green', 'purple']
+const VALID_BACKGROUNDS: ThemeBackgroundId[] = ['default', 'blue-haze', 'walnut', 'red-clay', 'midnight']
+const LEGACY_PALETTE_MAP: Record<string, ThemePaletteId> = {
+  emerald: 'green',
+  violet: 'purple',
+  amber: 'brown',
+  rose: 'red'
+}
+const LEGACY_BACKGROUND_MAP: Record<string, ThemeBackgroundId> = {
+  'soft-grid': 'blue-haze',
+  radial: 'blue-haze',
+  paper: 'walnut'
+}
 
 function resolveThemeMode(): ThemeMode {
   if (typeof window === 'undefined') return 'system'
@@ -17,15 +28,17 @@ function resolveThemeMode(): ThemeMode {
 }
 
 function resolvePaletteId(): ThemePaletteId {
-  if (typeof window === 'undefined') return 'blue'
+  if (typeof window === 'undefined') return 'graphite'
   const saved = window.localStorage.getItem(THEME_PALETTE_KEY)
-  return saved && VALID_PALETTES.includes(saved as ThemePaletteId) ? (saved as ThemePaletteId) : 'blue'
+  if (saved && VALID_PALETTES.includes(saved as ThemePaletteId)) return saved as ThemePaletteId
+  return saved ? LEGACY_PALETTE_MAP[saved] ?? 'graphite' : 'graphite'
 }
 
 function resolveBackgroundId(): ThemeBackgroundId {
   if (typeof window === 'undefined') return 'default'
   const saved = window.localStorage.getItem(THEME_BACKGROUND_KEY)
-  return saved && VALID_BACKGROUNDS.includes(saved as ThemeBackgroundId) ? (saved as ThemeBackgroundId) : 'default'
+  if (saved && VALID_BACKGROUNDS.includes(saved as ThemeBackgroundId)) return saved as ThemeBackgroundId
+  return saved ? LEGACY_BACKGROUND_MAP[saved] ?? 'default' : 'default'
 }
 
 function getSystemMode(): 'light' | 'dark' {
