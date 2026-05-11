@@ -1904,7 +1904,7 @@
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   background: var(--omc-bg);
 }
 
@@ -2091,108 +2091,6 @@
   border-color: color-mix(in srgb, var(--omc-danger-border) 80%, transparent) !important;
   background: var(--omc-danger-bg) !important;
   color: var(--omc-danger) !important;
-}
-
-.chatPipelineStrip {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  border-bottom: 1px solid color-mix(in srgb, var(--omc-border-subtle) 66%, transparent);
-  padding: 10px clamp(12px, 1.4vw, 18px) 10px clamp(14px, 3vw, 36px);
-  background: color-mix(in srgb, var(--omc-table-header) 72%, var(--omc-bg) 28%);
-
-  .chatPipelineStep {
-    --pipeline-accent: var(--omc-text-soft);
-
-    min-width: 0;
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 8px;
-    border: 1px solid var(--omc-border-subtle);
-    border-radius: 8px;
-    background: var(--omc-surface);
-    padding: 8px;
-
-    .chatPipelineIcon {
-      width: 28px;
-      height: 28px;
-      display: grid;
-      place-items: center;
-      border-radius: 7px;
-      background: color-mix(in srgb, var(--pipeline-accent) 12%, var(--omc-surface));
-      color: var(--pipeline-accent);
-    }
-
-    .chatPipelineCopy {
-      min-width: 0;
-      display: grid;
-      gap: 2px;
-
-      strong,
-      span,
-      p {
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      strong {
-        color: var(--omc-text-strong);
-        font-size: 0.76rem;
-        font-weight: 900;
-      }
-
-      span {
-        color: var(--pipeline-accent);
-        font-size: 0.68rem;
-        font-weight: 900;
-      }
-
-      p {
-        margin: 0;
-        color: var(--omc-text-muted);
-        font-size: 0.68rem;
-        font-weight: 750;
-      }
-    }
-
-    button {
-      min-height: 28px;
-      border: 1px solid var(--omc-border-subtle);
-      border-radius: 7px;
-      background: var(--omc-surface-muted);
-      color: var(--omc-text-strong);
-      padding: 0 8px;
-      font-size: 0.7rem;
-      font-weight: 900;
-      white-space: nowrap;
-
-      &:not(:disabled):hover {
-        border-color: var(--omc-border-strong);
-        background: var(--omc-hover-bg);
-      }
-
-      &:disabled {
-        cursor: not-allowed;
-        opacity: 0.5;
-      }
-    }
-  }
-
-  .chatPipelineStep_active {
-    --pipeline-accent: var(--omc-primary);
-  }
-
-  .chatPipelineStep_ready {
-    --pipeline-accent: var(--omc-warning);
-  }
-
-  .chatPipelineStep_done {
-    --pipeline-accent: var(--omc-success-strong);
-  }
 }
 
 .chatWorkspace {
@@ -3134,19 +3032,20 @@
 
 .chatSteerModeRow {
   min-width: 0;
-  width: 100%;
-  border: 1px solid color-mix(in srgb, var(--omc-primary) 30%, var(--omc-border-subtle));
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--omc-surface-muted) 72%, var(--omc-bg));
-  display: grid;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--omc-primary) 44%, var(--omc-border-subtle));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--omc-active-bg) 62%, var(--omc-bg));
+  display: inline-grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 2px;
-  padding: 8px 10px;
+  gap: 7px;
+  padding: 5px 6px 5px 10px;
   color: var(--omc-text-muted);
 
   span {
-    color: var(--omc-text-strong);
+    color: var(--omc-primary-strong);
     font-size: 0.76rem;
     font-weight: 900;
   }
@@ -3161,10 +3060,10 @@
   }
 
   button {
-    width: 26px;
-    height: 26px;
+    width: 22px;
+    height: 22px;
     border: 0;
-    border-radius: 8px;
+    border-radius: 999px;
     background: transparent;
     color: var(--omc-text-muted);
     display: inline-flex;
@@ -3208,10 +3107,10 @@
 }
 
 .chatComposerFooter {
-  grid-column: 1 / -1;
+  grid-column: 1;
   grid-row: 2;
   min-width: 0;
-  min-height: 40px;
+  min-height: 42px;
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -3221,19 +3120,19 @@
 }
 
 .chatConfigModalOverlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 10;
+  z-index: 80;
   display: grid;
   place-items: center;
   padding: 20px;
-  background: color-mix(in srgb, var(--omc-bg) 48%, transparent);
-  backdrop-filter: blur(7px);
+  background: color-mix(in srgb, var(--omc-bg) 68%, transparent);
+  backdrop-filter: blur(10px);
 }
 
 .chatConfigModal {
   width: min(760px, 100%);
-  max-height: min(78vh, 760px);
+  max-height: min(82dvh, 760px);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--omc-border-strong) 70%, transparent);
   border-radius: 16px;
@@ -3589,9 +3488,9 @@
   border-radius: 13px;
   background: var(--omc-bg);
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) 40px;
-  grid-template-rows: auto 40px auto;
-  gap: 4px 8px;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  grid-template-rows: auto 42px;
+  gap: 6px 8px;
   align-items: end;
   padding: 8px;
   transition:
@@ -3635,8 +3534,8 @@
   }
 
   > button {
-    width: 40px;
-    height: 40px;
+    width: 42px;
+    height: 42px;
     border: 0;
     border-radius: 11px;
     background: var(--omc-primary);
@@ -3647,7 +3546,13 @@
 
     &:disabled {
       cursor: not-allowed;
+      background: color-mix(in srgb, var(--omc-surface-muted) 82%, var(--omc-bg)) !important;
+      color: var(--omc-text-soft);
       opacity: 0.55;
+    }
+
+    &:not(:disabled):hover {
+      filter: brightness(1.06);
     }
   }
 
@@ -3657,15 +3562,15 @@
   }
 
   .chatSendButton {
-    grid-column: 3;
+    grid-column: 2;
     grid-row: 2;
   }
 }
 
 .chatComposerBox .chatConfigurationButton {
   width: auto;
-  height: 40px;
-  min-height: 40px;
+  height: 42px;
+  min-height: 42px;
   border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 82%, transparent);
   border-radius: 11px;
   background: color-mix(in srgb, var(--omc-surface-muted) 74%, transparent);
@@ -8425,10 +8330,6 @@
     }
   }
 
-  .chatPipelineStrip {
-    display: none;
-  }
-
   .chatWorkspace {
     min-height: 0;
     overflow: hidden;
@@ -8500,7 +8401,7 @@
   }
 
   .chatComposerBox {
-    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    grid-template-columns: minmax(0, 1fr) 44px;
     grid-template-rows: minmax(44px, auto) 44px;
     gap: 4px 6px;
     padding: 7px;
@@ -8631,23 +8532,6 @@
     gap: 6px;
   }
 
-  .chatPipelineStrip {
-    .chatPipelineStep {
-      flex-basis: min(210px, 82vw);
-      grid-template-columns: auto minmax(0, 1fr);
-
-      button {
-        grid-column: 1 / -1;
-      }
-
-      .chatPipelineCopy {
-        p {
-          display: none;
-        }
-      }
-    }
-  }
-
   .chatMessageList {
     gap: 14px;
   }
@@ -8657,7 +8541,7 @@
   }
 
   .chatComposerBox {
-    grid-template-columns: 42px minmax(0, 1fr) 42px;
+    grid-template-columns: minmax(0, 1fr) 42px;
     grid-template-rows: minmax(42px, auto) 42px;
     padding: 6px;
 
@@ -8703,18 +8587,6 @@
 
     span:not(.chatBrandIcon) {
       display: none;
-    }
-  }
-
-  .chatPipelineStrip {
-    .chatPipelineStep {
-      padding: 7px;
-
-      .chatPipelineCopy {
-        p {
-          display: none;
-        }
-      }
     }
   }
 

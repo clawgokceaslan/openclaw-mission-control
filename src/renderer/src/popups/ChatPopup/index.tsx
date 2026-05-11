@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type RefObject } from 'react'
 import type { IconType } from 'react-icons'
-import { LuBot, LuCircleCheck, LuCircleStop, LuCloudUpload, LuEllipsis, LuEye, LuFileText, LuHistory, LuImage, LuMessageSquare, LuPaperclip, LuPlay, LuPlus, LuRefreshCw, LuSend, LuSettings2, LuSignal, LuSparkles, LuX } from 'react-icons/lu'
+import { LuBot, LuCircleStop, LuCloudUpload, LuEllipsis, LuEye, LuFileText, LuHistory, LuImage, LuMessageSquare, LuPaperclip, LuPlay, LuPlus, LuSend, LuSettings2, LuSignal, LuSparkles, LuX } from 'react-icons/lu'
 import { formatUsageSummary } from '@shared/utils/gateway-events'
 import type { Agent, Gateway, Skill, TaskEntity, Workspace } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
@@ -520,16 +520,6 @@ export function ChatPopup({
   }
   const selectedChatStatusMeta = selectedChatSummary ? conversationStatusMeta(selectedChatSummary) : null
   const sendButtonStopsConversation = selectedChatCanStop && activeCommand !== 'steer'
-  const latestConversationForPhase = (phase: 'PLAN' | 'RUN' | 'POST-RUNNING') => conversations
-    .filter((conversation) => conversation.phase === phase)
-    .slice()
-    .sort((a, b) => b.at - a.at)[0] ?? null
-  const planConversation = latestConversationForPhase('PLAN')
-  const runConversation = latestConversationForPhase('RUN')
-  const verifyConversation = latestConversationForPhase('POST-RUNNING')
-  const activePlan = planConversation ? runningConversationIds.has(planConversation.id) || planConversation.status === 'running' || conversationStatusMeta(planConversation).active : false
-  const activeRun = runConversation ? runningConversationIds.has(runConversation.id) || runConversation.status === 'running' || conversationStatusMeta(runConversation).active : false
-  const activeVerify = verifyConversation ? runningConversationIds.has(verifyConversation.id) || verifyConversation.status === 'running' || conversationStatusMeta(verifyConversation).active : false
   const headerActions: ChatHeaderAction[] = [
     ...(showContextHistory ? [{
       key: 'context',
@@ -579,53 +569,6 @@ export function ChatPopup({
   ]
   const mobilePrimaryActionKeys = new Set(selectedChatCanStop ? ['stop'] : showRunActions ? ['plan', 'run'] : [])
   const mobileOverflowActions = headerActions.filter((action) => !mobilePrimaryActionKeys.has(action.key))
-  const pipelineRows = [
-    {
-      key: 'plan',
-      title: 'Planla',
-      status: activePlan ? 'Planlanıyor' : planConversation ? conversationStatusMeta(planConversation).label : 'Hazır',
-      detail: activePlan ? 'AI uygulanabilir task planını çıkarıyor.' : planConversation ? `${formatChatTime(planConversation.at)} tarihinde plan kaydı var.` : 'İlk adım: kapsamı ve alt işleri netleştir.',
-      tone: activePlan ? 'active' : planConversation ? 'done' : 'idle',
-      icon: activePlan ? LuRefreshCw : LuSparkles,
-      action: activePlan && planConversation ? () => onConversationSelect(planConversation.id) : onPlan,
-      actionLabel: activePlan ? 'Durumu aç' : planConversation ? 'Yeniden planla' : 'Planla',
-      disabled: gatewayPlanLaunching
-    },
-    {
-      key: 'run',
-      title: 'Çalıştır',
-      status: activeRun ? 'Çalışıyor' : runConversation ? conversationStatusMeta(runConversation).label : planConversation ? 'Çalıştırılabilir' : 'Plan bekliyor',
-      detail: activeRun ? 'AI task çıktısını üretmek için çalışıyor.' : runConversation ? `${formatChatTime(runConversation.at)} tarihinde çalışma kaydı var.` : planConversation ? 'Plan hazır; güvenli sıradaki adım çalışma.' : 'Önce planlama adımı tamamlanmalı.',
-      tone: activeRun ? 'active' : runConversation ? 'done' : planConversation ? 'ready' : 'idle',
-      icon: activeRun ? LuRefreshCw : LuPlay,
-      action: activeRun && runConversation ? () => onConversationSelect(runConversation.id) : onRun,
-      actionLabel: activeRun ? 'Durumu aç' : runConversation ? 'Yeniden dene' : 'Çalıştır',
-      disabled: gatewayRunLaunching || !planConversation
-    },
-    {
-      key: 'verify',
-      title: 'Doğrula',
-      status: activeVerify ? 'Doğrulanıyor' : verifyConversation ? conversationStatusMeta(verifyConversation).label : runConversation ? 'Özet bekliyor' : 'Bekliyor',
-      detail: activeVerify ? 'Son çalışma özeti ve kontrol noktaları hazırlanıyor.' : verifyConversation ? `${formatChatTime(verifyConversation.at)} tarihinde doğrulama özeti var.` : runConversation ? 'Çalışma çıktısını kabul sinyalleriyle karşılaştır.' : 'Çalışma tamamlandığında burada izlenir.',
-      tone: activeVerify ? 'active' : verifyConversation ? 'done' : runConversation ? 'ready' : 'idle',
-      icon: LuFileText,
-      action: () => setIsContextDrawerOpen(true),
-      actionLabel: 'Özet',
-      disabled: !showContextHistory
-    },
-    {
-      key: 'complete',
-      title: 'Tamamla',
-      status: verifyConversation || runConversation ? 'Onay bekliyor' : 'Bekliyor',
-      detail: 'Kabul kriterleri tuttuysa task statüsünü tamamlanan kolona taşı; değilse devam mesajı gönder.',
-      tone: verifyConversation || runConversation ? 'ready' : 'idle',
-      icon: LuCircleCheck,
-      action: onNewConversation,
-      actionLabel: 'Devam et',
-      disabled: false
-    }
-  ] as const
-
   return (
     <>
       <div className={styles.chatBackdrop} onClick={onClose} />
@@ -730,24 +673,6 @@ export function ChatPopup({
               <button type="button" onClick={onClose} aria-label="Close chat" title="Close chat" className={styles.chatIconAction}><LuX size={16} /></button>
             </div>
           </header>
-          {showRunActions ? (
-            <section className={`${styles.chatPipelineStrip} ${popupStyles.chatPipelineStrip}`} aria-label="Task yaşam döngüsü">
-              {pipelineRows.map((item) => {
-                const Icon = item.icon
-                return (
-                  <article key={item.key} className={`${styles.chatPipelineStep} ${styles[`chatPipelineStep_${item.tone}`] ?? ''}`}>
-                    <span className={styles.chatPipelineIcon}><Icon size={14} /></span>
-                    <div className={styles.chatPipelineCopy}>
-                      <strong>{item.title}</strong>
-                      <span>{item.status}</span>
-                      <p>{item.detail}</p>
-                    </div>
-                    <button type="button" onClick={item.action} disabled={item.disabled}>{item.actionLabel}</button>
-                  </article>
-                )
-              })}
-            </section>
-          ) : null}
           <div className={`${styles.chatWorkspace} ${popupStyles.chatWorkspace}`}>
             <div className={styles.chatTranscript} ref={chatFeedRef} onScroll={onChatScroll}>
               {visibleMessages.length > 0 ? (
@@ -894,8 +819,8 @@ export function ChatPopup({
               {activeCommand ? (
                 <div className={styles.chatSteerModeRow}>
                   <span>{activeCommand === 'plan' ? '/plan' : '/steer'}</span>
-                  <small>{activeCommand === 'plan' ? 'Plan metadata will be sent separately from the prompt body' : 'Steering metadata will target the selected conversation'}</small>
-                  <button type="button" onClick={onClearSlashDraft} aria-label={`Remove ${activeCommand} command`} title="Remove command">
+                  <small>{activeCommand === 'plan' ? 'Plan komutu prompt metninden ayrı gönderilecek' : 'Steer komutu seçili konuşmaya gönderilecek'}</small>
+                  <button type="button" onClick={onClearSlashDraft} aria-label={`${activeCommand} komutunu kaldır`} title="Komutu kaldır">
                     <LuX size={13} />
                   </button>
                 </div>

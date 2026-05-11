@@ -16,10 +16,6 @@
   min-width: 0;
 }
 
-.chatPipelineStrip {
-  min-width: 0;
-}
-
 .chatWorkspace {
   min-width: 0;
 }
@@ -115,10 +111,6 @@
     grid-template-columns: minmax(220px, 270px) minmax(0, 1fr);
   }
 
-  .chatPipelineStrip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .chatTopbarActions {
     max-width: 320px;
     flex-wrap: wrap;
@@ -154,10 +146,6 @@
 
   .chatTopbarTitle {
     overflow: hidden;
-  }
-
-  .chatPipelineStrip {
-    display: none;
   }
 
   .chatWorkspace {

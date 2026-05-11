@@ -10,6 +10,17 @@ import type { ProjectDetailStateBindings } from '../state/projectDetailState'
 const slashPlanToken = /(?:^|\s)\/[a-z]*$/i
 const CHAT_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024
 const CHAT_ATTACHMENT_MAX_COUNT = 10
+type ChatCommandMode = 'plan' | 'steer'
+
+function normalizeLeadingChatCommand(value: string): { mode: ChatCommandMode | null; message: string; hadCommand: boolean } {
+  const match = value.match(/^\s*\/(plan|steer)(?:\s+|$)/i)
+  if (!match) return { mode: null, message: value.trim(), hadCommand: false }
+  return {
+    mode: match[1].toLowerCase() as ChatCommandMode,
+    message: value.slice(match[0].length).trim(),
+    hadCommand: true
+  }
+}
 
 function revokeChatAttachmentPreviews(attachments: ChatAttachmentDraft[]): void {
   attachments.forEach((attachment) => {
@@ -217,11 +228,11 @@ export function useProjectGatewayFlow({
   const resolvedPlanModel = taskPlanModel || selectedTaskGatewayModel || savedGatewayDefaultPlanModel || savedGatewayDefaultModel
   const resolvedRunModel = taskRunModel || selectedTaskGatewayModel || savedGatewayDefaultRunModel || savedGatewayDefaultModel
 
-  const isPlanDraft = chatDraft.trim().toLowerCase().startsWith('/plan')
-  const chatMode: 'chat' | 'plan' | 'steer' = isPlanDraft ? 'plan' : chatComposerMode
+  const draftCommand = normalizeLeadingChatCommand(chatDraft)
+  const chatMode: 'chat' | 'plan' | 'steer' = draftCommand.mode ?? chatComposerMode
   const canRunSelectedTaskWithCodex = Boolean(selectedTaskExportContext && resolvedTaskGatewayId && resolvedRunModel)
   const canPlanSelectedTaskWithCodex = Boolean(selectedTask && resolvedTaskGatewayId && resolvedPlanModel)
-  const canSendChat = Boolean(chatDraft.trim() || chatAttachments.length > 0)
+  const canSendChat = Boolean(draftCommand.message || chatAttachments.length > 0)
 
   const selectedTaskSummary = selectedTask?.title ?? ''
   const [planChoiceOpen, setPlanChoiceOpen] = useState(false)
@@ -451,16 +462,18 @@ export function useProjectGatewayFlow({
     if (!selectedTask || !project) return
     if (chatSending || gatewayPlanLaunching || gatewayRunLaunching) return
     const draftText = draftOverride ?? chatDraft
-    if (!draftText.trim() && chatAttachments.length === 0) return
+    const normalizedDraft = normalizeLeadingChatCommand(draftText)
+    if (!normalizedDraft.message && chatAttachments.length === 0) return
     const effectiveSelectedChatSummary = isStartingNewChat ? null : selectedChatSummary
-    const sendAsPlanRevision = chatMode !== 'steer' && !isStartingNewChat && effectiveSelectedChatSummary?.source === 'gateway-plan'
-    const effectiveChatMode = chatMode === 'steer' ? 'steer' : sendAsPlanRevision ? 'plan' : chatMode
-    const sendAsPlannerClarification = !isStartingNewChat && effectiveSelectedChatSummary?.source === 'gateway-plan'
+    const requestedChatMode = normalizedDraft.mode ?? chatMode
+    const sendAsPlanRevision = requestedChatMode !== 'steer' && !isStartingNewChat && effectiveSelectedChatSummary?.source === 'gateway-plan'
+    const effectiveChatMode = requestedChatMode === 'steer' ? 'steer' : sendAsPlanRevision ? 'plan' : requestedChatMode
+    const sendAsPlannerClarification = effectiveChatMode !== 'steer' && !isStartingNewChat && effectiveSelectedChatSummary?.source === 'gateway-plan'
     if (selectedChatSummary?.status === 'running' && effectiveChatMode !== 'steer') {
       setGatewayRunFeedback({ kind: 'error', message: 'Codex is still working in this conversation. Stop it or wait before sending another message.' })
       return
     }
-    const cleanDraftText = draftText.replace(/^\/(?:plan|steer)\s*/i, '').trim()
+    const cleanDraftText = normalizedDraft.message
     const resolvedChatModel = sendAsPlannerClarification || effectiveChatMode === 'plan'
       ? (chatPlanModel || chatModel)
       : (chatRunModel || chatModel)
@@ -469,7 +482,7 @@ export function useProjectGatewayFlow({
       setGatewayRunFeedback({ kind: 'error', message: 'Choose a Codex gateway and model before sending chat.' })
       return
     }
-    if ((chatMode === 'steer' || effectiveSelectedChatSummary?.source === 'gateway-plan') && !selectedChatConversationId) {
+    if ((effectiveChatMode === 'steer' || effectiveSelectedChatSummary?.source === 'gateway-plan') && !selectedChatConversationId) {
       setGatewayRunFeedback({ kind: 'error', message: 'Select a conversation before sending a steer message.' })
       return
     }
@@ -525,7 +538,7 @@ export function useProjectGatewayFlow({
         mode: effectiveChatMode,
         command: {
           id: effectiveChatMode,
-          source: chatMode === 'plan' || chatMode === 'steer' ? 'chip' : 'button',
+          source: requestedChatMode === 'plan' || requestedChatMode === 'steer' ? normalizedDraft.hadCommand ? 'slash' : 'chip' : 'button',
           label: effectiveChatMode === 'plan' ? '/plan' : effectiveChatMode === 'steer' ? '/steer' : 'chat'
         },
         attachments: chatAttachments.map((attachment) => ({
