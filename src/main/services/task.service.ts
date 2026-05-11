@@ -1316,6 +1316,7 @@ export function gatewayChatPrompt(input: {
   context?: unknown
   mode?: 'chat' | 'plan' | 'steer'
   followUpContext?: string
+  includeTaskContext?: boolean
   attachments?: Array<{ name: string; path: string; size?: number; mimeType?: string }>
   language?: string
   languages?: GatewayLanguagePair
@@ -1349,9 +1350,11 @@ export function gatewayChatPrompt(input: {
   const language = typeof input.languages === 'object' ? input.languages.outputLanguage : input.language
   const instructionAudience: ProjectInstructionAudience = input.mode === 'plan' ? 'plan' : 'chat'
   const routedContext = routedProjectContextForPrompt(input.context, instructionAudience)
-  const promptContext = hasFollowUpContext
-    ? compactFollowUpTaskMetadata(input.task, routedContext ?? input.context)
-    : compactGatewayPromptContext(input.task, routedContext)
+  const promptContext = input.includeTaskContext === false && !hasFollowUpContext
+    ? undefined
+    : hasFollowUpContext
+      ? compactFollowUpTaskMetadata(input.task, routedContext ?? input.context)
+      : compactGatewayPromptContext(input.task, routedContext)
   const userPromptLabel = input.mode === 'steer'
     ? 'User steer instruction'
     : input.mode === 'plan'
@@ -5106,9 +5109,7 @@ export class TaskService {
     const conversationId = payload.conversationId?.trim() || `${mode}-${runId}`
     const transcript = taskActivityMessagesFromPayload(access.data.task.payload)
       .filter((item) => !item.conversationId || item.conversationId === conversationId)
-    const context = payload.includeTaskContext === false
-      ? undefined
-      : (await this.plannerContext({ actorToken: payload.actorToken, projectId: project.id, taskId })).data
+    const context = (await this.plannerContext({ actorToken: payload.actorToken, projectId: project.id, taskId })).data
     const activitySource: TaskActivityMessage['source'] = mode === 'plan' ? 'gateway-plan' : 'gateway-chat'
     let launchConfig: Awaited<ReturnType<typeof codexLaunchConfig>>
     try {
@@ -5159,6 +5160,7 @@ export class TaskService {
       transcript,
       context,
       followUpContext: typeof payload.followUpContext === 'string' ? payload.followUpContext : undefined,
+      includeTaskContext: payload.includeTaskContext !== false,
       mode,
       attachments,
       language,
