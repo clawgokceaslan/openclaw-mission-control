@@ -106,7 +106,7 @@ export async function createAppContext(): Promise<AppContext> {
 
   const auth = new AuthService(authRepo, eventBus)
   const tasks = new TaskService(auth, taskRepo, taskSubtaskRepo, taskTagRepo, taskSkillRepo, projectRepo, tagRepo, skillRepo, customFieldRepo, agentRepo, statusRepo, workspaceRepo, gatewayRepo, appSettingsRepo, eventBus)
-  const planPipelines = new PlanPipelineService(auth, planPipelineRepo, projectRepo, taskRepo)
+  const planPipelines = new PlanPipelineService(auth, planPipelineRepo, projectRepo, taskRepo, eventBus)
   const runPipelines = new RunPipelineService(auth, runPipelineRepo, planPipelineRepo, projectRepo, taskRepo, tasks, eventBus)
   planPipelines.setRunPipelineCreator((organizationId, planBatchId, actorToken, createdByName) =>
     runPipelines.createFromPlanBatchForActor(organizationId, planBatchId, actorToken, createdByName)
@@ -128,7 +128,7 @@ export async function createAppContext(): Promise<AppContext> {
     projectGroups: new ProjectGroupService(auth, groupRepo, projectRepo),
     planPipelines,
     runPipelines,
-    pipelineStatus: new PipelineStatusService(auth, runPipelineRepo),
+    pipelineStatus: new PipelineStatusService(auth, runPipelineRepo, planPipelineRepo),
     customFields: new CustomFieldService(auth, customFieldRepo, tagRepo),
     outputFormats: new OutputFormatService(auth, outputFormatRepo),
     jobs: new JobService(auth, jobRepo),

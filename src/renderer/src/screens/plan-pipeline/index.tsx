@@ -22,7 +22,7 @@ import {
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { PlanPipelineBatch, PlanPipelineRecord, Project, ProjectStatus, TaskEntity } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
-import { invokeBridge, loadList } from '@renderer/utils/api'
+import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import styles from './index.module.scss'
 
 type StepKey = 'basic' | 'projects' | 'tasks' | 'groups' | 'run'
@@ -195,6 +195,7 @@ export function PlanPipelinePage() {
   const [startingGroupIds, setStartingGroupIds] = useState<Set<string>>(() => new Set())
   const [selectedDetailGroupId, setSelectedDetailGroupId] = useState<string | null>(draft.currentGroupId ?? null)
   const modalCloseRef = useRef<HTMLButtonElement | null>(null)
+  const refreshTimerRef = useRef<number | null>(null)
 
   const loadData = async () => {
     setLoading(true)
@@ -244,6 +245,23 @@ export function PlanPipelinePage() {
 
   useEffect(() => {
     void loadData()
+  }, [token])
+
+  useEffect(() => {
+    const onPipelineUpdated = () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+      refreshTimerRef.current = window.setTimeout(() => {
+        refreshTimerRef.current = null
+        void loadData()
+      }, 180)
+    }
+    subscribeToChannel(IPC_CHANNELS.events.planPipelineUpdated, onPipelineUpdated)
+    subscribeToChannel(IPC_CHANNELS.events.runPipelineUpdated, onPipelineUpdated)
+    return () => {
+      unsubscribeFromChannel(IPC_CHANNELS.events.planPipelineUpdated, onPipelineUpdated)
+      unsubscribeFromChannel(IPC_CHANNELS.events.runPipelineUpdated, onPipelineUpdated)
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+    }
   }, [token])
 
   useEffect(() => {

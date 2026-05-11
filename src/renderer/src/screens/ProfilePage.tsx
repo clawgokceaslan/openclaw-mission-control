@@ -184,11 +184,20 @@ export function ProfilePage() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
+    const trimmedFirstName = firstName.trim()
+    const trimmedLastName = lastName.trim()
+
+    if (!trimmedFirstName && !trimmedLastName) {
+      setError('Ad veya soyad alanlarından en az biri dolu olmalıdır.')
+      setStatus(null)
+      return
+    }
+
     setPending(true)
     setError(null)
     setStatus(null)
 
-    const response = await updateProfile(firstName.trim(), lastName.trim(), {
+    const response = await updateProfile(trimmedFirstName, trimmedLastName, {
       email: email.trim(),
       role
     })
@@ -582,7 +591,7 @@ export function ProfilePage() {
               </label>
               <label>
                 <span>Soyad</span>
-                <input value={lastName} onChange={(event) => setLastName(event.target.value)} required />
+                <input value={lastName} onChange={(event) => setLastName(event.target.value)} />
               </label>
               <label>
                 <span>Email</span>

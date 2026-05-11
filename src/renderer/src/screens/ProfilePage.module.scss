@@ -66,7 +66,7 @@
           display: grid;
           place-items: center;
           background: var(--omc-primary);
-          color: var(--omc-inverse-text);
+          color: var(--omc-primary-text);
           font-size: 1rem;
           font-weight: 850;
         }
@@ -424,7 +424,7 @@
                 background:
                   radial-gradient(circle at 30% 28%, color-mix(in srgb, var(--omc-inverse-text) 34%, transparent), transparent 32%),
                   linear-gradient(135deg, var(--palette-color), color-mix(in srgb, var(--palette-color) 62%, var(--omc-accent)));
-                color: var(--omc-inverse-text);
+                color: var(--omc-primary-text);
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
@@ -443,12 +443,12 @@
             .backgroundRow {
               button {
                 --background-preview: var(--omc-app-background);
-                width: 54px;
+                width: 34px;
                 height: 34px;
                 border: 2px solid var(--omc-surface);
                 border-radius: 999px;
                 background: var(--background-preview);
-                color: var(--omc-primary-text);
+                color: var(--omc-primary);
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
@@ -461,12 +461,12 @@
                 svg {
                   position: relative;
                   z-index: 1;
-                  width: 22px;
-                  height: 22px;
+                  width: 18px;
+                  height: 18px;
                   border-radius: 999px;
-                  padding: 4px;
-                  background: color-mix(in srgb, var(--omc-primary) 84%, transparent);
-                  color: var(--omc-primary-text);
+                  padding: 2px;
+                  background: color-mix(in srgb, var(--omc-surface) 82%, transparent);
+                  color: var(--omc-primary);
                 }
 
                 &:hover {

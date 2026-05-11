@@ -210,6 +210,31 @@ describe('startInternalHttpServer', () => {
     }
   })
 
+  it('streams public pipeline status events without authentication', async () => {
+    const context = createContext()
+    const server = await startInternalHttpServer(context, { preferredPort: 30240, host: '127.0.0.1' })
+    try {
+      const response = await fetch(`${server.url}/api/public/pipeline-status/events`)
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toContain('text/event-stream')
+      const reader = response.body?.getReader()
+      expect(reader).toBeTruthy()
+      context.eventBus.emit(IPC_CHANNELS.events.runPipelineUpdated, { batchId: 'run-1', updatedAt: 1 })
+      const decoder = new TextDecoder()
+      let text = ''
+      for (let index = 0; index < 4 && !text.includes(IPC_CHANNELS.events.runPipelineUpdated); index += 1) {
+        const chunk = await reader!.read()
+        text += decoder.decode(chunk.value ?? new Uint8Array(), { stream: !chunk.done })
+      }
+      await reader?.cancel()
+      expect(text).toContain('event: ready')
+      expect(text).toContain(`event: ${IPC_CHANNELS.events.runPipelineUpdated}`)
+      expect(text).toContain('"batchId":"run-1"')
+    } finally {
+      await server.close()
+    }
+  })
+
   it('rejects protected calls without an access token', async () => {
     const server = await startInternalHttpServer(createContext(), { preferredPort: 30120, host: '127.0.0.1' })
     try {

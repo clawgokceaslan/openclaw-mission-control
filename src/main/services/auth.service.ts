@@ -421,8 +421,11 @@ export class AuthService {
     _meta?: Record<string, unknown>
   ): Promise<ServiceResponse> {
     const actor = await this.requireActor(payload?.actorToken)
-    if (!payload?.firstName?.trim() || !payload.lastName?.trim()) {
-      return errorResponse(ErrorCodes.Validation, 'First and last name required')
+    const firstName = payload?.firstName?.trim() ?? ''
+    const lastName = payload?.lastName?.trim() ?? ''
+    const name = [firstName, lastName].filter(Boolean).join(' ')
+    if (!name) {
+      return errorResponse(ErrorCodes.Validation, 'Name required')
     }
     const email = (payload.email ?? actor.user.email).trim().toLowerCase()
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -437,7 +440,6 @@ export class AuthService {
       return errorResponse(ErrorCodes.Validation, 'Invalid title')
     }
 
-    const name = `${payload.firstName.trim()} ${payload.lastName.trim()}`
     await this.authRepo.setProfile(actor.user.id, actor.user.organizationId, { name, email, role })
 
     return okResponse({

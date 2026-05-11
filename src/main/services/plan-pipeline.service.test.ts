@@ -1,4 +1,6 @@
+import EventEmitter from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
+import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 import { PlanPipelineService } from './plan-pipeline.service.js'
 
 function createService() {
@@ -33,8 +35,10 @@ function createService() {
     ])
   }
 
+  const eventBus = new EventEmitter()
   return {
-    service: new PlanPipelineService(auth as any, repo as any, projectRepo as any, taskRepo as any),
+    service: new PlanPipelineService(auth as any, repo as any, projectRepo as any, taskRepo as any, eventBus),
+    eventBus,
     repo
   }
 }
@@ -78,5 +82,24 @@ describe('PlanPipelineService', () => {
     expect(response.ok).toBe(false)
     expect(response.error?.message).toContain('Bir task yalnızca tek grupta yer alabilir')
     expect(repo.createMany).not.toHaveBeenCalled()
+  })
+
+  it('emits a plan pipeline update event after creating records', async () => {
+    const { service, eventBus } = createService()
+    const listener = vi.fn()
+    eventBus.on(IPC_CHANNELS.events.planPipelineUpdated, listener)
+
+    const response = await service.createFromGroups({
+      actorToken: 'token',
+      sourceDraftName: 'Release plan',
+      projectIds: ['project-1'],
+      groups: [{ name: 'Hazırlık', taskIds: ['task-1'] }]
+    })
+
+    expect(response.ok).toBe(true)
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({
+      recordIds: ['pipeline-1'],
+      updatedAt: expect.any(Number)
+    }))
   })
 })

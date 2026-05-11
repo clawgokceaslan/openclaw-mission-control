@@ -408,7 +408,7 @@
 
 .segmentActive {
   background: var(--omc-primary) !important;
-  color: var(--omc-inverse-text) !important;
+  color: var(--omc-primary-text) !important;
 }
 
 .commandForm button,
@@ -418,7 +418,7 @@
   border: 0;
   border-radius: 12px;
   background: var(--omc-primary);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
   padding: 0 16px;
   font-weight: 900;
 }

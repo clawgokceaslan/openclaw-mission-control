@@ -173,7 +173,7 @@
     border: 1px solid var(--omc-primary);
     border-radius: 10px;
     background: var(--omc-primary);
-    color: var(--omc-inverse-text);
+    color: var(--omc-primary-text);
     padding: 0 12px;
     display: inline-flex;
     align-items: center;
@@ -282,7 +282,7 @@
     &:last-child {
       border-color: var(--omc-primary);
       background: var(--omc-primary);
-      color: var(--omc-inverse-text);
+      color: var(--omc-primary-text);
     }
 
     &:disabled {

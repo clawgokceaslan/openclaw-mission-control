@@ -92,7 +92,7 @@
 .primaryButton {
   border: none;
   background: var(--omc-primary);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
 }
 
 .secondaryButton {
@@ -325,7 +325,7 @@
   border: 0;
   border-radius: 12px;
   background: var(--omc-danger);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
   padding: 0 16px;
   font-weight: 900;
 }
@@ -481,7 +481,7 @@
 
 .segmentActive {
   background: var(--omc-primary) !important;
-  color: var(--omc-inverse-text) !important;
+  color: var(--omc-primary-text) !important;
 }
 
 .checkRow {
@@ -622,7 +622,7 @@
 
   small,
   p {
-    color: var(--omc-inverse-text);
+    color: var(--omc-primary-text);
   }
 }
 

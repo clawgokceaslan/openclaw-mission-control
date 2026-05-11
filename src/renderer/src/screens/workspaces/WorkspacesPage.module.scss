@@ -103,7 +103,7 @@
 .primaryButton {
   border: none;
   background: var(--omc-primary);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
 }
 
 .secondaryButton,
@@ -122,7 +122,7 @@
 .dangerPrimaryButton {
   border: none;
   background: var(--omc-danger);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
 }
 
 .error,

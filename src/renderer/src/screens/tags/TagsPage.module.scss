@@ -312,7 +312,7 @@
 .primaryBtn {
   border: none;
   background: var(--omc-primary);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
 }
 
 .ghostBtn {
@@ -324,7 +324,7 @@
 .dangerBtn {
   border: none;
   background: var(--omc-danger);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
 }
 
 .confirmModal {

@@ -660,7 +660,7 @@
   border: none;
   border-radius: 12px;
   background: var(--omc-primary);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -894,7 +894,7 @@
 .reviewBadgeActive {
   border-color: var(--omc-primary);
   background: var(--omc-primary);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
 }
 
 .taskCard {
@@ -2493,7 +2493,7 @@
     border: 0;
     border-radius: 10px;
     background: var(--omc-primary);
-    color: var(--omc-inverse-text);
+    color: var(--omc-primary-text);
     padding: 0 14px;
     display: inline-flex;
     align-items: center;
@@ -3382,7 +3382,7 @@
     border: 0;
     border-radius: 11px;
     background: var(--omc-primary);
-    color: var(--omc-inverse-text);
+    color: var(--omc-primary-text);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -4287,7 +4287,7 @@
 .commentComposerFooter button {
   border-color: var(--omc-primary);
   background: var(--omc-primary);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
 
   &:disabled {
     opacity: 0.5;
@@ -5136,7 +5136,7 @@
     button:last-child {
       border-color: var(--omc-warning);
       background: var(--omc-warning);
-      color: var(--omc-inverse-text);
+      color: var(--omc-primary-text);
     }
 
     button:disabled {
@@ -5394,7 +5394,7 @@
     border: 0;
     border-radius: 8px;
     background: var(--omc-primary);
-    color: var(--omc-inverse-text);
+    color: var(--omc-primary-text);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -7273,7 +7273,7 @@
     button:last-child {
       border-color: var(--omc-warning);
       background: var(--omc-warning);
-      color: var(--omc-inverse-text);
+      color: var(--omc-primary-text);
     }
 
     button:disabled {
@@ -7391,7 +7391,7 @@
 .primaryModalAction {
   border-color: var(--omc-warning) !important;
   background: var(--omc-warning) !important;
-  color: var(--omc-inverse-text) !important;
+  color: var(--omc-primary-text) !important;
 }
 
 .projectPromptModal {
@@ -7541,7 +7541,7 @@
 
 .projectPromptFooter button:last-child {
   background: var(--omc-primary);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
   border-color: var(--omc-primary);
 }
 
@@ -7765,7 +7765,7 @@
     min-height: 36px;
     padding: 0 18px;
     background: var(--omc-warning);
-    color: var(--omc-inverse-text);
+    color: var(--omc-primary-text);
     font-weight: 800;
   }
 
@@ -7897,7 +7897,7 @@
   button:last-child {
     border-color: transparent;
     background: var(--omc-warning);
-    color: var(--omc-inverse-text);
+    color: var(--omc-primary-text);
   }
 }
 

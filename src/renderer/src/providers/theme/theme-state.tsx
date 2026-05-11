@@ -288,37 +288,37 @@ export const THEME_BACKGROUNDS: ThemeBackground[] = [
   {
     id: 'default',
     name: 'Default',
-    preview: 'linear-gradient(135deg, #ffffff 0%, #ffffff 48%, #000000 52%, #000000 100%)',
+    preview: '#ffffff',
     light: '#ffffff',
     dark: '#000000'
   },
   {
     id: 'blue-haze',
-    name: 'Blue haze',
-    preview: 'linear-gradient(135deg, #eff6ff 0%, #ffffff 46%, #061020 100%)',
-    light: 'radial-gradient(circle at 18% 0%, rgba(37, 99, 235, 0.12), transparent 28%), repeating-linear-gradient(0deg, rgba(37, 99, 235, 0.055) 0 1px, transparent 1px 28px), repeating-linear-gradient(90deg, rgba(37, 99, 235, 0.055) 0 1px, transparent 1px 28px), #ffffff',
-    dark: 'radial-gradient(circle at 18% 0%, rgba(37, 99, 235, 0.32), transparent 34%), repeating-linear-gradient(0deg, rgba(96, 165, 250, 0.075) 0 1px, transparent 1px 28px), repeating-linear-gradient(90deg, rgba(96, 165, 250, 0.075) 0 1px, transparent 1px 28px), #020617'
+    name: 'Slate Blue',
+    preview: '#eef5ff',
+    light: '#f4f8ff',
+    dark: '#061020'
   },
   {
     id: 'walnut',
     name: 'Walnut',
-    preview: 'linear-gradient(135deg, #fbf7ef 0%, #ffffff 48%, #130d08 100%)',
-    light: 'radial-gradient(circle at 15% 0%, rgba(139, 94, 52, 0.16), transparent 30%), linear-gradient(135deg, #ffffff 0%, #fffaf3 100%)',
-    dark: 'radial-gradient(circle at 15% 0%, rgba(184, 137, 93, 0.28), transparent 36%), linear-gradient(135deg, #050302 0%, #130d08 100%)'
+    preview: '#fbf4e8',
+    light: '#fff9f1',
+    dark: '#130d08'
   },
   {
     id: 'red-clay',
     name: 'Red clay',
-    preview: 'linear-gradient(135deg, #fff1f2 0%, #ffffff 48%, #180709 100%)',
-    light: 'radial-gradient(circle at 15% 0%, rgba(220, 38, 38, 0.14), transparent 31%), linear-gradient(135deg, #ffffff 0%, #fff7f7 100%)',
-    dark: 'radial-gradient(circle at 15% 0%, rgba(239, 68, 68, 0.26), transparent 36%), linear-gradient(135deg, #050101 0%, #180709 100%)'
+    preview: '#fff2f2',
+    light: '#fff7f7',
+    dark: '#180709'
   },
   {
     id: 'midnight',
     name: 'Midnight',
-    preview: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 45%, #020617 100%)',
-    light: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 52%, #eef2ff 100%)',
-    dark: 'linear-gradient(135deg, #000000 0%, #020617 52%, #07111f 100%)'
+    preview: '#f8fafc',
+    light: '#f8fafc',
+    dark: '#020617'
   }
 ]
 

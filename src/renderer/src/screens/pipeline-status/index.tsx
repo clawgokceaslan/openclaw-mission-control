@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { LuExternalLink, LuRefreshCw, LuTv } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS, type WebServerStatusState } from '@shared/contracts/ipc'
-import type { PipelineStatusSnapshot, RunPipelineGraph } from '@shared/types/entities'
+import type { PipelineStatusSnapshot, PlanPipelineBatch, PlanPipelineRecord, RunPipelineGraph } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
-import { invokeBridge } from '@renderer/utils/api'
+import { invokeBridge, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import styles from './index.module.scss'
 
 function statusText(status?: string) {
@@ -37,8 +37,10 @@ export function PipelineStatusPage() {
   const [snapshot, setSnapshot] = useState<PipelineStatusSnapshot | null>(null)
   const [watchUrl, setWatchUrl] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
+  const [liveState, setLiveState] = useState<'live' | 'reconnecting'>('reconnecting')
+  const refreshTimerRef = useRef<number | null>(null)
 
-  const loadSnapshot = async () => {
+  const loadSnapshot = useCallback(async () => {
     if (standalone && !token) {
       const response = await fetch('/api/public/pipeline-status')
       const body = await response.json() as { ok?: boolean; data?: PipelineStatusSnapshot; error?: { message?: string } }
@@ -65,13 +67,57 @@ export function PipelineStatusPage() {
       return
     }
     setSnapshot(response.data)
-  }
+    setFeedback(null)
+  }, [standalone, token, watchToken])
+
+  const scheduleSnapshotReload = useCallback(() => {
+    if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+    refreshTimerRef.current = window.setTimeout(() => {
+      refreshTimerRef.current = null
+      void loadSnapshot()
+    }, 180)
+  }, [loadSnapshot])
 
   useEffect(() => {
     void loadSnapshot()
-    const timer = window.setInterval(() => void loadSnapshot(), watchToken ? 5000 : 8000)
-    return () => window.clearInterval(timer)
-  }, [token, watchToken])
+    const fallbackTimer = window.setInterval(() => void loadSnapshot(), 30000)
+    return () => {
+      window.clearInterval(fallbackTimer)
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+    }
+  }, [loadSnapshot])
+
+  useEffect(() => {
+    if (standalone || watchToken) return
+    const onPipelineEvent = () => {
+      setLiveState('live')
+      scheduleSnapshotReload()
+    }
+    subscribeToChannel(IPC_CHANNELS.events.planPipelineUpdated, onPipelineEvent)
+    subscribeToChannel(IPC_CHANNELS.events.runPipelineUpdated, onPipelineEvent)
+    setLiveState('live')
+    return () => {
+      unsubscribeFromChannel(IPC_CHANNELS.events.planPipelineUpdated, onPipelineEvent)
+      unsubscribeFromChannel(IPC_CHANNELS.events.runPipelineUpdated, onPipelineEvent)
+    }
+  }, [scheduleSnapshotReload, standalone, watchToken])
+
+  useEffect(() => {
+    if (!standalone && !watchToken) return
+    if (typeof EventSource === 'undefined') return
+    const source = new EventSource('/api/public/pipeline-status/events')
+    const onLive = () => setLiveState('live')
+    const onPipelineEvent = () => {
+      setLiveState('live')
+      scheduleSnapshotReload()
+    }
+    source.addEventListener('ready', onLive)
+    source.addEventListener('heartbeat', onLive)
+    source.addEventListener(IPC_CHANNELS.events.planPipelineUpdated, onPipelineEvent)
+    source.addEventListener(IPC_CHANNELS.events.runPipelineUpdated, onPipelineEvent)
+    source.onerror = () => setLiveState('reconnecting')
+    return () => source.close()
+  }, [scheduleSnapshotReload, standalone, watchToken])
 
   const standaloneUrl = async (): Promise<string | null> => {
     const serverResponse = await invokeBridge<WebServerStatusState>(IPC_CHANNELS.appSettings.getWebServerStatus, { actorToken: token })
@@ -111,15 +157,21 @@ export function PipelineStatusPage() {
   }
 
   const pipelines = snapshot?.pipelines ?? []
+  const planBatches = snapshot?.planBatches ?? []
+  const planRecords = snapshot?.planRecords ?? []
   const totals = useMemo(() => {
     const items = pipelines.flatMap((pipeline) => pipeline.items)
+    const planRunning = planRecords.filter((record) => record.status === 'running').length
+    const planQueued = planRecords.filter((record) => record.status === 'pending' || record.status === 'waiting').length
+    const planFailed = planRecords.filter((record) => record.status === 'failed' || record.status === 'blocked').length
+    const planCompleted = planRecords.filter((record) => record.status === 'completed' || record.status === 'skipped').length
     return {
-      running: items.filter((item) => item.status === 'running').length,
-      queued: items.filter((item) => item.status === 'queued').length,
-      failed: items.filter((item) => item.status === 'failed' || item.status === 'blocked').length,
-      completed: items.filter((item) => item.status === 'completed' || item.status === 'skipped').length
+      running: items.filter((item) => item.status === 'running').length + planRunning,
+      queued: items.filter((item) => item.status === 'queued').length + planQueued,
+      failed: items.filter((item) => item.status === 'failed' || item.status === 'blocked').length + planFailed,
+      completed: items.filter((item) => item.status === 'completed' || item.status === 'skipped').length + planCompleted
     }
-  }, [pipelines])
+  }, [pipelines, planRecords])
 
   return (
     <section className={`${styles.page} ${watchToken ? styles.watch : ''} ${standalone ? styles.standalone : ''}`}>
@@ -127,7 +179,7 @@ export function PipelineStatusPage() {
         <div>
           <span><LuTv size={18} /> Pipeline Status</span>
           <h1>Live execution board</h1>
-          <p>Last updated {formatClock(snapshot?.generatedAt)}</p>
+          <p><em className={`${styles.liveBadge} ${liveState === 'live' ? styles.live : styles.reconnecting}`}>{liveState === 'live' ? 'Live' : 'Reconnecting'}</em> Last updated {formatClock(snapshot?.generatedAt)}</p>
         </div>
         {!watchToken ? (
           <div className={styles.actions}>
@@ -152,11 +204,53 @@ export function PipelineStatusPage() {
       </section>
 
       <main className={styles.board}>
-        {pipelines.length === 0 ? <div className={styles.empty}>No pipelines to display.</div> : pipelines.map((pipeline) => (
+        {planBatches.map((batch) => (
+          <PlanPipelineColumn key={batch.id} batch={batch} records={planRecords.filter((record) => record.batchId === batch.id)} />
+        ))}
+        {planRecords.filter((record) => !record.batchId).map((record) => (
+          <PlanPipelineColumn key={record.id} batch={undefined} records={[record]} />
+        ))}
+        {pipelines.map((pipeline) => (
           <PipelineColumn key={pipeline.batch.id} pipeline={pipeline} />
         ))}
+        {pipelines.length === 0 && planBatches.length === 0 && planRecords.length === 0 ? <div className={styles.empty}>No pipelines to display.</div> : null}
       </main>
     </section>
+  )
+}
+
+function PlanPipelineColumn({ batch, records }: { batch?: PlanPipelineBatch; records: PlanPipelineRecord[] }) {
+  const progress = records.length ? Math.round(records.reduce((sum, record) => sum + record.progress, 0) / records.length) : 0
+  const title = batch?.name ?? records[0]?.sourceDraftName ?? 'Plan pipeline'
+  const status = batch?.status ?? records[0]?.status
+  return (
+    <article className={styles.pipeline}>
+      <header>
+        <div>
+          <h2>{title}</h2>
+          <span>Plan · {statusText(status)} · {progress}%</span>
+        </div>
+        <strong>{records.length} stage</strong>
+      </header>
+      <div className={styles.progress}><i style={{ width: `${progress}%` }} /></div>
+      <section className={styles.activeTask}>
+        <span>Current plan stage</span>
+        <strong>{records.find((record) => record.status === 'running')?.groupName ?? records[0]?.groupName ?? 'None'}</strong>
+        <small>{batch?.runPipelineOnPlanComplete ? 'Run pipeline will be prepared after completion' : 'Run preparation is manual'}</small>
+      </section>
+      <div className={styles.stages}>
+        {records.map((record) => (
+          <section key={record.id} className={styles.stage}>
+            <div>
+              <strong>{record.groupName}</strong>
+              <span>{statusText(record.status)} · {record.taskIds.length} task</span>
+            </div>
+            <div className={styles.progress}><i style={{ width: `${record.progress}%` }} /></div>
+            {record.lastError ? <p>{record.lastError}</p> : null}
+          </section>
+        ))}
+      </div>
+    </article>
   )
 }
 

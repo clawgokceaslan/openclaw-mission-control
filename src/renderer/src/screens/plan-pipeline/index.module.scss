@@ -69,7 +69,7 @@
   .primaryButton {
     border: 1px solid var(--omc-primary);
     background: var(--omc-primary);
-    color: var(--omc-inverse-text);
+    color: var(--omc-primary-text);
   }
 
   .secondaryButton,
@@ -549,7 +549,7 @@
       border: 1px solid var(--omc-primary);
       border-radius: 8px;
       background: var(--omc-primary);
-      color: var(--omc-inverse-text);
+      color: var(--omc-primary-text);
       padding: 0 12px;
       font-weight: 850;
     }
@@ -798,7 +798,7 @@
 
     > span {
       background: var(--omc-primary);
-      color: var(--omc-inverse-text);
+      color: var(--omc-primary-text);
     }
   }
 
@@ -936,7 +936,7 @@
   .taskRowSelected .checkSlot {
     border-color: var(--omc-primary);
     background: var(--omc-primary);
-    color: var(--omc-inverse-text);
+    color: var(--omc-primary-text);
   }
 
   .issueList {

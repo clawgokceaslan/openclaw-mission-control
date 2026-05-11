@@ -36,7 +36,35 @@
       margin: 6px 0 0;
       color: var(--omc-text-muted);
       line-height: 1.45;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
     }
+  }
+
+  .liveBadge {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 999px;
+    background: var(--omc-surface-muted);
+    padding: 2px 7px;
+    color: var(--omc-text-muted);
+    font-size: 0.72rem;
+    font-style: normal;
+    font-weight: 850;
+    text-transform: uppercase;
+  }
+
+  .live {
+    border-color: var(--omc-success-border);
+    color: var(--omc-success-strong);
+  }
+
+  .reconnecting {
+    border-color: var(--omc-warning-border);
+    color: var(--omc-warning-strong);
   }
 
   .actions {

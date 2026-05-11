@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { LuArrowLeft, LuCheck, LuListRestart, LuLoader, LuPlay, LuRefreshCw, LuTriangleAlert } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { PlanPipelineRecord, PlanPipelineStatus, Project, TaskEntity } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
-import { invokeBridge, loadList } from '@renderer/utils/api'
+import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import styles from './index.module.scss'
 
 type Feedback = { kind: 'success' | 'error'; message: string } | null
@@ -49,6 +49,7 @@ export function PlanPipelineRunsPage() {
   const [loading, setLoading] = useState(true)
   const [feedback, setFeedback] = useState<Feedback>(null)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const refreshTimerRef = useRef<number | null>(null)
 
   const loadData = async () => {
     setLoading(true)
@@ -76,6 +77,21 @@ export function PlanPipelineRunsPage() {
 
   useEffect(() => {
     void loadData()
+  }, [token, pipelineId])
+
+  useEffect(() => {
+    const onPipelineUpdated = () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+      refreshTimerRef.current = window.setTimeout(() => {
+        refreshTimerRef.current = null
+        void loadData()
+      }, 180)
+    }
+    subscribeToChannel(IPC_CHANNELS.events.planPipelineUpdated, onPipelineUpdated)
+    return () => {
+      unsubscribeFromChannel(IPC_CHANNELS.events.planPipelineUpdated, onPipelineUpdated)
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+    }
   }, [token, pipelineId])
 
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects])

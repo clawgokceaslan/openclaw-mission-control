@@ -47,7 +47,7 @@
   border: none;
   border-radius: 12px;
   background: var(--omc-primary);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
   padding: 0 18px;
   display: inline-flex;
   align-items: center;
@@ -526,7 +526,7 @@
 .dangerButton {
   border: none;
   background: var(--omc-danger);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
 
   &:disabled {
     opacity: 0.65;

@@ -126,7 +126,7 @@
   .confirmButton {
     border-color: var(--omc-primary);
     background: var(--omc-primary);
-    color: var(--omc-inverse-text);
+    color: var(--omc-primary-text);
 
     &:hover {
       border-color: var(--omc-primary-strong);
@@ -137,7 +137,7 @@
   .confirmButtonDanger {
     border-color: var(--omc-danger-strong);
     background: var(--omc-danger-strong);
-    color: var(--omc-inverse-text);
+    color: var(--omc-primary-text);
   }
 
   @media (width <= 520px) {

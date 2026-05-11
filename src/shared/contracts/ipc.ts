@@ -203,6 +203,7 @@ export const IPC_CHANNELS = {
     taskUpdated: 'events:task-updated',
     jobProgress: 'events:job-progress',
     taskActivity: 'events:task-activity',
+    planPipelineUpdated: 'events:plan-pipeline-updated',
     runPipelineUpdated: 'events:run-pipeline-updated'
   }
 } as const

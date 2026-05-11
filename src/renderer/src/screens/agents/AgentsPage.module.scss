@@ -91,7 +91,7 @@
 .primaryButton {
   border: none;
   background: var(--omc-primary);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
 
   &:disabled {
     opacity: 0.65;
@@ -107,7 +107,7 @@
 .dangerButton {
   border: none;
   background: var(--omc-danger);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
 }
 
 .error,

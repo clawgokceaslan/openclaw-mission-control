@@ -458,7 +458,7 @@
   place-items: center;
   overflow: visible;
   background: transparent;
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
   font-size: 0.76rem;
   letter-spacing: 0.08em;
   font-weight: 700;
@@ -602,7 +602,7 @@
   display: grid;
   place-items: center;
   background: var(--omc-primary);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
   font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.06em;
@@ -775,7 +775,7 @@
 .commandTabActive {
   border-color: var(--omc-primary);
   background: var(--omc-primary);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
 }
 
 .commandTabDivider {
@@ -1035,7 +1035,7 @@
   button:last-child {
     border-color: transparent;
     background: var(--omc-primary);
-    color: var(--omc-inverse-text);
+    color: var(--omc-primary-text);
   }
 
   button:disabled {
@@ -1218,7 +1218,7 @@
   display: grid;
   place-items: center;
   background: var(--omc-primary);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
   font-weight: 700;
   font-size: 0.8rem;
 }
@@ -1273,7 +1273,7 @@
   border: 2px solid var(--omc-surface);
   border-radius: 999px;
   background: var(--omc-primary);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
   display: grid;
   place-items: center;
   font-size: 9px;
@@ -1435,7 +1435,7 @@
 .plannerQuestionActions button:first-child {
   border-color: var(--omc-primary);
   background: var(--omc-primary);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
 }
 
 .shell {

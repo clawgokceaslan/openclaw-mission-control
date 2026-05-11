@@ -213,6 +213,8 @@ export interface PipelineStatusWatchToken {
 export interface PipelineStatusSnapshot {
   generatedAt: number
   scope: 'all' | 'run_pipeline'
+  planBatches: PlanPipelineBatch[]
+  planRecords: PlanPipelineRecord[]
   pipelines: RunPipelineGraph[]
 }
 

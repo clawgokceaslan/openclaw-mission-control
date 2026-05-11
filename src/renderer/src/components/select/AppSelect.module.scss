@@ -87,7 +87,7 @@
 
   :global(.app-select__option--is-selected) {
     background: var(--omc-primary);
-    color: var(--omc-inverse-text);
+    color: var(--omc-primary-text);
   }
 
   :global(.app-select__multi-value) {

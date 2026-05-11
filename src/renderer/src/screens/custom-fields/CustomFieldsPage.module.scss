@@ -39,7 +39,7 @@
   border: none;
   border-radius: 12px;
   background: var(--omc-primary);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
   padding: 0 18px;
   display: inline-flex;
   align-items: center;
@@ -237,7 +237,7 @@
   border: none;
   border-radius: 11px;
   background: var(--omc-danger);
-  color: var(--omc-inverse-text);
+  color: var(--omc-primary-text);
   padding: 0 16px;
   font-weight: 850;
 

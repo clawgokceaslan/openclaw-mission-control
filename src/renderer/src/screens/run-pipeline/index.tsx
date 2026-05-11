@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { LuCirclePause, LuListRestart, LuPause, LuPlay, LuPlus, LuRefreshCw, LuSkipForward, LuSquare, LuX } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { PlanPipelineBatch, Project, RunPipelineGraph, RunPipelineItem, RunPipelineStatus, TaskEntity } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
-import { invokeBridge, loadList } from '@renderer/utils/api'
+import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import styles from './index.module.scss'
 
 function statusText(status?: string) {
@@ -47,9 +47,10 @@ export function RunPipelinePage() {
   const [selectedPlanBatchId, setSelectedPlanBatchId] = useState('')
   const [feedback, setFeedback] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const refreshTimerRef = useRef<number | null>(null)
 
-  const loadData = async () => {
-    setLoading(true)
+  const loadData = async (silent = false) => {
+    if (!silent) setLoading(true)
     const [runRes, projectRes, taskRes, batchRes] = await Promise.all([
       loadList<RunPipelineGraph[]>(IPC_CHANNELS.runPipelines.list, token),
       loadList<Project[]>(IPC_CHANNELS.projects.list, token),
@@ -63,11 +64,26 @@ export function RunPipelinePage() {
     setPlanBatches(batchRes.ok && Array.isArray(batchRes.data) ? batchRes.data : [])
     setSelectedId((current) => current ?? graphs[0]?.batch.id ?? null)
     if (!runRes.ok) setFeedback(runRes.error?.message ?? 'Run pipeline list could not be loaded')
-    setLoading(false)
+    if (!silent) setLoading(false)
   }
 
   useEffect(() => {
     void loadData()
+  }, [token])
+
+  useEffect(() => {
+    const onRunPipelineUpdated = () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+      refreshTimerRef.current = window.setTimeout(() => {
+        refreshTimerRef.current = null
+        void loadData(true)
+      }, 180)
+    }
+    subscribeToChannel(IPC_CHANNELS.events.runPipelineUpdated, onRunPipelineUpdated)
+    return () => {
+      unsubscribeFromChannel(IPC_CHANNELS.events.runPipelineUpdated, onRunPipelineUpdated)
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+    }
   }, [token])
 
   const selected = pipelines.find((pipeline) => pipeline.batch.id === selectedId) ?? pipelines[0]

@@ -49,8 +49,18 @@ export class PlanPipelineRepository extends BaseRepository<PlanPipelineRecord> {
     return rows.map((row: any) => this.map(row))
   }
 
+  async listAll(): Promise<PlanPipelineRecord[]> {
+    const rows = await this.db.prepare('SELECT * FROM plan_pipeline_records ORDER BY created_at DESC, group_order ASC').all()
+    return rows.map((row: any) => this.map(row))
+  }
+
   async listBatches(organizationId: string): Promise<PlanPipelineBatch[]> {
     const rows = await this.db.prepare('SELECT * FROM plan_pipeline_batches WHERE organization_id = @organizationId ORDER BY updated_at DESC').all({ organizationId })
+    return rows.map((row: any) => this.mapBatch(row))
+  }
+
+  async listAllBatches(): Promise<PlanPipelineBatch[]> {
+    const rows = await this.db.prepare('SELECT * FROM plan_pipeline_batches ORDER BY updated_at DESC').all()
     return rows.map((row: any) => this.mapBatch(row))
   }
 

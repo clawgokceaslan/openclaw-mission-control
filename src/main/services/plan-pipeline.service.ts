@@ -1,5 +1,7 @@
+import EventEmitter from 'node:events'
 import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
+import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 import type { PlanPipelineBatch, PlanPipelineRecord, PlanPipelineRunMode, PlanPipelineStatus } from '../../shared/types/entities.js'
 import { PlanPipelineRepository } from '../../db/repositories/plan-pipeline-repo.js'
 import { ProjectRepository } from '../../db/repositories/project-repo.js'
@@ -46,7 +48,8 @@ export class PlanPipelineService {
     private readonly auth: AuthService,
     private readonly repo: PlanPipelineRepository,
     private readonly projectRepo: ProjectRepository,
-    private readonly taskRepo: TaskRepository
+    private readonly taskRepo: TaskRepository,
+    private readonly eventBus: EventEmitter
   ) {}
 
   setRunPipelineCreator(creator: (organizationId: string, planBatchId: string, actorToken?: string, createdByName?: string) => Promise<ServiceResponse<{ batch: { id: string } }>>): void {
@@ -117,6 +120,7 @@ export class PlanPipelineService {
       createdByName
     })
 
+    this.emitUpdated({ batchId: created[0]?.batchId, recordIds: created.map((record) => record.id) })
     return okResponse(created)
   }
 
@@ -129,6 +133,7 @@ export class PlanPipelineService {
       runPipelineOnPlanComplete: Boolean(payload.runPipelineOnPlanComplete)
     })
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Plan batch bulunamadı')
+    this.emitUpdated({ batchId: updated.id })
     return okResponse(updated)
   }
 
@@ -149,6 +154,7 @@ export class PlanPipelineService {
     if (updated.batchId) {
       await this.prepareRunPipelineIfBatchCompleted(actor.user.organizationId, updated.batchId, payload.actorToken, actor.user.name || actor.user.email)
     }
+    this.emitUpdated({ batchId: updated.batchId, recordId: updated.id })
     return okResponse(updated)
   }
 
@@ -165,7 +171,12 @@ export class PlanPipelineService {
         linkedRunPipelineId: created.data.batch.id,
         status: batch.status
       })
+      this.emitUpdated({ batchId: batch.id, linkedRunPipelineId: created.data.batch.id })
     }
+  }
+
+  private emitUpdated(payload: { batchId?: string; recordId?: string; recordIds?: string[]; linkedRunPipelineId?: string }): void {
+    this.eventBus.emit(IPC_CHANNELS.events.planPipelineUpdated, { ...payload, updatedAt: Date.now() })
   }
 
   private normalizeIds(input: string[] | undefined): string[] {

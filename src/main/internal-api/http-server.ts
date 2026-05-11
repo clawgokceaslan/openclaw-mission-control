@@ -116,6 +116,10 @@ export function recordInternalHttpServerStartupError(config: InternalHttpServerC
 }
 
 const eventChannels = new Set<string>(Object.values(IPC_CHANNELS.events))
+const publicPipelineStatusEventChannels = [
+  IPC_CHANNELS.events.planPipelineUpdated,
+  IPC_CHANNELS.events.runPipelineUpdated
+]
 const authRestRoutes = new Map<string, { channel: string; requiresAuth: boolean; readBody: boolean }>([
   ['/api/auth/login', { channel: IPC_CHANNELS.auth.login, requiresAuth: false, readBody: true }],
   ['/api/auth/refresh', { channel: IPC_CHANNELS.auth.refresh, requiresAuth: false, readBody: true }],
@@ -414,6 +418,29 @@ async function handleEvents(context: AppContext, request: IncomingMessage, respo
   })
 }
 
+function handlePublicPipelineStatusEvents(context: AppContext, request: IncomingMessage, response: ServerResponse): void {
+  sendCorsHeaders(response)
+  response.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive'
+  })
+  writeSse(response, 'ready', { at: Date.now() })
+
+  const listeners: Array<[string, (payload: unknown) => void]> = []
+  for (const channel of publicPipelineStatusEventChannels) {
+    const listener = (payload: unknown) => writeSse(response, channel, { payload, eventAt: Date.now() })
+    context.eventBus.on(channel, listener)
+    listeners.push([channel, listener])
+  }
+  const heartbeat = setInterval(() => writeSse(response, 'heartbeat', { at: Date.now() }), 25000)
+
+  request.on('close', () => {
+    clearInterval(heartbeat)
+    for (const [channel, listener] of listeners) context.eventBus.off(channel, listener)
+  })
+}
+
 function listen(server: Server, host: string, port: number): Promise<number> {
   return new Promise((resolve, reject) => {
     const onError = (error: NodeJS.ErrnoException) => {
@@ -467,6 +494,10 @@ export async function startInternalHttpServer(context: AppContext, config: Inter
         if (request.method === 'GET' && requestUrl.pathname === '/api/public/pipeline-status') {
           const result = await context.services.pipelineStatus.publicSnapshot({})
           sendJson(response, statusForResult(result), result)
+          return
+        }
+        if (request.method === 'GET' && requestUrl.pathname === '/api/public/pipeline-status/events') {
+          handlePublicPipelineStatusEvents(context, request, response)
           return
         }
         if (request.method === 'GET' && requestUrl.pathname.startsWith('/api/public/pipeline-status/')) {

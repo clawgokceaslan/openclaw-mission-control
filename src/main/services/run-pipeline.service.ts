@@ -135,6 +135,7 @@ export class RunPipelineService {
     const actor = await this.auth.requireActor(payload?.actorToken)
     if (!payload?.id) return errorResponse(ErrorCodes.Validation, 'Run pipeline id gerekli')
     await this.repo.setBatchState(actor.user.organizationId, payload.id, { status: 'running', completedAt: null })
+    this.emitUpdated(payload.id)
     await this.launchNext(actor.user.organizationId, payload.id, payload.actorToken)
     return this.get({ actorToken: payload.actorToken, id: payload.id })
   }
@@ -298,13 +299,16 @@ export class RunPipelineService {
 export class PipelineStatusService {
   constructor(
     private readonly auth: AuthService,
-    private readonly repo: RunPipelineRepository
+    private readonly repo: RunPipelineRepository,
+    private readonly planRepo: PlanPipelineRepository
   ) {}
 
   async snapshot(payload: { actorToken?: string; runPipelineId?: string }): Promise<ServiceResponse<PipelineStatusSnapshot>> {
     const actor = await this.auth.requireActor(payload?.actorToken)
     const pipelines = await this.resolvePipelines(actor.user.organizationId, payload?.runPipelineId)
-    return okResponse({ generatedAt: Date.now(), scope: payload?.runPipelineId ? 'run_pipeline' : 'all', pipelines })
+    const planBatches = payload?.runPipelineId ? [] : await this.planRepo.listBatches(actor.user.organizationId)
+    const planRecords = payload?.runPipelineId ? [] : await this.planRepo.list(actor.user.organizationId)
+    return okResponse({ generatedAt: Date.now(), scope: payload?.runPipelineId ? 'run_pipeline' : 'all', planBatches, planRecords, pipelines })
   }
 
   async createWatchToken(payload: { actorToken?: string; label?: string; runPipelineId?: string; expiresAt?: number | null }): Promise<ServiceResponse<{ token: string; record: PipelineStatusWatchToken }>> {
@@ -333,9 +337,13 @@ export class PipelineStatusService {
     if (!token) {
       const batches = await this.repo.listAll()
       const graphs = await Promise.all(batches.map((batch) => this.repo.get(batch.organizationId, batch.id)))
+      const planBatches = await this.planRepo.listAllBatches()
+      const planRecords = await this.planRepo.listAll()
       return okResponse({
         generatedAt: Date.now(),
         scope: 'all',
+        planBatches,
+        planRecords,
         pipelines: graphs.filter((item): item is RunPipelineGraph => Boolean(item))
       })
     }
@@ -343,7 +351,9 @@ export class PipelineStatusService {
     if (!record || record.revokedAt) return errorResponse(ErrorCodes.Forbidden, 'Watch token invalid')
     if (record.expiresAt && record.expiresAt <= Date.now()) return errorResponse(ErrorCodes.Forbidden, 'Watch token expired')
     const pipelines = await this.resolvePipelines(record.organizationId, record.scope === 'run_pipeline' ? record.scopeId : undefined)
-    return okResponse({ generatedAt: Date.now(), scope: record.scope, pipelines })
+    const planBatches = record.scope === 'run_pipeline' ? [] : await this.planRepo.listBatches(record.organizationId)
+    const planRecords = record.scope === 'run_pipeline' ? [] : await this.planRepo.list(record.organizationId)
+    return okResponse({ generatedAt: Date.now(), scope: record.scope, planBatches, planRecords, pipelines })
   }
 
   private async resolvePipelines(organizationId: string, runPipelineId?: string): Promise<RunPipelineGraph[]> {
