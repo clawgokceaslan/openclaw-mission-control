@@ -21,7 +21,10 @@ function hasMacWindowControlsInset(): boolean {
   if (!isElectron) return false
 
   const runtimeProcess = (globalThis as { process?: { platform?: string } }).process
-  return runtimeProcess?.platform === 'darwin'
+  if (runtimeProcess?.platform === 'darwin') return true
+
+  const platform = navigator.platform || ''
+  return /Mac|Macintosh|Mac OS X/i.test(`${platform} ${navigator.userAgent}`)
 }
 
 type TopHeaderProps = {

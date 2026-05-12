@@ -1,6 +1,8 @@
 .kanbanWrap {
+  --project-detail-bg: color-mix(in srgb, var(--omc-surface) 72%, var(--omc-surface-muted) 28%);
   flex: 1 1 auto;
   min-height: 0;
+  width: 100%;
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(286px, 316px);
@@ -10,6 +12,9 @@
   overflow-y: hidden;
   overscroll-behavior-x: contain;
   padding: 2px 2px 12px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--omc-surface-muted) 62%, transparent), transparent 180px),
+    var(--project-detail-bg);
   scrollbar-color: var(--omc-border-strong) transparent;
   cursor: grab;
   user-select: none;

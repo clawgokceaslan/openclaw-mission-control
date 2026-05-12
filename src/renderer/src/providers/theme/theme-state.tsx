@@ -290,7 +290,7 @@ export const THEME_BACKGROUNDS: ThemeBackground[] = [
     name: 'Default',
     preview: '#ffffff',
     light: '#ffffff',
-    dark: '#000000'
+    dark: '#0b0f14'
   },
   {
     id: 'blue-haze',

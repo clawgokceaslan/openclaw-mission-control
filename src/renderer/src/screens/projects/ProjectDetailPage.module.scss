@@ -3,11 +3,18 @@
   --omc-codex-phase-run: #22c55e;
   --omc-codex-phase-post-running: #38bdf8;
   --omc-codex-phase-follow-up: #a78bfa;
+  --project-detail-bg: color-mix(in srgb, var(--omc-surface) 72%, var(--omc-surface-muted) 28%);
   height: calc(100vh - 108px);
   min-height: 0;
+  width: auto;
+  margin-inline: -30px;
+  padding-inline: 30px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--omc-surface-muted) 58%, transparent), transparent 180px),
+    var(--project-detail-bg);
 
   @media (width <= 900px) {
     gap: 10px;
@@ -15,6 +22,8 @@
 
   @media (width <= 560px) {
     gap: 10px;
+    margin-inline: -12px;
+    padding-inline: 12px;
   }
 }
 
@@ -710,6 +719,9 @@
   overflow-x: auto;
   overflow-y: hidden;
   padding: 2px 2px 12px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--omc-surface-muted) 62%, transparent), transparent 180px),
+    var(--project-detail-bg, color-mix(in srgb, var(--omc-surface) 72%, var(--omc-surface-muted) 28%));
   scrollbar-color: var(--omc-border-strong) transparent;
   cursor: grab;
   user-select: none;

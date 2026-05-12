@@ -115,6 +115,8 @@ export function McpPage() {
   const [selectedOwnerKind, setSelectedOwnerKind] = useState<'agent' | 'skill' | 'project'>('agent')
   const [selectedOwnerId, setSelectedOwnerId] = useState('')
   const [form, setForm] = useState<ServerForm>(emptyForm)
+  const [serverModalOpen, setServerModalOpen] = useState(false)
+  const [formStep, setFormStep] = useState(0)
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -125,6 +127,19 @@ export function McpPage() {
     const rows = selectedOwnerKind === 'agent' ? agents : selectedOwnerKind === 'skill' ? skills : projects
     return rows.map((row) => ({ label: row.name, value: row.id }))
   }, [agents, projects, selectedOwnerKind, skills])
+
+  const openCreateModal = () => {
+    setForm(emptyForm)
+    setFormStep(0)
+    setServerModalOpen(true)
+  }
+
+  const openEditModal = (server: McpServer) => {
+    setSelectedServerId(server.id)
+    setForm(formFromServer(server))
+    setFormStep(0)
+    setServerModalOpen(true)
+  }
 
   const refresh = async () => {
     setLoading(true)
@@ -181,6 +196,8 @@ export function McpPage() {
     }
     setNotice('MCP server saved.')
     setForm(emptyForm)
+    setServerModalOpen(false)
+    setFormStep(0)
     setSelectedServerId(result.data?.id ?? selectedServerId)
     await refresh()
   }
@@ -196,11 +213,13 @@ export function McpPage() {
     await refresh()
   }
 
-  const runAction = async (channel: string, success: string) => {
-    if (!selectedServer) return
+  const runAction = async (channel: string, success: string, serverOverride?: McpServer) => {
+    const targetServer = serverOverride ?? selectedServer
+    if (!targetServer) return
+    setSelectedServerId(targetServer.id)
     setNotice(null)
     setError(null)
-    const result = await invokeBridge(channel, { actorToken: token, id: selectedServer.id })
+    const result = await invokeBridge(channel, { actorToken: token, id: targetServer.id })
     if (!result.ok) {
       setError(result.error?.message ?? success)
       return
@@ -229,9 +248,11 @@ export function McpPage() {
     await refresh()
   }
 
-  const loginOAuth = async () => {
-    if (!selectedServer) return
-    const result = await invokeBridge<{ authorizationUrl: string }>(IPC_CHANNELS.mcp.oauthStart, { actorToken: token, id: selectedServer.id })
+  const loginOAuth = async (serverOverride?: McpServer) => {
+    const targetServer = serverOverride ?? selectedServer
+    if (!targetServer) return
+    setSelectedServerId(targetServer.id)
+    const result = await invokeBridge<{ authorizationUrl: string }>(IPC_CHANNELS.mcp.oauthStart, { actorToken: token, id: targetServer.id })
     if (!result.ok) {
       setError(result.error?.message ?? 'OAuth login could not start.')
       return
@@ -247,7 +268,7 @@ export function McpPage() {
           <h1>MCP</h1>
           <p>Local stdio and remote Streamable HTTP MCP servers, scoped to agents, skills and projects.</p>
         </div>
-        <button type="button" className={styles.primaryButton} onClick={() => setForm(emptyForm)}>
+        <button type="button" className={styles.primaryButton} onClick={openCreateModal}>
           <LuPlus size={16} /> New server
         </button>
       </header>
@@ -268,71 +289,47 @@ export function McpPage() {
       {loading && <LoadingState label="Loading MCP configuration..." />}
 
       <section className={styles.layout}>
-        <aside className={styles.sidebar}>
-          <div className={styles.panelHeader}>
-            <h2>Servers</h2>
-            <button type="button" onClick={refresh} aria-label="Refresh MCP servers"><LuRefreshCw size={16} /></button>
-          </div>
-          <div className={styles.serverList}>
-            {servers.map((server) => (
-              <button key={server.id} type="button" className={selectedServer?.id === server.id ? styles.selectedServer : ''} onClick={() => setSelectedServerId(server.id)}>
-                <span>{server.name}</span>
-                <small>{server.transport} · {server.status} · {server.riskTier}</small>
-              </button>
-            ))}
-            {servers.length === 0 && <p className={styles.empty}>No MCP servers yet.</p>}
-          </div>
-        </aside>
-
         <div className={styles.content}>
           {activeTab === 'servers' && (
-            <form className={styles.form} onSubmit={saveServer}>
+            <section className={styles.panel}>
               <div className={styles.panelHeader}>
-                <h2>{form.id ? 'Edit server' : 'Create server'}</h2>
-                {selectedServer && (
-                  <div className={styles.actions}>
-                    <button type="button" onClick={() => setForm(formFromServer(selectedServer))}>Edit selected</button>
-                    <button type="button" className={styles.dangerButton} onClick={() => removeServer(selectedServer)}><LuTrash2 size={15} /> Remove</button>
+                <h2>Servers</h2>
+                <div className={styles.actions}>
+                  <button type="button" onClick={refresh}><LuRefreshCw size={15} /> Refresh</button>
+                  <button type="button" className={styles.primaryButton} onClick={openCreateModal}><LuPlus size={15} /> New server</button>
+                </div>
+              </div>
+              <div className={styles.serverTable}>
+                <div className={styles.serverTableHead}>
+                  <span>Name</span>
+                  <span>Transport</span>
+                  <span>Status</span>
+                  <span>Risk</span>
+                  <span>Capabilities</span>
+                  <span>Actions</span>
+                </div>
+                {servers.map((server) => (
+                  <div key={server.id} className={`${styles.serverTableRow} ${selectedServer?.id === server.id ? styles.selectedServerRow : ''}`}>
+                    <button type="button" className={styles.serverNameButton} onClick={() => setSelectedServerId(server.id)}>
+                      <strong>{server.name}</strong>
+                      <small>{server.url || [server.command, ...(server.args ?? [])].filter(Boolean).join(' ') || server.slug}</small>
+                    </button>
+                    <span>{server.transport}</span>
+                    <span>{server.status}{server.enabled ? '' : ' · disabled'}</span>
+                    <span>{server.riskTier}{server.required ? ' · required' : ''}</span>
+                    <span>{server.capabilities?.length ?? 0}</span>
+                    <div className={styles.rowActions}>
+                      <button type="button" onClick={() => openEditModal(server)}>Edit</button>
+                      <button type="button" onClick={() => runAction(IPC_CHANNELS.mcp.test, 'MCP test completed.', server)}>Test</button>
+                      <button type="button" onClick={() => runAction(IPC_CHANNELS.mcp.discover, 'MCP discovery refreshed.', server)}>Discover</button>
+                      {server.auth.type === 'oauth' && <button type="button" onClick={() => loginOAuth(server)}>OAuth</button>}
+                      <button type="button" className={styles.dangerButton} onClick={() => removeServer(server)}><LuTrash2 size={14} /> Remove</button>
+                    </div>
                   </div>
-                )}
+                ))}
+                {servers.length === 0 && <p className={styles.empty}>No MCP servers yet.</p>}
               </div>
-              <label>
-                Name
-                <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
-              </label>
-              <div className={styles.grid}>
-                <label>
-                  Transport
-                  <AppSelect value={option(form.transport, transportOptions)} options={transportOptions} onChange={(next) => setForm((current) => ({ ...current, transport: next.value as McpTransport }))} />
-                </label>
-                <label>
-                  Risk tier
-                  <AppSelect value={option(form.riskTier, riskOptions)} options={riskOptions} onChange={(next) => setForm((current) => ({ ...current, riskTier: next.value as McpRiskTier }))} />
-                </label>
-              </div>
-              {form.transport === 'stdio' ? (
-                <div className={styles.grid}>
-                  <label>Command<input value={form.command} onChange={(event) => setForm((current) => ({ ...current, command: event.target.value }))} /></label>
-                  <label>Args<input value={form.args} onChange={(event) => setForm((current) => ({ ...current, args: event.target.value }))} placeholder="-y @scope/server" /></label>
-                  <label className={styles.full}>CWD<input value={form.cwd} onChange={(event) => setForm((current) => ({ ...current, cwd: event.target.value }))} placeholder="/absolute/project/path" /></label>
-                </div>
-              ) : (
-                <div className={styles.grid}>
-                  <label className={styles.full}>URL<input value={form.url} onChange={(event) => setForm((current) => ({ ...current, url: event.target.value }))} placeholder="https://example.com/mcp" /></label>
-                  <label>Auth<AppSelect value={option(form.authType, authOptions)} options={authOptions} onChange={(next) => setForm((current) => ({ ...current, authType: next.value as ServerForm['authType'] }))} /></label>
-                  <label>Bearer env<input value={form.bearerTokenEnvVar} onChange={(event) => setForm((current) => ({ ...current, bearerTokenEnvVar: event.target.value }))} placeholder="MCP_API_TOKEN" /></label>
-                </div>
-              )}
-              <div className={styles.grid}>
-                <label>Startup timeout<input type="number" min="1" value={form.startupTimeoutSec} onChange={(event) => setForm((current) => ({ ...current, startupTimeoutSec: event.target.value }))} /></label>
-                <label>Tool timeout<input type="number" min="1" value={form.toolTimeoutSec} onChange={(event) => setForm((current) => ({ ...current, toolTimeoutSec: event.target.value }))} /></label>
-              </div>
-              <div className={styles.switches}>
-                <label><input type="checkbox" checked={form.enabled} onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))} /> Enabled</label>
-                <label><input type="checkbox" checked={form.required} onChange={(event) => setForm((current) => ({ ...current, required: event.target.checked }))} /> Required</label>
-              </div>
-              <button type="submit" className={styles.primaryButton}>Save server</button>
-            </form>
+            </section>
           )}
 
           {activeTab === 'discovery' && (
@@ -400,6 +397,73 @@ export function McpPage() {
           )}
         </div>
       </section>
+
+      {serverModalOpen && (
+        <div className={styles.modalBackdrop} role="presentation" onMouseDown={() => setServerModalOpen(false)}>
+          <form className={styles.modal} onSubmit={saveServer} onMouseDown={(event) => event.stopPropagation()}>
+            <div className={styles.panelHeader}>
+              <div>
+                <h2>{form.id ? 'Edit MCP server' : 'Create MCP server'}</h2>
+                <p className={styles.modalHint}>Step {formStep + 1} of 3</p>
+              </div>
+              <button type="button" onClick={() => setServerModalOpen(false)}>Close</button>
+            </div>
+            <div className={styles.stepper}>
+              {['Basics', 'Connection', 'Policy'].map((label, index) => (
+                <button key={label} type="button" className={formStep === index ? styles.activeStep : ''} onClick={() => setFormStep(index)}>
+                  <span>{index + 1}</span>{label}
+                </button>
+              ))}
+            </div>
+            {formStep === 0 && (
+              <div className={styles.formStep}>
+                <label>Name<input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required /></label>
+                <div className={styles.grid}>
+                  <label>Transport<AppSelect value={option(form.transport, transportOptions)} options={transportOptions} onChange={(next) => setForm((current) => ({ ...current, transport: next.value as McpTransport }))} /></label>
+                  <label>Risk tier<AppSelect value={option(form.riskTier, riskOptions)} options={riskOptions} onChange={(next) => setForm((current) => ({ ...current, riskTier: next.value as McpRiskTier }))} /></label>
+                </div>
+              </div>
+            )}
+            {formStep === 1 && (
+              <div className={styles.formStep}>
+                {form.transport === 'stdio' ? (
+                  <div className={styles.grid}>
+                    <label>Command<input value={form.command} onChange={(event) => setForm((current) => ({ ...current, command: event.target.value }))} /></label>
+                    <label>Args<input value={form.args} onChange={(event) => setForm((current) => ({ ...current, args: event.target.value }))} placeholder="-y @scope/server" /></label>
+                    <label className={styles.full}>CWD<input value={form.cwd} onChange={(event) => setForm((current) => ({ ...current, cwd: event.target.value }))} placeholder="/absolute/project/path" /></label>
+                  </div>
+                ) : (
+                  <div className={styles.grid}>
+                    <label className={styles.full}>URL<input value={form.url} onChange={(event) => setForm((current) => ({ ...current, url: event.target.value }))} placeholder="https://example.com/mcp" /></label>
+                    <label>Auth<AppSelect value={option(form.authType, authOptions)} options={authOptions} onChange={(next) => setForm((current) => ({ ...current, authType: next.value as ServerForm['authType'] }))} /></label>
+                    <label>Bearer env<input value={form.bearerTokenEnvVar} onChange={(event) => setForm((current) => ({ ...current, bearerTokenEnvVar: event.target.value }))} placeholder="MCP_API_TOKEN" /></label>
+                  </div>
+                )}
+              </div>
+            )}
+            {formStep === 2 && (
+              <div className={styles.formStep}>
+                <div className={styles.grid}>
+                  <label>Startup timeout<input type="number" min="1" value={form.startupTimeoutSec} onChange={(event) => setForm((current) => ({ ...current, startupTimeoutSec: event.target.value }))} /></label>
+                  <label>Tool timeout<input type="number" min="1" value={form.toolTimeoutSec} onChange={(event) => setForm((current) => ({ ...current, toolTimeoutSec: event.target.value }))} /></label>
+                </div>
+                <div className={styles.switches}>
+                  <label><input type="checkbox" checked={form.enabled} onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))} /> Enabled</label>
+                  <label><input type="checkbox" checked={form.required} onChange={(event) => setForm((current) => ({ ...current, required: event.target.checked }))} /> Required</label>
+                </div>
+              </div>
+            )}
+            <div className={styles.modalFooter}>
+              <button type="button" disabled={formStep === 0} onClick={() => setFormStep((current) => Math.max(0, current - 1))}>Back</button>
+              {formStep < 2 ? (
+                <button type="button" className={styles.primaryButton} onClick={() => setFormStep((current) => Math.min(2, current + 1))}>Next</button>
+              ) : (
+                <button type="submit" className={styles.primaryButton}>Save server</button>
+              )}
+            </div>
+          </form>
+        </div>
+      )}
     </main>
   )
 }

@@ -1,5 +1,5 @@
 import { strToU8, zipSync } from 'fflate'
-import type { Agent, AiTool, CustomField, Project, ProjectGroup, ProjectStatus, Skill, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskSubtask } from '@shared/types/entities'
+import type { Agent, AiTool, CustomField, McpServer, Project, ProjectGroup, ProjectStatus, Skill, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskSubtask } from '@shared/types/entities'
 import { normalizeGatewayPromptShape, type GatewayPromptShape } from '@shared/utils/gateway-prompt-shape'
 import { parseToonRecord, serializeToonRecord, stringifyCompactJson } from '@shared/utils/toon'
 
@@ -368,6 +368,10 @@ function agentTags(agent: Agent): string {
 
 function agentTools(agent: Agent): AiTool[] {
   return (agent.tools ?? []).filter((tool) => tool.status === 'active')
+}
+
+function mcpServers(value: { mcpServers?: McpServer[] } | null | undefined): McpServer[] {
+  return (value?.mcpServers ?? []).filter((server) => server.enabled)
 }
 
 function commentsMarkdown(comments: TaskComment[]): string {
@@ -749,6 +753,7 @@ export function buildAgentMarkdown(context: ExportContext): string {
         `| Description | ${markdownCell(description || '-')} |`,
         `| Tags | ${markdownCell(agentTags(agent) || '-')} |`,
         `| Tools | ${markdownCell(agentTools(agent).map((tool) => tool.name).join(', ') || '-')} |`,
+        `| MCP Servers | ${markdownCell(mcpServers(agent).map((server) => server.name).join(', ') || '-')} |`,
         `| Last heartbeat | ${markdownCell(formatDate(agent.heartbeatAt))} |`,
         `| Created | ${markdownCell(formatDate(agent.createdAt))} |`,
         `| Updated | ${markdownCell(formatDate(agent.updatedAt))} |`
@@ -768,6 +773,7 @@ export function buildAgentMarkdown(context: ExportContext): string {
 
 export function buildToolsMarkdown(context: ExportContext): string {
   const refs = new Map<string, { tool: AiTool; sources: string[] }>()
+  const mcpRefs = new Map<string, { server: McpServer; sources: string[] }>()
   const addAgentTools = (agentId: string | undefined | null, source: string) => {
     if (!agentId) return
     const agent = context.agents.find((item) => item.id === agentId)
@@ -777,17 +783,42 @@ export function buildToolsMarkdown(context: ExportContext): string {
       current.sources.push(`${source} via agent ${agent.name}`)
       refs.set(tool.id, current)
     }
+    for (const server of mcpServers(agent)) {
+      const current = mcpRefs.get(server.id) ?? { server, sources: [] }
+      current.sources.push(`${source} via agent ${agent.name}`)
+      mcpRefs.set(server.id, current)
+    }
+  }
+  const addSkillMcp = (skillId: string | undefined | null, source: string) => {
+    if (!skillId) return
+    const skill = context.skills.find((item) => item.id === skillId) ?? (context.task.skills ?? []).find((item) => item.id === skillId)
+    if (!skill) return
+    for (const server of mcpServers(skill)) {
+      const current = mcpRefs.get(server.id) ?? { server, sources: [] }
+      current.sources.push(`${source} via skill ${skill.name}`)
+      mcpRefs.set(server.id, current)
+    }
   }
   addAgentTools(effectiveTaskAgentId(context), effectiveSourceLabel(context, 'agent'))
   for (const [index, subtask] of (context.task.subtasks ?? []).entries()) addAgentTools(getSubtaskAgentId(subtask), subtaskLabel(subtask, index))
-  if (!refs.size) return ''
+  for (const skillId of effectiveTaskSkillIds(context)) addSkillMcp(skillId, effectiveSourceLabel(context, 'skills'))
+  for (const [index, subtask] of (context.task.subtasks ?? []).entries()) {
+    for (const skillId of getSubtaskSkillIds(subtask)) addSkillMcp(skillId, subtaskLabel(subtask, index))
+  }
+  for (const server of mcpServers(context.project)) {
+    const current = mcpRefs.get(server.id) ?? { server, sources: [] }
+    current.sources.push('Project default MCP')
+    mcpRefs.set(server.id, current)
+  }
+  if (!refs.size && !mcpRefs.size) return ''
   const sections = [
     '# Tools',
-    'These AI tools are catalog definitions only. Open Mission Control exports them as context for the effective Agent; do not execute listed commands, function bodies, or code bodies unless a future runtime explicitly enables tool invocation and approval.'
+    'Catalog tools and MCP-discovered tools are separate capability sources. Catalog tools are catalog definitions only and remain context only. MCP tools are exposed only through the OMC proxy, scoped by effective project, agent, and skill policy.'
   ]
+  if (refs.size) sections.push('## Catalog Tools')
   for (const { tool, sources } of Array.from(refs.values()).sort((a, b) => a.tool.name.localeCompare(b.tool.name, 'tr'))) {
     const rows = [
-      `## ${tool.name}\n<a id="${anchorFor('tool', tool.id)}"></a>`,
+      `### ${tool.name}\n<a id="${anchorFor('tool', tool.id)}"></a>`,
       [
         '### Tool Details',
         '| Field | Value |',
@@ -810,6 +841,33 @@ export function buildToolsMarkdown(context: ExportContext): string {
     if (tool.codeBody?.trim()) rows.push(`### Code\n\`\`\`${tool.codeLanguage || 'text'}\n${tool.codeBody.trim()}\n\`\`\``)
     if (tool.executionFlowMarkdown?.trim()) rows.push(`### Execution Flow\n${tool.executionFlowMarkdown.trim()}`)
     sections.push(rows.join('\n\n'))
+  }
+  if (mcpRefs.size) {
+    sections.push('## MCP Discovered Tools')
+    for (const { server, sources } of Array.from(mcpRefs.values()).sort((a, b) => a.server.name.localeCompare(b.server.name, 'tr'))) {
+      const tools = (server.capabilities ?? []).filter((capability) => capability.capabilityType === 'tool')
+      const rows = [
+        `### ${server.name}`,
+        [
+          '| Field | Value |',
+          '| --- | --- |',
+          `| Transport | ${markdownCell(server.transport)} |`,
+          `| Risk tier | ${markdownCell(server.riskTier)} |`,
+          `| Required | ${server.required ? 'yes' : 'no'} |`,
+          `| Status | ${markdownCell(server.status)} |`
+        ].join('\n'),
+        `#### References\n${sources.map((source) => `- ${source}`).join('\n')}`,
+        tools.length > 0
+          ? [
+              '#### Tools',
+              '| Name | Description |',
+              '| --- | --- |',
+              ...tools.map((tool) => `| ${markdownCell(tool.title || tool.name)} | ${markdownCell(tool.description || '-')} |`)
+            ].join('\n')
+          : '#### Tools\n- No discovered tools cached. Run MCP Discovery in OMC to populate this section.'
+      ]
+      sections.push(rows.join('\n\n'))
+    }
   }
   return `${sections.join(SECTION_SEPARATOR)}\n`
 }
@@ -839,6 +897,7 @@ export function buildSkillsMarkdown(context: ExportContext): string {
 - Version: ${skill.version}
 - Status: ${skill.status}
 - Enabled: ${skill.enabled ? 'yes' : 'no'}
+- Required/Recommended MCP: ${mcpServers(skill).map((server) => server.name).join(', ') || '-'}
 - Updated: ${formatDate(skill.updatedAt)}`,
       `### References\n${sources.map((source) => `- ${source}`).join('\n')}`
     ]

@@ -359,6 +359,8 @@
 }
 
 .topbarInner {
+  --omc-mac-window-controls-inset: 78px;
+
   width: 100%;
   min-width: 0;
   max-width: 100%;
@@ -399,10 +401,10 @@
 }
 
 .brandAreaMacInset {
-  margin-left: 68px;
+  padding-left: var(--omc-mac-window-controls-inset);
 
   @media (width <= 900px) {
-    margin-left: 0;
+    padding-left: 0;
   }
 }
 

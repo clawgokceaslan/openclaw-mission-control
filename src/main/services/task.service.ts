@@ -37,7 +37,7 @@ import type {
   UpdateTaskCommentRequest
 } from '../../shared/contracts/ipc.js'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
-import type { Agent, AiTool, ProjectStatus, Skill, Tag, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask } from '../../shared/types/entities.js'
+import type { Agent, AiTool, McpServer, Project, ProjectStatus, Skill, Tag, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask } from '../../shared/types/entities.js'
 import { AuthService } from './auth.service.js'
 import { TaskRepository, TaskSkillRepository, TaskSubtaskRepository, TaskTagRepository } from '../../db/repositories/task-repo.js'
 import { ProjectRepository } from '../../db/repositories/project-repo.js'
@@ -772,6 +772,101 @@ function internalOmcRuntimeSection(lines: string[]): string {
 
 function codexReasoningConfigArg(reasoningEffort: string): string {
   return `model_reasoning_effort="${normalizeGatewayReasoningEffort(reasoningEffort)}"`
+}
+
+function codexMcpProxyConfigArgs(proxyScriptPath: string, sessionPath: string): string[] {
+  return [
+    `mcp_servers.omc_proxy.command=${JSON.stringify('node')}`,
+    `mcp_servers.omc_proxy.args=${JSON.stringify([proxyScriptPath, sessionPath])}`,
+    'mcp_servers.omc_proxy.startup_timeout_sec=5'
+  ]
+}
+
+function mcpToolName(server: McpServer, toolName: string): string {
+  return `mcp__${(server.slug || server.name || 'server').replace(/[^a-zA-Z0-9_]/g, '_')}__${toolName.replace(/[^a-zA-Z0-9_]/g, '_')}`.slice(0, 120)
+}
+
+function effectiveMcpServersForRun(project: Partial<Project> | null | undefined, agent: Partial<Agent> | null | undefined, skills: Array<Partial<Skill>> | null | undefined): McpServer[] {
+  const byId = new Map<string, McpServer>()
+  for (const server of [
+    ...(project?.mcpServers ?? []),
+    ...(agent?.mcpServers ?? []),
+    ...(skills ?? []).flatMap((skill) => skill.mcpServers ?? [])
+  ]) {
+    if (!server?.id || !server.enabled) continue
+    byId.set(server.id, server)
+  }
+  return [...byId.values()]
+}
+
+function compactMcpServerForSession(server: McpServer): Record<string, unknown> {
+  const disabled = new Set(server.disabledTools ?? [])
+  const enabled = new Set(server.enabledTools ?? [])
+  return {
+    id: server.id,
+    name: server.name,
+    slug: server.slug,
+    transport: server.transport,
+    riskTier: server.riskTier,
+    required: server.required,
+    tools: (server.capabilities ?? [])
+      .filter((capability) => capability.capabilityType === 'tool')
+      .filter((capability) => !disabled.has(capability.name))
+      .filter((capability) => enabled.size === 0 || enabled.has(capability.name))
+      .map((capability) => ({
+        name: capability.name,
+        proxyName: mcpToolName(server, capability.name),
+        title: capability.title,
+        description: capability.description,
+        inputSchema: capability.inputSchemaJson ?? { type: 'object', properties: {} }
+      })),
+    resources: (server.capabilities ?? []).filter((capability) => capability.capabilityType === 'resource').map((capability) => ({ name: capability.name, title: capability.title })),
+    prompts: (server.capabilities ?? []).filter((capability) => capability.capabilityType === 'prompt').map((capability) => ({ name: capability.name, title: capability.title }))
+  }
+}
+
+function omcMcpProxyScript(): string {
+  return `#!/usr/bin/env node
+const fs = require('node:fs')
+const sessionPath = process.argv[2]
+const session = JSON.parse(fs.readFileSync(sessionPath, 'utf8'))
+const servers = Array.isArray(session.effectiveMcpServers) ? session.effectiveMcpServers : []
+const tools = servers.flatMap((server) => (server.tools || []).map((tool) => ({
+  name: tool.proxyName,
+  description: [tool.description || tool.title || tool.name, 'OMC policy proxy. Calls are gated by Open Mission Control before any upstream MCP server is contacted.'].filter(Boolean).join('\\n'),
+  inputSchema: tool.inputSchema || { type: 'object', properties: {} },
+  _omc: { serverId: server.id, serverName: server.name, toolName: tool.name, riskTier: server.riskTier }
+})))
+function send(message) { process.stdout.write(JSON.stringify(message) + '\\n') }
+function result(id, value) { send({ jsonrpc: '2.0', id, result: value }) }
+function error(id, code, message) { send({ jsonrpc: '2.0', id, error: { code, message } }) }
+let buffer = ''
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', (chunk) => {
+  buffer += chunk
+  let index
+  while ((index = buffer.indexOf('\\n')) >= 0) {
+    const line = buffer.slice(0, index).trim()
+    buffer = buffer.slice(index + 1)
+    if (!line) continue
+    let message
+    try { message = JSON.parse(line) } catch { continue }
+    if (message.method === 'initialize') {
+      result(message.id, { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'open-mission-control-mcp-proxy', version: '0.1.0' } })
+    } else if (message.method === 'notifications/initialized') {
+      continue
+    } else if (message.method === 'tools/list') {
+      result(message.id, { tools: tools.map(({ _omc, ...tool }) => tool) })
+    } else if (message.method === 'tools/call') {
+      const tool = tools.find((item) => item.name === message.params?.name)
+      if (!tool) error(message.id, -32602, 'Unknown OMC MCP proxy tool')
+      else result(message.id, { content: [{ type: 'text', text: JSON.stringify({ blocked: true, reason: 'OMC MCP proxy policy gate is active; upstream execution is reserved for the OMC approval bridge.', server: tool._omc.serverName, tool: tool._omc.toolName, riskTier: tool._omc.riskTier }, null, 2) }], isError: true })
+    } else {
+      result(message.id, {})
+    }
+  }
+})
+`
 }
 
 function projectDefaultAgentId(project: { metrics?: Record<string, unknown> | null }): string {
@@ -4279,6 +4374,7 @@ export class TaskService {
       const runId = plannerRunId(access.data.task.id)
       const helperRelativePath = plannerRunRelativePath(runId, 'omc-task-client.mjs')
       const sessionRelativePath = plannerRunRelativePath(runId, 'session.json')
+      const mcpProxyRelativePath = plannerRunRelativePath(runId, 'omc-mcp-proxy.mjs')
       const contextRelativePath = plannerRunRelativePath(runId, 'context.json')
       const plannedTaskRelativePath = plannerRunRelativePath(runId, 'planned-task.json')
       const instructionsRelativePath = plannerRunRelativePath(runId, 'OMC_CLI.md')
@@ -4309,9 +4405,14 @@ export class TaskService {
       }, bridgeToken)
       const clientScriptPath = join(runtimeWorkspacePath, helperRelativePath)
       const sessionPath = join(runtimeWorkspacePath, sessionRelativePath)
+      const mcpProxyPath = join(runtimeWorkspacePath, mcpProxyRelativePath)
+      const effectiveMcpServers = effectiveMcpServersForRun(project, effectiveAgent, effectiveSkills)
+      const codexMcpConfigArgs = codexMcpProxyConfigArgs(mcpProxyPath, sessionPath)
       await mkdir(workspaceRunPath, { recursive: true })
       await writeFile(clientScriptPath, omcPlannerClientScript(), 'utf8')
       await chmod(clientScriptPath, 0o700)
+      await writeFile(mcpProxyPath, omcMcpProxyScript(), 'utf8')
+      await chmod(mcpProxyPath, 0o700)
       await writeFile(sessionPath, JSON.stringify({
         runId,
         mode: 'execute',
@@ -4326,6 +4427,7 @@ export class TaskService {
         language,
         reasoningEffort,
         effectiveAgent,
+        effectiveMcpServers: effectiveMcpServers.map(compactMcpServerForSession),
         bridgeUrl: bridge.url,
         bridgeToken,
         createdAt: new Date().toISOString()
@@ -4350,6 +4452,7 @@ export class TaskService {
         '--sandbox', 'workspace-write',
         '--dangerously-bypass-approvals-and-sandbox',
         '-c', shellQuote(codexReasoningConfigArg(reasoningEffort)),
+        ...codexMcpConfigArgs.flatMap((configArg) => ['-c', shellQuote(configArg)]),
         '-c', shellQuote(codexTrustedProjectConfig(runtimeWorkspacePath)),
         '-c', shellQuote(codexTrustedProjectConfig(exportWorkspacePath)),
         shellQuote(prompt)
@@ -4363,6 +4466,7 @@ export class TaskService {
         '--cd', runtimeWorkspacePath,
         '--model', model,
         '-c', codexReasoningConfigArg(reasoningEffort),
+        ...codexMcpConfigArgs.flatMap((configArg) => ['-c', configArg]),
         '--skip-git-repo-check',
         '--dangerously-bypass-approvals-and-sandbox',
         '--color', 'never',
@@ -4539,6 +4643,7 @@ export class TaskService {
                 '--output-last-message', postFinalMessagePath,
                 '--model', model,
                 '-c', codexReasoningConfigArg(reasoningEffort),
+                ...codexMcpConfigArgs.flatMap((configArg) => ['-c', configArg]),
                 '--skip-git-repo-check',
                 '--dangerously-bypass-approvals-and-sandbox',
                 sessionId,
@@ -4551,6 +4656,7 @@ export class TaskService {
                 '--cd', runtimeWorkspacePath,
                 '--model', model,
                 '-c', codexReasoningConfigArg(reasoningEffort),
+                ...codexMcpConfigArgs.flatMap((configArg) => ['-c', configArg]),
                 '--skip-git-repo-check',
                 '--dangerously-bypass-approvals-and-sandbox',
                 '--color', 'never',
@@ -5105,6 +5211,7 @@ export class TaskService {
       const { codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, codexEnv, executionMode } = await codexLaunchConfig(gateway.template)
       const helperRelativePath = plannerRunRelativePath(runId, 'omc-task-client.mjs')
       const sessionRelativePath = plannerRunRelativePath(runId, 'session.json')
+      const mcpProxyRelativePath = plannerRunRelativePath(runId, 'omc-mcp-proxy.mjs')
       const contextRelativePath = plannerRunRelativePath(runId, 'context.json')
       const plannedTaskRelativePath = plannerRunRelativePath(runId, 'planned-task.json')
       const instructionsRelativePath = plannerRunRelativePath(runId, 'OMC_CLI.md')
@@ -5130,9 +5237,14 @@ export class TaskService {
 
       const clientScriptPath = join(runtimeWorkspacePath, helperRelativePath)
       const sessionPath = join(runtimeWorkspacePath, sessionRelativePath)
+      const mcpProxyPath = join(runtimeWorkspacePath, mcpProxyRelativePath)
+      const effectiveMcpServers = effectiveMcpServersForRun(project, effectiveAgent, effectiveSkills)
+      const codexMcpConfigArgs = codexMcpProxyConfigArgs(mcpProxyPath, sessionPath)
       await mkdir(workspaceRunPath, { recursive: true })
       await writeFile(clientScriptPath, omcPlannerClientScript(), 'utf8')
       await chmod(clientScriptPath, 0o700)
+      await writeFile(mcpProxyPath, omcMcpProxyScript(), 'utf8')
+      await chmod(mcpProxyPath, 0o700)
       await writeFile(sessionPath, JSON.stringify({
         runId,
         conversationId,
@@ -5148,6 +5260,7 @@ export class TaskService {
         workspaceRunPath,
         projectPrompt,
         effectiveAgent,
+        effectiveMcpServers: effectiveMcpServers.map(compactMcpServerForSession),
         bridgeUrl: bridge.url,
         bridgeToken,
         createdAt: new Date().toISOString()
@@ -5186,6 +5299,7 @@ export class TaskService {
         '--sandbox', 'workspace-write',
         '--dangerously-bypass-approvals-and-sandbox',
         '-c', shellQuote(codexReasoningConfigArg(reasoningEffort)),
+        ...codexMcpConfigArgs.flatMap((configArg) => ['-c', shellQuote(configArg)]),
         '-c', shellQuote(codexTrustedProjectConfig(runtimeWorkspacePath)),
         shellQuote(prompt)
       ].join(' ')
@@ -5198,6 +5312,7 @@ export class TaskService {
         '--cd', runtimeWorkspacePath,
         '--model', model,
         '-c', codexReasoningConfigArg(reasoningEffort),
+        ...codexMcpConfigArgs.flatMap((configArg) => ['-c', configArg]),
         '--skip-git-repo-check',
         '--dangerously-bypass-approvals-and-sandbox',
         '--color', 'never',
