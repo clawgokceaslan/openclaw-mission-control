@@ -5,6 +5,7 @@ import { DEFAULT_GATEWAY_LANGUAGE } from '@shared/utils/gateway-language'
 import { gatewayChatLifecycleStatusKey, gatewayLifecycleStatusMeta } from '@shared/utils/gateway-chat-phase'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
+import { useDebouncedEventRefresh } from '@renderer/hooks/useDebouncedEventRefresh'
 import { createSerializedAsyncRunner } from '@renderer/utils/serializedAsync'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { LoadingState } from '@renderer/components/loading'
@@ -274,6 +275,11 @@ export function LastChatsPage() {
     subscribeToChannel(IPC_CHANNELS.events.taskActivity, onTaskActivity)
     return () => unsubscribeFromChannel(IPC_CHANNELS.events.taskActivity, onTaskActivity)
   }, [])
+
+  useDebouncedEventRefresh(
+    [IPC_CHANNELS.events.taskUpdated],
+    () => refreshData({ silent: true })
+  )
 
   const projectNameById = useMemo(() => {
     const map = new Map<string, string>()

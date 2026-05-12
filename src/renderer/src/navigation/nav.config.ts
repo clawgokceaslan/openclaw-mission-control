@@ -17,7 +17,8 @@ import {
   LuRocket,
   LuWrench,
   LuTv,
-  LuWorkflow
+  LuWorkflow,
+  LuCable
 } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 
@@ -55,6 +56,7 @@ export const NAV_BY_GROUP: Record<NavGroupKey, NavItem[]> = {
   Capabilities: [
     { label: 'Agents', path: APP_ROUTES.AGENTS, group: 'Capabilities', icon: LuBot },
     { label: 'Tools', path: APP_ROUTES.TOOLS, group: 'Capabilities', icon: LuWrench },
+    { label: 'MCP', path: APP_ROUTES.MCP, group: 'Capabilities', icon: LuCable },
     { label: 'Skills', path: APP_ROUTES.SKILLS, group: 'Capabilities', icon: LuSparkles }
   ],
   Administration: [

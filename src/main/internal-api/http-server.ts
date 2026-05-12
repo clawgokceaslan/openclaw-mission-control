@@ -117,6 +117,7 @@ export function recordInternalHttpServerStartupError(config: InternalHttpServerC
 
 const eventChannels = new Set<string>(Object.values(IPC_CHANNELS.events))
 const publicPipelineStatusEventChannels = [
+  IPC_CHANNELS.events.pipelineStatusUpdated,
   IPC_CHANNELS.events.planPipelineUpdated,
   IPC_CHANNELS.events.runPipelineUpdated
 ]
@@ -498,6 +499,23 @@ export async function startInternalHttpServer(context: AppContext, config: Inter
         }
         if (request.method === 'GET' && requestUrl.pathname === '/api/public/pipeline-status/events') {
           handlePublicPipelineStatusEvents(context, request, response)
+          return
+        }
+        if (request.method === 'GET' && requestUrl.pathname === '/api/mcp/oauth/callback') {
+          const result = await dispatchInternalApi(context.services, {
+            channel: IPC_CHANNELS.mcp.oauthComplete,
+            request: {
+              meta: { clientSource: requestClientSource(request) },
+              payload: {
+                state: requestUrl.searchParams.get('state') ?? '',
+                code: requestUrl.searchParams.get('code') ?? undefined,
+                error: requestUrl.searchParams.get('error') ?? undefined,
+                errorDescription: requestUrl.searchParams.get('error_description') ?? undefined
+              }
+            },
+            transport: 'http'
+          })
+          sendJson(response, statusForResult(result), result)
           return
         }
         if (request.method === 'GET' && requestUrl.pathname.startsWith('/api/public/pipeline-status/')) {

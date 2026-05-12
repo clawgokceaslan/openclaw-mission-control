@@ -23,6 +23,7 @@ import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { PlanPipelineBatch, PlanPipelineRecord, Project, ProjectStatus, TaskEntity } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
+import { useDebouncedEventRefresh } from '@renderer/hooks/useDebouncedEventRefresh'
 import styles from './index.module.scss'
 
 type StepKey = 'basic' | 'projects' | 'tasks' | 'groups' | 'run'
@@ -197,8 +198,8 @@ export function PlanPipelinePage() {
   const modalCloseRef = useRef<HTMLButtonElement | null>(null)
   const refreshTimerRef = useRef<number | null>(null)
 
-  const loadData = async () => {
-    setLoading(true)
+  const loadData = async (silent = false) => {
+    if (!silent) setLoading(true)
     setError(null)
     const [projectResponse, taskResponse, pipelineResponse, batchResponse] = await Promise.all([
       loadList<Project[]>(IPC_CHANNELS.projects.list, token),
@@ -252,7 +253,7 @@ export function PlanPipelinePage() {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
       refreshTimerRef.current = window.setTimeout(() => {
         refreshTimerRef.current = null
-        void loadData()
+        void loadData(true)
       }, 180)
     }
     subscribeToChannel(IPC_CHANNELS.events.planPipelineUpdated, onPipelineUpdated)
@@ -263,6 +264,11 @@ export function PlanPipelinePage() {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
     }
   }, [token])
+
+  useDebouncedEventRefresh(
+    [IPC_CHANNELS.events.taskUpdated],
+    () => loadData(true)
+  )
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...draft, updatedAt: Date.now() }))

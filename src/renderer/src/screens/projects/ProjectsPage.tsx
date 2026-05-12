@@ -4,6 +4,7 @@ import { LuArrowUpRight, LuPlus, LuRefreshCw, LuX } from 'react-icons/lu'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
+import { useDebouncedEventRefresh } from '@renderer/hooks/useDebouncedEventRefresh'
 import type { Project, ProjectGroup, ProjectStatus, StatusTemplate, TaskEntity, Workspace } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { LoadingState } from '@renderer/components/loading'
@@ -48,8 +49,8 @@ export function ProjectsPage() {
     setSelectedWorkspaceId('')
   }
 
-  const loadProjects = async () => {
-    setStatus('Yukleniyor...')
+  const loadProjects = async (options: { silent?: boolean } = {}) => {
+    if (!options.silent) setStatus('Yukleniyor...')
     const [response, taskResponse, groupResponse] = await Promise.all([
       loadList<Project[]>(IPC_CHANNELS.projects.list, token),
       loadList<TaskEntity[]>(IPC_CHANNELS.tasks.list, token),
@@ -78,6 +79,11 @@ export function ProjectsPage() {
   useEffect(() => {
     void loadProjects()
   }, [token])
+
+  useDebouncedEventRefresh(
+    [IPC_CHANNELS.events.taskUpdated],
+    () => loadProjects({ silent: true })
+  )
 
   useEffect(() => {
     const state = location.state as { openCreate?: boolean; name?: string } | null

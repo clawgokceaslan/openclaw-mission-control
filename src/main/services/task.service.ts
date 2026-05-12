@@ -151,6 +151,7 @@ type ActiveGatewayChatRun = {
   eventsPath?: string
   finalMessagePath?: string
   stopRequested?: boolean
+  supersededBySteer?: boolean
 }
 
 type ProjectPromptSnapshot = {
@@ -3471,7 +3472,7 @@ export class TaskService {
     ))
     for (const run of matches) {
       run.stopRequested = true
-      run.child.kill('SIGTERM')
+      run.supersededBySteer = true
     }
     const primary = matches[0]
     return {
@@ -3654,6 +3655,7 @@ export class TaskService {
       result: {}
     })
     const [task] = await this.enrichTasks([row])
+    this.emitTaskUpdated(payload.projectId, task.id, 'created')
     return okResponse(task)
   }
 
@@ -4708,6 +4710,7 @@ export class TaskService {
             if (spawnFailed) return
             await streamer.flush()
             if (activeRun.stopRequested) {
+              if (activeRun.supersededBySteer) return
               await this.appendTaskActivityMessages(taskId, [
                 {
                   runId,
@@ -5380,6 +5383,7 @@ export class TaskService {
               return
             }
             if (activeRun.stopRequested) {
+              if (activeRun.supersededBySteer) return
               await this.appendTaskActivityMessages(taskId, [
                 {
                   runId,
@@ -5683,7 +5687,7 @@ export class TaskService {
       language,
       promptShape
     })
-    const resumeArgs = mode === 'steer' && steerInterrupt.codexSessionId
+    const resumeArgs = mode === 'steer' && steerInterrupt.count === 0 && steerInterrupt.codexSessionId
       ? ['resume', steerInterrupt.codexSessionId]
       : []
     const execArgs = [
@@ -5735,7 +5739,7 @@ export class TaskService {
           ? executionMode === 'exec' ? 'Codex is revising the plan...' : 'Opening Codex terminal to revise the plan...'
           : mode === 'steer'
             ? steerInterrupt.count > 0
-              ? 'Codex is applying the steer instruction after interrupting the active turn...'
+              ? 'Codex is applying the steer instruction in this conversation...'
               : 'Codex is applying the steer instruction...'
           : executionMode === 'exec' ? 'Codex is thinking...' : 'Opening Codex terminal...',
         metadata: {
@@ -5839,6 +5843,7 @@ export class TaskService {
         if (spawnFailed) return
         await streamer.flush()
         if (activeRun.stopRequested) {
+          if (activeRun.supersededBySteer) return
           await this.appendTaskActivityMessages(taskId, [
             {
               runId,
@@ -6057,14 +6062,16 @@ export class TaskService {
     })
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Task not found')
     const [task] = await this.enrichTasks([updated])
+    this.emitTaskUpdated(current.projectId, task.id, nextStatus !== current.status ? 'status_changed' : 'updated')
     return okResponse(task)
   }
 
   async remove(payload: { actorToken?: string; id?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ ok: true }>> {
     if (!payload?.id) return errorResponse(ErrorCodes.Validation, 'Task id required')
     const access = await this.ensureTaskAccess(payload.actorToken, payload.id)
-    if (!access.ok) return access as ServiceResponse<{ ok: true }>
+    if (!access.ok || !access.data) return access as ServiceResponse<{ ok: true }>
     await this.repo.remove(payload.id)
+    this.emitTaskUpdated(access.data.task.projectId, payload.id, 'deleted')
     return okResponse({ ok: true })
   }
 
@@ -6089,6 +6096,7 @@ export class TaskService {
       title: payload.title.trim(),
       status: statusResponse.data ?? ''
     })
+    this.emitTaskUpdated(access.data.task.projectId, payload.taskId, 'subtask_created')
     return okResponse(created)
   }
 
@@ -6121,6 +6129,7 @@ export class TaskService {
       payload: nextPayload
     })
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Subtask not found')
+    this.emitTaskUpdated(access.data.task.projectId, existing.taskId, 'subtask_updated')
     return okResponse(enrichSubtask(updated))
   }
 
@@ -6129,8 +6138,9 @@ export class TaskService {
     const existing = await this.subtaskRepo.get(payload.id)
     if (!existing) return errorResponse(ErrorCodes.NotFound, 'Subtask not found')
     const access = await this.ensureTaskAccess(payload.actorToken, existing.taskId)
-    if (!access.ok) return access as ServiceResponse<{ ok: true }>
+    if (!access.ok || !access.data) return access as ServiceResponse<{ ok: true }>
     await this.subtaskRepo.remove(payload.id)
+    this.emitTaskUpdated(access.data.task.projectId, existing.taskId, 'subtask_deleted')
     return okResponse({ ok: true })
   }
 
@@ -6147,6 +6157,7 @@ export class TaskService {
       return errorResponse(ErrorCodes.Validation, 'Invalid tag selection', { invalidTagIds })
     }
     await this.taskTagRepo.setTaskTags(payload.taskId, tagIds)
+    this.emitTaskUpdated(access.data.task.projectId, payload.taskId, 'tags_updated')
     return okResponse(await this.taskTagRepo.listTaskTags(payload.taskId))
   }
 
@@ -6163,6 +6174,7 @@ export class TaskService {
       return errorResponse(ErrorCodes.Validation, 'Invalid skill selection', { invalidSkillIds })
     }
     await this.taskSkillRepo.setTaskSkills(payload.taskId, skillIds)
+    this.emitTaskUpdated(access.data.task.projectId, payload.taskId, 'skills_updated')
     return okResponse(await this.taskSkillRepo.listTaskSkills(payload.taskId))
   }
 
@@ -6182,6 +6194,7 @@ export class TaskService {
     nextPayload.comments = comments
     const updated = await this.repo.update(task.id, { payload: nextPayload })
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Task not found')
+    this.emitTaskUpdated(task.projectId, task.id, 'comment_created')
     return okResponse(comments)
   }
 
@@ -6203,6 +6216,7 @@ export class TaskService {
     nextPayload.comments = comments
     const updated = await this.repo.update(task.id, { payload: nextPayload })
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Task not found')
+    this.emitTaskUpdated(task.projectId, task.id, 'comment_updated')
     return okResponse(comments)
   }
 
@@ -6220,6 +6234,7 @@ export class TaskService {
     nextPayload.comments = nextComments
     const updated = await this.repo.update(task.id, { payload: nextPayload })
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Task not found')
+    this.emitTaskUpdated(task.projectId, task.id, 'comment_deleted')
     return okResponse(nextComments)
   }
 }

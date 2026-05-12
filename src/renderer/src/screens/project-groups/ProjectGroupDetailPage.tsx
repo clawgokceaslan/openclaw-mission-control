@@ -6,6 +6,7 @@ import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { Project, ProjectGroup, TaskEntity } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { loadList } from '@renderer/utils/api'
+import { useDebouncedEventRefresh } from '@renderer/hooks/useDebouncedEventRefresh'
 import { LoadingState } from '@renderer/components/loading'
 import styles from './ProjectGroupsPage.module.scss'
 
@@ -23,8 +24,8 @@ export function ProjectGroupDetailPage() {
   const [status, setStatus] = useState('Loading...')
   const [error, setError] = useState<string | null>(null)
 
-  const refresh = async () => {
-    setStatus('Loading...')
+  const refresh = async (options: { silent?: boolean } = {}) => {
+    if (!options.silent) setStatus('Loading...')
     const [groupsResponse, projectsResponse, tasksResponse] = await Promise.all([
       loadList<ProjectGroup[]>(IPC_CHANNELS.projectGroups.list, token),
       loadList<Project[]>(IPC_CHANNELS.projects.list, token),
@@ -47,6 +48,11 @@ export function ProjectGroupDetailPage() {
   useEffect(() => {
     void refresh()
   }, [groupId, token])
+
+  useDebouncedEventRefresh(
+    [IPC_CHANNELS.events.taskUpdated],
+    () => refresh({ silent: true })
+  )
 
   const group = useMemo(() => groups.find((item) => item.id === groupId) ?? null, [groupId, groups])
   const groupedProjects = useMemo(() => {

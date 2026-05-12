@@ -2,6 +2,7 @@ import { BaseRepository } from './base-repo.js'
 import { randomUUID } from 'node:crypto'
 import { SqliteAdapter } from '../adapter/sqlite.js'
 import type { Project } from '../../shared/types/entities.js'
+import type { McpRepository } from './mcp-repo.js'
 
 const PROJECT_PROMPT_FIELDS = ['generalContext', 'generalPrompt', 'defaultOutput'] as const
 
@@ -10,18 +11,20 @@ type ProjectPromptKey = (typeof PROJECT_PROMPT_FIELDS)[number]
 type ProjectMetricsInput = Record<string, unknown> | undefined
 
 export class ProjectRepository extends BaseRepository<Project> {
-  constructor(db: SqliteAdapter) {
+  constructor(db: SqliteAdapter, private readonly mcpRepo?: McpRepository) {
     super(db)
   }
 
   async list(orgId: string): Promise<Project[]> {
     const rows = await this.db.prepare('SELECT * FROM projects WHERE organization_id = @orgId ORDER BY created_at DESC').all({ orgId })
-    return rows.map((row: any) => this.map(row))
+    return this.hydrateMcp(rows.map((row: any) => this.map(row)))
   }
 
   async get(id: string): Promise<Project | undefined> {
     const row = (await this.db.prepare('SELECT * FROM projects WHERE id = @id').get({ id })) as any
-    return row ? this.map(row) : undefined
+    if (!row) return undefined
+    const [project] = await this.hydrateMcp([this.map(row)])
+    return project
   }
 
   async create(input: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>): Promise<Project> {
@@ -100,7 +103,8 @@ export class ProjectRepository extends BaseRepository<Project> {
         metricsJson: this.toJson(next.metrics),
         updatedAt: next.updatedAt
       })
-    return next
+    const [project] = await this.hydrateMcp([next])
+    return project
   }
 
   async remove(id: string): Promise<void> {
@@ -123,6 +127,19 @@ export class ProjectRepository extends BaseRepository<Project> {
       createdAt: row.created_at,
       updatedAt: row.updated_at
     }
+  }
+
+  private async hydrateMcp(projects: Project[]): Promise<Project[]> {
+    if (!this.mcpRepo || projects.length === 0) return projects
+    const mcpByProjectId = await this.mcpRepo.listServerLinksByOwnerIds('project', projects.map((project) => project.id))
+    return projects.map((project) => {
+      const mcpServers = mcpByProjectId[project.id] ?? []
+      return {
+        ...project,
+        mcpServers,
+        mcpServerIds: mcpServers.map((server) => server.id)
+      }
+    })
   }
 
   private buildProjectMetrics(

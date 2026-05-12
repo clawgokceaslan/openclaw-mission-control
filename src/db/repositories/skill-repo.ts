@@ -2,6 +2,7 @@ import { BaseRepository } from './base-repo.js'
 import { randomUUID } from 'node:crypto'
 import { SqliteAdapter } from '../adapter/sqlite.js'
 import type { Pack, Skill } from '../../shared/types/entities.js'
+import type { McpRepository } from './mcp-repo.js'
 
 export interface SkillPageInput {
   page: number
@@ -20,13 +21,13 @@ export interface SkillPageResult {
 }
 
 export class SkillRepository extends BaseRepository<Skill> {
-  constructor(db: SqliteAdapter) {
+  constructor(db: SqliteAdapter, private readonly mcpRepo?: McpRepository) {
     super(db)
   }
 
   async list(orgId: string): Promise<Skill[]> {
     const rows = await this.db.prepare('SELECT * FROM skills WHERE organization_id = @orgId ORDER BY name').all({ orgId })
-    return rows.map((row: any) => this.map(row))
+    return this.hydrateMcp(rows.map((row: any) => this.map(row)))
   }
 
   async listPage(orgId: string, input: SkillPageInput): Promise<SkillPageResult> {
@@ -59,8 +60,9 @@ export class SkillRepository extends BaseRepository<Skill> {
         offset: (page - 1) * pageSize
       })
 
+    const hydratedRows = await this.hydrateMcp(rows.map((row: any) => this.map(row)))
     return {
-      rows: rows.map((row: any) => this.map(row)),
+      rows: hydratedRows,
       total: totalRow?.total ?? 0,
       page,
       pageSize
@@ -131,7 +133,8 @@ export class SkillRepository extends BaseRepository<Skill> {
         updatedAt: now
       })
     const updated = await this.db.prepare('SELECT * FROM skills WHERE id = @id AND organization_id = @orgId').get({ id, orgId }) as any
-    return updated ? this.map(updated) : undefined
+    const hydrated = updated ? await this.hydrateMcp([this.map(updated)]) : []
+    return hydrated[0]
   }
 
   async remove(orgId: string, id: string): Promise<boolean> {
@@ -166,6 +169,19 @@ export class SkillRepository extends BaseRepository<Skill> {
     } catch {
       return {}
     }
+  }
+
+  private async hydrateMcp(skills: Skill[]): Promise<Skill[]> {
+    if (!this.mcpRepo || skills.length === 0) return skills
+    const mcpBySkillId = await this.mcpRepo.listServerLinksByOwnerIds('skill', skills.map((skill) => skill.id))
+    return skills.map((skill) => {
+      const mcpServers = mcpBySkillId[skill.id] ?? []
+      return {
+        ...skill,
+        mcpServers,
+        mcpServerIds: mcpServers.map((server) => server.id)
+      }
+    })
   }
 
   private map(row: any): Skill {

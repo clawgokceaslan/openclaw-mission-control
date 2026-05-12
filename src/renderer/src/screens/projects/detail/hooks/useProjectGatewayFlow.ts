@@ -12,8 +12,9 @@ const CHAT_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024
 const CHAT_ATTACHMENT_MAX_COUNT = 10
 const CODE_REVIEW_PROMPT = 'Please review the current task implementation and recent chat context. Prioritize bugs, regressions, missing tests, and risky assumptions. Do not make code changes unless I explicitly ask.'
 type ChatCommandMode = 'plan' | 'steer'
+type GatewayChatMode = 'chat' | 'plan' | 'steer'
 
-function normalizeLeadingChatCommand(value: string): { mode: ChatCommandMode | null; message: string; hadCommand: boolean } {
+export function normalizeLeadingChatCommand(value: string): { mode: ChatCommandMode | null; message: string; hadCommand: boolean } {
   const match = value.match(/^\s*\/(plan|steer)(?:\s+|$)/i)
   if (!match) return { mode: null, message: value.trim(), hadCommand: false }
   return {
@@ -21,6 +22,14 @@ function normalizeLeadingChatCommand(value: string): { mode: ChatCommandMode | n
     message: value.slice(match[0].length).trim(),
     hadCommand: true
   }
+}
+
+export function shouldStartNewGatewayChatConversation(isStartingNewChat: boolean, requestedChatMode: GatewayChatMode): boolean {
+  return isStartingNewChat && requestedChatMode !== 'steer'
+}
+
+export function effectiveGatewayChatMode(requestedChatMode: GatewayChatMode, selectedConversationIsRunning: boolean, isStartingNewChat: boolean): GatewayChatMode {
+  return requestedChatMode === 'chat' && selectedConversationIsRunning && !isStartingNewChat ? 'steer' : requestedChatMode
 }
 
 function revokeChatAttachmentPreviews(attachments: ChatAttachmentDraft[]): void {
@@ -465,12 +474,15 @@ export function useProjectGatewayFlow({
     const draftText = draftOverride ?? chatDraft
     const normalizedDraft = normalizeLeadingChatCommand(draftText)
     if (!normalizedDraft.message && chatAttachments.length === 0) return
-    const effectiveSelectedChatSummary = isStartingNewChat ? null : selectedChatSummary
     const requestedChatMode = normalizedDraft.mode ?? chatMode
-    const sendAsPlanRevision = requestedChatMode !== 'steer' && !isStartingNewChat && effectiveSelectedChatSummary?.source === 'gateway-plan'
-    const effectiveChatMode = requestedChatMode === 'steer' ? 'steer' : sendAsPlanRevision ? 'plan' : requestedChatMode
-    const sendAsPlannerClarification = effectiveChatMode !== 'steer' && !isStartingNewChat && effectiveSelectedChatSummary?.source === 'gateway-plan'
-    if (selectedChatSummary?.status === 'running' && effectiveChatMode !== 'steer') {
+    const effectiveRequestedChatMode = effectiveGatewayChatMode(requestedChatMode, selectedChatSummary?.status === 'running', isStartingNewChat)
+    const effectiveIsStartingNewChat = shouldStartNewGatewayChatConversation(isStartingNewChat, effectiveRequestedChatMode)
+    const effectiveSelectedChatSummary = effectiveIsStartingNewChat ? null : selectedChatSummary
+    const sendAsPlanRevision = effectiveRequestedChatMode !== 'steer' && !effectiveIsStartingNewChat && effectiveSelectedChatSummary?.source === 'gateway-plan'
+    const effectiveChatMode = effectiveRequestedChatMode === 'steer' ? 'steer' : sendAsPlanRevision ? 'plan' : effectiveRequestedChatMode
+    const sendAsPlannerClarification = effectiveChatMode !== 'steer' && !effectiveIsStartingNewChat && effectiveSelectedChatSummary?.source === 'gateway-plan'
+    const sendAsDirectPlan = effectiveChatMode === 'plan' && !sendAsPlannerClarification
+    if (selectedChatSummary?.status === 'running' && effectiveChatMode !== 'steer' && !sendAsDirectPlan) {
       setGatewayRunFeedback({ kind: 'error', message: 'Codex is still working in this conversation. Stop it or wait before sending another message.' })
       return
     }
@@ -478,7 +490,9 @@ export function useProjectGatewayFlow({
     const resolvedChatModel = sendAsPlannerClarification || effectiveChatMode === 'plan'
       ? (chatPlanModel || chatModel)
       : (chatRunModel || chatModel)
-    if (!chatGatewayId || !resolvedChatModel) {
+    const resolvedDirectPlanGatewayId = chatGatewayId || resolvedTaskGatewayId
+    const resolvedDirectPlanModel = chatPlanModel || resolvedPlanModel || chatModel
+    if (sendAsDirectPlan ? (!resolvedDirectPlanGatewayId || !resolvedDirectPlanModel) : (!chatGatewayId || !resolvedChatModel)) {
       setChatSettingsOpen(true)
       setGatewayRunFeedback({ kind: 'error', message: 'Choose a Codex gateway and model before sending chat.' })
       return
@@ -524,18 +538,57 @@ export function useProjectGatewayFlow({
         return
       }
 
+      if (sendAsDirectPlan) {
+        if (chatAttachments.length > 0) {
+          setGatewayRunFeedback({ kind: 'error', message: 'Planner clarification does not support attachments. Remove attachments and send the answer as text.' })
+          return
+        }
+        if (!resolvedDirectPlanModel) {
+          setChatSettingsOpen(true)
+          setGatewayRunFeedback({ kind: 'error', message: 'Choose a Codex plan model before planning this task.' })
+          return
+        }
+        const response = await invokeBridge<GatewayPlanResponse>(IPC_CHANNELS.tasks.planWithGateway, {
+          actorToken: token,
+          taskId: selectedTask.id,
+          projectId: project.id,
+          gatewayId: resolvedDirectPlanGatewayId,
+          model: resolvedDirectPlanModel,
+          language: gatewayLanguage,
+          reasoningEffort: planReasoningEffort,
+          clarificationMessage: cleanDraftText,
+          generalContext: project.generalContext ?? '',
+          generalPrompt: project.generalPrompt ?? '',
+          defaultOutput: project.defaultOutput ?? ''
+        })
+        if (!response.ok || !response.data) {
+          setGatewayRunFeedback({ kind: 'error', message: response.error?.message ?? 'Unable to launch Codex planner.' })
+          return
+        }
+        if (response.data.conversationId || response.data.runId) setSelectedChatConversationId(response.data.conversationId ?? response.data.runId ?? '')
+        setIsStartingNewChat(false)
+        setChatDraft('')
+        revokeChatAttachmentPreviews(chatAttachments)
+        setChatAttachments([])
+        setChatComposerMode('chat')
+        setGatewayRunFeedback(response.data.executionMode === 'exec'
+          ? { kind: 'success', message: 'Planlama başladı. Chat akış ilerledikçe güncellenecek.' }
+          : { kind: 'success', message: `Planlama terminalde başladı. Runtime workspace: ${response.data.runtimeWorkspacePath}` })
+        return
+      }
+
       const response = await invokeBridge<GatewayChatResponse>(IPC_CHANNELS.tasks.gatewayChatSend, {
         actorToken: token,
         taskId: selectedTask.id,
         projectId: project.id,
         message: cleanDraftText || 'Review the attached file(s) in the task context.',
         gatewayId: chatGatewayId,
-        followUpContext: isStartingNewChat ? chatFollowUpContext?.trim() || undefined : undefined,
+        followUpContext: effectiveIsStartingNewChat ? chatFollowUpContext?.trim() || undefined : undefined,
         model: resolvedChatModel,
         language: gatewayLanguage,
         reasoningEffort: effectiveChatMode === 'plan' ? planReasoningEffort : runReasoningEffort,
-        conversationId: isStartingNewChat ? undefined : selectedChatConversationId || undefined,
-        includeTaskContext: isStartingNewChat ? false : chatIncludeContext,
+        conversationId: effectiveIsStartingNewChat ? undefined : selectedChatConversationId || undefined,
+        includeTaskContext: effectiveIsStartingNewChat ? false : chatIncludeContext,
         mode: effectiveChatMode,
         command: {
           id: effectiveChatMode,
@@ -590,6 +643,8 @@ export function useProjectGatewayFlow({
     selectedChatSummary,
     chatMode,
     chatFollowUpContext,
+    resolvedTaskGatewayId,
+    resolvedPlanModel,
     gatewayPlanLaunching,
     gatewayRunLaunching,
     token,
@@ -623,7 +678,7 @@ export function useProjectGatewayFlow({
         return { conversationId, stopped: 0, notFound: false }
       }
       if (!response.data?.stopped) {
-        setGatewayRunFeedback({ kind: 'error', message: 'No active Codex chat was found to stop.' })
+        setGatewayRunFeedback({ kind: 'success', message: 'No active Codex process was found. The conversation was marked as stopped.' })
         return { conversationId, stopped: 0, notFound: true }
       }
       return { conversationId, stopped: response.data.stopped, notFound: false }
@@ -687,17 +742,19 @@ export function useProjectGatewayFlow({
     }
     if (command.id === 'plan') {
       setChatDraft((value) => value.replace(trailingSlashCommandToken, ''))
+      setChatComposerMode('plan')
+      setIsStartingNewChat(true)
       setGatewayRunFeedback(null)
-      await planSelectedTaskWithCodex()
       return
     }
     if (command.id === 'steer') {
+      setChatDraft((value) => value.replace(trailingSlashCommandToken, ''))
       if (!selectedChatConversationId) {
-        setGatewayRunFeedback({ kind: 'error', message: 'Select a conversation before sending a steer message.' })
+        setGatewayRunFeedback({ kind: 'error', message: 'Choose a running conversation from the steer list above the input.' })
         return
       }
-      setChatDraft((value) => value.replace(trailingSlashCommandToken, ''))
       setChatComposerMode('steer')
+      setIsStartingNewChat(false)
       setGatewayRunFeedback(null)
       return
     }
@@ -715,13 +772,13 @@ export function useProjectGatewayFlow({
     setChatDraft((value) => value.replace(trailingSlashCommandToken, ''))
   }, [
     openChatAttachmentPicker,
-    planSelectedTaskWithCodex,
     runSelectedTaskWithCodex,
     selectedChatConversationId,
     setChatDraft,
     setChatComposerMode,
     setChatIncludeContext,
     setGatewayRunFeedback,
+    setIsStartingNewChat,
     setChatSettingsOpen
   ])
 

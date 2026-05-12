@@ -20,6 +20,7 @@ export const APP_ROUTES = {
   AGENTS: '/agents',
   AGENTS_NEW: '/agents/new',
   TOOLS: '/tools',
+  MCP: '/mcp',
   GATEWAYS: '/gateways',
   GATEWAYS_NEW: '/gateways/new',
   GATEWAY_DETAIL: '/gateways/:gatewayId',

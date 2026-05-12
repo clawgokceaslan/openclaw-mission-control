@@ -652,7 +652,10 @@ export function ChatPopup({
     return styles[`chatSource_${gatewayChatPhaseTone(conversation.phase)}`] ?? ''
   }
   const selectedChatStatusMeta = selectedChatSummary ? conversationStatusMeta(selectedChatSummary) : null
-  const sendButtonStopsConversation = selectedChatCanStop && !(activeCommand === 'steer' && canSendChat)
+  const steerableConversations = conversations
+    .filter((conversation) => runningConversationIds.has(conversation.id))
+    .sort((a, b) => b.at - a.at)
+  const sendButtonStopsConversation = selectedChatCanStop && activeCommand !== 'plan' && !canSendChat
   const runModelLabel = chatRunModel || chatModel || 'Not set'
   const planModelLabel = chatPlanModel || chatModel || 'Not set'
   const toolsMeta = taskContextTools.length ? `${taskContextTools.length} catalog tools` : 'No active tools'
@@ -702,16 +705,6 @@ export function ChatPopup({
       icon: LuSparkles,
       onSelect: () => onSlashCommandApply({ id: 'plan', label: '/plan', hint: 'Start Codex planning for the task' }),
       disabled: gatewayPlanLaunching
-    }] : []),
-    ...(selectedChatSummary ? [{
-      key: 'steer',
-      label: 'Steer',
-      detail: activeCommand === 'steer' ? 'Steering selected conversation' : 'Target the selected conversation',
-      meta: activeCommand === 'steer' ? 'On' : selectedChatSummary.status,
-      group: 'execution',
-      icon: LuMessageSquare,
-      onSelect: () => onSlashCommandApply({ id: 'steer', label: '/steer', hint: 'Steer the selected conversation' }),
-      active: activeCommand === 'steer'
     }] : []),
     {
       key: 'model',
@@ -1067,9 +1060,7 @@ export function ChatPopup({
                       ? chatIncludeContext ? 'On' : 'Off'
                       : command.id === 'plan'
                         ? activeCommand === 'plan' ? 'On' : ''
-                        : command.id === 'steer'
-                          ? activeCommand === 'steer' ? 'On' : ''
-                          : ''
+                        : ''
                     return (
                       <button key={command.id} type="button" className={index === slashCommandIndex ? styles.slashCommandActive : ''} onMouseDown={(event) => { event.preventDefault(); onSlashCommandApply(command) }} role="option" aria-selected={index === slashCommandIndex}>
                         <SlashIcon size={15} />
@@ -1078,6 +1069,38 @@ export function ChatPopup({
                           <small>{command.hint}</small>
                         </span>
                         {meta ? <em>{meta}</em> : null}
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : null}
+              {steerableConversations.length > 0 ? (
+                <div className={styles.chatSteerTargetTable} role="table" aria-label="Running conversations available for steering">
+                  <div className={styles.chatSteerTargetHeader} role="row">
+                    <span role="columnheader">Target</span>
+                    <span role="columnheader">Status</span>
+                    <span role="columnheader">Model</span>
+                    <span role="columnheader">Action</span>
+                  </div>
+                  {steerableConversations.map((conversation) => {
+                    const isSelectedSteerTarget = activeCommand === 'steer' && selectedConversationId === conversation.id
+                    return (
+                      <button
+                        key={conversation.id}
+                        type="button"
+                        className={`${styles.chatSteerTargetRow} ${isSelectedSteerTarget ? styles.chatSteerTargetActive : ''}`}
+                        onClick={() => onSteerMessageClick(conversation.id)}
+                        role="row"
+                        aria-pressed={isSelectedSteerTarget}
+                        title={`Steer ${conversation.title}`}
+                      >
+                        <span role="cell" className={styles.chatSteerTargetTitle}>
+                          <b className={`${styles.chatConversationSourceBadge} ${conversationSourceClass(conversation)}`}>{conversation.title}</b>
+                          <small>{conversation.count} messages · {formatChatTime(conversation.at)}</small>
+                        </span>
+                        <span role="cell" className={`${styles.chatStatusBadge} ${conversationStatusClass(conversation)}`}>{conversationStatusLabel(conversation)}</span>
+                        <span role="cell" className={styles.chatSteerTargetModel}>{conversation.model || 'Default'}</span>
+                        <span role="cell" className={styles.chatSteerTargetAction}>{isSelectedSteerTarget ? 'Selected' : 'Steer'}</span>
                       </button>
                     )
                   })}
@@ -1108,7 +1131,7 @@ export function ChatPopup({
                   onChange={(event) => onDraftChange(event.target.value, event.currentTarget)}
                   onFocus={() => onComposerFocusChange(true)}
                   onBlur={() => onComposerFocusChange(false)}
-                  placeholder={activeCommand === 'steer' ? 'Ask for follow-up changes' : 'Message Codex or type / for commands...'}
+                  placeholder={activeCommand === 'plan' ? 'Add planning instructions...' : activeCommand === 'steer' ? 'Ask for follow-up changes' : 'Message Codex or type / for commands...'}
                   onKeyDown={(event) => {
                     if (slashMenuOpen && slashCommands.length > 0) {
                       if (event.key === 'ArrowDown') { event.preventDefault(); onSlashCommandIndexChange((value) => (value + 1) % slashCommands.length); return }
@@ -1123,15 +1146,15 @@ export function ChatPopup({
                   }}
                 />
                 <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => onFilesSelected(event.currentTarget.files)} />
-                <button type="button" className={[styles.chatSendButton, sendButtonStopsConversation ? styles.chatStopButton : ''].filter(Boolean).join(' ')} onClick={() => sendButtonStopsConversation ? onStopChat() : onSend()} disabled={chatSending || isChatStopping || (!sendButtonStopsConversation && (!canSendChat || (selectedChatIsRunning && activeCommand !== 'steer')))} aria-label={sendButtonStopsConversation ? 'Stop Codex chat' : 'Send message'} title={sendButtonStopsConversation ? 'Stop' : 'Send'}>
+                <button type="button" className={[styles.chatSendButton, sendButtonStopsConversation ? styles.chatStopButton : ''].filter(Boolean).join(' ')} onClick={() => sendButtonStopsConversation ? onStopChat() : onSend()} disabled={chatSending || isChatStopping || (!sendButtonStopsConversation && !canSendChat)} aria-label={sendButtonStopsConversation ? 'Stop Codex chat' : 'Send message'} title={sendButtonStopsConversation ? 'Stop' : 'Send'}>
                   {sendButtonStopsConversation ? <LuCircleStop size={17} /> : chatSending ? <span className={styles.thinkingDots}><i /><i /><i /></span> : <LuSend size={16} />}
                 </button>
                 <div className={styles.chatComposerFooter}>
                   <button type="button" className={styles.chatAttachButton} onClick={onAttachFilesClick} aria-label="Attach files"><LuPaperclip size={16} /></button>
                   {activeCommand ? (
                     <span className={styles.chatActiveCommandBadge}>
-                      <b>{activeCommand === 'plan' ? '/plan' : '/steer'}</b>
-                      <small>{activeCommand === 'plan' ? 'Plan' : 'Steer'}</small>
+                      <b>{activeCommand === 'plan' ? 'Plan' : 'Steer'}</b>
+                      <small>{activeCommand === 'plan' ? 'Planning' : 'Steering'}</small>
                       <button type="button" onClick={onClearSlashDraft} aria-label={`${activeCommand} komutunu kaldır`} title="Komutu kaldır">
                         <LuX size={12} />
                       </button>

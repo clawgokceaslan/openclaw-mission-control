@@ -8,6 +8,7 @@ import { TaskRepository, TaskSkillRepository, TaskSubtaskRepository, TaskTagRepo
 import { TaskTemplateRepository } from '../../db/repositories/task-template-repo.js'
 import { ProjectInstructionTemplateRepository } from '../../db/repositories/project-instruction-template-repo.js'
 import { AgentRepository } from '../../db/repositories/agent-repo.js'
+import { McpRepository } from '../../db/repositories/mcp-repo.js'
 import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
 import { WebhookRepository } from '../../db/repositories/webhook-repo.js'
 import { SkillRepository, PackRepository } from '../../db/repositories/skill-repo.js'
@@ -27,6 +28,7 @@ import { TaskService } from './task.service.js'
 import { TaskTemplateService } from './task-template.service.js'
 import { ProjectInstructionTemplateService } from './project-instruction-template.service.js'
 import { AgentService } from './agent.service.js'
+import { McpService } from './mcp.service.js'
 import { GatewayService } from './gateway/index.js'
 import { OpenClawGatewayRuntimeRegistry } from './gateway/index.js'
 import { WebhookService } from './webhook.service.js'
@@ -43,6 +45,8 @@ import { OutputFormatService } from './output-format.service.js'
 import { AttachmentService } from './attachment.service.js'
 import { WorkspaceService } from './workspace.service.js'
 import { AppSettingsService } from './app-settings.service.js'
+import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
+import type { PipelineStatusUpdateEvent } from '../../shared/types/entities.js'
 
 export interface AppServices {
   auth: AuthService
@@ -54,6 +58,7 @@ export interface AppServices {
   taskTemplates: TaskTemplateService
   projectInstructionTemplates: ProjectInstructionTemplateService
   agents: AgentService
+  mcp: McpService
   gateways: GatewayService
   webhooks: WebhookService
   skills: SkillService
@@ -75,25 +80,97 @@ export interface AppContext {
   services: AppServices
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function pipelinePhase(value: unknown): PipelineStatusUpdateEvent['phase'] | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = value.trim().toLowerCase()
+  if (normalized === 'plan' || normalized === 'planning') return 'plan'
+  if (normalized === 'run' || normalized === 'running') return 'run'
+  if (normalized === 'post-running' || normalized === 'post-run' || normalized === 'post running') return 'post-running'
+  if (normalized === 'follow-up' || normalized === 'follow up' || normalized === 'follow_up') return 'follow-up'
+  return undefined
+}
+
+export function registerPipelineStatusEventBridge(eventBus: EventEmitter): void {
+  const emit = (payload: PipelineStatusUpdateEvent) => {
+    eventBus.emit(IPC_CHANNELS.events.pipelineStatusUpdated, payload)
+  }
+
+  eventBus.on(IPC_CHANNELS.events.taskUpdated, (payload) => {
+    const record = asRecord(payload)
+    emit({
+      reason: 'task_updated',
+      source: 'task',
+      projectId: typeof record.projectId === 'string' ? record.projectId : undefined,
+      taskId: typeof record.taskId === 'string' ? record.taskId : undefined,
+      action: typeof record.action === 'string' ? record.action : undefined,
+      updatedAt: typeof record.updatedAt === 'number' ? record.updatedAt : Date.now()
+    })
+  })
+
+  eventBus.on(IPC_CHANNELS.events.taskActivity, (payload) => {
+    const record = asRecord(payload)
+    const message = asRecord(record.message)
+    emit({
+      reason: 'task_activity',
+      source: 'task-activity',
+      projectId: typeof record.projectId === 'string' ? record.projectId : undefined,
+      taskId: typeof record.taskId === 'string' ? record.taskId : undefined,
+      conversationId: typeof message.conversationId === 'string' ? message.conversationId : typeof message.runId === 'string' ? message.runId : undefined,
+      runItemId: typeof message.runPipelineItemId === 'string' ? message.runPipelineItemId : undefined,
+      phase: pipelinePhase(message.phase),
+      action: typeof message.status === 'string' ? message.status : undefined,
+      updatedAt: typeof record.updatedAt === 'number' ? record.updatedAt : Date.now()
+    })
+  })
+
+  eventBus.on(IPC_CHANNELS.events.planPipelineUpdated, (payload) => {
+    const record = asRecord(payload)
+    emit({
+      reason: 'plan_pipeline',
+      source: 'plan-pipeline',
+      planBatchId: typeof record.batchId === 'string' ? record.batchId : undefined,
+      planRecordId: typeof record.recordId === 'string' ? record.recordId : undefined,
+      runPipelineId: typeof record.linkedRunPipelineId === 'string' ? record.linkedRunPipelineId : undefined,
+      updatedAt: typeof record.updatedAt === 'number' ? record.updatedAt : Date.now()
+    })
+  })
+
+  eventBus.on(IPC_CHANNELS.events.runPipelineUpdated, (payload) => {
+    const record = asRecord(payload)
+    emit({
+      reason: 'run_pipeline',
+      source: 'run-pipeline',
+      runPipelineId: typeof record.batchId === 'string' ? record.batchId : undefined,
+      updatedAt: typeof record.updatedAt === 'number' ? record.updatedAt : Date.now()
+    })
+  })
+}
+
 export async function createAppContext(): Promise<AppContext> {
   const db = await getDb()
   await runMigrations()
 
   const eventBus = new EventEmitter()
+  registerPipelineStatusEventBridge(eventBus)
 
   const authRepo = new AuthRepository(db)
-  const projectRepo = new ProjectRepository(db)
+  const mcpRepo = new McpRepository(db)
+  const projectRepo = new ProjectRepository(db, mcpRepo)
   const taskRepo = new TaskRepository(db)
   const taskTemplateRepo = new TaskTemplateRepository(db)
   const projectInstructionTemplateRepo = new ProjectInstructionTemplateRepository(db)
   const taskSubtaskRepo = new TaskSubtaskRepository(db)
   const taskTagRepo = new TaskTagRepository(db)
   const taskSkillRepo = new TaskSkillRepository(db)
-  const agentRepo = new AgentRepository(db)
+  const agentRepo = new AgentRepository(db, mcpRepo)
   const gatewayRepo = new GatewayRepository(db)
   const gatewayRuntime = new OpenClawGatewayRuntimeRegistry()
   const webhookRepo = new WebhookRepository(db)
-  const skillRepo = new SkillRepository(db)
+  const skillRepo = new SkillRepository(db, mcpRepo)
   const toolRepo = new ToolRepository(db)
   const packRepo = new PackRepository(db)
   const orgRepo = new OrganizationRepository(db)
@@ -125,6 +202,7 @@ export async function createAppContext(): Promise<AppContext> {
     taskTemplates: new TaskTemplateService(auth, taskTemplateRepo, agentRepo, tagRepo, skillRepo, customFieldRepo),
     projectInstructionTemplates: new ProjectInstructionTemplateService(auth, projectInstructionTemplateRepo),
     agents: new AgentService(auth, agentRepo, tagRepo, toolRepo),
+    mcp: new McpService(auth, mcpRepo, agentRepo, skillRepo, projectRepo),
     gateways: new GatewayService(auth, gatewayRepo, eventBus, gatewayRuntime, appSettingsRepo),
     webhooks: new WebhookService(auth, webhookRepo),
     skills: new SkillService(auth, skillRepo, packRepo),

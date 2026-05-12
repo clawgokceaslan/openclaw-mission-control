@@ -13,6 +13,7 @@ import type {
 } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
+import { changedKeys, pipelineStatusEventText, strongestChangedTone, type PipelineStatusLiveEventTone } from './pipelineStatusUtils'
 import styles from './index.module.scss'
 
 const appIconSrc = new URL('../../../../../app-icon.png', import.meta.url).href
@@ -22,7 +23,7 @@ type LiveEvent = {
   id: string
   label: string
   detail: string
-  tone: 'info' | 'success' | 'warning' | 'danger'
+  tone: PipelineStatusLiveEventTone
   at: number
 }
 
@@ -60,50 +61,6 @@ function eventId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.round(Math.random() * 100000)}`
 }
 
-function snapshotSignature(snapshot: PipelineStatusSnapshot | null): Map<string, string> {
-  const values = new Map<string, string>()
-  if (!snapshot) return values
-  for (const batch of snapshot.planBatches) {
-    values.set(`plan:${batch.id}`, `${batch.status}:${batch.updatedAt}:${batch.linkedRunPipelineId ?? ''}`)
-  }
-  for (const record of snapshot.planRecords) {
-    values.set(`plan-record:${record.id}`, `${record.status}:${record.progress}:${record.updatedAt}:${record.lastError ?? ''}`)
-  }
-  for (const pipeline of snapshot.pipelines) {
-    values.set(`run:${pipeline.batch.id}`, `${pipeline.batch.status}:${pipeline.batch.progress}:${pipeline.batch.updatedAt}:${pipeline.batch.currentItemId ?? ''}`)
-    for (const item of pipeline.items) {
-      values.set(`run-item:${item.id}`, `${item.status}:${item.progress}:${item.updatedAt}:${item.lastError ?? ''}`)
-    }
-  }
-  return values
-}
-
-function changedKeys(previous: PipelineStatusSnapshot | null, next: PipelineStatusSnapshot): Set<string> {
-  const before = snapshotSignature(previous)
-  const after = snapshotSignature(next)
-  const changed = new Set<string>()
-  for (const [key, value] of after.entries()) {
-    if (before.has(key) && before.get(key) !== value) changed.add(key)
-  }
-  return changed
-}
-
-function strongestChangedTone(snapshot: PipelineStatusSnapshot, keys: Set<string>): LiveEvent['tone'] {
-  for (const pipeline of snapshot.pipelines) {
-    if (keys.has(`run:${pipeline.batch.id}`) && ['failed', 'blocked', 'cancelled'].includes(pipeline.batch.status)) return 'danger'
-    if (keys.has(`run:${pipeline.batch.id}`) && pipeline.batch.status === 'completed') return 'success'
-    for (const item of pipeline.items) {
-      if (keys.has(`run-item:${item.id}`) && ['failed', 'blocked'].includes(item.status)) return 'danger'
-      if (keys.has(`run-item:${item.id}`) && item.status === 'completed') return 'success'
-    }
-  }
-  for (const record of snapshot.planRecords) {
-    if (keys.has(`plan-record:${record.id}`) && ['failed', 'blocked', 'cancelled'].includes(record.status)) return 'danger'
-    if (keys.has(`plan-record:${record.id}`) && record.status === 'completed') return 'success'
-  }
-  return 'info'
-}
-
 function taskName(task: PipelineStatusTaskSummary | undefined, fallback: string) {
   return task?.title?.trim() || fallback
 }
@@ -112,12 +69,55 @@ function projectName(task: PipelineStatusTaskSummary | undefined, fallback = 'Pr
   return task?.projectName?.trim() || fallback
 }
 
+function activityPhaseTone(task: PipelineStatusTaskSummary): 'planning' | 'running' | 'post-running' | 'follow-up' {
+  if (task.activityPhase === 'post-running') return 'post-running'
+  if (task.activityPhase === 'follow-up') return 'follow-up'
+  if (task.activityPhase === 'run') return 'running'
+  return 'planning'
+}
+
+function runtimeStatusText(task: PipelineStatusTaskSummary): string {
+  return task.activityLabel || statusText(task.activityStatus)
+}
+
 function taskStatusCounts(tasks: PipelineStatusTaskSummary[]) {
   return {
     active: tasks.filter((task) => ['running', 'active', 'in_progress'].includes(task.status)).length,
     done: tasks.filter((task) => ['done', 'closed', 'completed', 'skipped'].includes(task.status)).length,
     blocked: tasks.filter((task) => ['blocked', 'failed', 'cancelled'].includes(task.status)).length
   }
+}
+
+function StandaloneTasksColumn({ tasks, changedKeys }: { tasks: PipelineStatusTaskSummary[]; changedKeys: Set<string> }) {
+  return (
+    <article className={`${styles.pipeline} ${styles.liveTasks}`}>
+      <header>
+        <div>
+          <span className={styles.kind}>Live tasks</span>
+          <h2>Standalone work</h2>
+          <span>{tasks.length} task{tasks.length === 1 ? '' : 's'} outside pipelines</span>
+        </div>
+        <strong>Active</strong>
+      </header>
+      <div className={styles.taskList}>
+        {tasks.slice(0, 8).map((task) => {
+          const running = task.activityStatus === 'running' || task.activityStatus === 'queued'
+          const changed = changedKeys.has(`active-task:${task.id}`) || changedKeys.has(`task:${task.id}`)
+          return (
+            <div
+              key={task.id}
+              className={`${styles.taskLine} ${styles.workingLine} ${styles[`phase-${activityPhaseTone(task)}`]} ${running ? styles.scanning : ''} ${changed ? styles.changedLine : ''}`}
+            >
+              <span className={`${styles.dot} ${styles[`tone-${running ? 'active' : statusTone(task.status)}`]}`} />
+              <strong>{taskName(task, task.id)}</strong>
+              <small>{projectName(task)} · {runtimeStatusText(task)}</small>
+            </div>
+          )
+        })}
+        {tasks.length > 8 ? <small className={styles.moreTasks}>+{tasks.length - 8} more live tasks</small> : null}
+      </div>
+    </article>
+  )
 }
 
 export function PipelineStatusPage() {
@@ -275,6 +275,11 @@ export function PipelineStatusPage() {
     scheduleSnapshotReload()
   }, [playChime, pushEvent, scheduleSnapshotReload])
 
+  const handlePipelineStatusEvent = useCallback((payload: unknown) => {
+    const text = pipelineStatusEventText(payload)
+    handlePipelineEvent(text.label, text.detail)
+  }, [handlePipelineEvent])
+
   useEffect(() => {
     if (broadcastMode) document.documentElement.dataset.pipelineStatusMode = 'broadcast'
     else delete document.documentElement.dataset.pipelineStatusMode
@@ -295,34 +300,38 @@ export function PipelineStatusPage() {
 
   useEffect(() => {
     if (!authenticatedMode) return
-    const onPlanPipelineUpdated = () => handlePipelineEvent('Plan pipeline', 'Plan status changed')
-    const onRunPipelineUpdated = () => handlePipelineEvent('Run pipeline', 'Execution status changed')
-    subscribeToChannel(IPC_CHANNELS.events.planPipelineUpdated, onPlanPipelineUpdated)
-    subscribeToChannel(IPC_CHANNELS.events.runPipelineUpdated, onRunPipelineUpdated)
+    const onPipelineStatusUpdated = (payload: unknown) => handlePipelineStatusEvent(payload)
+    subscribeToChannel(IPC_CHANNELS.events.pipelineStatusUpdated, onPipelineStatusUpdated)
     setLiveState('live')
     return () => {
-      unsubscribeFromChannel(IPC_CHANNELS.events.planPipelineUpdated, onPlanPipelineUpdated)
-      unsubscribeFromChannel(IPC_CHANNELS.events.runPipelineUpdated, onRunPipelineUpdated)
+      unsubscribeFromChannel(IPC_CHANNELS.events.pipelineStatusUpdated, onPipelineStatusUpdated)
     }
-  }, [authenticatedMode, handlePipelineEvent])
+  }, [authenticatedMode, handlePipelineStatusEvent])
 
   useEffect(() => {
     if (!publicMode) return
     if (typeof EventSource === 'undefined') return
     const source = new EventSource('/api/public/pipeline-status/events')
     const onLive = () => setLiveState('live')
-    const onPlanEvent = () => handlePipelineEvent('Plan pipeline', 'Plan status changed')
-    const onRunEvent = () => handlePipelineEvent('Run pipeline', 'Execution status changed')
+    const onPipelineStatusEvent = (event: Event) => {
+      let payload: unknown
+      try {
+        payload = JSON.parse((event as MessageEvent).data || '{}') as unknown
+        payload = payload && typeof payload === 'object' && 'payload' in payload ? (payload as { payload?: unknown }).payload : payload
+      } catch {
+        payload = undefined
+      }
+      handlePipelineStatusEvent(payload)
+    }
     source.addEventListener('ready', onLive)
     source.addEventListener('heartbeat', onLive)
-    source.addEventListener(IPC_CHANNELS.events.planPipelineUpdated, onPlanEvent)
-    source.addEventListener(IPC_CHANNELS.events.runPipelineUpdated, onRunEvent)
+    source.addEventListener(IPC_CHANNELS.events.pipelineStatusUpdated, onPipelineStatusEvent)
     source.onerror = () => {
       setLiveState('reconnecting')
       pushEvent({ label: 'Live stream', detail: 'Reconnecting', tone: 'warning' })
     }
     return () => source.close()
-  }, [handlePipelineEvent, publicMode, pushEvent])
+  }, [handlePipelineStatusEvent, publicMode, pushEvent])
 
   const standaloneUrl = async (): Promise<string | null> => {
     const serverResponse = await invokeBridge<WebServerStatusState>(IPC_CHANNELS.appSettings.getWebServerStatus, { actorToken: token })
@@ -356,6 +365,7 @@ export function PipelineStatusPage() {
   const pipelines = snapshot?.pipelines ?? []
   const planBatches = snapshot?.planBatches ?? []
   const planRecords = snapshot?.planRecords ?? []
+  const activeTasks = snapshot?.activeTasks ?? []
   const taskById = useMemo(() => new Map((snapshot?.taskSummaries ?? []).map((task) => [task.id, task])), [snapshot?.taskSummaries])
   const totals = useMemo(() => {
     const items = pipelines.flatMap((pipeline) => pipeline.items)
@@ -364,12 +374,12 @@ export function PipelineStatusPage() {
     const planFailed = planRecords.filter((record) => record.status === 'failed' || record.status === 'blocked').length
     const planCompleted = planRecords.filter((record) => record.status === 'completed' || record.status === 'skipped').length
     return {
-      running: items.filter((item) => item.status === 'running').length + planRunning,
-      queued: items.filter((item) => item.status === 'queued').length + planQueued,
+      running: items.filter((item) => item.status === 'running').length + planRunning + activeTasks.filter((task) => task.activityStatus === 'running').length,
+      queued: items.filter((item) => item.status === 'queued').length + planQueued + activeTasks.filter((task) => task.activityStatus === 'queued' || task.activityStatus === 'planned' || task.activityStatus === 'needs-input').length,
       failed: items.filter((item) => item.status === 'failed' || item.status === 'blocked').length + planFailed,
       completed: items.filter((item) => item.status === 'completed' || item.status === 'skipped').length + planCompleted
     }
-  }, [pipelines, planRecords])
+  }, [activeTasks, pipelines, planRecords])
 
   return (
     <section
@@ -420,6 +430,12 @@ export function PipelineStatusPage() {
       </section>
 
       <main className={styles.board}>
+        {activeTasks.length > 0 ? (
+          <StandaloneTasksColumn
+            tasks={activeTasks}
+            changedKeys={highlightedKeys}
+          />
+        ) : null}
         {planBatches.map((batch) => (
           <PlanPipelineColumn
             key={batch.id}
@@ -447,7 +463,7 @@ export function PipelineStatusPage() {
             changedKeys={highlightedKeys}
           />
         ))}
-        {pipelines.length === 0 && planBatches.length === 0 && planRecords.length === 0 ? <div className={styles.empty}>No pipelines to display.</div> : null}
+        {pipelines.length === 0 && planBatches.length === 0 && planRecords.length === 0 && activeTasks.length === 0 ? <div className={styles.empty}>No pipelines to display.</div> : null}
       </main>
     </section>
   )
@@ -471,7 +487,7 @@ function PlanPipelineColumn({
   const tasks = current?.taskIds.map((taskId) => taskById.get(taskId)).filter((task): task is PipelineStatusTaskSummary => Boolean(task)) ?? []
   const counts = taskStatusCounts(tasks)
   return (
-    <article className={`${styles.pipeline} ${styles[`tone-${statusTone(status)}`]} ${changed ? styles.changed : ''}`}>
+    <article className={`${styles.pipeline} ${styles[`tone-${statusTone(status)}`]} ${status === 'running' ? `${styles.workingPipeline} ${styles['phase-planning']}` : ''} ${changed ? styles.changed : ''}`}>
       <header>
         <div>
           <span className={styles.kind}>Plan</span>
@@ -481,7 +497,7 @@ function PlanPipelineColumn({
         <strong>{records.length} stage</strong>
       </header>
       <div className={styles.progress}><i style={{ width: `${progress}%` }} /></div>
-      <section className={`${styles.activeTask} ${current?.status === 'running' ? styles.scanning : ''}`}>
+      <section className={`${styles.activeTask} ${current?.status === 'running' ? `${styles.scanning} ${styles.workingLine} ${styles['phase-planning']}` : ''}`}>
         <span>Current plan stage</span>
         <strong>{current?.groupName ?? 'None'}</strong>
         <small>{counts.active} active · {counts.done} done · {counts.blocked} blocked</small>
@@ -490,7 +506,7 @@ function PlanPipelineColumn({
         {records.map((record) => {
           const stageTasks = record.taskIds.map((taskId) => taskById.get(taskId)).filter((task): task is PipelineStatusTaskSummary => Boolean(task))
           return (
-            <section key={record.id} className={`${styles.stage} ${styles[`tone-${statusTone(record.status)}`]} ${record.status === 'running' ? styles.scanning : ''}`}>
+            <section key={record.id} className={`${styles.stage} ${styles[`tone-${statusTone(record.status)}`]} ${record.status === 'running' ? `${styles.scanning} ${styles.workingLine} ${styles['phase-planning']}` : ''}`}>
               <div>
                 <strong>{record.groupName}</strong>
                 <span>{statusText(record.status)} · {record.taskIds.length} task</span>
@@ -520,7 +536,7 @@ function PipelineColumn({
   const activeItem = pipeline.items.find((item) => item.id === pipeline.batch.currentItemId)
   const activeTask = activeItem ? taskById.get(activeItem.taskId) : undefined
   return (
-    <article className={`${styles.pipeline} ${styles[`tone-${statusTone(pipeline.batch.status)}`]} ${changed ? styles.changed : ''}`}>
+    <article className={`${styles.pipeline} ${styles[`tone-${statusTone(pipeline.batch.status)}`]} ${pipeline.batch.status === 'running' ? `${styles.workingPipeline} ${styles['phase-running']}` : ''} ${changed ? styles.changed : ''}`}>
       <header>
         <div>
           <span className={styles.kind}>Run</span>
@@ -530,7 +546,7 @@ function PipelineColumn({
         <strong>{pipeline.items.length} task</strong>
       </header>
       <div className={styles.progress}><i style={{ width: `${pipeline.batch.progress}%` }} /></div>
-      <section className={`${styles.activeTask} ${activeItem?.status === 'running' ? styles.scanning : ''}`}>
+      <section className={`${styles.activeTask} ${activeItem?.status === 'running' ? `${styles.scanning} ${styles.workingLine} ${styles['phase-running']}` : ''}`}>
         <span>Active task</span>
         <strong>{activeItem ? taskName(activeTask, activeItem.taskId) : 'None'}</strong>
         <small>{activeItem ? `${projectName(activeTask)} · Attempt ${activeItem.attempt} · Run ${activeItem.taskGatewayRunId ?? '-'}` : 'Next item has not started'}</small>
@@ -540,7 +556,7 @@ function PipelineColumn({
         {pipeline.stages.map((stage) => {
           const items = pipeline.items.filter((item) => item.stageId === stage.id)
           return (
-            <section key={stage.id} className={`${styles.stage} ${styles[`tone-${statusTone(stage.status)}`]} ${stage.status === 'running' ? styles.scanning : ''}`}>
+            <section key={stage.id} className={`${styles.stage} ${styles[`tone-${statusTone(stage.status)}`]} ${stage.status === 'running' ? `${styles.scanning} ${styles.workingLine} ${styles['phase-running']}` : ''}`}>
               <div>
                 <strong>{stage.name}</strong>
                 <span>{statusText(stage.status)} · {items.length} task</span>
@@ -577,7 +593,7 @@ function RunItemList({ items, taskById, changedKeys }: { items: RunPipelineItem[
       {items.slice(0, 5).map((item) => {
         const task = taskById.get(item.taskId)
         return (
-          <div key={item.id} className={`${styles.taskLine} ${changedKeys.has(`run-item:${item.id}`) ? styles.changedLine : ''}`}>
+          <div key={item.id} className={`${styles.taskLine} ${item.status === 'running' ? `${styles.workingLine} ${styles['phase-running']} ${styles.scanning}` : ''} ${changedKeys.has(`run-item:${item.id}`) ? styles.changedLine : ''}`}>
             <span className={`${styles.dot} ${styles[`tone-${statusTone(item.status)}`]}`} />
             <strong>{taskName(task, item.taskId)}</strong>
             <small>{projectName(task, item.projectId)} · {statusText(item.status)} · {item.progress}% · Attempt {item.attempt}</small>

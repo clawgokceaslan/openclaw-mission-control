@@ -1181,7 +1181,7 @@ describe('codex activity persistence', () => {
     expect((taskUpdatedEvents[0] as { action: string }).action).toBe('plan_status_advanced')
   })
 
-  it('interrupts active conversation before applying a steer turn', async () => {
+  it('keeps active conversation running before applying a steer turn', async () => {
     const killed: string[] = []
     const service = Object.create(TaskService.prototype) as any
     const activeRun = {
@@ -1197,7 +1197,8 @@ describe('codex activity persistence', () => {
     expect(interrupted.count).toBe(1)
     expect(interrupted.interruptedRunId).toBe('run-1')
     expect(activeRun.stopRequested).toBe(true)
-    expect(killed).toEqual(['SIGTERM'])
+    expect(activeRun.supersededBySteer).toBe(true)
+    expect(killed).toEqual([])
   })
 
   it('batch appends activity messages with one repo update and per-message activity events', async () => {

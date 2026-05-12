@@ -7,9 +7,11 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 import { createWebServerStatusState, getInternalHttpServerStatus, startInternalHttpServer } from './http-server.js'
+import { registerPipelineStatusEventBridge } from '../services/service-container.js'
 
 function createContext() {
   const eventBus = new EventEmitter()
+  registerPipelineStatusEventBridge(eventBus)
   return {
     eventBus,
     services: {
@@ -222,14 +224,15 @@ describe('startInternalHttpServer', () => {
       context.eventBus.emit(IPC_CHANNELS.events.runPipelineUpdated, { batchId: 'run-1', updatedAt: 1 })
       const decoder = new TextDecoder()
       let text = ''
-      for (let index = 0; index < 4 && !text.includes(IPC_CHANNELS.events.runPipelineUpdated); index += 1) {
+      for (let index = 0; index < 4 && !text.includes(IPC_CHANNELS.events.pipelineStatusUpdated); index += 1) {
         const chunk = await reader!.read()
         text += decoder.decode(chunk.value ?? new Uint8Array(), { stream: !chunk.done })
       }
       await reader?.cancel()
       expect(text).toContain('event: ready')
-      expect(text).toContain(`event: ${IPC_CHANNELS.events.runPipelineUpdated}`)
-      expect(text).toContain('"batchId":"run-1"')
+      expect(text).toContain(`event: ${IPC_CHANNELS.events.pipelineStatusUpdated}`)
+      expect(text).toContain('"reason":"run_pipeline"')
+      expect(text).toContain('"runPipelineId":"run-1"')
     } finally {
       await server.close()
     }

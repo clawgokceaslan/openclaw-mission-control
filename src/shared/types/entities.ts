@@ -26,6 +26,8 @@ export interface Project {
   defaultOutput?: string
   archived: boolean
   metrics?: Record<string, unknown>
+  mcpServers?: McpServer[]
+  mcpServerIds?: string[]
   createdAt: number
   updatedAt: number
 }
@@ -217,6 +219,12 @@ export interface PipelineStatusTaskSummary {
   projectId: string
   projectName?: string
   updatedAt: number
+  activityPhase?: 'plan' | 'run' | 'post-running' | 'follow-up'
+  activityStatus?: 'queued' | 'running' | 'completed' | 'failed' | 'event' | 'planned' | 'needs-input'
+  conversationId?: string
+  runId?: string
+  lastActivityAt?: number
+  activityLabel?: string
 }
 
 export interface PipelineStatusProjectSummary {
@@ -231,7 +239,23 @@ export interface PipelineStatusSnapshot {
   planRecords: PlanPipelineRecord[]
   pipelines: RunPipelineGraph[]
   taskSummaries: PipelineStatusTaskSummary[]
+  activeTasks?: PipelineStatusTaskSummary[]
   projectSummaries: PipelineStatusProjectSummary[]
+}
+
+export interface PipelineStatusUpdateEvent {
+  reason: 'task_updated' | 'task_activity' | 'plan_pipeline' | 'run_pipeline'
+  source: 'task' | 'task-activity' | 'plan-pipeline' | 'run-pipeline'
+  projectId?: string
+  taskId?: string
+  conversationId?: string
+  planBatchId?: string
+  planRecordId?: string
+  runPipelineId?: string
+  runItemId?: string
+  action?: string
+  phase?: 'plan' | 'run' | 'post-running' | 'follow-up'
+  updatedAt: number
 }
 
 export interface TaskChecklistItem {
@@ -354,6 +378,8 @@ export interface Agent {
   tagIds?: string[]
   tools?: AiTool[]
   toolIds?: string[]
+  mcpServers?: McpServer[]
+  mcpServerIds?: string[]
   createdAt: number
   updatedAt: number
 }
@@ -573,6 +599,8 @@ export interface Skill {
   enabled: boolean
   descriptionMarkdown?: string
   status: 'active' | 'inactive'
+  mcpServers?: McpServer[]
+  mcpServerIds?: string[]
   updatedAt?: number
 }
 
@@ -600,6 +628,93 @@ export interface AiTool {
   timeoutSeconds?: number | null
   agents?: Agent[]
   agentIds?: string[]
+  createdAt: number
+  updatedAt: number
+}
+
+export type McpTransport = 'stdio' | 'streamable_http'
+export type McpServerStatus = 'active' | 'inactive' | 'error'
+export type McpRiskTier = 'low' | 'medium' | 'high' | 'critical'
+export type McpAuthType = 'none' | 'bearer_env' | 'oauth'
+export type McpCapabilityType = 'tool' | 'resource' | 'prompt'
+export type McpApprovalPolicy = 'auto' | 'ask' | 'deny'
+
+export interface McpAuthConfig {
+  type: McpAuthType
+  bearerTokenEnvVar?: string
+  scopes?: string[]
+  audience?: string
+}
+
+export interface McpCapability {
+  id: string
+  organizationId: string
+  serverId: string
+  capabilityType: McpCapabilityType
+  name: string
+  title?: string
+  description?: string
+  inputSchemaJson?: Record<string, unknown>
+  metadata?: Record<string, unknown>
+  discoveredAt: number
+}
+
+export interface McpLinkPolicy {
+  serverId: string
+  enabledTools?: string[]
+  disabledTools?: string[]
+  approvalPolicy: McpApprovalPolicy
+  linkType?: 'required' | 'recommended'
+}
+
+export interface McpOAuthStatus {
+  serverId: string
+  connected: boolean
+  scopes: string[]
+  audience?: string
+  expiresAt?: number
+  updatedAt?: number
+}
+
+export interface McpAuditEvent {
+  id: string
+  organizationId: string
+  serverId?: string | null
+  userId?: string | null
+  eventType: string
+  status: 'ok' | 'failed' | 'blocked'
+  summary?: string
+  metadata?: Record<string, unknown>
+  createdAt: number
+}
+
+export interface McpServer {
+  id: string
+  organizationId: string
+  name: string
+  slug: string
+  transport: McpTransport
+  status: McpServerStatus
+  riskTier: McpRiskTier
+  enabled: boolean
+  required: boolean
+  command?: string
+  args?: string[]
+  cwd?: string
+  env?: Record<string, string>
+  envVars?: string[]
+  url?: string
+  auth: McpAuthConfig
+  httpHeaders?: Record<string, string>
+  envHttpHeaders?: Record<string, string>
+  enabledTools?: string[]
+  disabledTools?: string[]
+  startupTimeoutSec?: number | null
+  toolTimeoutSec?: number | null
+  lastDiscoveredAt?: number | null
+  lastError?: string | null
+  capabilities?: McpCapability[]
+  oauthStatus?: McpOAuthStatus
   createdAt: number
   updatedAt: number
 }

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { SqliteAdapter } from '../adapter/sqlite.js'
 import type { Agent, AiTool, Tag } from '../../shared/types/entities.js'
 import { resolveTagColor } from './tag-color.js'
+import type { McpRepository } from './mcp-repo.js'
 
 function asConfig(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -14,7 +15,7 @@ function withoutLegacyAgentConfigKeys(config: Record<string, unknown>): Record<s
 }
 
 export class AgentRepository extends BaseRepository<Agent> {
-  constructor(db: SqliteAdapter) {
+  constructor(db: SqliteAdapter, private readonly mcpRepo?: McpRepository) {
     super(db)
   }
 
@@ -165,17 +166,22 @@ export class AgentRepository extends BaseRepository<Agent> {
   }
 
   private async hydrateTags(agents: Agent[]): Promise<Agent[]> {
-    const tagsByAgentId = await this.listTagsByAgentIds(agents.map((agent) => agent.id))
-    const toolsByAgentId = await this.listToolsByAgentIds(agents.map((agent) => agent.id))
+    const agentIds = agents.map((agent) => agent.id)
+    const tagsByAgentId = await this.listTagsByAgentIds(agentIds)
+    const toolsByAgentId = await this.listToolsByAgentIds(agentIds)
+    const mcpByAgentId = this.mcpRepo ? await this.mcpRepo.listServerLinksByOwnerIds('agent', agentIds) : {}
     return agents.map((agent) => {
       const tags = tagsByAgentId[agent.id] ?? []
       const tools = toolsByAgentId[agent.id] ?? []
+      const mcpServers = mcpByAgentId[agent.id] ?? []
       return {
         ...agent,
         tags,
         tagIds: tags.map((tag) => tag.id),
         tools,
-        toolIds: tools.map((tool) => tool.id)
+        toolIds: tools.map((tool) => tool.id),
+        mcpServers,
+        mcpServerIds: mcpServers.map((server) => server.id)
       }
     })
   }

@@ -6,6 +6,7 @@ import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { PlanPipelineRecord, PlanPipelineStatus, Project, TaskEntity } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
+import { useDebouncedEventRefresh } from '@renderer/hooks/useDebouncedEventRefresh'
 import styles from './index.module.scss'
 
 type Feedback = { kind: 'success' | 'error'; message: string } | null
@@ -51,15 +52,15 @@ export function PlanPipelineRunsPage() {
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const refreshTimerRef = useRef<number | null>(null)
 
-  const loadData = async () => {
-    setLoading(true)
+  const loadData = async (silent = false) => {
+    if (!silent) setLoading(true)
     setFeedback(null)
     const [pipelineResponse, projectResponse, taskResponse] = await Promise.all([
       loadList<PlanPipelineRecord[]>(IPC_CHANNELS.planPipelines.list, token),
       loadList<Project[]>(IPC_CHANNELS.projects.list, token),
       loadList<TaskEntity[]>(IPC_CHANNELS.tasks.list, token)
     ])
-    setLoading(false)
+    if (!silent) setLoading(false)
     if (!pipelineResponse.ok) {
       setFeedback({ kind: 'error', message: pipelineResponse.error?.message ?? 'Pipeline kayıtları yüklenemedi' })
       setPipelines([])
@@ -84,7 +85,7 @@ export function PlanPipelineRunsPage() {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
       refreshTimerRef.current = window.setTimeout(() => {
         refreshTimerRef.current = null
-        void loadData()
+        void loadData(true)
       }, 180)
     }
     subscribeToChannel(IPC_CHANNELS.events.planPipelineUpdated, onPipelineUpdated)
@@ -93,6 +94,11 @@ export function PlanPipelineRunsPage() {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
     }
   }, [token, pipelineId])
+
+  useDebouncedEventRefresh(
+    [IPC_CHANNELS.events.taskUpdated, IPC_CHANNELS.events.runPipelineUpdated],
+    () => loadData(true)
+  )
 
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects])
   const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])

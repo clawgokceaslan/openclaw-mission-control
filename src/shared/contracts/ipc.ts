@@ -148,6 +148,22 @@ export const IPC_CHANNELS = {
     update: 'tools:update',
     remove: 'tools:remove'
   },
+  mcp: {
+    list: 'mcp:list',
+    get: 'mcp:get',
+    create: 'mcp:create',
+    update: 'mcp:update',
+    remove: 'mcp:remove',
+    discover: 'mcp:discover',
+    test: 'mcp:test',
+    oauthStart: 'mcp:oauth-start',
+    oauthComplete: 'mcp:oauth-complete',
+    oauthLogout: 'mcp:oauth-logout',
+    linkAgents: 'mcp:link-agents',
+    linkSkills: 'mcp:link-skills',
+    linkProjects: 'mcp:link-projects',
+    audit: 'mcp:audit'
+  },
   organization: {
     me: 'organization:me',
     listMembers: 'organization:members',
@@ -211,7 +227,8 @@ export const IPC_CHANNELS = {
     jobProgress: 'events:job-progress',
     taskActivity: 'events:task-activity',
     planPipelineUpdated: 'events:plan-pipeline-updated',
-    runPipelineUpdated: 'events:run-pipeline-updated'
+    runPipelineUpdated: 'events:run-pipeline-updated',
+    pipelineStatusUpdated: 'events:pipeline-status-updated'
   }
 } as const
 
@@ -428,6 +445,70 @@ export interface UpdateToolRequest extends CreateToolRequest {
 export interface RemoveToolRequest {
   actorToken?: string
   id?: string
+}
+
+export interface ListMcpServersRequest {
+  actorToken?: string
+  query?: string
+  status?: 'active' | 'inactive' | 'error'
+  transport?: 'stdio' | 'streamable_http'
+}
+
+export interface UpsertMcpServerRequest {
+  actorToken?: string
+  id?: string
+  name?: string
+  transport?: 'stdio' | 'streamable_http'
+  status?: 'active' | 'inactive' | 'error'
+  riskTier?: 'low' | 'medium' | 'high' | 'critical'
+  enabled?: boolean
+  required?: boolean
+  command?: string
+  args?: string[]
+  cwd?: string
+  env?: Record<string, string>
+  envVars?: string[]
+  url?: string
+  authType?: 'none' | 'bearer_env' | 'oauth'
+  bearerTokenEnvVar?: string
+  httpHeaders?: Record<string, string>
+  envHttpHeaders?: Record<string, string>
+  enabledTools?: string[]
+  disabledTools?: string[]
+  startupTimeoutSec?: number | null
+  toolTimeoutSec?: number | null
+}
+
+export interface McpServerRequest {
+  actorToken?: string
+  id?: string
+}
+
+export interface McpOAuthCompleteRequest {
+  actorToken?: string
+  state?: string
+  code?: string
+  error?: string
+  errorDescription?: string
+}
+
+export interface LinkMcpServersRequest {
+  actorToken?: string
+  ownerId?: string
+  serverIds?: string[]
+  links?: Array<{
+    serverId: string
+    enabledTools?: string[]
+    disabledTools?: string[]
+    approvalPolicy?: 'auto' | 'ask' | 'deny'
+    linkType?: 'required' | 'recommended'
+  }>
+}
+
+export interface McpAuditRequest {
+  actorToken?: string
+  serverId?: string
+  limit?: number
 }
 
 export interface UpdateProjectRequest {
@@ -776,6 +857,7 @@ export const SERVICE_MAP = {
   webhooks: ['list', 'create', 'update', 'remove'],
   skills: ['list', 'listPage', 'create', 'update', 'remove', 'listPacks'],
   tools: ['listPage', 'get', 'create', 'update', 'remove'],
+  mcp: ['list', 'get', 'create', 'update', 'remove', 'discover', 'test', 'oauthStart', 'oauthComplete', 'oauthLogout', 'linkAgents', 'linkSkills', 'linkProjects', 'audit'],
   organization: ['me', 'listMembers', 'createInvite'],
   projectGroups: ['list', 'create', 'update', 'remove'],
   planPipelines: ['list', 'listBatches', 'createFromGroups', 'updateState', 'updateBatch'],
@@ -1614,6 +1696,106 @@ export const SERVICE_ROUTING: {
       action: 'remove',
       method: 'remove',
       channel: IPC_CHANNELS.tools.remove,
+      requiresAuth: true
+    }
+  },
+  mcp: {
+    list: {
+      domain: 'mcp',
+      action: 'list',
+      method: 'list',
+      channel: IPC_CHANNELS.mcp.list,
+      requiresAuth: true
+    },
+    get: {
+      domain: 'mcp',
+      action: 'get',
+      method: 'get',
+      channel: IPC_CHANNELS.mcp.get,
+      requiresAuth: true
+    },
+    create: {
+      domain: 'mcp',
+      action: 'create',
+      method: 'create',
+      channel: IPC_CHANNELS.mcp.create,
+      requiresAuth: true
+    },
+    update: {
+      domain: 'mcp',
+      action: 'update',
+      method: 'update',
+      channel: IPC_CHANNELS.mcp.update,
+      requiresAuth: true
+    },
+    remove: {
+      domain: 'mcp',
+      action: 'remove',
+      method: 'remove',
+      channel: IPC_CHANNELS.mcp.remove,
+      requiresAuth: true
+    },
+    discover: {
+      domain: 'mcp',
+      action: 'discover',
+      method: 'discover',
+      channel: IPC_CHANNELS.mcp.discover,
+      requiresAuth: true
+    },
+    test: {
+      domain: 'mcp',
+      action: 'test',
+      method: 'test',
+      channel: IPC_CHANNELS.mcp.test,
+      requiresAuth: true
+    },
+    oauthStart: {
+      domain: 'mcp',
+      action: 'oauthStart',
+      method: 'oauthStart',
+      channel: IPC_CHANNELS.mcp.oauthStart,
+      requiresAuth: true
+    },
+    oauthComplete: {
+      domain: 'mcp',
+      action: 'oauthComplete',
+      method: 'oauthComplete',
+      channel: IPC_CHANNELS.mcp.oauthComplete,
+      requiresAuth: false
+    },
+    oauthLogout: {
+      domain: 'mcp',
+      action: 'oauthLogout',
+      method: 'oauthLogout',
+      channel: IPC_CHANNELS.mcp.oauthLogout,
+      requiresAuth: true
+    },
+    linkAgents: {
+      domain: 'mcp',
+      action: 'linkAgents',
+      method: 'linkAgents',
+      channel: IPC_CHANNELS.mcp.linkAgents,
+      requiresAuth: true
+    },
+    linkSkills: {
+      domain: 'mcp',
+      action: 'linkSkills',
+      method: 'linkSkills',
+      channel: IPC_CHANNELS.mcp.linkSkills,
+      requiresAuth: true
+    },
+    linkProjects: {
+      domain: 'mcp',
+      action: 'linkProjects',
+      method: 'linkProjects',
+      channel: IPC_CHANNELS.mcp.linkProjects,
+      requiresAuth: true
+    },
+    audit: {
+      domain: 'mcp',
+      action: 'audit',
+      method: 'audit',
+      channel: IPC_CHANNELS.mcp.audit,
       requiresAuth: true
     }
   },

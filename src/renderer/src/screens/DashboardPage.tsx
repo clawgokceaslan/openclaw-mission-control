@@ -18,6 +18,7 @@ import { LuActivity, LuArrowRight, LuBot, LuBoxes, LuCircle, LuFolderKanban, LuR
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
+import { useDebouncedEventRefresh } from '@renderer/hooks/useDebouncedEventRefresh'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { LoadingState } from '@renderer/components/loading'
 import type { Agent, Gateway, GatewaySession, Job, Project, ProjectStatus, Skill, TaskEntity } from '@shared/types/entities'
@@ -148,8 +149,8 @@ function useDashboardData() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const loadDashboard = async () => {
-    setLoading(true)
+  const loadDashboard = async (options: { silent?: boolean } = {}) => {
+    if (!options.silent) setLoading(true)
     const [agentsRes, skillsRes, tasksRes, projectsRes, gatewaysRes, jobsRes, activeGatewayRes] = await Promise.all([
       loadList<Agent[]>(IPC_CHANNELS.agents.list, token),
       loadList<Skill[]>(IPC_CHANNELS.skills.list, token),
@@ -216,6 +217,11 @@ function useDashboardData() {
   useEffect(() => {
     void loadDashboard()
   }, [token])
+
+  useDebouncedEventRefresh(
+    [IPC_CHANNELS.events.taskUpdated, IPC_CHANNELS.events.pipelineStatusUpdated],
+    () => loadDashboard({ silent: true })
+  )
 
   return { vm, loading, error, reload: loadDashboard }
 }

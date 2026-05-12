@@ -4,6 +4,7 @@ import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { PlanPipelineBatch, Project, RunPipelineGraph, RunPipelineItem, RunPipelineStatus, TaskEntity } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { invokeBridge, loadList, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
+import { useDebouncedEventRefresh } from '@renderer/hooks/useDebouncedEventRefresh'
 import styles from './index.module.scss'
 
 function statusText(status?: string) {
@@ -85,6 +86,11 @@ export function RunPipelinePage() {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
     }
   }, [token])
+
+  useDebouncedEventRefresh(
+    [IPC_CHANNELS.events.taskUpdated, IPC_CHANNELS.events.planPipelineUpdated],
+    () => loadData(true)
+  )
 
   const selected = pipelines.find((pipeline) => pipeline.batch.id === selectedId) ?? pipelines[0]
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects])

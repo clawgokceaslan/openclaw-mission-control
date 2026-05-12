@@ -70,7 +70,8 @@ export function resolveMigrations(basePath: string): MigrationPlan[] {
     '023_remove_owner_default_email.sql',
     '024_user_avatar_path.sql',
     '025_run_pipelines.sql',
-    '026_ai_tools.sql'
+    '026_ai_tools.sql',
+    '027_mcp_servers.sql'
   ]
   return filenames.map((filename) => {
     const searchPaths = [
