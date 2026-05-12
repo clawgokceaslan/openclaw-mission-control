@@ -61,6 +61,11 @@
   border: none;
   background: var(--omc-primary);
   color: var(--omc-primary-text);
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
 }
 
 .secondaryButton,
@@ -359,29 +364,123 @@
   }
 }
 
-.linkLists {
+.linksPanel {
   display: grid;
-  gap: 10px;
-  margin-top: 20px;
+  gap: 16px;
 
-  h3 {
-    margin: 8px 0 0;
-    color: var(--omc-text-strong);
-    font-size: 0.9rem;
-    font-weight: 900;
+  .panelHeader {
+    margin-bottom: 0;
   }
 
-  p {
+  .linkComposer {
     display: grid;
-    grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
-    gap: 12px;
-    margin: 0;
-    padding: 10px 0;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: end;
+    padding-bottom: 16px;
     border-bottom: 1px solid var(--omc-border-subtle);
+
+    .linkFields {
+      display: grid;
+      grid-template-columns: minmax(180px, 0.7fr) minmax(240px, 1fr) minmax(240px, 1fr);
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .linkAction {
+      display: flex;
+      justify-content: flex-end;
+      min-width: max-content;
+    }
   }
 
-  span {
-    color: var(--omc-text-muted);
+  .linkDirectory {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 12px;
+    overflow: hidden;
+
+    .linkGroup {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-width: 0;
+
+      & + .linkGroup {
+        border-left: 1px solid var(--omc-border-subtle);
+      }
+
+      header {
+        min-height: 54px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--omc-border-subtle);
+        background: var(--omc-surface-muted);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+
+        h3 {
+          margin: 0;
+          color: var(--omc-text-strong);
+          font-size: 0.9rem;
+          font-weight: 900;
+        }
+
+        span {
+          flex: 0 0 auto;
+          color: var(--omc-text-muted);
+          font-size: 0.75rem;
+          font-weight: 850;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+        }
+      }
+
+      .linkRows {
+        display: grid;
+        align-content: start;
+        min-width: 0;
+
+        .empty {
+          padding: 14px;
+        }
+      }
+
+      .linkRow {
+        display: grid;
+        grid-template-columns: minmax(160px, 0.72fr) minmax(0, 1fr);
+        gap: 12px;
+        align-items: center;
+        min-width: 0;
+        min-height: 54px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--omc-border-subtle);
+
+        &:last-child {
+          border-bottom: 0;
+        }
+
+        strong,
+        span {
+          min-width: 0;
+          overflow-wrap: anywhere;
+        }
+
+        strong {
+          color: var(--omc-text-strong);
+          font-size: 0.9rem;
+          font-weight: 850;
+          line-height: 1.35;
+        }
+
+        span {
+          color: var(--omc-text-muted);
+          font-size: 0.9rem;
+          line-height: 1.35;
+        }
+      }
+    }
   }
 }
 
@@ -603,13 +702,40 @@
   }
 }
 
+@media (max-width: 1180px) {
+  .linksPanel {
+    .linkComposer {
+      grid-template-columns: 1fr;
+
+      .linkFields {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .linkAction {
+        justify-content: flex-start;
+        min-width: 0;
+      }
+    }
+
+    .linkDirectory {
+      grid-template-columns: 1fr;
+
+      .linkGroup {
+        & + .linkGroup {
+          border-left: 0;
+          border-top: 1px solid var(--omc-border-subtle);
+        }
+      }
+    }
+  }
+}
+
 @media (max-width: 760px) {
   .header,
   .guideStrip,
   .grid,
   .serverFormContent,
   .guidanceCard,
-  .linkLists p,
   .auditList article {
     grid-template-columns: 1fr;
   }
@@ -636,6 +762,34 @@
 
   .serverFormContent {
     padding: 14px;
+  }
+
+  .linksPanel {
+    .linkComposer {
+      .linkFields {
+        grid-template-columns: 1fr;
+      }
+
+      .linkAction {
+        .primaryButton {
+          width: 100%;
+        }
+      }
+    }
+
+    .linkDirectory {
+      .linkGroup {
+        header {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .linkRow {
+          grid-template-columns: 1fr;
+          gap: 4px;
+        }
+      }
+    }
   }
 
   .modalFooter {

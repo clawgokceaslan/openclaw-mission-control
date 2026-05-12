@@ -92,6 +92,12 @@ const riskOptions: AppSelectOption[] = [
   { label: 'Critical', value: 'critical' }
 ]
 
+const ownerKindOptions: AppSelectOption[] = [
+  { label: 'Agent', value: 'agent' },
+  { label: 'Skill', value: 'skill' },
+  { label: 'Project', value: 'project' }
+]
+
 function formFromServer(server: McpServer): ServerForm {
   return {
     id: server.id,
@@ -410,21 +416,99 @@ export function McpPage() {
           )}
 
           {activeTab === 'links' && (
-            <section className={styles.panel}>
-              <h2>Links & Policy</h2>
-              <div className={styles.grid}>
-                <label>Target type<AppSelect value={{ label: selectedOwnerKind, value: selectedOwnerKind }} options={[{ label: 'Agent', value: 'agent' }, { label: 'Skill', value: 'skill' }, { label: 'Project', value: 'project' }]} onChange={(next) => { setSelectedOwnerKind(next.value as typeof selectedOwnerKind); setSelectedOwnerId('') }} /></label>
-                <label>Target<AppSelect value={ownerOptions.find((item) => item.value === selectedOwnerId) ?? ownerOptions[0]} options={ownerOptions} onChange={(next) => setSelectedOwnerId(next.value)} /></label>
-                <label>Server<AppSelect value={selectedServer ? { label: selectedServer.name, value: selectedServer.id } : serverOptions[0]} options={serverOptions} onChange={(next) => setSelectedServerId(next.value)} /></label>
+            <section className={`${styles.panel} ${styles.linksPanel}`}>
+              <div className={styles.panelHeader}>
+                <h2>Links & Policy</h2>
               </div>
-              <button type="button" className={styles.primaryButton} onClick={linkSelected}><LuLink size={16} /> Link selected server</button>
-              <div className={styles.linkLists}>
-                <h3>Agent MCP</h3>
-                {agents.map((agent) => <p key={agent.id}><strong>{agent.name}</strong><span>{serverNames(agent.mcpServers)}</span></p>)}
-                <h3>Skill MCP</h3>
-                {skills.map((skill) => <p key={skill.id}><strong>{skill.name}</strong><span>{serverNames(skill.mcpServers)}</span></p>)}
-                <h3>Project MCP</h3>
-                {projects.map((project) => <p key={project.id}><strong>{project.name}</strong><span>{serverNames(project.mcpServers as McpServer[] | undefined)}</span></p>)}
+              <div className={styles.linkComposer}>
+                <div className={styles.linkFields}>
+                  <label>
+                    <span>Target type</span>
+                    <AppSelect
+                      value={ownerKindOptions.find((item) => item.value === selectedOwnerKind) ?? ownerKindOptions[0]}
+                      options={ownerKindOptions}
+                      onChange={(next) => {
+                        if (!next) return
+                        setSelectedOwnerKind(next.value as typeof selectedOwnerKind)
+                        setSelectedOwnerId('')
+                      }}
+                    />
+                  </label>
+                  <label>
+                    <span>Target</span>
+                    <AppSelect
+                      value={ownerOptions.find((item) => item.value === selectedOwnerId) ?? ownerOptions[0] ?? null}
+                      options={ownerOptions}
+                      onChange={(next) => {
+                        if (!next) return
+                        setSelectedOwnerId(next.value)
+                      }}
+                    />
+                  </label>
+                  <label>
+                    <span>Server</span>
+                    <AppSelect
+                      value={selectedServer ? { label: selectedServer.name, value: selectedServer.id } : serverOptions[0] ?? null}
+                      options={serverOptions}
+                      onChange={(next) => {
+                        if (!next) return
+                        setSelectedServerId(next.value)
+                      }}
+                    />
+                  </label>
+                </div>
+                <div className={styles.linkAction}>
+                  <button type="button" className={styles.primaryButton} onClick={linkSelected} disabled={!selectedOwnerId || !selectedServer}>
+                    <LuLink size={16} /> Link selected server
+                  </button>
+                </div>
+              </div>
+              <div className={styles.linkDirectory} aria-label="MCP links">
+                <section className={styles.linkGroup}>
+                  <header>
+                    <h3>Agent MCP</h3>
+                    <span>{agents.length} targets</span>
+                  </header>
+                  <div className={styles.linkRows}>
+                    {agents.map((agent) => (
+                      <article key={agent.id} className={styles.linkRow}>
+                        <strong>{agent.name}</strong>
+                        <span>{serverNames(agent.mcpServers)}</span>
+                      </article>
+                    ))}
+                    {agents.length === 0 && <p className={styles.empty}>No agents available.</p>}
+                  </div>
+                </section>
+                <section className={styles.linkGroup}>
+                  <header>
+                    <h3>Skill MCP</h3>
+                    <span>{skills.length} targets</span>
+                  </header>
+                  <div className={styles.linkRows}>
+                    {skills.map((skill) => (
+                      <article key={skill.id} className={styles.linkRow}>
+                        <strong>{skill.name}</strong>
+                        <span>{serverNames(skill.mcpServers)}</span>
+                      </article>
+                    ))}
+                    {skills.length === 0 && <p className={styles.empty}>No skills available.</p>}
+                  </div>
+                </section>
+                <section className={styles.linkGroup}>
+                  <header>
+                    <h3>Project MCP</h3>
+                    <span>{projects.length} targets</span>
+                  </header>
+                  <div className={styles.linkRows}>
+                    {projects.map((project) => (
+                      <article key={project.id} className={styles.linkRow}>
+                        <strong>{project.name}</strong>
+                        <span>{serverNames(project.mcpServers as McpServer[] | undefined)}</span>
+                      </article>
+                    ))}
+                    {projects.length === 0 && <p className={styles.empty}>No projects available.</p>}
+                  </div>
+                </section>
               </div>
             </section>
           )}
