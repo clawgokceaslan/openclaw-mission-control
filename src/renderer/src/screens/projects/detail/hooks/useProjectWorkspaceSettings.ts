@@ -118,6 +118,7 @@ interface UseProjectWorkspaceSettingsResult {
     createWorkspaceFromDraft: () => Promise<Workspace | null>
     updateProjectWorkspace: (workspaceId: string | null) => Promise<void>
     saveProjectDefaultsSettings: (draft: { defaultAgentId: string | null; defaultSkillIds: string[] }) => Promise<Project>
+    saveProjectMcpSettings: (serverIds: string[]) => Promise<Project>
     saveProjectGatewaySettings: (draft?: { gatewayId?: string; runtimeWorkspaceId?: string; planModel?: string; runModel?: string; language?: string; promptShape?: ProjectGatewaySettings['promptShape']; planReasoningEffort?: string; runReasoningEffort?: string }) => Promise<ProjectGatewaySettings>
     updateProjectGroupMembership: (nextGroupId: string | null) => Promise<void>
     saveSelectedProjectGroup: () => Promise<void>
@@ -342,6 +343,34 @@ export function useProjectWorkspaceSettings({
     setError(null)
     await refresh()
     return response.data
+  }
+
+  const saveProjectMcpSettings = async (serverIds: string[]): Promise<Project> => {
+    if (!project) throw new Error('Project is not loaded')
+    const normalizedServerIds = Array.from(new Set(serverIds.filter(Boolean)))
+    const linkResponse = await invokeBridge<{ ok: true }>(IPC_CHANNELS.mcp.linkProjects, {
+      actorToken: token,
+      ownerId: project.id,
+      serverIds: normalizedServerIds
+    })
+    if (!linkResponse.ok) {
+      const message = linkResponse.error?.message ?? 'Unable to save project MCP links'
+      setError(message)
+      throw new Error(message)
+    }
+    const projectResponse = await invokeBridge<Project>(IPC_CHANNELS.projects.get, {
+      actorToken: token,
+      id: project.id
+    })
+    if (!projectResponse.ok || !projectResponse.data) {
+      const message = projectResponse.error?.message ?? 'Unable to refresh project MCP links'
+      setError(message)
+      throw new Error(message)
+    }
+    setProject(projectResponse.data)
+    setError(null)
+    await refresh()
+    return projectResponse.data
   }
 
   const saveProjectGatewaySettings = async (draft?: { gatewayId?: string; runtimeWorkspaceId?: string; planModel?: string; runModel?: string; language?: string; promptShape?: ProjectGatewaySettings['promptShape']; planReasoningEffort?: string; runReasoningEffort?: string }): Promise<ProjectGatewaySettings> => {
@@ -696,6 +725,7 @@ export function useProjectWorkspaceSettings({
       createWorkspaceFromDraft,
       updateProjectWorkspace,
       saveProjectDefaultsSettings,
+      saveProjectMcpSettings,
       saveProjectGatewaySettings,
       updateProjectGroupMembership,
       saveSelectedProjectGroup,

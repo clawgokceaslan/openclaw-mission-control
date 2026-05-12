@@ -212,6 +212,7 @@ export function ProjectDetailPage() {
     setAgents,
     gateways,
     setGateways,
+    mcpServers,
     tags,
     setTags,
     skills,
@@ -763,6 +764,7 @@ export function ProjectDetailPage() {
       createWorkspaceFromDraft,
       updateProjectWorkspace,
       saveProjectDefaultsSettings,
+      saveProjectMcpSettings,
       saveProjectGatewaySettings,
       updateProjectGroupMembership,
       saveSelectedProjectGroup,
@@ -3212,12 +3214,18 @@ export function ProjectDetailPage() {
     gatewaySaving,
     agents,
     skills,
+    mcpServers,
     defaultAgentId: projectDefaultAgentId(project),
     defaultSkillIds: projectDefaultSkillIds(project),
     onSaveProjectDefaultsSettings: saveProjectDefaultsSettings,
+    onSaveProjectMcpSettings: saveProjectMcpSettings,
     onSaveProjectGatewaySettings: saveProjectGatewaySettings,
     onRefreshGatewayModels: refreshGatewayModels,
     projectGatewayModelOptions,
+    onOpenMcpPage: () => {
+      setIsStatusEditorOpen(false)
+      navigate(APP_ROUTES.MCP)
+    },
 
     isStatusTemplatePickerOpen,
     statusTemplates,

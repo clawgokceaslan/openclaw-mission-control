@@ -299,7 +299,7 @@ export interface AppNavigateOpenTaskChatState {
   openTaskConversationId?: string
   openTaskChat?: boolean
   openProjectSettings?: boolean
-  projectSettingsTab?: 'statuses' | 'workspace' | 'projectGroup' | 'agents' | 'skills' | 'models' | 'language' | 'codex'
+  projectSettingsTab?: 'statuses' | 'workspace' | 'projectGroup' | 'agents' | 'skills' | 'mcp' | 'models' | 'language' | 'promptShape' | 'codex'
 }
 
 export interface AppNavigateState extends AppNavigateOpenCreateState, AppNavigateOpenTaskChatState {}

@@ -1,6 +1,6 @@
 import { Dispatch, useCallback, useMemo, useReducer } from 'react'
 import { AppSelectOption } from '@renderer/components/select/AppSelect'
-import { Agent, CustomField, Gateway, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, TaskEntity, TaskTemplate, Workspace, Tag } from '@shared/types/entities'
+import { Agent, CustomField, Gateway, McpServer, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, TaskEntity, TaskTemplate, Workspace, Tag } from '@shared/types/entities'
 import { ChatAttachmentDraft, ChatComposerMode, GatewayRunFeedback, CustomFieldDraftRow, DataFormatRole, DetailTab, DetailViewMode, ProjectPromptTab, ProjectSettingsTab, TaskHistoryItem, TextDraftRow, ThreadEntry } from '../types'
 import { createLocalId } from '../projectDetailUtils'
 
@@ -10,6 +10,7 @@ export interface ProjectDetailDataState {
   tasks: TaskEntity[]
   agents: Agent[]
   gateways: Gateway[]
+  mcpServers: McpServer[]
   tags: Tag[]
   skills: Skill[]
   customFields: CustomField[]
@@ -240,6 +241,7 @@ export const PROJECT_DETAIL_INITIAL_STATE: ProjectDetailState = {
     tasks: [],
     agents: [],
     gateways: [],
+    mcpServers: [],
     tags: [],
     skills: [],
     customFields: [],
@@ -382,6 +384,7 @@ const PROJECT_DETAIL_FIELD_TO_PATH = {
   tasks: ['data', 'tasks'],
   agents: ['data', 'agents'],
   gateways: ['data', 'gateways'],
+  mcpServers: ['data', 'mcpServers'],
   tags: ['data', 'tags'],
   skills: ['data', 'skills'],
   customFields: ['data', 'customFields'],

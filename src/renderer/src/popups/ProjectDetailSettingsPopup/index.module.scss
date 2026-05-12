@@ -15,7 +15,7 @@
   transform: translateX(-50%);
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-  width: min(760px, calc(100vw - 44px));
+  width: min(1040px, calc(100vw - 44px));
   max-height: min(860px, calc(100vh - 56px));
   overflow: hidden;
   border: 1px solid var(--omc-border);
@@ -257,6 +257,161 @@
     white-space: normal;
     word-break: break-all;
   }
+}
+
+.mcpSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+
+  > div {
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 10px;
+    background: var(--omc-surface-muted);
+    padding: 12px;
+    display: grid;
+    gap: 4px;
+  }
+
+  span {
+    color: var(--omc-text-soft);
+    font-size: 0.72rem;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  strong {
+    color: var(--omc-text-strong);
+    font-size: 1.08rem;
+    font-weight: 900;
+  }
+}
+
+.mcpEmptyState {
+  min-height: 112px;
+  border: 1px dashed var(--omc-border-strong);
+  border-radius: 12px;
+  background: var(--omc-surface-muted);
+  color: var(--omc-text-muted);
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  text-align: center;
+  font-weight: 800;
+}
+
+.mcpWarning {
+  border: 1px solid color-mix(in srgb, var(--omc-danger) 38%, var(--omc-border-subtle));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--omc-danger-bg) 64%, var(--omc-surface));
+  color: var(--omc-danger);
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.84rem;
+  font-weight: 850;
+
+  span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+.mcpServerList {
+  display: grid;
+  gap: 10px;
+}
+
+.mcpServerRow {
+  min-width: 0;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 12px;
+  background: var(--omc-surface-muted);
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.mcpServerIcon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--omc-active-bg);
+  color: var(--omc-primary-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mcpServerCopy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+
+  strong {
+    min-width: 0;
+    color: var(--omc-text-strong);
+    font-size: 0.94rem;
+    font-weight: 900;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  small {
+    min-width: 0;
+    color: var(--omc-text-muted);
+    font-size: 0.78rem;
+    font-weight: 750;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.mcpServerBadges {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+
+  b {
+    border: 1px solid var(--omc-border-subtle);
+    border-radius: 999px;
+    background: var(--omc-surface);
+    color: var(--omc-text-muted);
+    min-height: 24px;
+    padding: 3px 8px;
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.72rem;
+    font-weight: 900;
+    line-height: 1;
+  }
+}
+
+.mcpStatusBadge {
+  border-color: var(--omc-border-strong) !important;
+}
+
+.mcpStatusActive {
+  border-color: color-mix(in srgb, var(--omc-success-strong) 38%, var(--omc-border-subtle)) !important;
+  background: color-mix(in srgb, var(--omc-success-bg) 62%, var(--omc-surface)) !important;
+  color: var(--omc-success-strong) !important;
+}
+
+.mcpStatusError {
+  border-color: color-mix(in srgb, var(--omc-danger) 38%, var(--omc-border-subtle)) !important;
+  background: color-mix(in srgb, var(--omc-danger-bg) 62%, var(--omc-surface)) !important;
+  color: var(--omc-danger) !important;
 }
 
 .promptShapeGrid {
@@ -720,8 +875,14 @@
 
   .statusEditorRow,
   .promptShapeGrid,
+  .mcpSummaryGrid,
+  .mcpServerRow,
   .statusMappingRow,
   .settingsMiniTable > div {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mcpServerBadges {
+    justify-content: flex-start;
   }
 }

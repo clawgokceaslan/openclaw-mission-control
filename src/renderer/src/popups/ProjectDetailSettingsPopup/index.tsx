@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AppSelectOption } from '@renderer/components/select/AppSelect'
 import { AppSelect } from '@renderer/components/select/AppSelect'
-import { LuCircleCheck, LuTriangleAlert } from 'react-icons/lu'
+import { LuCable, LuCircleCheck, LuExternalLink, LuServer, LuTriangleAlert } from 'react-icons/lu'
 import { LoadingState } from '@renderer/components/loading'
-import type { Agent, Gateway, Project, ProjectGatewaySettings, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Workspace } from '@shared/types/entities'
+import type { Agent, Gateway, McpServer, Project, ProjectGatewaySettings, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Workspace } from '@shared/types/entities'
 import { GATEWAY_LANGUAGE_OPTIONS, GATEWAY_REASONING_EFFORT_OPTIONS, gatewayModelReasoningEfforts, gatewayModelSupportsReasoning, normalizeGatewayLanguage, normalizeGatewayReasoningEffort } from '@shared/utils/gateway-language'
 import { GATEWAY_PROMPT_SHAPES, normalizeGatewayPromptShape } from '@shared/utils/gateway-prompt-shape'
 import type { ProjectSettingsTab } from '@renderer/screens/projects/detail/types'
@@ -25,6 +25,39 @@ type SettingsSaveFeedback = {
 
 function saveFeedbackTab(tab: ProjectSettingsTab): ProjectSettingsTab {
   return tab === 'codex' ? 'models' : tab
+}
+
+function projectMcpServerIds(project: Project | null): string[] {
+  const ids = Array.isArray(project?.mcpServerIds) && project.mcpServerIds.length > 0
+    ? project.mcpServerIds
+    : (project?.mcpServers ?? []).map((server) => server.id)
+  return Array.from(new Set(ids.filter(Boolean)))
+}
+
+function mergeMcpServers(primary: McpServer[] = [], linked: McpServer[] = []): McpServer[] {
+  const byId = new Map<string, McpServer>()
+  for (const server of [...primary, ...linked]) {
+    if (server?.id && !byId.has(server.id)) byId.set(server.id, server)
+  }
+  return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name, 'tr'))
+}
+
+function sameStringSet(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false
+  const values = new Set(left)
+  return right.every((value) => values.has(value))
+}
+
+function mcpServerEndpoint(server: McpServer): string {
+  if (server.transport === 'streamable_http') return server.url || 'Remote URL not set'
+  return [server.command, ...(server.args ?? [])].filter(Boolean).join(' ') || server.slug
+}
+
+function mcpServerStatusLabel(server: McpServer): string {
+  if (!server.enabled) return 'Disabled'
+  if (server.status === 'active') return 'Active'
+  if (server.status === 'error') return 'Error'
+  return 'Inactive'
 }
 
 function SettingsSaveToast({ feedback }: { feedback: SettingsSaveFeedback }) {
@@ -99,9 +132,12 @@ export interface ProjectDetailSettingsPopupProps {
     onRefreshGatewayModels?: (gatewayId: string) => Promise<void> | void
     agents?: Agent[]
     skills?: Skill[]
+    mcpServers?: McpServer[]
     defaultAgentId: string
     defaultSkillIds: string[]
     onSaveProjectDefaultsSettings: (draft: { defaultAgentId: string | null; defaultSkillIds: string[] }) => Project | void | Promise<Project | void>
+    onSaveProjectMcpSettings: (serverIds: string[]) => Project | void | Promise<Project | void>
+    onOpenMcpPage: () => void
 
     isStatusTemplatePickerOpen: boolean
     statusTemplates: StatusTemplate[]
@@ -155,6 +191,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
   const [runReasoningDraft, setRunReasoningDraft] = useState(normalizeGatewayReasoningEffort(scope.gatewayRunReasoningEffort))
   const [defaultAgentIdDraft, setDefaultAgentIdDraft] = useState(scope.defaultAgentId)
   const [defaultSkillIdsDraft, setDefaultSkillIdsDraft] = useState<string[]>(scope.defaultSkillIds ?? [])
+  const [mcpServerIdsDraft, setMcpServerIdsDraft] = useState<string[]>(projectMcpServerIds(scope.project))
   const [workspaceTargetIdDraft, setWorkspaceTargetIdDraft] = useState(scope.selectedWorkspaceId ?? '')
   const [saveFeedbackByTab, setSaveFeedbackByTab] = useState<Partial<Record<ProjectSettingsTab, SettingsSaveFeedback>>>({})
   const [hydratedProjectId, setHydratedProjectId] = useState<string | null>(null)
@@ -175,9 +212,10 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
     setRunReasoningDraft(normalizeGatewayReasoningEffort(scope.gatewayRunReasoningEffort))
     setDefaultAgentIdDraft(scope.defaultAgentId)
     setDefaultSkillIdsDraft(scope.defaultSkillIds ?? [])
+    setMcpServerIdsDraft(projectMcpServerIds(scope.project))
     setWorkspaceTargetIdDraft(scope.selectedWorkspaceId ?? '')
     setSaveFeedbackByTab({})
-  }, [open, scope.project?.id, hydratedProjectId, scope.projectSettingsTab, scope.gatewayId, scope.gatewayRuntimeWorkspaceId, scope.gatewayDefaultModel, scope.gatewayDefaultPlanModel, scope.gatewayDefaultRunModel, scope.gatewayLanguage, scope.codexPromptShape, scope.gatewayPlanReasoningEffort, scope.gatewayRunReasoningEffort, scope.defaultAgentId, scope.defaultSkillIds, scope.selectedWorkspaceId])
+  }, [open, scope.project, scope.project?.id, hydratedProjectId, scope.projectSettingsTab, scope.gatewayId, scope.gatewayRuntimeWorkspaceId, scope.gatewayDefaultModel, scope.gatewayDefaultPlanModel, scope.gatewayDefaultRunModel, scope.gatewayLanguage, scope.codexPromptShape, scope.gatewayPlanReasoningEffort, scope.gatewayRunReasoningEffort, scope.defaultAgentId, scope.defaultSkillIds, scope.selectedWorkspaceId])
 
   useEffect(() => {
     if (!open) setHydratedProjectId(null)
@@ -222,6 +260,16 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
   const selectedDefaultAgentOption = useMemo(() => agentOptions.find((option) => option.value === defaultAgentIdDraft) ?? null, [agentOptions, defaultAgentIdDraft])
   const skillOptions = useMemo<AppSelectOption[]>(() => (scope.skills ?? []).filter((skill) => skill.status === 'active' || skill.enabled || defaultSkillIdsDraft.includes(skill.id)).map((skill) => ({ label: skill.name, value: skill.id })).sort((a, b) => a.label.localeCompare(b.label, 'tr')), [defaultSkillIdsDraft, scope.skills])
   const selectedDefaultSkillOptions = useMemo(() => skillOptions.filter((option) => defaultSkillIdsDraft.includes(option.value)), [defaultSkillIdsDraft, skillOptions])
+  const allMcpServers = useMemo(() => mergeMcpServers(scope.mcpServers ?? [], scope.project?.mcpServers ?? []), [scope.mcpServers, scope.project?.mcpServers])
+  const allMcpServerIds = useMemo(() => new Set(allMcpServers.map((server) => server.id)), [allMcpServers])
+  const projectMcpIds = useMemo(() => projectMcpServerIds(scope.project), [scope.project])
+  const mcpServerOptions = useMemo<AppSelectOption[]>(() => allMcpServers.map((server) => ({ label: server.name, value: server.id })), [allMcpServers])
+  const selectedMcpServers = useMemo(() => mcpServerIdsDraft.map((id) => allMcpServers.find((server) => server.id === id)).filter((server): server is McpServer => Boolean(server)), [allMcpServers, mcpServerIdsDraft])
+  const selectedMcpServerOptions = useMemo(() => mcpServerOptions.filter((option) => mcpServerIdsDraft.includes(option.value)), [mcpServerIdsDraft, mcpServerOptions])
+  const disconnectedMcpServerIds = useMemo(() => mcpServerIdsDraft.filter((id) => !allMcpServerIds.has(id)), [allMcpServerIds, mcpServerIdsDraft])
+  const mcpSelectionChanged = !sameStringSet(mcpServerIdsDraft, projectMcpIds) || disconnectedMcpServerIds.length > 0
+  const mcpSaveFeedback = saveFeedbackByTab.mcp
+  const mcpSaving = mcpSaveFeedback?.state === 'saving'
   const workspaceTargetOption = useMemo(() => localWorkspaceOptions.find((option) => option.value === workspaceTargetIdDraft) ?? null, [localWorkspaceOptions, workspaceTargetIdDraft])
   const workspaceTarget = useMemo(() => (scope.workspaces ?? []).find((workspace) => workspace.id === workspaceTargetIdDraft) ?? null, [scope.workspaces, workspaceTargetIdDraft])
 
@@ -310,6 +358,31 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
         state: 'error',
         title: 'Save failed',
         message: error instanceof Error ? error.message : 'Unable to save project defaults'
+      })
+    }
+  }
+
+  const handleSaveMcpSettings = async () => {
+    setSaveFeedback('mcp', {
+      state: 'saving',
+      title: 'Saving',
+      message: 'Project MCP links are being saved.'
+    })
+    try {
+      const saved = await s.onSaveProjectMcpSettings(mcpServerIdsDraft.filter((id: string) => allMcpServerIds.has(id)))
+      if (saved && typeof saved === 'object') {
+        setMcpServerIdsDraft(projectMcpServerIds(saved as Project))
+      }
+      setSaveFeedback('mcp', {
+        state: 'success',
+        title: 'Saved',
+        message: 'Project MCP links are up to date.'
+      })
+    } catch (error) {
+      setSaveFeedback('mcp', {
+        state: 'error',
+        title: 'Save failed',
+        message: error instanceof Error ? error.message : 'Unable to save project MCP links'
       })
     }
   }
@@ -437,20 +510,20 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
         <header className={styles.header}>
           <div>
             <h3>Project settings</h3>
-            <p>Manage workflow statuses and project workspace.</p>
+            <p>Manage workflow statuses, defaults, MCP links, and project workspace.</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close project settings">×</button>
         </header>
         <div className={styles.tabs}>
           <div className={styles.tabList}>
-            {(['statuses', 'agents', 'skills', 'models', 'language', 'promptShape', 'workspace', 'projectGroup'] as const).map((tab) => (
+            {(['statuses', 'agents', 'skills', 'mcp', 'models', 'language', 'promptShape', 'workspace', 'projectGroup'] as const).map((tab) => (
               <button
                 key={tab}
                 type="button"
                 className={`${styles.tab} ${activeTab === tab ? styles.tabActive : ''}`}
                 onClick={() => handleTabChange(tab)}
               >
-                {tab === 'projectGroup' ? 'Project group' : tab === 'models' ? 'Models' : tab === 'language' ? 'Language' : tab === 'promptShape' ? 'Prompt format' : tab === 'workspace' ? 'Workspace' : tab === 'agents' ? 'Agents' : tab === 'skills' ? 'Skills' : 'Statuses'}
+                {tab === 'projectGroup' ? 'Project group' : tab === 'models' ? 'Models' : tab === 'language' ? 'Language' : tab === 'promptShape' ? 'Prompt format' : tab === 'workspace' ? 'Workspace' : tab === 'agents' ? 'Agents' : tab === 'skills' ? 'Skills' : tab === 'mcp' ? 'MCP' : 'Statuses'}
               </button>
             ))}
           </div>
@@ -729,6 +802,89 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
             </div>
           ) : null}
 
+          {activeTab === 'mcp' ? (
+            <div className={styles.settingsPanel}>
+              <div className={styles.settingsPanelHeader}>
+                <div>
+                  <h4>MCP</h4>
+                  <p>Select MCP servers attached to this project.</p>
+                </div>
+                <button type="button" className={styles.tabActionButton} onClick={s.onOpenMcpPage}>
+                  <LuExternalLink size={15} />
+                  Open MCP
+                </button>
+              </div>
+              <div className={styles.mcpSummaryGrid}>
+                <div>
+                  <span>Available</span>
+                  <strong>{allMcpServers.length}</strong>
+                </div>
+                <div>
+                  <span>Selected</span>
+                  <strong>{selectedMcpServers.length}</strong>
+                </div>
+                <div>
+                  <span>Active</span>
+                  <strong>{selectedMcpServers.filter((server) => server.enabled && server.status === 'active').length}</strong>
+                </div>
+              </div>
+              {allMcpServers.length > 0 ? (
+                <div className={styles.settingsFormGrid}>
+                  <label>
+                    <span>Project MCP servers</span>
+                    <AppSelect
+                      mode="multi"
+                      value={selectedMcpServerOptions}
+                      options={mcpServerOptions}
+                      placeholder="No MCP servers selected"
+                      onChange={(options) => {
+                        setMcpServerIdsDraft(options.map((option) => option.value))
+                        clearActiveSaveFeedback()
+                      }}
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div className={styles.mcpEmptyState}>
+                  <LuServer size={18} />
+                  <span>No MCP servers configured.</span>
+                  <button type="button" className={styles.tabActionButton} onClick={s.onOpenMcpPage}>
+                    <LuExternalLink size={15} />
+                    Open MCP
+                  </button>
+                </div>
+              )}
+              {disconnectedMcpServerIds.length > 0 ? (
+                <div className={styles.mcpWarning} role="alert">
+                  <LuTriangleAlert size={16} />
+                  <span>{disconnectedMcpServerIds.length} linked MCP server record no longer resolves.</span>
+                </div>
+              ) : null}
+              {selectedMcpServers.length > 0 ? (
+                <div className={styles.mcpServerList}>
+                  {selectedMcpServers.map((server) => (
+                    <article key={server.id} className={styles.mcpServerRow}>
+                      <span className={styles.mcpServerIcon}>
+                        <LuCable size={16} />
+                      </span>
+                      <span className={styles.mcpServerCopy}>
+                        <strong>{server.name}</strong>
+                        <small>{mcpServerEndpoint(server)}</small>
+                      </span>
+                      <span className={styles.mcpServerBadges}>
+                        <b className={`${styles.mcpStatusBadge} ${server.enabled && server.status === 'active' ? styles.mcpStatusActive : server.status === 'error' ? styles.mcpStatusError : ''}`}>{mcpServerStatusLabel(server)}</b>
+                        <b>{server.riskTier}</b>
+                        <b>{server.capabilities?.length ?? 0} caps</b>
+                      </span>
+                    </article>
+                  ))}
+                </div>
+              ) : allMcpServers.length > 0 ? (
+                <div className={styles.settingsEmptyState}>No MCP servers selected for this project.</div>
+              ) : null}
+            </div>
+          ) : null}
+
           {activeTab === 'language' ? (
             <div className={styles.settingsPanel}>
               <div className={styles.settingsPanelHeader}>
@@ -913,6 +1069,17 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                 disabled={s.projectGroupSaving || Boolean(s.projectGroupForExport && !s.projectGroupNameDraft.trim())}
               >
                 {s.projectGroupForExport ? 'Save group' : 'Done'}
+              </button>
+            </>
+          ) : activeTab === 'mcp' ? (
+            <>
+              <span>{disconnectedMcpServerIds.length > 0 ? 'Saving will remove disconnected MCP links.' : mcpSelectionChanged ? 'Project MCP links have unsaved changes.' : 'Project MCP links are unchanged.'}</span>
+              <button
+                type="button"
+                onClick={() => void handleSaveMcpSettings()}
+                disabled={mcpSaving || !scope.project || (!mcpSelectionChanged && allMcpServers.length === 0)}
+              >
+                {mcpSaving ? 'Saving...' : 'Save MCP links'}
               </button>
             </>
           ) : activeTab === 'models' || activeTab === 'codex' ? (

@@ -5,7 +5,7 @@ import type { GatewayChatPhase } from '@shared/utils/gateway-chat-phase'
 export type DetailViewMode = 'task' | 'subtask'
 export type DetailTab = 'subtasks' | 'customFields' | 'checklist' | 'attachments' | 'details' | 'agent' | 'skills' | 'model' | 'comments'
 export type ProjectPromptTab = 'context' | 'prompt' | 'planGuide' | 'output' | 'rules' | 'postRun'
-export type ProjectSettingsTab = 'statuses' | 'workspace' | 'projectGroup' | 'agents' | 'skills' | 'models' | 'language' | 'promptShape' | 'codex'
+export type ProjectSettingsTab = 'statuses' | 'workspace' | 'projectGroup' | 'agents' | 'skills' | 'mcp' | 'models' | 'language' | 'promptShape' | 'codex'
 export type TextDraftRow = { id: string; title: string }
 export type CustomFieldDraftRow = { id: string; field: AppSelectOption | null; value: string }
 export type DataFormatRole = OutputFormat['formatRole']

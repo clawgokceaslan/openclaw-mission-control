@@ -4,6 +4,7 @@ import type {
   Agent,
   CustomField,
   Gateway,
+  McpServer,
   OutputFormat,
   Project,
   ProjectGroup,
@@ -35,6 +36,7 @@ export interface ProjectDetailDataContext {
       | 'setCustomFields'
       | 'setAgents'
       | 'setGateways'
+      | 'setMcpServers'
       | 'setOutputFormats'
       | 'setTaskTemplates'
       | 'setProjectStatuses'
@@ -66,6 +68,7 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
     setCustomFields,
     setAgents,
     setGateways,
+    setMcpServers,
     setOutputFormats,
     setTaskTemplates,
     setProjectStatuses,
@@ -94,6 +97,7 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
       customFieldsResponse,
       agentsResponse,
       gatewaysResponse,
+      mcpServersResponse,
       outputFormatsResponse,
       taskTemplatesResponse,
       statusesResponse,
@@ -108,6 +112,7 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
       loadList<CustomField[]>(IPC_CHANNELS.customFields.list, token),
       loadList<Agent[]>(IPC_CHANNELS.agents.list, token),
       loadList<Gateway[]>(IPC_CHANNELS.gateways.list, token),
+      loadList<McpServer[]>(IPC_CHANNELS.mcp.list, token),
       loadList<OutputFormat[]>(IPC_CHANNELS.outputFormats.list, token),
       loadList<TaskTemplate[]>(IPC_CHANNELS.taskTemplates.list, token),
       invokeBridge<ProjectStatus[]>(IPC_CHANNELS.statuses.getProjectStatuses, { actorToken: token, projectId }),
@@ -129,6 +134,7 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
     setCustomFields(Array.isArray(customFieldsResponse.data) ? customFieldsResponse.data : [])
     setAgents(Array.isArray(agentsResponse.data) ? agentsResponse.data : [])
     setGateways(Array.isArray(gatewaysResponse.data) ? gatewaysResponse.data : [])
+    setMcpServers(Array.isArray(mcpServersResponse.data) ? mcpServersResponse.data : [])
     setOutputFormats(Array.isArray(outputFormatsResponse.data) ? outputFormatsResponse.data : [])
     setTaskTemplates(Array.isArray(taskTemplatesResponse.data) ? taskTemplatesResponse.data : [])
     setProjectStatuses(Array.isArray(statusesResponse.data) ? statusesResponse.data : [])
@@ -146,7 +152,9 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
           ? outputFormatsResponse.error?.message ?? 'Unable to load data formats'
           : !taskTemplatesResponse.ok
             ? taskTemplatesResponse.error?.message ?? 'Unable to load task templates'
-            : null
+            : !mcpServersResponse.ok
+              ? mcpServersResponse.error?.message ?? 'Unable to load MCP servers'
+              : null
     )
   }, [
     projectId,
@@ -159,6 +167,7 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
     setCustomFields,
     setAgents,
     setGateways,
+    setMcpServers,
     setOutputFormats,
     setTaskTemplates,
     setProjectStatuses,
