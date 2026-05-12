@@ -14,13 +14,6 @@ interface GlobalTaskDetailModalProps {
   onClose: () => void
 }
 
-function acceptanceCriteriaOf(task: TaskEntity | null): string {
-  const agenticInputs = task?.payload?.agenticInputs
-  if (!agenticInputs || typeof agenticInputs !== 'object' || Array.isArray(agenticInputs)) return ''
-  const value = (agenticInputs as Record<string, unknown>).acceptanceCriteria
-  return typeof value === 'string' ? value : ''
-}
-
 export function GlobalTaskDetailModal({ taskId, projectId, onClose }: GlobalTaskDetailModalProps) {
   const { token } = useAuth()
   const [task, setTask] = useState<TaskEntity | null>(null)
@@ -75,7 +68,6 @@ export function GlobalTaskDetailModal({ taskId, projectId, onClose }: GlobalTask
   const assignedAgent = task?.agentId ? agents.find((agent) => agent.id === task.agentId) ?? null : null
   const assignedSkills = task?.skills?.length ? task.skills : skills.filter((skill) => task?.skills?.some((item) => item.id === skill.id))
   const taskTags = task?.tags?.length ? task.tags : tags.filter((tag) => task?.tags?.some((item) => item.id === tag.id))
-  const acceptanceCriteria = acceptanceCriteriaOf(task)
 
   if (!taskId) return null
 
@@ -110,10 +102,6 @@ export function GlobalTaskDetailModal({ taskId, projectId, onClose }: GlobalTask
             <section className={styles.section}>
               <h4>Description</h4>
               {task.description?.trim() ? <p>{task.description}</p> : <p className={styles.empty}>No description yet.</p>}
-            </section>
-            <section className={styles.section}>
-              <h4>Acceptance criteria</h4>
-              {acceptanceCriteria.trim() ? <p>{acceptanceCriteria}</p> : <p className={styles.empty}>No acceptance criteria added.</p>}
             </section>
             <section className={styles.section}>
               <h4>Tags and skills</h4>

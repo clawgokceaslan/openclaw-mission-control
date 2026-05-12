@@ -6,6 +6,7 @@ import {
   buildChatConversationSummaries,
   buildGeneratedContextEntries,
   buildLatestGeneratedFollowUpContext,
+  commandActivityLabel,
   codexChangesSummary,
   buildLatestRunFollowUpContext,
   formatGatewayActivityStatus,
@@ -482,10 +483,32 @@ describe('chat utils helpers', () => {
     expect(block?.entries.some((entry) => entry.kind === 'text' && entry.message.body.includes('Reading'))).toBe(true)
     expect(block?.summaryRows.map((row) => row.label)).toEqual([
       'Explored 1 file, 1 search',
-      'Ran 1 command',
+      'Checked workspace',
       'Created 1 file'
     ])
     expect(block?.summaryRows[1].messages[0].body).toContain('passed')
+  })
+
+  it('describes running search activity without command jargon', () => {
+    const searchMessage = message({
+      id: 'search-running',
+      role: 'tool',
+      status: 'running',
+      body: 'Command: rg -n "chat" src/renderer/src/popups/ChatPopup/index.tsx\nStatus: running',
+      createdAt: 10_000,
+      metadata: {
+        gatewayBlock: 'command',
+        command: 'rg -n "chat" src/renderer/src/popups/ChatPopup/index.tsx',
+        runStatus: 'running'
+      }
+    })
+    const items = groupCodexTranscriptMessages([searchMessage], 12_000)
+    const block = items[0].kind === 'work-block' ? items[0].block : null
+
+    expect(commandActivityLabel(searchMessage)).toBe('Searching files in index.tsx folder')
+    expect(block?.activityLabel).toBe('Searching files in index.tsx folder')
+    expect(formatGatewayWorkDuration(block?.durationMs, true)).toMatch(/^Working for /)
+    expect([block?.activityLabel, formatGatewayWorkDuration(block?.durationMs, true)].join(' ')).not.toContain('Running commands')
   })
 
   it('uses thinking metadata before run timestamps for the work duration label', () => {
@@ -496,7 +519,7 @@ describe('chat utils helpers', () => {
 
     const block = items[0].kind === 'work-block' ? items[0].block : null
     expect(block?.durationMs).toBe(72_000)
-    expect(formatGatewayWorkDuration(block?.durationMs, false)).toBe('1m 12s çalıştı')
+    expect(formatGatewayWorkDuration(block?.durationMs, false)).toBe('Worked for 1m 12s')
   })
 
   it('falls back to elapsed run timestamps when thinking duration is missing', () => {
@@ -506,7 +529,7 @@ describe('chat utils helpers', () => {
     ], 10_000)
 
     const block = items[0].kind === 'work-block' ? items[0].block : null
-    expect(formatGatewayWorkDuration(block?.durationMs, false)).toBe('3s çalıştı')
+    expect(formatGatewayWorkDuration(block?.durationMs, false)).toBe('Worked for 3s')
   })
 
   it('freezes a running work block when the matching run-complete row exists', () => {

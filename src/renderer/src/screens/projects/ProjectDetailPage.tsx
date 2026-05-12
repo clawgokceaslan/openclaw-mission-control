@@ -1905,39 +1905,6 @@ export function ProjectDetailPage() {
     setIsSubtaskDescriptionDirty(false)
   }
 
-  const saveAcceptanceCriteria = async (value: string) => {
-    if (!selectedTask) return
-    const currentPayload = selectedTask.payload && typeof selectedTask.payload === 'object' && !Array.isArray(selectedTask.payload)
-      ? selectedTask.payload as Record<string, unknown>
-      : {}
-    const currentAgenticInputs = currentPayload.agenticInputs && typeof currentPayload.agenticInputs === 'object' && !Array.isArray(currentPayload.agenticInputs)
-      ? currentPayload.agenticInputs as Record<string, unknown>
-      : {}
-    const nextAgenticInputs: Record<string, unknown> = {
-      ...currentAgenticInputs,
-      acceptanceCriteria: value.trim()
-    }
-    delete nextAgenticInputs.constraints
-    delete nextAgenticInputs.expectedOutput
-    delete nextAgenticInputs.references
-    if (!nextAgenticInputs.acceptanceCriteria) delete nextAgenticInputs.acceptanceCriteria
-    const nextPayload: Record<string, unknown> = {
-      ...currentPayload,
-      agenticInputs: nextAgenticInputs
-    }
-    if (Object.keys(nextAgenticInputs).length === 0) delete nextPayload.agenticInputs
-    const response = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
-      actorToken: token,
-      id: selectedTask.id,
-      payload: nextPayload
-    })
-    if (!response.ok) {
-      setError(response.error?.message ?? 'Unable to update acceptance criteria')
-      return
-    }
-    await refreshProjectAndSelectedTask()
-  }
-
   const saveTaskAttachments = async (attachments: TaskAttachment[]) => {
     if (!selectedTask) return
     const response = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
@@ -3595,7 +3562,6 @@ export function ProjectDetailPage() {
               outputFormats,
               createDescriptionDataFormat,
               saveDescription,
-              saveAcceptanceCriteria,
               completedStatusIds,
               selectedSubtaskIds,
               removeSelectedSubtasks,

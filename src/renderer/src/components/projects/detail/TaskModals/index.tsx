@@ -40,9 +40,6 @@ export interface TaskModalsProps {
       skillIds?: string[]
       tagIds?: string[]
       payload?: Record<string, unknown>
-      agenticInputs?: {
-        acceptanceCriteria?: string
-      }
     }) => void
   }
 

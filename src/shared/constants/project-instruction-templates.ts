@@ -19,7 +19,6 @@ Use this guide when planning or revising tasks. Read every available task field 
 - Create subtasks for cohesive implementation areas, independent workflows, separate ownership boundaries, or meaningful verification paths.
 - Do not create a separate subtask for every file, UI state, edge case, or verification command; put those details inside the relevant subtask description.
 - Keep subtasks ordered by execution dependency.
-- Fill Acceptance Criteria when it is missing or incomplete.
 - Do not remove user-provided constraints from the description or comments.
 
 ## Task fields to inspect
@@ -30,7 +29,6 @@ Use this guide when planning or revising tasks. Read every available task field 
 - project group
 - tags
 - description
-- acceptanceCriteria
 - checklist
 - comments
 - customFields
@@ -46,11 +44,10 @@ Use this guide when planning or revising tasks. Read every available task field 
 - Update title only if it improves clarity.
 - Update description with the general goal, implementation scope, and overall AI guidance.
 - Use comments for important flows, risks, dependencies, edge cases, and decision notes.
-- Set agenticInputs.acceptanceCriteria with measurable completion checks.
 - Subtasks are the primary execution plan, but should stay compact enough to fit the task context.
 - Every subtask must follow the Title + Description shape: short action-oriented title, concise AI-guiding description.
 - Checklist items are optional for planned subtasks. Use them only when they add concrete clarity.
-- Do not scatter test cases across subtasks; if verification is needed, make the final subtask a concrete verification and acceptance step.
+- Do not scatter test cases across subtasks; if verification is needed, make the final subtask a concrete verification step.
 - Do not write generic subtasks or checklist items such as "Test yap", "Run tests", "Fix bugs", "Implement feature", "Implement UI", or "Check everything".
 - Keep tags as names or ids.
 - Keep customFields as { name, value } entries.

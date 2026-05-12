@@ -583,6 +583,12 @@ export const CodexWorkBlock = memo(function CodexWorkBlock({ block }: CodexWorkB
           <span>{formatGatewayWorkDuration(block.durationMs, block.isRunning)}</span>
           {block.isRunning ? <span className={styles.thinkingDots}><i /><i /><i /></span> : null}
         </summary>
+        {block.isRunning && block.activityLabel ? (
+          <div className={styles.codexWorkActivityLine}>
+            <LuSearch size={14} />
+            <span key={block.activityLabel} className={styles.codexWorkActivityText}>{block.activityLabel}</span>
+          </div>
+        ) : null}
         <div className={styles.codexWorkBody}>
           {block.entries.map((entry) => (
             entry.kind === 'text'

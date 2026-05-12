@@ -468,8 +468,6 @@
 .drawerSection { padding: 14px 22px; border-bottom: 1px solid var(--omc-table-border); }
 .drawerSection h4 { margin: 0 0 10px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--omc-text-soft); font-weight: 700; }
 .descriptionField { width: 100%; min-height: 280px !important; }
-.acceptanceCriteriaField { width: 100%; min-height: 132px; resize: vertical; border: 1px solid var(--omc-border-subtle); border-radius: 12px; background: var(--omc-table-header); color: var(--omc-text-strong); padding: 12px 14px; line-height: 1.5; outline: none; font: inherit; }
-.acceptanceCriteriaField:focus { border-color: var(--omc-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--omc-primary) 18%, transparent); }
 .editingField { border-color: var(--omc-primary) !important; background: var(--omc-pill-bg) !important; }
 .fieldStateRow { margin-top: 6px; min-height: 16px; }
 .fieldDirty, .fieldSaving { font-size: 0.8rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
@@ -483,8 +481,9 @@
 .detailSectionHeader h4 { margin: 0; color: var(--omc-text-strong); font-size: 0.92rem; font-weight: 850; }
 .detailSectionHeader p { margin: 3px 0 0; color: var(--omc-text-muted); font-size: 0.78rem; font-weight: 700; }
 .tabCtaCard { display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 1px dashed var(--omc-cta-border); border-radius: 14px; background: var(--omc-table-header); padding: 16px; margin: 0 0 14px; }
-.tabCtaCard strong { color: var(--omc-text-strong); font-size: 0.95rem; font-weight: 850; }
-.tabCtaCard span { color: var(--omc-text-muted); font-size: 0.86rem; font-weight: 650; }
+.tabCtaCard > div:first-child { min-width: 0; display: grid; gap: 4px; }
+.tabCtaCard strong { display: block; color: var(--omc-text-strong); font-size: 0.95rem; font-weight: 850; line-height: 1.2; }
+.tabCtaCard span { display: block; color: var(--omc-text-muted); font-size: 0.86rem; font-weight: 650; line-height: 1.35; }
 .tabActionButton { border: 1px solid var(--omc-border-strong); border-radius: 10px; min-height: 34px; padding: 0 12px; background: var(--omc-surface); color: var(--omc-text-strong); display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-size: 0.82rem; font-weight: 850; white-space: nowrap; box-shadow: var(--omc-shadow); }
 .bulkRemoveBtn, .subtaskRemoveBtn, .customFieldActions button, .checklistRow button { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--omc-border); background: var(--omc-surface); color: var(--omc-text-muted); display: inline-flex; align-items: center; justify-content: center; }
 .subtaskRow { border: 1px solid var(--omc-border-subtle); border-radius: 12px; padding: 12px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 10px 12px; background: var(--omc-surface); box-shadow: var(--omc-shadow-soft); outline: none; }
@@ -725,10 +724,6 @@
 
   .descriptionField {
     min-height: 190px !important;
-  }
-
-  .acceptanceCriteriaField {
-    min-height: 118px;
   }
 
   .tabRow {

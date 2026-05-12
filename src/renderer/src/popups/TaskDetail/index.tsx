@@ -17,11 +17,6 @@ const fallbackStatusColumn = (status: string) => ({
   accent: 'var(--omc-primary)'
 })
 
-function taskPayload(task: any): Record<string, unknown> {
-  const payload = task?.payload
-  return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : {}
-}
-
 function subtaskPayload(subtask: any): Record<string, unknown> {
   const payload = subtask?.payload
   return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : {}
@@ -30,13 +25,6 @@ function subtaskPayload(subtask: any): Record<string, unknown> {
 function subtaskChecklistItems(subtask: any): any[] {
   const value = subtaskPayload(subtask).checklistItems
   return Array.isArray(value) ? value : []
-}
-
-function acceptanceCriteriaOf(task: any): string {
-  const agenticInputs = taskPayload(task).agenticInputs
-  if (!agenticInputs || typeof agenticInputs !== 'object' || Array.isArray(agenticInputs)) return ''
-  const value = (agenticInputs as Record<string, unknown>).acceptanceCriteria
-  return typeof value === 'string' ? value : ''
 }
 
 function ChecklistPanel({
@@ -304,9 +292,7 @@ function TaskDetailBody({ scope }: { scope: Record<string, any> }) {
   const task = scope.selectedTask
   const isCompactLayout = useTaskDetailCompactLayout()
   const [detailTab, setDetailTab] = useState(() => normalizeTaskDetailTab(scope.detailTab, isCompactLayout))
-  const [acceptanceDraft, setAcceptanceDraft] = useState(() => acceptanceCriteriaOf(task))
   useEffect(() => setDetailTab(normalizeTaskDetailTab(scope.detailTab, isCompactLayout)), [task?.id, scope.detailTab, isCompactLayout])
-  useEffect(() => setAcceptanceDraft(acceptanceCriteriaOf(task)), [task?.id, task?.payload])
   if (!task) return null
   const completed = new Set(scope.completedStatusIds ?? [])
   const resolveColumn = typeof scope.resolveColumnByStatus === 'function' ? scope.resolveColumnByStatus : fallbackStatusColumn
@@ -362,20 +348,6 @@ function TaskDetailBody({ scope }: { scope: Record<string, any> }) {
           <h4>Description</h4>
           <MarkdownDescriptionEditor value={scope.descriptionDraft ?? task.description ?? ''} className={`${styles.descriptionField} ${scope.isDescriptionEditing ? styles.editingField : ''}`} minHeight={280} placeholder="Add description, notes, checklists or code..." status={scope.isDescriptionSaving ? 'saving' : scope.isDescriptionEditing ? 'dirty' : 'idle'} enableDataFormatCommands dataFormats={scope.outputFormats ?? []} onCreateDataFormat={scope.createDescriptionDataFormat} onChange={(nextValue) => scope.setDescriptionDraft?.(nextValue)} onCommit={() => { void scope.saveDescription?.({ finalize: true }) }} onCancel={() => scope.resetDescriptionDraft?.()} />
           <div className={styles.fieldStateRow}>{scope.isDescriptionSaving ? <span className={styles.fieldSaving}>Saving...</span> : null}{scope.isDescriptionEditing && !scope.isDescriptionSaving ? <span className={styles.fieldDirty}>Editing</span> : null}</div>
-        </section>
-        <section className={styles.drawerSection}>
-          <div className={styles.detailSectionHeader}>
-            <div><h4>Acceptance Criteria</h4><p>Define what must be true before this task is accepted.</p></div>
-          </div>
-          <textarea
-            className={styles.acceptanceCriteriaField}
-            value={acceptanceDraft}
-            placeholder="Add acceptance criteria..."
-            onChange={(event) => setAcceptanceDraft(event.target.value)}
-            onBlur={() => {
-              if (acceptanceDraft !== acceptanceCriteriaOf(task)) void scope.saveAcceptanceCriteria?.(acceptanceDraft)
-            }}
-          />
         </section>
         <section className={styles.drawerSection}>
           <div className={styles.tabRow}>

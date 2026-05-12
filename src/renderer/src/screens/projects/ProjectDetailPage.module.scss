@@ -3044,23 +3044,25 @@
   margin: 0 auto;
 }
 
-.chatSteerModeRow {
+.chatActiveCommandBadge {
   min-width: 0;
   width: fit-content;
   max-width: 100%;
-  border: 1px solid color-mix(in srgb, var(--omc-primary) 44%, var(--omc-border-subtle));
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--omc-primary) 38%, var(--omc-border-subtle));
   border-radius: 999px;
-  background: color-mix(in srgb, var(--omc-active-bg) 62%, var(--omc-bg));
+  background: color-mix(in srgb, var(--omc-active-bg) 46%, var(--omc-bg));
   display: inline-grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 7px;
-  padding: 5px 6px 5px 10px;
+  gap: 6px;
+  padding: 4px 5px 4px 9px;
   color: var(--omc-text-muted);
+  flex: 0 1 auto;
 
-  span {
+  b {
     color: var(--omc-primary-strong);
-    font-size: 0.76rem;
+    font-size: 0.74rem;
     font-weight: 900;
   }
 
@@ -3070,12 +3072,13 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--omc-text-muted);
-    font-size: 0.72rem;
+    font-size: 0.7rem;
+    font-weight: 760;
   }
 
   button {
-    width: 22px;
-    height: 22px;
+    width: 20px;
+    height: 20px;
     border: 0;
     border-radius: 999px;
     background: transparent;
@@ -3121,8 +3124,9 @@
 }
 
 .chatComposerFooter {
-  grid-column: 1;
-  grid-row: 2;
+  position: relative;
+  z-index: 3;
+  grid-area: footer;
   min-width: 0;
   min-height: 42px;
   padding: 0;
@@ -3131,6 +3135,7 @@
   gap: 8px;
   justify-content: flex-start;
   overflow: hidden;
+  pointer-events: auto;
 }
 
 .chatConfigModalOverlay {
@@ -3355,50 +3360,58 @@
 }
 
 .chatAttachmentPreviewGrid {
-  width: var(--chat-content-width);
-  max-width: 100%;
+  grid-area: attachments;
+  width: 100%;
   min-width: 0;
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
-  gap: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  max-height: 132px;
+  overflow-y: auto;
+  padding: 0 2px 2px;
+  scrollbar-width: thin;
 }
 
 .chatAttachmentPreviewTile {
+  flex: 0 0 96px;
   min-width: 0;
   position: relative;
+  min-height: 100px;
+  border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 82%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--omc-surface-muted) 66%, var(--omc-bg));
+  padding: 5px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 5px;
 
-  summary {
-    min-width: 0;
-    aspect-ratio: 1;
-    list-style: none;
-    cursor: pointer;
-    border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 82%, transparent);
-    border-radius: 8px;
-    background: color-mix(in srgb, var(--omc-surface-muted) 66%, var(--omc-bg));
-    padding: 8px;
-    display: grid;
-    grid-template-rows: minmax(0, 1fr) auto auto;
-    gap: 6px;
+  > button {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    z-index: 2;
+    width: 22px;
+    height: 22px;
+    border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 70%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--omc-surface) 92%, transparent);
+    color: var(--omc-text-muted);
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--omc-shadow-color) 28%, transparent);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 
-    &::-webkit-details-marker {
-      display: none;
-    }
-  }
-
-  &[open] {
-    z-index: 15;
-
-    summary {
-      border-color: color-mix(in srgb, var(--omc-primary) 42%, var(--omc-border-subtle));
-      background: color-mix(in srgb, var(--omc-active-bg) 38%, var(--omc-surface-muted));
+    &:hover {
+      color: var(--omc-text-strong);
+      background: var(--omc-hover-bg);
     }
   }
 }
 
 .chatAttachmentThumb {
   min-width: 0;
-  min-height: 0;
+  width: 100%;
+  height: 62px;
   border-radius: 7px;
   background: color-mix(in srgb, var(--omc-bg) 62%, var(--omc-surface-muted));
   color: var(--omc-text-muted);
@@ -3439,78 +3452,17 @@
   }
 }
 
-.chatAttachmentPreviewIcon {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--omc-bg) 74%, transparent);
-  color: var(--omc-text-muted);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.chatAttachmentPreviewBody {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 8px);
-  width: min(320px, calc(100vw - 32px));
-  border: 1px solid var(--omc-border-subtle);
-  border-radius: 10px;
-  background: var(--omc-surface);
-  box-shadow: var(--omc-shadow-medium);
-  padding: 10px;
-  display: grid;
-  gap: 8px;
-
-  img {
-    width: 100%;
-    max-height: 220px;
-    border-radius: 8px;
-    object-fit: contain;
-    background: var(--omc-bg);
-  }
-
-  > span {
-    min-width: 0;
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    color: var(--omc-text-strong);
-    font-size: 0.8rem;
-    font-weight: 850;
-    overflow-wrap: anywhere;
-  }
-
-  button {
-    min-height: 30px;
-    border: 1px solid var(--omc-border-subtle);
-    border-radius: 8px;
-    background: var(--omc-surface-muted);
-    color: var(--omc-text-strong);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    font-size: 0.76rem;
-    font-weight: 900;
-
-    &:hover {
-      background: var(--omc-hover-bg);
-    }
-  }
-}
-
 .chatComposerBox {
   border: 1px solid color-mix(in srgb, var(--omc-border) 34%, transparent);
   border-radius: 13px;
   background: color-mix(in srgb, var(--omc-surface-muted) 74%, var(--omc-surface) 26%);
   display: grid;
   grid-template-columns: minmax(0, 1fr) 42px;
-  grid-template-rows: auto 42px;
+  grid-template-rows: auto auto 42px;
+  grid-template-areas:
+    "attachments attachments"
+    "input input"
+    "footer send";
   gap: 6px 8px;
   align-items: end;
   padding: 8px;
@@ -3525,8 +3477,15 @@
     box-shadow: 0 6px 18px color-mix(in srgb, var(--omc-shadow-color) 28%, transparent);
   }
 
+  &:not(:has(.chatAttachmentPreviewGrid)) {
+    grid-template-rows: auto 42px;
+    grid-template-areas:
+      "input input"
+      "footer send";
+  }
+
   textarea {
-    grid-column: 1 / -1;
+    grid-area: input;
     width: 100%;
     min-height: 72px;
     max-height: 270px;
@@ -3583,8 +3542,7 @@
   }
 
   .chatSendButton {
-    grid-column: 2;
-    grid-row: 2;
+    grid-area: send;
   }
 }
 
@@ -6254,6 +6212,34 @@
   }
 }
 
+.codexWorkActivityLine {
+  width: fit-content;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: color-mix(in srgb, var(--omc-text-muted) 84%, var(--omc-text-strong) 16%);
+  font-size: 0.93rem;
+  font-weight: 760;
+  line-height: 1.45;
+  margin: -2px 0 12px;
+  overflow-wrap: anywhere;
+
+  svg {
+    flex: 0 0 auto;
+    color: color-mix(in srgb, var(--omc-text-muted) 82%, transparent);
+  }
+}
+
+.codexWorkActivityText {
+  min-width: 0;
+  display: inline-block;
+  max-width: 100%;
+  animation:
+    codexActivityReveal 760ms steps(34, end),
+    codexActivityFade 180ms ease-out;
+}
+
 .codexWorkChevron {
   flex: 0 0 auto;
   color: color-mix(in srgb, var(--omc-text-muted) 82%, transparent);
@@ -6275,6 +6261,7 @@
   font-size: 0.94rem;
   font-weight: 650;
   line-height: 1.58;
+  animation: codexWorkTextIn 220ms ease-out;
 
   p {
     margin: 0 0 10px;
@@ -6803,6 +6790,45 @@
   40% {
     opacity: 1;
     transform: translateY(-3px);
+  }
+}
+
+@keyframes codexActivityReveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes codexActivityFade {
+  from {
+    opacity: 0.3;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes codexWorkTextIn {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .codexWorkActivityText,
+  .codexWorkText {
+    animation: none;
   }
 }
 
@@ -8692,9 +8718,13 @@
 
   .chatComposerBox {
     grid-template-columns: minmax(0, 1fr) 44px;
-    grid-template-rows: minmax(44px, auto) 44px;
+    grid-template-rows: auto minmax(44px, auto) 44px;
     gap: 4px 6px;
     padding: 7px;
+
+    &:not(:has(.chatAttachmentPreviewGrid)) {
+      grid-template-rows: minmax(44px, auto) 44px;
+    }
 
     textarea {
       min-height: 44px;
@@ -8734,10 +8764,11 @@
   }
 
   .chatAttachmentPreviewGrid {
-    display: flex;
     gap: 8px;
+    flex-wrap: nowrap;
+    max-height: none;
     overflow-x: auto;
-    overflow-y: visible;
+    overflow-y: hidden;
     scrollbar-width: none;
 
     &::-webkit-scrollbar {
@@ -8746,13 +8777,7 @@
   }
 
   .chatAttachmentPreviewTile {
-    flex: 0 0 112px;
-  }
-
-  .chatAttachmentPreviewBody {
-    left: 0;
-    bottom: calc(100% + 6px);
-    width: min(300px, calc(100vw - 20px));
+    flex: 0 0 96px;
   }
 
   .chatConfigModalOverlay {

@@ -57,7 +57,8 @@ describe('buildTaskMarkdown', () => {
     })
 
     expect(markdown).toContain('## Subtasks as Primary Execution Plan')
-    expect(markdown).toContain('1. Read Task Details, Acceptance Criteria, Subtasks, Comments, Checklist, and attachments first.')
+    expect(markdown).toContain('1. Read Task Details, Subtasks, Comments, Checklist, and attachments first.')
+    expect(markdown).not.toContain('Acceptance Criteria')
     expect(markdown).toContain('2. Execute 1 actionable subtask in Subtasks Index order.')
     expect(markdown.indexOf('## Task Details')).toBeLessThan(markdown.indexOf('## Project Instructions'))
     expect(markdown).not.toContain('```text')
@@ -93,8 +94,12 @@ describe('buildTaskMarkdown', () => {
 
     expect(parsedJson.format).toBe('open_mission_control_task')
     expect(parsedJson.task.title).toBe('Planner task export')
+    expect(parsedJson.task.acceptanceCriteria).toBeUndefined()
+    expect(json).not.toContain('acceptanceCriteria')
     expect(parsedJson.references.agents).toEqual([])
     expect(parsedToon.task?.title).toBe('Planner task export')
+    expect(toon).not.toContain('acceptanceCriteria')
+    expect(toon).not.toContain('Acceptance Criteria')
     expect(parsedToon.subtasks).toHaveLength(1)
   })
 
@@ -230,12 +235,13 @@ describe('buildTaskMarkdown', () => {
 
     const parsed = JSON.parse(importJson)
     expect(parsed.title).toBe('Planner task export')
-    expect(parsed.acceptanceCriteria).toBe('Must import cleanly.')
+    expect(parsed.acceptanceCriteria).toBeUndefined()
     expect(parsed.tags).toEqual(['frontend'])
     expect(parsed.customFields).toEqual([{ name: 'Priority', type: 'text', value: 'High' }])
     expect(parsed.format).toBeUndefined()
     expect(importJson).not.toContain('activityMessages')
     expect(importJson).not.toContain('debugSnapshot')
+    expect(importJson).not.toContain('Must import cleanly.')
   })
 
   it('exports project-default effective skills and inherited agent tools', () => {

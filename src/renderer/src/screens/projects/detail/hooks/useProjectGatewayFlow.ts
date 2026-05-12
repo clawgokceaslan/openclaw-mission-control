@@ -696,10 +696,7 @@ export function useProjectGatewayFlow({
         setGatewayRunFeedback({ kind: 'error', message: 'Select a conversation before sending a steer message.' })
         return
       }
-      setChatDraft((value) => {
-        const next = value.replace(trailingSlashCommandToken, '').trim()
-        return next ? `/steer ${next}` : '/steer '
-      })
+      setChatDraft((value) => value.replace(trailingSlashCommandToken, ''))
       setChatComposerMode('steer')
       setGatewayRunFeedback(null)
       return

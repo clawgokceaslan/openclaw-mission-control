@@ -34,9 +34,6 @@ interface CreateTaskPopupProps {
     agentId?: string | null
     templateId?: string | null
     importJson?: string | null
-    agenticInputs?: {
-      acceptanceCriteria?: string
-    }
   }) => void
 }
 
@@ -47,7 +44,6 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
   const [selectedTags, setSelectedTags] = useState<AppSelectOption[]>([])
   const [selectedAgent, setSelectedAgent] = useState<AppSelectOption | null>(null)
   const [selectedTemplate, setSelectedTemplate] = useState<AppSelectOption | null>(null)
-  const [acceptanceCriteria, setAcceptanceCriteria] = useState('')
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [importJson, setImportJson] = useState<string | null>(null)
   const [hasSubmitted, setHasSubmitted] = useState(false)
@@ -80,7 +76,6 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
     setStatus(defaultStatus)
     setSelectedTags([])
     setSelectedAgent(null)
-    setAcceptanceCriteria('')
     setImportJson(null)
     setIsImportOpen(false)
     setHasSubmitted(false)
@@ -108,10 +103,7 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
       tagIds: selectedTags.map((tag) => tag.value),
       agentId: selectedAgent?.value ?? null,
       templateId: selectedTemplate?.value ?? null,
-      importJson,
-      agenticInputs: {
-        acceptanceCriteria: acceptanceCriteria.trim()
-      }
+      importJson
     })
   }
 
@@ -219,12 +211,6 @@ export function CreateTaskPopup({ open, project, projects = [], selectedProjectI
                 placeholder="Assignee"
               />
             </div>
-          </div>
-          <div className={styles.createTaskAgenticGrid}>
-            <label>
-              <span>Acceptance criteria</span>
-              <textarea value={acceptanceCriteria} onChange={(event) => setAcceptanceCriteria(event.target.value)} placeholder="What must be true for this task to be accepted?" />
-            </label>
           </div>
           <div className={styles.createTaskTags}>
             <div className={styles.createTaskFieldLabel}>

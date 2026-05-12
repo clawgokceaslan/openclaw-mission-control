@@ -16,9 +16,6 @@ export type NormalizedTaskJsonImport = {
   skillIds: string[]
   customFieldValues: Record<string, unknown>
   checklistItems: TaskChecklistItem[]
-  agenticInputs: {
-    acceptanceCriteria?: string
-  }
   comments: TaskComment[]
   subtasks: NormalizedImportedSubtask[]
   warnings: string[]
@@ -165,12 +162,6 @@ export class TaskJsonImportNormalizer {
     const tagIds = await this.resolveTags(root.tags)
     const customFieldValues = await this.resolveCustomFields(root.customFields)
     const checklistItems = normalizeChecklist(root.checklist)
-    const agenticInputsRoot = asObject(root.agenticInputs)
-    const acceptanceCriteria = typeof agenticInputsRoot.acceptanceCriteria === 'string'
-      ? agenticInputsRoot.acceptanceCriteria.trim()
-      : typeof root.acceptanceCriteria === 'string'
-        ? root.acceptanceCriteria.trim()
-        : ''
     const comments = normalizeComments(root.comments)
     if (root.subtasks !== undefined && !Array.isArray(root.subtasks)) throw new Error('subtasks must be an array.')
     const subtasks: NormalizedImportedSubtask[] = []
@@ -203,7 +194,6 @@ export class TaskJsonImportNormalizer {
       skillIds: [],
       customFieldValues,
       checklistItems,
-      agenticInputs: acceptanceCriteria ? { acceptanceCriteria } : {},
       comments,
       subtasks,
       warnings: Array.from(new Set(warnings))
@@ -220,7 +210,7 @@ export class TaskJsonImportNormalizer {
       skillIds: normalized.skillIds,
       customFieldValues: normalized.customFieldValues,
       checklistItems: normalized.checklistItems,
-      payload: normalized.agenticInputs.acceptanceCriteria ? { agenticInputs: normalized.agenticInputs } : {},
+      payload: {},
       inputFormatId: null,
       outputFormatId: null,
       comments: normalized.comments,

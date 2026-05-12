@@ -321,7 +321,18 @@ function CodexOptionsMenu({ actions }: { actions: CodexOptionAction[] }) {
         ref={buttonRef}
         type="button"
         className={`${styles.chatConfigurationButton} ${popupStyles.codexOptionsButton} ${isOpen ? styles.chatActionActive : ''}`}
-        onClick={() => setIsOpen((value) => !value)}
+        onPointerDown={(event) => {
+          event.stopPropagation()
+        }}
+        onMouseDown={(event) => {
+          event.stopPropagation()
+        }}
+        onClick={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          setIsOpen((value) => !value)
+        }}
+        aria-label="Gateway options"
         aria-haspopup="menu"
         aria-expanded={isOpen}
       >
@@ -329,7 +340,13 @@ function CodexOptionsMenu({ actions }: { actions: CodexOptionAction[] }) {
         <span>Gateway options</span>
       </button>
       {isOpen ? (
-        <div className={popupStyles.codexOptionsMenu} role="menu">
+        <div
+          className={popupStyles.codexOptionsMenu}
+          role="menu"
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+        >
           {actions.map((action, index) => {
             const Icon = action.icon
             const previous = actions[index - 1]
@@ -635,7 +652,7 @@ export function ChatPopup({
     return styles[`chatSource_${gatewayChatPhaseTone(conversation.phase)}`] ?? ''
   }
   const selectedChatStatusMeta = selectedChatSummary ? conversationStatusMeta(selectedChatSummary) : null
-  const sendButtonStopsConversation = selectedChatCanStop && activeCommand !== 'steer'
+  const sendButtonStopsConversation = selectedChatCanStop && !(activeCommand === 'steer' && canSendChat)
   const runModelLabel = chatRunModel || chatModel || 'Not set'
   const planModelLabel = chatPlanModel || chatModel || 'Not set'
   const toolsMeta = taskContextTools.length ? `${taskContextTools.length} catalog tools` : 'No active tools'
@@ -1041,28 +1058,6 @@ export function ChatPopup({
             ) : null}
           </div>
           <footer className={`${styles.chatComposer} ${popupStyles.chatComposer}`}>
-            {attachments.length > 0 ? (
-              <div className={styles.chatAttachmentPreviewGrid} aria-label="Giden mesaj ekleri">
-                {attachments.map((attachment) => (
-                  <details key={attachment.id} className={styles.chatAttachmentPreviewTile}>
-                    <summary>
-                      <span className={styles.chatAttachmentThumb}>
-                        {attachment.previewUrl ? <img src={attachment.previewUrl} alt="" /> : attachment.mimeType?.startsWith('image/') ? <LuImage size={18} /> : <LuFileText size={18} />}
-                      </span>
-                      <span className={styles.chatAttachmentMeta}>
-                        <b title={attachment.name}>{attachment.name}</b>
-                        <small>{attachmentExtension(attachment.name)} · {formatAttachmentSize(attachment.size)}</small>
-                      </span>
-                      <span className={styles.chatAttachmentPreviewIcon}><LuEye size={13} /></span>
-                    </summary>
-                    <div className={styles.chatAttachmentPreviewBody}>
-                      {attachment.previewUrl ? <img src={attachment.previewUrl} alt={attachment.name} /> : <span><LuPaperclip size={15} /> {attachment.name}</span>}
-                      <button type="button" onClick={() => onAttachmentRemove(attachment.id)} aria-label={`Remove ${attachment.name}`}><LuX size={13} /> Remove</button>
-                    </div>
-                  </details>
-                ))}
-              </div>
-            ) : null}
             <div className={styles.chatComposerFrame}>
               {slashMenuOpen && slashCommands.length > 0 ? (
                 <div className={styles.slashCommandMenu} role="listbox" aria-label="Slash commands">
@@ -1089,13 +1084,31 @@ export function ChatPopup({
                 </div>
               ) : null}
               <div className={`${styles.chatComposerBox} ${popupStyles.chatComposerBox}`}>
+                {attachments.length > 0 ? (
+                  <div className={styles.chatAttachmentPreviewGrid} aria-label="Giden mesaj ekleri">
+                    {attachments.map((attachment) => (
+                      <div key={attachment.id} className={styles.chatAttachmentPreviewTile} title={attachment.name}>
+                        <span className={styles.chatAttachmentThumb}>
+                          {attachment.previewUrl ? <img src={attachment.previewUrl} alt="" /> : attachment.mimeType?.startsWith('image/') ? <LuImage size={18} /> : <LuFileText size={18} />}
+                        </span>
+                        <span className={styles.chatAttachmentMeta}>
+                          <b>{attachment.name}</b>
+                          <small>{attachmentExtension(attachment.name)} · {formatAttachmentSize(attachment.size)}</small>
+                        </span>
+                        <button type="button" onClick={() => onAttachmentRemove(attachment.id)} aria-label={`Remove ${attachment.name}`} title={`Remove ${attachment.name}`}>
+                          <LuX size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 <textarea
                   ref={draftTextareaRef}
                   value={draft}
                   onChange={(event) => onDraftChange(event.target.value, event.currentTarget)}
                   onFocus={() => onComposerFocusChange(true)}
                   onBlur={() => onComposerFocusChange(false)}
-                  placeholder="Message Codex or type / for commands..."
+                  placeholder={activeCommand === 'steer' ? 'Ask for follow-up changes' : 'Message Codex or type / for commands...'}
                   onKeyDown={(event) => {
                     if (slashMenuOpen && slashCommands.length > 0) {
                       if (event.key === 'ArrowDown') { event.preventDefault(); onSlashCommandIndexChange((value) => (value + 1) % slashCommands.length); return }

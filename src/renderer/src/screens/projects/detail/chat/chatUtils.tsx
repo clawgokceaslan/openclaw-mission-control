@@ -53,6 +53,7 @@ export type CodexWorkBlock = {
   endedAt: number
   durationMs?: number
   isRunning: boolean
+  activityLabel?: string
 }
 
 type CodexWorkTerminalState = {
@@ -815,9 +816,9 @@ function formatDurationCompact(totalSeconds: number): string {
 
 export function formatGatewayWorkDuration(durationMs: number | undefined, isRunning = false): string {
   if (durationMs !== undefined && Number.isFinite(durationMs) && durationMs > 0) {
-    return `${formatDurationCompact(durationMs / 1000)} çalıştı`
+    return `${isRunning ? 'Working' : 'Worked'} for ${formatDurationCompact(durationMs / 1000)}`
   }
-  return isRunning ? 'Çalışıyor' : 'Çalıştı'
+  return isRunning ? 'Working' : 'Worked'
 }
 
 export function thinkingDurationLabel(message: TaskActivityMessage, now = Date.now()): string {
@@ -964,6 +965,81 @@ function commandFileExploreCount(command: string): number {
   return /(^|[\s;&|({])(sed|cat|nl|ls|wc|head|tail|pwd)\b/.test(command) || /\bgit\s+(show|diff|status|log|ls-files)\b/.test(command) ? 1 : 0
 }
 
+function shellWords(command: string): string[] {
+  const words: string[] = []
+  let current = ''
+  let quote: '"' | "'" | null = null
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index]
+    if (quote) {
+      if (char === quote) {
+        quote = null
+      } else {
+        current += char
+      }
+      continue
+    }
+    if (char === '"' || char === "'") {
+      quote = char
+      continue
+    }
+    if (/\s/.test(char)) {
+      if (current) {
+        words.push(current)
+        current = ''
+      }
+      continue
+    }
+    if (/[;&|]/.test(char)) break
+    current += char
+  }
+  if (current) words.push(current)
+  return words
+}
+
+function commandExecutable(words: string[]): string {
+  return words[0]?.split('/').pop()?.trim().toLowerCase() ?? ''
+}
+
+function commandTargetName(command: string): string {
+  const words = shellWords(command)
+  const executable = commandExecutable(words)
+  if (!executable) return ''
+
+  const args = words.slice(1)
+  if (executable === 'find') {
+    const target = args.find((word) => word && !word.startsWith('-')) ?? ''
+    return targetNameFromPath(target)
+  }
+
+  const nonOptions = args.filter((word) => word && !word.startsWith('-'))
+  if ((executable === 'rg' || executable === 'grep') && nonOptions.length >= 2) {
+    return targetNameFromPath(nonOptions.at(-1) ?? '')
+  }
+  return ''
+}
+
+function targetNameFromPath(value: string): string {
+  const cleaned = value.trim().replace(/^['"]|['"]$/g, '').replace(/\/+$/g, '')
+  if (!cleaned || cleaned === '.') return 'workspace'
+  return cleaned.split('/').filter(Boolean).pop() ?? 'workspace'
+}
+
+export function commandActivityLabel(message: TaskActivityMessage): string {
+  const gatewayBlock = metadataGatewayBlock(message)
+  if (gatewayBlock === 'changes') return 'Reviewing workspace changes'
+  if (gatewayBlock === 'log') return 'Reading logs'
+
+  const command = commandFromMessage(message)
+  if (!command) return 'Working'
+  if (commandSearchCount(command) > 0) {
+    const target = commandTargetName(command)
+    return target ? `Searching files in ${target} folder` : 'Searching files'
+  }
+  if (commandFileExploreCount(command) > 0) return 'Exploring files'
+  return 'Checking workspace'
+}
+
 function commandSummaryKind(message: TaskActivityMessage): CodexWorkSummaryKind {
   const gatewayBlock = metadataGatewayBlock(message)
   if (gatewayBlock === 'log') return 'log'
@@ -1041,7 +1117,7 @@ function summaryLabel(kind: CodexWorkSummaryKind, messages: TaskActivityMessage[
   if (kind === 'explored') return exploredSummaryLabel(messages)
   if (kind === 'changed') return changedSummaryLabel(messages)
   if (kind === 'log') return `Read ${plural(messages.length, 'log')}`
-  return `Ran ${plural(messages.length, 'command')}`
+  return 'Checked workspace'
 }
 
 function explicitThinkingDurationMs(message: TaskActivityMessage): number | undefined {
@@ -1120,6 +1196,9 @@ function createCodexWorkBlock(messages: TaskActivityMessage[], now: number, term
   const isRunning = !terminal && hasFreshRunningMessage
   const durationEnd = terminal?.at ?? (isRunning ? Math.max(now, endedAt) : endedAt)
   const { entries, summaryRows } = buildWorkBlockEntries(messages)
+  const runningActivityMessage = isRunning
+    ? [...messages].reverse().find((message) => isFreshRunningMessage(message, now) && isWorkBlockToolMessage(message))
+    : undefined
   return {
     id: `work-${first.conversationId ?? first.runId}-${first.runId}-${first.id}-${messages.at(-1)?.id ?? first.id}`,
     runId: first.runId,
@@ -1131,7 +1210,8 @@ function createCodexWorkBlock(messages: TaskActivityMessage[], now: number, term
     startedAt,
     endedAt: durationEnd,
     durationMs: workBlockDurationMs(messages, startedAt, durationEnd),
-    isRunning
+    isRunning,
+    activityLabel: runningActivityMessage ? commandActivityLabel(runningActivityMessage) : undefined
   }
 }
 

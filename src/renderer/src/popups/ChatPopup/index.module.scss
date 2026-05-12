@@ -34,8 +34,14 @@
 }
 
 .chatComposerBox {
+  position: relative;
   border-color: color-mix(in srgb, var(--omc-border) 46%, transparent);
   background: color-mix(in srgb, var(--omc-surface-muted) 64%, var(--omc-surface) 36%);
+
+  textarea {
+    position: relative;
+    z-index: 1;
+  }
 }
 
 .chatComposerBox .chatAttachButton,
@@ -147,17 +153,30 @@
 
 .codexOptionsWrap {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  width: max-content;
   min-width: 0;
-  max-width: 100%;
+  max-width: min(220px, 100%);
+  z-index: 6;
+  pointer-events: auto;
 }
 
 .codexOptionsButton {
+  position: relative;
+  z-index: 7;
+  flex: 0 0 auto;
+  width: auto !important;
   min-width: 0;
+  max-width: 100%;
   height: 34px !important;
   min-height: 34px !important;
   border-radius: 9px !important;
   padding: 0 8px !important;
   font-size: 0.72rem !important;
+  overflow: hidden;
+  pointer-events: auto;
 }
 
 .codexOptionsMenu {

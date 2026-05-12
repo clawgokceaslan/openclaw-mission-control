@@ -391,9 +391,6 @@ function plannedTask(overrides: Partial<NormalizedTaskJsonImport> = {}): Normali
     skillIds: [],
     customFieldValues: {},
     checklistItems: [],
-    agenticInputs: {
-      acceptanceCriteria: '- Planner rejects weak JSON.\n- Task.md makes subtasks primary.'
-    },
     comments: [],
     subtasks: [plannedSubtask()],
     warnings: [],
@@ -422,17 +419,15 @@ describe('planner quality gate', () => {
     expect(issues).toContain('subtasks[0].description is required.')
   })
 
-  it('rejects missing root description, acceptance criteria, and subtasks', () => {
+  it('rejects missing root description and subtasks', () => {
     const issues = validatePlannerTaskJsonQuality(plannedTask({
       title: '',
       description: '',
-      agenticInputs: {},
       subtasks: []
     }))
 
     expect(issues).toContain('Task title is required for planner updates.')
     expect(issues).toContain('Task description is required for planner updates.')
-    expect(issues).toContain('agenticInputs.acceptanceCriteria is required for planner updates.')
     expect(issues).toContain('At least one planned subtask is required.')
   })
 
@@ -702,7 +697,7 @@ describe('planner quality gate', () => {
     expect(prompt).toContain('Subtasks must be ordered')
     expect(prompt).toContain('Use the Title + Description subtask shape')
     expect(prompt).toContain('Checklist items are optional')
-    expect(prompt).toContain('make the final subtask a concrete verification and acceptance step')
+    expect(prompt).toContain('make the final subtask a concrete verification step')
     expect(prompt).toContain('No generic test tasks')
     expect(prompt).toContain('Clarification mode: DIRECT')
     expect(prompt).toContain('Do not ask clarification questions')
@@ -824,6 +819,7 @@ describe('planner quality gate', () => {
     const jsonPlanner = initialPlannerPrompt('project-1', 'task-1', 'helper.mjs', 'context.json', 'planned-task.json', { promptShape: 'json' })
     const jsonRun = initialGatewayPrompt('/export', '/runtime', 'project-1', 'task-1', '.omc/runs/run/OMC_CLI.md', { promptShape: 'json' })
     const toonRun = initialGatewayPrompt('/export', '/runtime', 'project-1', 'task-1', '.omc/runs/run/OMC_CLI.md', { promptShape: 'toon' })
+    const combined = [markdown, jsonPlanner, jsonRun, toonRun].join('\n')
 
     expect(markdown).toContain('You are planning an Open Mission Control task inside Codex TUI.')
     expect(markdown.trim().startsWith('{')).toBe(false)
@@ -832,6 +828,8 @@ describe('planner quality gate', () => {
     expect(toonRun).toContain('shape: "toon"')
     expect(toonRun).toContain('family: "run"')
     expect(toonRun).toContain('primary_task_file: "/export/Task.toon"')
+    expect(combined.toLowerCase()).not.toContain('acceptance')
+    expect(combined).not.toContain('agenticInputs')
   })
 
   it('serializes priority contract and internal OMC runtime after task context in structured prompts', () => {
@@ -866,6 +864,7 @@ describe('planner quality gate', () => {
     const parsed = JSON.parse(prompt)
     expect(parsed.family).toBe('post_run')
     expect(parsed.sections.find((section: { name: string }) => section.name === 'post_run_prompt').value).toBe('Clean up generated artifacts.')
+    expect(prompt.toLowerCase()).not.toContain('acceptance')
   })
 })
 
@@ -1029,7 +1028,7 @@ describe('planner question payload', () => {
                   {
                     id: 'guided',
                     label: 'Guided',
-                    nextQuestion: { id: 'acceptance', question: 'Which acceptance signal?' }
+                    nextQuestion: { id: 'verification', question: 'Which verification signal?' }
                   }
                 ]
               }
@@ -1040,7 +1039,7 @@ describe('planner question payload', () => {
     })
 
     expect(response.ok).toBe(true)
-    expect(response.data?.questions[0].options?.[0].nextQuestion?.options?.[0].nextQuestion?.question).toBe('Which acceptance signal?')
+    expect(response.data?.questions[0].options?.[0].nextQuestion?.options?.[0].nextQuestion?.question).toBe('Which verification signal?')
   })
 
   it('rejects planner question trees deeper than 3 levels', () => {

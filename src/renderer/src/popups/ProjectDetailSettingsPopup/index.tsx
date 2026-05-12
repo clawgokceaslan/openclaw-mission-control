@@ -758,17 +758,17 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
             <div className={styles.settingsPanel}>
               <div className={styles.settingsPanelHeader}>
                 <div>
-                  <h4>Prompt format</h4>
-                  <p>Choose how Codex prompts are serialized for planning, running, chat, and post-run work.</p>
+                  <h4>Prompt data type</h4>
+                  <p>Choose whether Codex receives task context and prompts as Markdown, JSON, or TOON.</p>
                 </div>
               </div>
               <div className={styles.settingsFormGrid}>
                 <label>
-                  <span>Project prompt format</span>
+                  <span>Project prompt data type</span>
                   <AppSelect
                     value={selectedPromptShapeOption}
                     options={promptShapeOptions}
-                    placeholder="Select prompt format"
+                    placeholder="Select prompt data type"
                     onChange={(option) => {
                       setPromptShapeDraft(normalizeGatewayPromptShape(option?.value))
                       clearActiveSaveFeedback()
@@ -778,19 +778,20 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
               </div>
               <div className={styles.promptShapeGrid}>
                 {[
-                  { value: 'markdown', label: 'Markdown', description: 'Current prompt format for legacy compatibility.' },
-                  { value: 'json', label: 'JSON', description: 'Structured sections serialized as valid JSON.' },
-                  { value: 'toon', label: 'Toon', description: 'Named fields in a compact token-conscious format.' }
+                  { value: 'markdown', label: 'Markdown', description: 'Human-readable Task.md and Markdown prompt sections.' },
+                  { value: 'json', label: 'JSON', description: 'Structured Task.json and prompt sections serialized as valid JSON.' },
+                  { value: 'toon', label: 'TOON', description: 'Compact Task.toon and named prompt fields for lower-token context.' }
                 ].map((option) => (
                   <button
                     key={option.value}
                     type="button"
-                    className={promptShapeDraft === option.value ? styles.promptShapeActive : ''}
+                    className={`${styles.promptShapeCard} ${promptShapeDraft === option.value ? styles.promptShapeActive : ''}`}
                     onClick={() => {
                       setPromptShapeDraft(normalizeGatewayPromptShape(option.value))
                       clearActiveSaveFeedback()
                     }}
                     aria-pressed={promptShapeDraft === option.value}
+                    aria-label={`Use ${option.label} prompt data type`}
                   >
                     <strong>{option.label}</strong>
                     <span>{option.description}</span>
@@ -938,7 +939,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
             </>
           ) : activeTab === 'promptShape' ? (
             <>
-              <span>Markdown is used for unsaved and legacy projects.</span>
+              <span>Choose the project prompt data type: Markdown, JSON, or TOON. Unsaved and legacy projects fall back to Markdown.</span>
               <button
                 type="button"
                 onClick={() => void handleSaveGatewaySettings()}

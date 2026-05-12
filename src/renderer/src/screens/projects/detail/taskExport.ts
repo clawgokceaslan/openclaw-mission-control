@@ -212,6 +212,7 @@ function buildTaskFormatContract(context: ExportContext, exportStatuses: Attachm
         attachments: 'attachments/'
       },
       generatedFor: 'Codex and Claude CLI task context',
+      dataTypePolicy: 'The selected project prompt data type controls the primary task file: Markdown uses Task.md, JSON uses Task.json, and TOON uses Task.toon.',
       agentSkillPolicy: 'Task files include short summaries and refs only. Full prompts/instructions are lazy-loaded from Agents.md, Skills.md, and Tools.md. Tools.md is catalog context only in v1.'
     },
     project: {
@@ -237,7 +238,6 @@ function buildTaskFormatContract(context: ExportContext, exportStatuses: Attachm
       title: task.title,
       status: humanizeStatus(task.status, context.projectStatuses),
       description: task.description ?? '',
-      acceptanceCriteria: acceptanceCriteriaMarkdown(task),
       tags: taskTagIds.map((id) => context.tags.find((tag) => tag.id === id)?.name ?? id),
       customFields: task.customFieldValues ?? {},
       checklist: task.checklistItems ?? [],
@@ -279,13 +279,6 @@ function buildTaskFormatContract(context: ExportContext, exportStatuses: Attachm
       }
     })
   }
-}
-
-function acceptanceCriteriaMarkdown(task: TaskEntity): string {
-  const inputs = getPayload(task).agenticInputs
-  if (!inputs || typeof inputs !== 'object' || Array.isArray(inputs)) return ''
-  const record = inputs as Record<string, unknown>
-  return hasExportValue(record.acceptanceCriteria) ? String(record.acceptanceCriteria).trim() : ''
 }
 
 function formatInlineValue(value: unknown): string {
@@ -500,7 +493,7 @@ function buildAiExecutionFlow(context: ExportContext): string {
     ? `Execute ${actionableSubtasks.length} actionable subtask${actionableSubtasks.length === 1 ? '' : 's'} in Subtasks Index order.${bypassedSubtasks ? ` Bypass ${bypassedSubtasks} done/closed subtask${bypassedSubtasks === 1 ? '' : 's'}.` : ''}`
     : 'No subtasks are defined; execute from the parent task details.'
   return [
-    '1. Read Task Details, Acceptance Criteria, Subtasks, Comments, Checklist, and attachments first.',
+    '1. Read Task Details, Subtasks, Comments, Checklist, and attachments first.',
     `2. ${subtaskHint} Use each subtask description as the main AI guidance; checklist items are optional supporting detail.`,
     `3. Apply Project Instructions, then Agents.md, Skills.md, and Tools.md as supporting context.${metadataHint}`,
     '4. Implement, verify, and finalize output.'
@@ -623,7 +616,6 @@ export function buildTaskMarkdown(context: ExportContext, exportStatuses: Attach
     ['Created', formatDate(task.createdAt)],
     ['Updated', formatDate(task.updatedAt)]
   ], task.description))
-  pushSection(sections, 'Acceptance Criteria', acceptanceCriteriaMarkdown(task))
   if (taskTagIds.length) pushSection(sections, 'Tags', tagDetailsMarkdown(taskTagIds, tags))
   pushSection(sections, 'Comments', commentsMarkdown(task.comments ?? []))
   pushSection(sections, 'Custom Fields', customFieldsMarkdown(task.customFieldValues, customFields))
@@ -674,7 +666,6 @@ export function buildTaskImportJsonData(context: ExportContext) {
   return {
     title: task.title,
     description: task.description ?? '',
-    ...(acceptanceCriteriaMarkdown(task) ? { acceptanceCriteria: acceptanceCriteriaMarkdown(task) } : {}),
     tags: (task.tags ?? []).map((tag) => tag.name || tag.id).filter(Boolean),
     customFields: customFieldImportValues(task.customFieldValues, context.customFields),
     checklist: task.checklistItems ?? [],

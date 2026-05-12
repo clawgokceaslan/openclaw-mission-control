@@ -146,13 +146,13 @@ Agent sync is removed. Agent definitions stay in Open Mission Control until a fu
     terms: [
       { term: 'Task planning', description: 'The product workflow that turns a task into an implementation-ready work item before run execution.' },
       { term: 'Plan status', description: 'The task lifecycle state that shows whether planning is pending, running, ready, blocked, failed, paused, or stale.' },
-      { term: 'Plan guide', description: 'Project-level instructions that shape how future planning updates task descriptions, subtasks, checklist items, comments, and acceptance criteria.' },
+      { term: 'Plan guide', description: 'Project-level instructions that shape how future planning updates task descriptions, subtasks, checklist items, comments, and verification notes.' },
       { term: 'Planner questions', description: 'Clarification prompts that wait globally until the user answers them or opens the related task chat.' },
       { term: 'Plan-ready task', description: 'A task whose planning phase has completed and can appear in the header menu for execution or missing-setting repair.' }
     ],
     markdown: `# Task Planning Features
 
-Planning is the preparation layer for task execution in Open Mission Control. It helps users turn rough tasks into implementation-ready work by clarifying scope, shaping subtasks, recording acceptance criteria, and surfacing the task as ready to run.
+Planning is the preparation layer for task execution in Open Mission Control. It helps users turn rough tasks into implementation-ready work by clarifying scope, shaping subtasks, recording verification notes, and surfacing the task as ready to run.
 
 This document covers user-facing planning features in project and task workflows. Plan Pipeline and Pipeline Runs are separate automation surfaces and are intentionally outside this scope.
 
@@ -163,7 +163,7 @@ Each task detail view includes a lifecycle panel with four stages:
 - Planla: shows whether the task still needs planning, is currently being planned, has a ready plan, or needs attention.
 - Çalıştır: becomes available after a plan is ready, or when run history already exists.
 - Doğrula: summarizes post-run verification state after execution.
-- Tamamla: guides the user to close the task only after the result and acceptance criteria are checked.
+- Tamamla: guides the user to close the task only after the result and verification notes are checked.
 
 The planning stage can show states such as Plan bekliyor, Planlanıyor, Plan hazır, Onay bekliyor, Duraklatıldı, Kontrol gerekiyor, Bloke, or Müdahale gerekiyor. The same panel provides Planla, Yeniden dene, or Duraklat actions depending on the current state.
 
@@ -171,7 +171,7 @@ The planning stage can show states such as Plan bekliyor, Planlanıyor, Plan haz
 
 Users can start planning from the task detail primary action or from the task chat planning action. Planning is disabled until the task can resolve a gateway and plan model from project settings or task-level overrides.
 
-When a plan is started, the app asks whether the planner should first ask clarification questions or proceed directly from the available task context. Clarification-first planning is useful when product decisions, scope boundaries, or acceptance criteria are not obvious. Direct planning is useful when the existing task data is already enough.
+When a plan is started, the app asks whether the planner should first ask clarification questions or proceed directly from the available task context. Clarification-first planning is useful when product decisions, scope boundaries, or verification expectations are not obvious. Direct planning is useful when the existing task data is already enough.
 
 Planning updates the task plan only. Implementation work remains a separate run step.
 
@@ -208,7 +208,7 @@ The standard plan guide tells planning to:
 - preserve useful user-provided details;
 - rewrite the subtask list into a clearer execution plan when needed;
 - keep subtasks ordered by dependency;
-- fill missing or incomplete acceptance criteria;
+- capture verification expectations in subtasks, checklist, or comments;
 - avoid marking the task complete during planning.
 
 The plan guide is exported with task context, so future planning updates can follow project-specific expectations instead of relying only on generic behavior.
@@ -237,7 +237,6 @@ Changing the task gateway also rechecks available models. If the current task mo
 A planned task can include updates to:
 
 - title and description;
-- acceptance criteria;
 - subtasks and subtask descriptions;
 - checklist items;
 - comments and decision notes;

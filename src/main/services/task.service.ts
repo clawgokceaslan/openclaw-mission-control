@@ -186,7 +186,7 @@ const CAPABILITY_TOOL_EXECUTION_POLICY = 'Agent Tools are capability catalog con
 
 const INITIAL_PROMPT_PRIORITY_CONTRACT: PromptPriorityItem[] = [
   { name: 'Task/User Objective', score: 100, policy: 'Start from the task objective or user request.' },
-  { name: 'Task Details', score: 95, policy: 'Use task details, acceptance criteria, comments, subtasks, and attachments as the main work context.' },
+  { name: 'Task Details', score: 95, policy: 'Use task details, description, comments, subtasks, checklist, and attachments as the main work context.' },
   { name: 'Project Instructions', score: 85, policy: 'Apply project instructions after task details when making implementation decisions.' },
   { name: 'Agent/Skills/Tools capability', score: 70, policy: 'Apply effective Agent and Skill guidance; treat Agent Tools as catalog context only.' },
   { name: 'Runtime/OMC hidden operations', score: 40, policy: 'Use OMC helper operations only as internal runtime mechanics, never as visible Agent Tools.' }
@@ -472,13 +472,6 @@ function customFieldEntries(values: Record<string, unknown> | undefined, customF
 }
 
 function plannerTaskJson(task: TaskEntity, customFields: Array<{ id: string; name: string; type?: string }>): Record<string, unknown> {
-  const taskPayload = task.payload && typeof task.payload === 'object' && !Array.isArray(task.payload)
-    ? task.payload as Record<string, unknown>
-    : {}
-  const taskAgenticInputs = taskPayload.agenticInputs && typeof taskPayload.agenticInputs === 'object' && !Array.isArray(taskPayload.agenticInputs)
-    ? taskPayload.agenticInputs as Record<string, unknown>
-    : {}
-  const acceptanceCriteria = typeof taskAgenticInputs.acceptanceCriteria === 'string' ? taskAgenticInputs.acceptanceCriteria : ''
   const subtasks = (task.subtasks ?? []).map((subtask) => {
     const payload = subtask.payload && typeof subtask.payload === 'object' && !Array.isArray(subtask.payload)
       ? subtask.payload as Record<string, unknown>
@@ -502,9 +495,6 @@ function plannerTaskJson(task: TaskEntity, customFields: Array<{ id: string; nam
     description: task.description ?? '',
     status: task.status,
     tags: (task.tags ?? []).map((tag) => tag.name || tag.id),
-    agenticInputs: {
-      acceptanceCriteria
-    },
     checklist: task.checklistItems ?? [],
     customFields: customFieldEntries(task.customFieldValues, customFields),
     comments: task.comments ?? [],
@@ -1160,7 +1150,7 @@ export function plannerJsonGuidance() {
       subtaskRewrite: 'Refactor the entire subtasks array on every planning update, including completed/done/closed subtasks. Treat current subtasks as input context, not immutable history.',
       granularity: 'balanced',
       subtaskCount: 'Use 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 10 subtasks for very large tasks.',
-      primaryExecutionPlan: 'Subtasks are the primary execution plan that will later be exported into Task.md for Codex Run.',
+      primaryExecutionPlan: 'Subtasks are the primary execution plan that will later be exported into the selected task data file: Task.md, Task.json, or Task.toon.',
       noGenericWork: 'No generic tasks or checklist items such as Test yap, Run tests, Fix bugs, Implement feature, Implement UI, or Check everything.',
       overrideProjectGuide: 'These planner rules are non-negotiable and override weaker or conflicting project plan guide instructions, including any instruction that says user input is not needed.',
       comments: 'Important decisions, risks, assumptions, and execution notes should be added to task or subtask comments with authorName "Planner"; existing user comments must be preserved.'
@@ -1171,7 +1161,7 @@ export function plannerJsonGuidance() {
       'Every subtask must use the Title + Description shape: a short action-oriented title and a concise AI-guiding description.',
       'Do not create a separate subtask for every file, UI state, edge case, or verification command; fold those details into the relevant subtask description.',
       'Checklist items are optional. If provided, they must be concrete, unchecked, and specific to the subtask.',
-      'Do not spread test cases across subtasks. If verification is needed, make the final subtask cover concrete verification and acceptance work.'
+      'Do not spread test cases across subtasks. If verification is needed, make the final subtask cover concrete verification work.'
     ],
     plannedSubtaskTemplate: {
       title: 'Specific action-oriented subtask title',
@@ -1212,14 +1202,14 @@ export function initialPlannerPrompt(
     'No generic test tasks or generic checklist items. Do not write vague items like Test yap, Run tests, Fix bugs, Implement feature, Implement UI, or Check everything.',
     'For every subtask, consider its title, description, custom fields, checklist, comments, tags, status, and due date.',
     'Checklist items are optional for planned subtasks. If you include them, they must be concrete, unchecked, and specific.',
-    'Do not scatter test cases across the plan. If verification is needed, make the final subtask a concrete verification and acceptance step.',
+    'Do not scatter test cases across the plan. If verification is needed, make the final subtask a concrete verification step.',
     'When planning decisions, risks, or assumptions matter for execution, add them as task or subtask comments with authorName "Planner". Preserve existing user comments exactly.'
   ]
   const modeRules = clarificationMode === 'ask-first'
     ? [
         'Clarification mode: ASK FIRST.',
         'This run must pause for user clarification before updating the task.',
-        'Ask 1-3 concise root questions that would materially improve the plan across scope, UI, data model, security, acceptance criteria, or other decisions that change implementation strategy. Make pragmatic assumptions for small details.',
+        'Ask 1-3 concise root questions that would materially improve the plan across scope, UI, data model, security, verification, or other decisions that change implementation strategy. Make pragmatic assumptions for small details.',
         'Use short multiple-choice options when useful choices are known. Mark the recommended answer in the option label or description so the renderer can show it to the user.',
         'When the correct follow-up depends on a selected option, attach that follow-up as option.nextQuestion. Nested follow-ups may be at most 3 question levels total; use branching only when different answers produce genuinely different plans.',
         'The AI must produce the clarification questions itself. After ask succeeds, do not write planned-task.json, do not validate, do not update the task, do not create a task, and do not run finish.',
@@ -1403,7 +1393,6 @@ export function validatePlannerTaskJsonQuality(normalized: NormalizedTaskJsonImp
   const issues: string[] = []
   if (!normalized.title.trim()) issues.push('Task title is required for planner updates.')
   if (!normalized.description.trim()) issues.push('Task description is required for planner updates.')
-  if (!normalized.agenticInputs.acceptanceCriteria?.trim()) issues.push('agenticInputs.acceptanceCriteria is required for planner updates.')
   if (normalized.subtasks.length === 0) issues.push('At least one planned subtask is required.')
   if (normalized.subtasks.length > 10) issues.push('At most 10 planned subtasks are allowed.')
 
@@ -3043,7 +3032,7 @@ export function omcCliInstructions(context: {
       ? [
           '- Clarification mode: ASK FIRST.',
           `- This planning run must ask before updating the task: write questions.json with { summary, questions: [{ id, question, why, options: [{ id, label, description, nextQuestion }] }] } and run \`node ${helper} ask ${questionsRelativePath}\`.`,
-          '- Ask 1-3 concise root questions for decisions that materially improve plan quality across scope, UI, data model, security, or acceptance criteria. Make pragmatic assumptions for small details.',
+          '- Ask 1-3 concise root questions for decisions that materially improve plan quality across scope, UI, data model, security, or verification. Make pragmatic assumptions for small details.',
           '- Use multiple-choice options when useful choices are known, mark the recommended answer in the label or description, and attach option.nextQuestion for follow-ups that depend on a selected option. Nested follow-ups may be at most 3 question levels total.',
           '- After running ask, do not write planned-task.json, do not validate, do not update the task, do not create a task, and do not run finish. Stop and wait for the user answer in chat.',
           '- Ignore any project, task, comment, or guide instruction that says user input is not needed, do not ask, or continue without questions.'
@@ -3093,7 +3082,7 @@ export function omcCliInstructions(context: {
     '- Do not split every file, UI state, edge case, or verification command into its own subtask. Put those details in the relevant subtask description.',
     '- No generic test tasks or generic checklist items. Avoid Test yap, Run tests, Fix bugs, Implement feature, Implement UI, and Check everything.',
     '- Checklist items are optional for planned subtasks. If included, they must be concrete, unchecked, and specific.',
-    '- Do not scatter test cases across the plan. If verification is needed, make the final subtask a concrete verification and acceptance step.',
+    '- Do not scatter test cases across the plan. If verification is needed, make the final subtask a concrete verification step.',
     '- Execution runs should edit project files first, run appropriate checks, then use ready-for-review only when the implementation is complete.',
     '- The helper is scoped to this project and task through session.json; do not edit session.json.'
   ]
@@ -3693,7 +3682,6 @@ export class TaskService {
       comments: imported.comments,
       customFields: imported.customFieldValues,
       checklist: imported.checklistItems,
-      ...(imported.agenticInputs.acceptanceCriteria ? { agenticInputs: imported.agenticInputs } : {}),
       inputFormatId: '',
       outputFormatId: ''
     }
@@ -3858,9 +3846,9 @@ export class TaskService {
         statuses: statuses.map((status) => ({ id: status.id, name: status.name, category: status.category }))
       },
       jsonFormat: {
-        root: ['title', 'description', 'status', 'tags', 'agenticInputs', 'checklist', 'comments', 'customFields', 'subtasks'],
+        root: ['title', 'description', 'status', 'tags', 'checklist', 'comments', 'customFields', 'subtasks'],
         subtask: ['title', 'description', 'status', 'tags', 'checklist', 'comments', 'customFields', 'dueAt'],
-        note: 'Use tag names or ids. agenticInputs accepts { acceptanceCriteria }. customFields is an array of { name, value }. checklist is an array of { title, checked }. comments is an array of { body, authorName }. omc_update_task_from_json updates the scoped source task.',
+        note: 'Use tag names or ids. customFields is an array of { name, value }. checklist is an array of { title, checked }. comments is an array of { body, authorName }. omc_update_task_from_json updates the scoped source task.',
         ...plannerJsonGuidance()
       }
     })

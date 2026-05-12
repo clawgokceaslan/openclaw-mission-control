@@ -14,9 +14,6 @@ export type CreateTaskInput = {
   templateId?: string | null
   importJson?: string | null
   statusOrder?: number
-  agenticInputs?: {
-    acceptanceCriteria?: string
-  }
 }
 
 export type CreateTaskWithTemplateContext = {
@@ -89,10 +86,6 @@ export async function createTaskWithTemplate(context: CreateTaskWithTemplateCont
   }
   if (typeof input.statusOrder === 'number' && Number.isFinite(input.statusOrder)) {
     createPayload.statusOrder = { [normalizeStatus(input.status)]: input.statusOrder }
-  }
-  const acceptanceCriteria = input.agenticInputs?.acceptanceCriteria?.trim()
-  if (acceptanceCriteria) {
-    createPayload.agenticInputs = { acceptanceCriteria }
   }
 
   const createResponse = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.create, {
