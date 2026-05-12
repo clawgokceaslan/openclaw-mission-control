@@ -29,18 +29,22 @@
 }
 
 .chatComposer {
+  position: relative;
+  z-index: 12;
   min-width: 0;
+  overflow: visible;
   background: color-mix(in srgb, var(--omc-surface) 86%, var(--omc-surface-muted) 14%);
 }
 
 .chatComposerBox {
   position: relative;
+  overflow: visible;
   border-color: color-mix(in srgb, var(--omc-border) 46%, transparent);
   background: color-mix(in srgb, var(--omc-surface-muted) 64%, var(--omc-surface) 36%);
 
   textarea {
     position: relative;
-    z-index: 1;
+    z-index: 0;
   }
 }
 
@@ -61,6 +65,7 @@
 .chatComposerBox .chatConfigurationButton {
   width: auto;
   max-width: 100%;
+  background: color-mix(in srgb, var(--omc-surface) 94%, var(--omc-surface-muted) 6%) !important;
   padding: 0 10px;
 }
 
@@ -159,13 +164,13 @@
   width: max-content;
   min-width: 0;
   max-width: min(220px, 100%);
-  z-index: 6;
+  z-index: 90;
   pointer-events: auto;
 }
 
 .codexOptionsButton {
   position: relative;
-  z-index: 7;
+  z-index: 91;
   flex: 0 0 auto;
   width: auto !important;
   min-width: 0;
@@ -176,6 +181,9 @@
   padding: 0 8px !important;
   font-size: 0.72rem !important;
   overflow: hidden;
+  background: color-mix(in srgb, var(--omc-surface) 96%, var(--omc-surface-muted) 4%) !important;
+  border-color: color-mix(in srgb, var(--omc-border-strong) 60%, var(--omc-border-subtle)) !important;
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--omc-shadow-color) 22%, transparent) !important;
   pointer-events: auto;
 }
 
@@ -183,16 +191,17 @@
   position: absolute;
   left: 0;
   bottom: calc(100% + 8px);
-  z-index: 70;
+  z-index: 120;
   width: min(392px, calc(100vw - 34px));
   max-height: min(390px, calc(100dvh - 180px));
   overflow-y: auto;
   border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 70%, transparent);
   border-radius: 12px;
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--omc-bg) 36%, var(--omc-surface) 64%), color-mix(in srgb, var(--omc-surface) 90%, var(--omc-bg) 10%));
+    linear-gradient(180deg, color-mix(in srgb, var(--omc-surface) 96%, var(--omc-bg) 4%), color-mix(in srgb, var(--omc-surface) 98%, var(--omc-bg) 2%));
   box-shadow: 0 18px 58px color-mix(in srgb, #000 34%, transparent);
   padding: 5px;
+  pointer-events: auto;
   scrollbar-width: thin;
 }
 

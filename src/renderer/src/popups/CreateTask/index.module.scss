@@ -297,47 +297,6 @@
   }
 }
 
-.createTaskAgenticGrid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-
-  label {
-    min-width: 0;
-    border: 1px solid var(--omc-border-subtle);
-    border-radius: 10px;
-    background: color-mix(in srgb, var(--omc-surface-muted) 56%, var(--omc-surface));
-    padding: 10px;
-    display: grid;
-    gap: 8px;
-  }
-
-  span {
-    color: var(--omc-text-muted);
-    font-size: 0.72rem;
-    font-weight: 900;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-
-  textarea {
-    min-height: 108px;
-    resize: vertical;
-    border: 1px solid var(--omc-input-border);
-    border-radius: 9px;
-    background: var(--omc-input-bg);
-    color: var(--omc-text-strong);
-    padding: 9px 10px;
-    line-height: 1.45;
-    outline: none;
-
-    &:focus {
-      border-color: var(--omc-primary);
-      box-shadow: 0 0 0 3px var(--omc-input-focus-ring);
-    }
-  }
-}
-
 .createTaskTags {
   min-width: 0;
   border: 1px solid var(--omc-border-subtle);

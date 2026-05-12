@@ -2506,47 +2506,6 @@
   }
 }
 
-.createTaskAgenticGrid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-
-  label {
-    min-width: 0;
-    border: 1px solid var(--omc-border-subtle);
-    border-radius: 10px;
-    background: color-mix(in srgb, var(--omc-surface-muted) 56%, var(--omc-surface));
-    padding: 10px;
-    display: grid;
-    gap: 8px;
-  }
-
-  span {
-    color: var(--omc-text-muted);
-    font-size: 0.72rem;
-    font-weight: 900;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-
-  textarea {
-    min-height: 108px;
-    resize: vertical;
-    border: 1px solid var(--omc-input-border);
-    border-radius: 9px;
-    background: var(--omc-input-bg);
-    color: var(--omc-text-strong);
-    padding: 9px 10px;
-    line-height: 1.45;
-    outline: none;
-
-    &:focus {
-      border-color: var(--omc-input-focus-border);
-      box-shadow: 0 0 0 3px var(--omc-input-focus-ring);
-    }
-  }
-}
-
 .chatRole_assistant {
   align-self: stretch;
   max-width: 100%;
@@ -3026,6 +2985,7 @@
   padding: 8px clamp(12px, 3vw, 36px) 10px;
   display: grid;
   gap: 5px;
+  overflow: visible;
   background: color-mix(in srgb, var(--omc-surface) 92%, var(--omc-bg) 8%);
 }
 
@@ -3125,7 +3085,7 @@
 
 .chatComposerFooter {
   position: relative;
-  z-index: 3;
+  z-index: 20;
   grid-area: footer;
   min-width: 0;
   min-height: 42px;
@@ -3134,7 +3094,7 @@
   align-items: center;
   gap: 8px;
   justify-content: flex-start;
-  overflow: hidden;
+  overflow: visible;
   pointer-events: auto;
 }
 
@@ -3453,6 +3413,8 @@
 }
 
 .chatComposerBox {
+  position: relative;
+  overflow: visible;
   border: 1px solid color-mix(in srgb, var(--omc-border) 34%, transparent);
   border-radius: 13px;
   background: color-mix(in srgb, var(--omc-surface-muted) 74%, var(--omc-surface) 26%);
@@ -8713,7 +8675,7 @@
 
   .chatComposer {
     padding: 6px max(10px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px));
-    overflow: hidden;
+    overflow: visible;
   }
 
   .chatComposerBox {
@@ -8793,10 +8755,6 @@
 
   .chatRole_user {
     max-width: 100%;
-  }
-
-  .createTaskAgenticGrid {
-    grid-template-columns: 1fr;
   }
 
   .dataFormatPanel {
