@@ -5,6 +5,9 @@ export type PipelineStatusLiveEventTone = 'info' | 'success' | 'warning' | 'dang
 export function snapshotSignature(snapshot: PipelineStatusSnapshot | null): Map<string, string> {
   const values = new Map<string, string>()
   if (!snapshot) return values
+  for (const item of snapshot.statusItems ?? []) {
+    values.set(`status-item:${item.id}`, `${item.source}:${item.phase}:${item.status}:${item.updatedAt}:${item.progress ?? ''}:${item.progressText ?? ''}:${item.error ?? ''}`)
+  }
   for (const task of snapshot.taskSummaries) {
     values.set(`task:${task.id}`, `${task.status}:${task.title}:${task.projectName ?? ''}:${task.updatedAt}:${task.activityStatus ?? ''}:${task.activityPhase ?? ''}:${task.lastActivityAt ?? ''}`)
   }
@@ -40,6 +43,11 @@ export function changedKeys(previous: PipelineStatusSnapshot | null, next: Pipel
 }
 
 export function strongestChangedTone(snapshot: PipelineStatusSnapshot, keys: Set<string>): PipelineStatusLiveEventTone {
+  for (const item of snapshot.statusItems ?? []) {
+    if (!keys.has(`status-item:${item.id}`)) continue
+    if (item.status === 'failed' || item.status === 'blocked' || item.status === 'cancelled') return 'danger'
+    if (item.status === 'completed' || item.status === 'skipped') return 'success'
+  }
   for (const pipeline of snapshot.pipelines) {
     if (keys.has(`run:${pipeline.batch.id}`) && ['failed', 'blocked', 'cancelled'].includes(pipeline.batch.status)) return 'danger'
     if (keys.has(`run:${pipeline.batch.id}`) && pipeline.batch.status === 'completed') return 'success'
@@ -63,7 +71,12 @@ export function pipelineStatusEventText(payload: unknown): { label: string; deta
   const record = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : {}
   const reason = typeof record.reason === 'string' ? record.reason : ''
   const action = typeof record.action === 'string' ? record.action : ''
-  if (reason === 'task_activity') return { label: 'Task activity', detail: action ? `Activity ${action}` : 'Task activity changed' }
+  const phase = typeof record.phase === 'string' ? record.phase : ''
+  if (reason === 'task_activity') {
+    const phaseText = phase === 'post-running' ? 'Post-run' : phase === 'follow-up' ? 'Follow-up' : phase ? `${phase[0]?.toUpperCase()}${phase.slice(1)}` : ''
+    const actionText = action ? action.replace(/_/g, ' ') : ''
+    return { label: 'Task activity', detail: actionText ? `${phaseText ? `${phaseText} ` : ''}${actionText}` : 'Task activity changed' }
+  }
   if (reason === 'task_updated') return { label: 'Task update', detail: action ? `Task ${action.replace(/_/g, ' ')}` : 'Task changed' }
   if (reason === 'plan_pipeline') return { label: 'Plan pipeline', detail: 'Plan status changed' }
   if (reason === 'run_pipeline') return { label: 'Run pipeline', detail: 'Execution status changed' }

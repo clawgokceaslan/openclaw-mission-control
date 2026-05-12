@@ -3377,6 +3377,31 @@ export class TaskService {
     const access = await this.ensureTaskAccess(context.actorToken, context.taskId)
     if (!access.ok || !access.data) return
     const kind = exitCode === null ? 'completed' : exitCode === 0 ? 'completed' : exitCode === 130 || exitCode === 143 ? 'stopped' : 'failed'
+    const source: TaskActivityMessage['source'] = context.mode === 'plan' ? 'gateway-plan' : 'gateway-run'
+    const phase: GatewayChatPhase = context.mode === 'plan' ? 'PLAN' : 'RUN'
+    const runId = context.runId ?? context.taskId
+    const conversationId = context.conversationId ?? runId
+    await this.appendTaskActivityMessage(context.taskId, {
+      runId,
+      conversationId,
+      source,
+      phase,
+      role: kind === 'failed' ? 'error' : 'system',
+      status: kind === 'failed' ? 'failed' : 'completed',
+      body: kind === 'failed'
+        ? `Codex terminal ${context.mode === 'plan' ? 'planner' : 'run'} failed with code ${exitCode ?? 'unknown'}.`
+        : kind === 'stopped'
+          ? `Codex terminal ${context.mode === 'plan' ? 'planner' : 'run'} stopped.`
+          : `Codex terminal ${context.mode === 'plan' ? 'planner' : 'run'} completed.`,
+      metadata: {
+        gatewayBlock: 'run-complete',
+        terminalCompletion: true,
+        code: exitCode,
+        model: context.model ?? null,
+        gatewayId: context.gatewayId ?? null,
+        executionMode: context.executionMode
+      }
+    }, { emitTaskUpdatedAction: 'activity_complete' })
     showGatewayNotification({
       kind,
       mode: context.mode === 'execute' ? 'run' : 'plan',

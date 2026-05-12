@@ -461,6 +461,78 @@
     }
   }
 
+  .statusListCard {
+    grid-column: 1 / -1;
+
+    .statusItemList {
+      display: grid;
+      gap: 8px;
+    }
+
+    .statusItemLine {
+      min-width: 0;
+      border: 1px solid #232a35;
+      border: 1px solid var(--omc-border-subtle);
+      border-radius: 8px;
+      background: #101216;
+      background: var(--omc-surface);
+      padding: 9px 10px;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1.2fr) minmax(160px, 0.8fr);
+      gap: 4px 10px;
+      align-items: center;
+      position: relative;
+      overflow: hidden;
+
+      > div {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+
+      strong,
+      small,
+      .statusItemProgress {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      strong {
+        color: #f5f8ff;
+        color: var(--omc-text-strong);
+        font-weight: 900;
+      }
+
+      small,
+      .statusItemProgress {
+        color: #9aabc4;
+        color: var(--omc-text-muted);
+        font-weight: 750;
+      }
+
+      .statusItemProgress {
+        justify-self: end;
+        text-align: right;
+      }
+
+      p {
+        grid-column: 2 / -1;
+        margin: 0;
+        border-left: 3px solid #fecdd3;
+        border-left: 3px solid var(--omc-danger-strong);
+        padding-left: 8px;
+        color: #fecdd3;
+        color: var(--omc-danger-strong);
+        font-weight: 750;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
+  }
+
   .kind {
     width: fit-content;
     border: 1px solid var(--omc-border);
@@ -683,12 +755,6 @@
     animation: changedGlow 1.1s ease-out;
   }
 
-  .liveTasks {
-    .taskList {
-      gap: 8px;
-    }
-  }
-
   .dot {
     width: 9px;
     height: 9px;
@@ -780,6 +846,7 @@
   .activeTask,
   .stage,
   .taskLine,
+  .statusItemLine,
   .actions button,
   .kind,
   .progress {
@@ -938,6 +1005,19 @@
     .stage > div:first-child,
     .pipeline > header {
       display: grid;
+    }
+
+    .statusListCard {
+      .statusItemLine {
+        grid-template-columns: auto minmax(0, 1fr);
+
+        .statusItemProgress,
+        p {
+          grid-column: 2;
+          justify-self: start;
+          text-align: left;
+        }
+      }
     }
   }
 }

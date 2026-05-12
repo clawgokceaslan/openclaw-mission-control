@@ -4,10 +4,14 @@ import { ErrorCodes } from '../../shared/contracts/error-codes.js'
 import { errorResponse, okResponse, ServiceResponse } from '../../shared/contracts/response.js'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
 import type {
+  PipelineStatusRunState,
+  PipelineStatusRunSummary,
   PipelineStatusSnapshot,
   PipelineStatusWatchToken,
   PipelineStatusProjectSummary,
   PipelineStatusTaskSummary,
+  PlanPipelineBatch,
+  PlanPipelineRecord,
   RunPipelineGraph,
   RunPipelineItem,
   RunPipelineStatus,
@@ -324,6 +328,9 @@ export class RunPipelineService {
 
 type PipelineActivityPhase = NonNullable<PipelineStatusTaskSummary['activityPhase']>
 type PipelineActivityStatus = NonNullable<PipelineStatusTaskSummary['activityStatus']>
+type TaskActivityMessageRecord = Record<string, unknown>
+
+const RECENT_STANDALONE_RUN_MS = 6 * 60 * 60 * 1000
 
 function phaseToPipelineActivityPhase(phase: GatewayChatPhase): PipelineActivityPhase {
   if (phase === 'PLAN') return 'plan'
@@ -335,6 +342,18 @@ function phaseToPipelineActivityPhase(phase: GatewayChatPhase): PipelineActivity
 function pipelineActivityLabel(phase: PipelineActivityPhase, status: PipelineActivityStatus): string {
   if (status === 'planned') return 'Plan ready'
   if (status === 'needs-input') return 'Needs input'
+  if (status === 'completed') {
+    if (phase === 'plan') return 'Plan completed'
+    if (phase === 'run') return 'Run completed'
+    if (phase === 'post-running') return 'Post-run completed'
+    return 'Follow-up completed'
+  }
+  if (status === 'failed') {
+    if (phase === 'plan') return 'Plan failed'
+    if (phase === 'run') return 'Run failed'
+    if (phase === 'post-running') return 'Post-run failed'
+    return 'Follow-up failed'
+  }
   if (phase === 'plan') return status === 'queued' ? 'Planning queued' : 'Planning'
   if (phase === 'run') return status === 'queued' ? 'Run queued' : 'Running'
   if (phase === 'post-running') return status === 'queued' ? 'Post-run queued' : 'Post-run'
@@ -352,7 +371,7 @@ function taskActivityMessages(task: TaskEntity): Record<string, unknown>[] {
     : []
 }
 
-function messageTime(message: Record<string, unknown>): number {
+function messageTime(message: TaskActivityMessageRecord): number {
   return typeof message.updatedAt === 'number'
     ? message.updatedAt
     : typeof message.createdAt === 'number'
@@ -360,11 +379,116 @@ function messageTime(message: Record<string, unknown>): number {
       : 0
 }
 
-function isFreshRuntimeMessage(message: Record<string, unknown>, now: number): boolean {
+function messageString(message: TaskActivityMessageRecord, key: string): string {
+  const value = message[key]
+  return typeof value === 'string' ? value : ''
+}
+
+function messageMetadata(message: TaskActivityMessageRecord): Record<string, unknown> {
+  return asRecord(message.metadata)
+}
+
+function isGatewayActivityMessage(message: TaskActivityMessageRecord): boolean {
+  const source = messageString(message, 'source')
+  return source === 'gateway-plan' || source === 'gateway-run' || source === 'gateway-chat'
+}
+
+function isFreshRuntimeMessage(message: TaskActivityMessageRecord, now: number): boolean {
   const status = typeof message.status === 'string' ? message.status : ''
   if (status !== 'running' && status !== 'queued') return false
   const at = messageTime(message)
   return at > 0 && now - at <= 15 * 60 * 1000
+}
+
+function normalizeRunState(status: unknown): PipelineStatusRunState {
+  if (typeof status !== 'string') return 'event'
+  const value = status.trim().toLowerCase()
+  if (
+    value === 'pending'
+    || value === 'queued'
+    || value === 'running'
+    || value === 'completed'
+    || value === 'failed'
+    || value === 'blocked'
+    || value === 'paused'
+    || value === 'cancelled'
+    || value === 'skipped'
+    || value === 'planned'
+    || value === 'needs-input'
+  ) {
+    return value
+  }
+  if (value === 'waiting') return 'queued'
+  if (value === 'needs-clarification') return 'needs-input'
+  return 'event'
+}
+
+function taskRunStatusFromMessages(messages: TaskActivityMessageRecord[], now: number): PipelineStatusRunState {
+  const latest = [...messages].sort((a, b) => messageTime(b) - messageTime(a))[0]
+  if (!latest) return 'event'
+  const latestStatus = normalizeRunState(latest.status)
+  if ((latestStatus === 'running' || latestStatus === 'queued') && isFreshRuntimeMessage(latest, now)) return latestStatus
+  const hasFailed = messages.some((message) => {
+    const metadata = messageMetadata(message)
+    return normalizeRunState(message.status) === 'failed'
+      || messageString(message, 'role') === 'error'
+      || normalizeRunState(metadata.runStatus) === 'failed'
+  })
+  if (hasFailed) return 'failed'
+  const hasCompleted = messages.some((message) => normalizeRunState(message.status) === 'completed')
+  if (hasCompleted) return 'completed'
+  return latestStatus
+}
+
+function compactProgressText(message: TaskActivityMessageRecord | undefined, fallback: string): string {
+  const rawBody = typeof message?.body === 'string' ? message.body.trim() : ''
+  if (!rawBody || message?.role === 'user') return fallback
+  const firstLine = rawBody.split(/\r?\n/).find(Boolean) ?? rawBody
+  return firstLine.length > 120 ? `${firstLine.slice(0, 117)}...` : firstLine
+}
+
+function taskRunStatusItems(task: TaskEntity, projectName: string | undefined, now: number): PipelineStatusRunSummary[] {
+  const groups = new Map<string, TaskActivityMessageRecord[]>()
+  for (const message of taskActivityMessages(task)) {
+    if (!isGatewayActivityMessage(message)) continue
+    const runId = messageString(message, 'runId')
+    const conversationId = messageString(message, 'conversationId') || runId || messageString(message, 'id')
+    const key = conversationId || runId || `${task.id}:${messageTime(message)}`
+    groups.set(key, [...(groups.get(key) ?? []), message])
+  }
+  return Array.from(groups.entries()).map(([conversationId, messages]) => {
+    const ordered = [...messages].sort((a, b) => messageTime(a) - messageTime(b))
+    const latest = ordered[ordered.length - 1]
+    const phase = phaseToPipelineActivityPhase(inferGatewayChatPhase(latest))
+    const status = taskRunStatusFromMessages(ordered, now)
+    const updatedAt = Math.max(...ordered.map(messageTime), task.updatedAt)
+    const startedAt = Math.min(...ordered.map(messageTime).filter((time) => time > 0))
+    const fallback = pipelineActivityLabel(phase, status === 'planned' || status === 'needs-input' || status === 'queued' || status === 'running' || status === 'completed' || status === 'failed' ? status : 'event')
+    const errorMessage = [...ordered].reverse().find((message) => normalizeRunState(message.status) === 'failed' || messageString(message, 'role') === 'error')
+    return {
+      id: `task:${task.id}:${conversationId}`,
+      source: 'single-task',
+      sourceId: conversationId,
+      title: task.title,
+      phase,
+      status,
+      startedAt: Number.isFinite(startedAt) ? startedAt : undefined,
+      completedAt: status === 'completed' || status === 'failed' ? updatedAt : undefined,
+      updatedAt,
+      taskId: task.id,
+      projectId: task.projectId,
+      projectName,
+      taskTitle: task.title,
+      conversationId,
+      runId: messageString(latest, 'runId') || conversationId,
+      progressText: compactProgressText(latest, fallback),
+      error: errorMessage ? compactProgressText(errorMessage, 'Task run failed') : undefined
+    }
+  }).filter((item) => (
+    item.status === 'running'
+    || item.status === 'queued'
+    || now - item.updatedAt <= RECENT_STANDALONE_RUN_MS
+  )).sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
 function runtimeSummaryForTask(task: TaskEntity, now: number): Pick<PipelineStatusTaskSummary, 'activityPhase' | 'activityStatus' | 'conversationId' | 'runId' | 'lastActivityAt' | 'activityLabel'> | null {
@@ -401,6 +525,108 @@ function runtimeSummaryForTask(task: TaskEntity, now: number): Pick<PipelineStat
   return null
 }
 
+function buildPlanPipelineStatusItems(planBatches: PlanPipelineBatch[], planRecords: PlanPipelineRecord[]): PipelineStatusRunSummary[] {
+  const recordsByBatch = new Map<string, PlanPipelineRecord[]>()
+  for (const record of planRecords) {
+    if (!record.batchId) continue
+    recordsByBatch.set(record.batchId, [...(recordsByBatch.get(record.batchId) ?? []), record])
+  }
+  const batchItems = planBatches.map((batch) => {
+    const records = recordsByBatch.get(batch.id) ?? []
+    const progress = records.length ? Math.round(records.reduce((sum, record) => sum + record.progress, 0) / records.length) : 0
+    const failedRecord = records.find((record) => record.lastError)
+    return {
+      id: `plan-pipeline:${batch.id}`,
+      source: 'plan-pipeline' as const,
+      sourceId: batch.id,
+      title: batch.name,
+      phase: 'plan' as const,
+      status: normalizeRunState(batch.status),
+      startedAt: batch.createdAt,
+      completedAt: records.find((record) => record.completedAt)?.completedAt,
+      updatedAt: batch.updatedAt,
+      planBatchId: batch.id,
+      taskCount: records.reduce((sum, record) => sum + record.taskIds.length, 0),
+      progress,
+      progressText: `${records.length} stage · ${progress}%`,
+      error: failedRecord?.lastError
+    }
+  })
+  const orphanRecordItems = planRecords.filter((record) => !record.batchId).map((record) => ({
+    id: `plan-record:${record.id}`,
+    source: 'plan-pipeline' as const,
+    sourceId: record.id,
+    title: record.sourceDraftName || record.groupName,
+    phase: 'plan' as const,
+    status: normalizeRunState(record.status),
+    startedAt: record.createdAt,
+    completedAt: record.completedAt,
+    updatedAt: record.updatedAt,
+    planRecordId: record.id,
+    taskCount: record.taskIds.length,
+    progress: record.progress,
+    progressText: `${record.groupName} · ${record.progress}%`,
+    error: record.lastError
+  }))
+  return [...batchItems, ...orphanRecordItems]
+}
+
+function buildRunPipelineStatusItems(pipelines: RunPipelineGraph[], taskSummaries: PipelineStatusTaskSummary[]): PipelineStatusRunSummary[] {
+  const taskById = new Map(taskSummaries.map((task) => [task.id, task]))
+  return pipelines.map((pipeline) => {
+    const activeItem = pipeline.items.find((item) => item.id === pipeline.batch.currentItemId)
+    const failedItem = pipeline.items.find((item) => item.lastError)
+    const activeTask = activeItem ? taskById.get(activeItem.taskId) : undefined
+    const progressText = activeItem
+      ? `${activeTask?.title ?? activeItem.taskId} · ${activeItem.progress}%`
+      : `${pipeline.items.length} task · ${pipeline.batch.progress}%`
+    return {
+      id: `run-pipeline:${pipeline.batch.id}`,
+      source: 'run-pipeline',
+      sourceId: pipeline.batch.id,
+      title: pipeline.batch.name,
+      phase: 'run',
+      status: normalizeRunState(pipeline.batch.status),
+      startedAt: pipeline.batch.createdAt,
+      completedAt: pipeline.batch.completedAt,
+      updatedAt: pipeline.batch.updatedAt,
+      runPipelineId: pipeline.batch.id,
+      runItemId: activeItem?.id,
+      taskId: activeItem?.taskId,
+      projectId: activeItem?.projectId,
+      projectName: activeTask?.projectName,
+      taskTitle: activeTask?.title,
+      taskCount: pipeline.items.length,
+      progress: pipeline.batch.progress,
+      progressText,
+      error: failedItem?.lastError
+    } satisfies PipelineStatusRunSummary
+  })
+}
+
+function statusItemRank(status: PipelineStatusRunState): number {
+  if (status === 'running') return 0
+  if (status === 'queued' || status === 'pending') return 1
+  if (status === 'needs-input' || status === 'planned' || status === 'paused' || status === 'blocked') return 2
+  if (status === 'failed' || status === 'cancelled') return 3
+  if (status === 'completed' || status === 'skipped') return 4
+  return 5
+}
+
+function buildStatusItems(input: {
+  planBatches: PlanPipelineBatch[]
+  planRecords: PlanPipelineRecord[]
+  pipelines: RunPipelineGraph[]
+  taskSummaries: PipelineStatusTaskSummary[]
+  taskRunSummaries: PipelineStatusRunSummary[]
+}): PipelineStatusRunSummary[] {
+  return [
+    ...input.taskRunSummaries,
+    ...buildPlanPipelineStatusItems(input.planBatches, input.planRecords),
+    ...buildRunPipelineStatusItems(input.pipelines, input.taskSummaries)
+  ].sort((a, b) => statusItemRank(a.status) - statusItemRank(b.status) || b.updatedAt - a.updatedAt).slice(0, 48)
+}
+
 export class PipelineStatusService {
   constructor(
     private readonly auth: AuthService,
@@ -416,13 +642,17 @@ export class PipelineStatusService {
     const planBatches = payload?.runPipelineId ? [] : await this.planRepo.listBatches(actor.user.organizationId)
     const planRecords = payload?.runPipelineId ? [] : await this.planRepo.list(actor.user.organizationId)
     const summaries = await this.resolveSummaries([actor.user.organizationId], this.pipelineTaskIds(pipelines, planRecords))
+    const statusItems = buildStatusItems({ planBatches, planRecords, pipelines, taskSummaries: summaries.taskSummaries, taskRunSummaries: summaries.taskRunSummaries })
     return okResponse({
       generatedAt: Date.now(),
       scope: payload?.runPipelineId ? 'run_pipeline' : 'all',
       planBatches,
       planRecords,
       pipelines,
-      ...summaries
+      statusItems,
+      taskSummaries: summaries.taskSummaries,
+      activeTasks: summaries.activeTasks,
+      projectSummaries: summaries.projectSummaries
     })
   }
 
@@ -459,14 +689,19 @@ export class PipelineStatusService {
         ...planBatches.map((batch) => batch.organizationId),
         ...planRecords.map((record) => record.organizationId)
       ]))
-      const summaries = await this.resolveSummaries(organizationIds, this.pipelineTaskIds(graphs.filter((item): item is RunPipelineGraph => Boolean(item)), planRecords))
+      const pipelines = graphs.filter((item): item is RunPipelineGraph => Boolean(item))
+      const summaries = await this.resolveSummaries(organizationIds, this.pipelineTaskIds(pipelines, planRecords))
+      const statusItems = buildStatusItems({ planBatches, planRecords, pipelines, taskSummaries: summaries.taskSummaries, taskRunSummaries: summaries.taskRunSummaries })
       return okResponse({
         generatedAt: Date.now(),
         scope: 'all',
         planBatches,
         planRecords,
-        pipelines: graphs.filter((item): item is RunPipelineGraph => Boolean(item)),
-        ...summaries
+        pipelines,
+        statusItems,
+        taskSummaries: summaries.taskSummaries,
+        activeTasks: summaries.activeTasks,
+        projectSummaries: summaries.projectSummaries
       })
     }
     const record = await this.repo.getStatusTokenByHash(this.hashToken(token))
@@ -476,7 +711,18 @@ export class PipelineStatusService {
     const planBatches = record.scope === 'run_pipeline' ? [] : await this.planRepo.listBatches(record.organizationId)
     const planRecords = record.scope === 'run_pipeline' ? [] : await this.planRepo.list(record.organizationId)
     const summaries = await this.resolveSummaries([record.organizationId], this.pipelineTaskIds(pipelines, planRecords))
-    return okResponse({ generatedAt: Date.now(), scope: record.scope, planBatches, planRecords, pipelines, ...summaries })
+    const statusItems = buildStatusItems({ planBatches, planRecords, pipelines, taskSummaries: summaries.taskSummaries, taskRunSummaries: summaries.taskRunSummaries })
+    return okResponse({
+      generatedAt: Date.now(),
+      scope: record.scope,
+      planBatches,
+      planRecords,
+      pipelines,
+      statusItems,
+      taskSummaries: summaries.taskSummaries,
+      activeTasks: summaries.activeTasks,
+      projectSummaries: summaries.projectSummaries
+    })
   }
 
   private async resolvePipelines(organizationId: string, runPipelineId?: string): Promise<RunPipelineGraph[]> {
@@ -500,7 +746,7 @@ export class PipelineStatusService {
     ])
   }
 
-  private async resolveSummaries(organizationIds: string[], pipelineTaskIds = new Set<string>()): Promise<{ taskSummaries: PipelineStatusTaskSummary[]; activeTasks: PipelineStatusTaskSummary[]; projectSummaries: PipelineStatusProjectSummary[] }> {
+  private async resolveSummaries(organizationIds: string[], pipelineTaskIds = new Set<string>()): Promise<{ taskSummaries: PipelineStatusTaskSummary[]; activeTasks: PipelineStatusTaskSummary[]; taskRunSummaries: PipelineStatusRunSummary[]; projectSummaries: PipelineStatusProjectSummary[] }> {
     const uniqueOrganizationIds = Array.from(new Set(organizationIds.filter(Boolean)))
     const projects = (await Promise.all(uniqueOrganizationIds.map((organizationId) => this.projectRepo.list(organizationId)))).flat()
     const tasks = (await Promise.all(uniqueOrganizationIds.map((organizationId) => this.taskRepo.listAll(organizationId)))).flat()
@@ -515,12 +761,16 @@ export class PipelineStatusService {
       updatedAt: task.updatedAt,
       ...(runtimeSummaryForTask(task, now) ?? {})
     }))
+    const taskRunSummaries = tasks
+      .filter((task) => !pipelineTaskIds.has(task.id))
+      .flatMap((task) => taskRunStatusItems(task, projectById.get(task.projectId)?.name, now))
     return {
       projectSummaries: projects.map((project) => ({
         id: project.id,
         name: project.name
       })),
       taskSummaries,
+      taskRunSummaries,
       activeTasks: taskSummaries
         .filter((task) => task.activityStatus && !pipelineTaskIds.has(task.id))
         .sort((a, b) => (b.lastActivityAt ?? b.updatedAt) - (a.lastActivityAt ?? a.updatedAt))

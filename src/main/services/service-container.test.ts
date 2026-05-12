@@ -37,6 +37,9 @@ describe('registerPipelineStatusEventBridge', () => {
         runItemId: undefined,
         phase: 'post-running',
         action: 'running',
+        status: 'running',
+        progressText: undefined,
+        error: undefined,
         updatedAt: 11
       }
     ])

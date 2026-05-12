@@ -9,6 +9,7 @@ function snapshot(overrides: Partial<PipelineStatusSnapshot>): PipelineStatusSna
     planBatches: [],
     planRecords: [],
     pipelines: [],
+    statusItems: [],
     taskSummaries: [],
     activeTasks: [],
     projectSummaries: [],
@@ -53,10 +54,33 @@ describe('pipelineStatusUtils', () => {
     expect(changedKeys(null, after)).toContain('active-task:task-1')
   })
 
+  it('marks unified status rows', () => {
+    const after = snapshot({
+      statusItems: [
+        {
+          id: 'task:task-1:run-1',
+          source: 'single-task',
+          sourceId: 'run-1',
+          title: 'Run task',
+          phase: 'run',
+          status: 'running',
+          updatedAt: 2,
+          taskId: 'task-1'
+        }
+      ]
+    })
+
+    expect(changedKeys(null, after)).toContain('status-item:task:task-1:run-1')
+  })
+
   it('formats normalized pipeline status events', () => {
     expect(pipelineStatusEventText({ reason: 'task_updated', action: 'status_changed' })).toEqual({
       label: 'Task update',
       detail: 'Task status changed'
+    })
+    expect(pipelineStatusEventText({ reason: 'task_activity', phase: 'post-running', action: 'running' })).toEqual({
+      label: 'Task activity',
+      detail: 'Post-run running'
     })
     expect(pipelineStatusEventText({ reason: 'run_pipeline' })).toEqual({
       label: 'Run pipeline',

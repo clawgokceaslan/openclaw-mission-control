@@ -5,6 +5,7 @@ import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS, type WebServerStatusState } from '@shared/contracts/ipc'
 import type {
   PipelineStatusSnapshot,
+  PipelineStatusRunSummary,
   PipelineStatusTaskSummary,
   PlanPipelineBatch,
   PlanPipelineRecord,
@@ -69,15 +70,28 @@ function projectName(task: PipelineStatusTaskSummary | undefined, fallback = 'Pr
   return task?.projectName?.trim() || fallback
 }
 
-function activityPhaseTone(task: PipelineStatusTaskSummary): 'planning' | 'running' | 'post-running' | 'follow-up' {
-  if (task.activityPhase === 'post-running') return 'post-running'
-  if (task.activityPhase === 'follow-up') return 'follow-up'
-  if (task.activityPhase === 'run') return 'running'
+function statusItemPhaseTone(item: PipelineStatusRunSummary): 'planning' | 'running' | 'post-running' | 'follow-up' {
+  if (item.phase === 'post-running') return 'post-running'
+  if (item.phase === 'follow-up') return 'follow-up'
+  if (item.phase === 'run') return 'running'
   return 'planning'
 }
 
-function runtimeStatusText(task: PipelineStatusTaskSummary): string {
-  return task.activityLabel || statusText(task.activityStatus)
+function statusItemSourceText(source: PipelineStatusRunSummary['source']): string {
+  if (source === 'single-task') return 'Task'
+  if (source === 'plan-pipeline') return 'Plan'
+  return 'Run'
+}
+
+function statusItemPhaseText(phase: PipelineStatusRunSummary['phase']): string {
+  if (phase === 'plan') return 'Plan'
+  if (phase === 'run') return 'Run'
+  if (phase === 'post-running') return 'Post-run'
+  return 'Follow-up'
+}
+
+function isLiveStatusItem(item: PipelineStatusRunSummary): boolean {
+  return item.status === 'running' || item.status === 'queued' || item.status === 'pending'
 }
 
 function taskStatusCounts(tasks: PipelineStatusTaskSummary[]) {
@@ -88,33 +102,37 @@ function taskStatusCounts(tasks: PipelineStatusTaskSummary[]) {
   }
 }
 
-function StandaloneTasksColumn({ tasks, changedKeys }: { tasks: PipelineStatusTaskSummary[]; changedKeys: Set<string> }) {
+function RunStatusList({ items, changedKeys }: { items: PipelineStatusRunSummary[]; changedKeys: Set<string> }) {
   return (
-    <article className={`${styles.pipeline} ${styles.liveTasks}`}>
+    <article className={`${styles.pipeline} ${styles.statusListCard}`}>
       <header>
         <div>
-          <span className={styles.kind}>Live tasks</span>
-          <h2>Standalone work</h2>
-          <span>{tasks.length} task{tasks.length === 1 ? '' : 's'} outside pipelines</span>
+          <span className={styles.kind}>Status stream</span>
+          <h2>Live run status</h2>
+          <span>{items.length} task and pipeline signal{items.length === 1 ? '' : 's'}</span>
         </div>
-        <strong>Active</strong>
+        <strong>Unified</strong>
       </header>
-      <div className={styles.taskList}>
-        {tasks.slice(0, 8).map((task) => {
-          const running = task.activityStatus === 'running' || task.activityStatus === 'queued'
-          const changed = changedKeys.has(`active-task:${task.id}`) || changedKeys.has(`task:${task.id}`)
+      <div className={styles.statusItemList}>
+        {items.slice(0, 14).map((item) => {
+          const live = isLiveStatusItem(item)
+          const changed = changedKeys.has(`status-item:${item.id}`)
           return (
             <div
-              key={task.id}
-              className={`${styles.taskLine} ${styles.workingLine} ${styles[`phase-${activityPhaseTone(task)}`]} ${running ? styles.scanning : ''} ${changed ? styles.changedLine : ''}`}
+              key={item.id}
+              className={`${styles.statusItemLine} ${live ? `${styles.workingLine} ${styles[`phase-${statusItemPhaseTone(item)}`]} ${styles.scanning}` : ''} ${changed ? styles.changedLine : ''}`}
             >
-              <span className={`${styles.dot} ${styles[`tone-${running ? 'active' : statusTone(task.status)}`]}`} />
-              <strong>{taskName(task, task.id)}</strong>
-              <small>{projectName(task)} · {runtimeStatusText(task)}</small>
+              <span className={`${styles.dot} ${styles[`tone-${live ? 'active' : statusTone(item.status)}`]}`} />
+              <div>
+                <strong>{item.title}</strong>
+                <small>{item.projectName ? `${item.projectName} · ` : ''}{statusItemSourceText(item.source)} · {statusItemPhaseText(item.phase)} · {statusText(item.status)}</small>
+              </div>
+              <span className={styles.statusItemProgress}>{item.progressText || `${statusText(item.status)} at ${formatClock(item.updatedAt)}`}</span>
+              {item.error ? <p>{item.error}</p> : null}
             </div>
           )
         })}
-        {tasks.length > 8 ? <small className={styles.moreTasks}>+{tasks.length - 8} more live tasks</small> : null}
+        {items.length > 14 ? <small className={styles.moreTasks}>+{items.length - 14} more status signals</small> : null}
       </div>
     </article>
   )
@@ -365,7 +383,7 @@ export function PipelineStatusPage() {
   const pipelines = snapshot?.pipelines ?? []
   const planBatches = snapshot?.planBatches ?? []
   const planRecords = snapshot?.planRecords ?? []
-  const activeTasks = snapshot?.activeTasks ?? []
+  const statusItems = snapshot?.statusItems ?? []
   const taskById = useMemo(() => new Map((snapshot?.taskSummaries ?? []).map((task) => [task.id, task])), [snapshot?.taskSummaries])
   const totals = useMemo(() => {
     const items = pipelines.flatMap((pipeline) => pipeline.items)
@@ -373,13 +391,14 @@ export function PipelineStatusPage() {
     const planQueued = planRecords.filter((record) => record.status === 'pending' || record.status === 'waiting').length
     const planFailed = planRecords.filter((record) => record.status === 'failed' || record.status === 'blocked').length
     const planCompleted = planRecords.filter((record) => record.status === 'completed' || record.status === 'skipped').length
+    const standaloneItems = statusItems.filter((item) => item.source === 'single-task')
     return {
-      running: items.filter((item) => item.status === 'running').length + planRunning + activeTasks.filter((task) => task.activityStatus === 'running').length,
-      queued: items.filter((item) => item.status === 'queued').length + planQueued + activeTasks.filter((task) => task.activityStatus === 'queued' || task.activityStatus === 'planned' || task.activityStatus === 'needs-input').length,
-      failed: items.filter((item) => item.status === 'failed' || item.status === 'blocked').length + planFailed,
-      completed: items.filter((item) => item.status === 'completed' || item.status === 'skipped').length + planCompleted
+      running: items.filter((item) => item.status === 'running').length + planRunning + standaloneItems.filter((item) => item.status === 'running').length,
+      queued: items.filter((item) => item.status === 'queued').length + planQueued + standaloneItems.filter((item) => item.status === 'queued' || item.status === 'planned' || item.status === 'needs-input').length,
+      failed: items.filter((item) => item.status === 'failed' || item.status === 'blocked').length + planFailed + standaloneItems.filter((item) => item.status === 'failed' || item.status === 'blocked').length,
+      completed: items.filter((item) => item.status === 'completed' || item.status === 'skipped').length + planCompleted + standaloneItems.filter((item) => item.status === 'completed' || item.status === 'skipped').length
     }
-  }, [activeTasks, pipelines, planRecords])
+  }, [pipelines, planRecords, statusItems])
 
   return (
     <section
@@ -430,9 +449,9 @@ export function PipelineStatusPage() {
       </section>
 
       <main className={styles.board}>
-        {activeTasks.length > 0 ? (
-          <StandaloneTasksColumn
-            tasks={activeTasks}
+        {statusItems.length > 0 ? (
+          <RunStatusList
+            items={statusItems}
             changedKeys={highlightedKeys}
           />
         ) : null}
@@ -463,7 +482,7 @@ export function PipelineStatusPage() {
             changedKeys={highlightedKeys}
           />
         ))}
-        {pipelines.length === 0 && planBatches.length === 0 && planRecords.length === 0 && activeTasks.length === 0 ? <div className={styles.empty}>No pipelines to display.</div> : null}
+        {pipelines.length === 0 && planBatches.length === 0 && planRecords.length === 0 && statusItems.length === 0 ? <div className={styles.empty}>No pipelines to display.</div> : null}
       </main>
     </section>
   )

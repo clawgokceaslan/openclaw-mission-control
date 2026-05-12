@@ -232,12 +232,43 @@ export interface PipelineStatusProjectSummary {
   name: string
 }
 
+export type PipelineStatusRunSource = 'single-task' | 'plan-pipeline' | 'run-pipeline'
+export type PipelineStatusRunPhase = 'plan' | 'run' | 'post-running' | 'follow-up'
+export type PipelineStatusRunState = 'pending' | 'queued' | 'running' | 'completed' | 'failed' | 'blocked' | 'paused' | 'cancelled' | 'skipped' | 'planned' | 'needs-input' | 'event'
+
+export interface PipelineStatusRunSummary {
+  id: string
+  source: PipelineStatusRunSource
+  sourceId: string
+  title: string
+  phase: PipelineStatusRunPhase
+  status: PipelineStatusRunState
+  updatedAt: number
+  startedAt?: number
+  completedAt?: number
+  taskId?: string
+  projectId?: string
+  projectName?: string
+  taskTitle?: string
+  planBatchId?: string
+  planRecordId?: string
+  runPipelineId?: string
+  runItemId?: string
+  conversationId?: string
+  runId?: string
+  taskCount?: number
+  progress?: number
+  progressText?: string
+  error?: string
+}
+
 export interface PipelineStatusSnapshot {
   generatedAt: number
   scope: 'all' | 'run_pipeline'
   planBatches: PlanPipelineBatch[]
   planRecords: PlanPipelineRecord[]
   pipelines: RunPipelineGraph[]
+  statusItems: PipelineStatusRunSummary[]
   taskSummaries: PipelineStatusTaskSummary[]
   activeTasks?: PipelineStatusTaskSummary[]
   projectSummaries: PipelineStatusProjectSummary[]
@@ -255,6 +286,9 @@ export interface PipelineStatusUpdateEvent {
   runItemId?: string
   action?: string
   phase?: 'plan' | 'run' | 'post-running' | 'follow-up'
+  status?: PipelineStatusRunState
+  progressText?: string
+  error?: string
   updatedAt: number
 }
 

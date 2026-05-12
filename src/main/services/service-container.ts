@@ -94,6 +94,36 @@ function pipelinePhase(value: unknown): PipelineStatusUpdateEvent['phase'] | und
   return undefined
 }
 
+function pipelineStatus(value: unknown): PipelineStatusUpdateEvent['status'] | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = value.trim().toLowerCase()
+  if (
+    normalized === 'pending'
+    || normalized === 'queued'
+    || normalized === 'running'
+    || normalized === 'completed'
+    || normalized === 'failed'
+    || normalized === 'blocked'
+    || normalized === 'paused'
+    || normalized === 'cancelled'
+    || normalized === 'skipped'
+    || normalized === 'planned'
+    || normalized === 'needs-input'
+  ) {
+    return normalized
+  }
+  if (normalized === 'waiting') return 'queued'
+  if (normalized === 'needs-clarification') return 'needs-input'
+  return undefined
+}
+
+function compactEventText(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = value.trim().replace(/\s+/g, ' ')
+  if (!normalized) return undefined
+  return normalized.length > 140 ? `${normalized.slice(0, 137)}...` : normalized
+}
+
 export function registerPipelineStatusEventBridge(eventBus: EventEmitter): void {
   const emit = (payload: PipelineStatusUpdateEvent) => {
     eventBus.emit(IPC_CHANNELS.events.pipelineStatusUpdated, payload)
@@ -114,6 +144,8 @@ export function registerPipelineStatusEventBridge(eventBus: EventEmitter): void 
   eventBus.on(IPC_CHANNELS.events.taskActivity, (payload) => {
     const record = asRecord(payload)
     const message = asRecord(record.message)
+    const metadata = asRecord(message.metadata)
+    const status = pipelineStatus(message.status) ?? pipelineStatus(metadata.runStatus)
     emit({
       reason: 'task_activity',
       source: 'task-activity',
@@ -121,8 +153,11 @@ export function registerPipelineStatusEventBridge(eventBus: EventEmitter): void 
       taskId: typeof record.taskId === 'string' ? record.taskId : undefined,
       conversationId: typeof message.conversationId === 'string' ? message.conversationId : typeof message.runId === 'string' ? message.runId : undefined,
       runItemId: typeof message.runPipelineItemId === 'string' ? message.runPipelineItemId : undefined,
-      phase: pipelinePhase(message.phase),
-      action: typeof message.status === 'string' ? message.status : undefined,
+      phase: pipelinePhase(message.phase) ?? pipelinePhase(metadata.phase),
+      action: status ?? (typeof message.status === 'string' ? message.status : undefined),
+      status,
+      progressText: compactEventText(message.body),
+      error: status === 'failed' ? compactEventText(message.body) : undefined,
       updatedAt: typeof record.updatedAt === 'number' ? record.updatedAt : Date.now()
     })
   })
