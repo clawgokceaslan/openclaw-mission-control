@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { LuActivity, LuKeyRound, LuLink, LuPlay, LuPlus, LuRefreshCw, LuServer, LuTrash2 } from 'react-icons/lu'
+import { LuActivity, LuCheck, LuKeyRound, LuLink, LuPencil, LuPlay, LuPlus, LuRefreshCw, LuServer, LuTrash2, LuX } from 'react-icons/lu'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type { Agent, McpAuditEvent, McpCapability, McpRiskTier, McpServer, McpTransport, Project, Skill } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
@@ -49,6 +49,30 @@ const tabs: Array<{ id: Tab; label: string; icon: typeof LuServer }> = [
   { id: 'links', label: 'Links & Policy', icon: LuLink },
   { id: 'oauth', label: 'OAuth & Audit', icon: LuActivity }
 ]
+
+const SERVER_STEPS = [
+  { id: 0, label: 'Basics', summary: 'Name, transport and risk tier.' },
+  { id: 1, label: 'Connection', summary: 'Local command or remote URL and auth.' },
+  { id: 2, label: 'Policy', summary: 'Timeout, enabled and required behavior.' }
+] as const
+
+const SERVER_STEP_GUIDANCE: Record<number, { title: string; body: string; checklist: string[] }> = {
+  0: {
+    title: 'Define the MCP boundary',
+    body: 'Choose whether OMC hosts a local stdio process or a remote Streamable HTTP endpoint, then set the risk tier used by approval policy.',
+    checklist: ['Use a recognizable server name.', 'Select stdio for local subprocesses.', 'Mark risky or destructive servers as high or critical.']
+  },
+  1: {
+    title: 'Configure the connection',
+    body: 'Local servers run with command allowlisting and absolute cwd validation. Remote servers are HTTPS-first and can use bearer env refs or OAuth.',
+    checklist: ['Keep secrets in environment variables.', 'Use absolute cwd for stdio servers.', 'Use OAuth only for remote Streamable HTTP servers.']
+  },
+  2: {
+    title: 'Set runtime policy',
+    body: 'Timeouts and required/enabled flags decide what the OMC proxy can expose during Codex runs without changing Codex config.toml.',
+    checklist: ['Disable experiments until discovery passes.', 'Use required for baseline project capability.', 'Keep tool timeouts strict for unknown servers.']
+  }
+}
 
 const transportOptions: AppSelectOption[] = [
   { label: 'Local stdio', value: 'stdio' },
@@ -103,6 +127,15 @@ function serverNames(servers: McpServer[] | undefined): string {
   return servers?.map((server) => server.name).join(', ') || 'No MCP servers'
 }
 
+function formStepComplete(form: ServerForm, step: number): boolean {
+  if (step === 0) return Boolean(form.name.trim() && form.transport && form.riskTier)
+  if (step === 1) {
+    if (form.transport === 'stdio') return Boolean(form.command.trim())
+    return Boolean(form.url.trim() && (form.authType !== 'bearer_env' || form.bearerTokenEnvVar.trim()))
+  }
+  return Boolean(form.startupTimeoutSec || form.toolTimeoutSec || form.enabled || form.required)
+}
+
 export function McpPage() {
   const { token } = useAuth()
   const [activeTab, setActiveTab] = useState<Tab>('servers')
@@ -127,6 +160,7 @@ export function McpPage() {
     const rows = selectedOwnerKind === 'agent' ? agents : selectedOwnerKind === 'skill' ? skills : projects
     return rows.map((row) => ({ label: row.name, value: row.id }))
   }, [agents, projects, selectedOwnerKind, skills])
+  const activeStepGuidance = SERVER_STEP_GUIDANCE[formStep]
 
   const openCreateModal = () => {
     setForm(emptyForm)
@@ -261,16 +295,17 @@ export function McpPage() {
   }
 
   return (
-    <main className={styles.page}>
+    <section className={styles.page}>
       <header className={styles.header}>
         <div>
-          <p className={styles.eyebrow}>Capabilities</p>
           <h1>MCP</h1>
-          <p>Local stdio and remote Streamable HTTP MCP servers, scoped to agents, skills and projects.</p>
+          <p>{servers.length} MCP servers configured. OMC hosts discovery, OAuth and Codex proxy policy without editing Codex config.toml.</p>
         </div>
-        <button type="button" className={styles.primaryButton} onClick={openCreateModal}>
-          <LuPlus size={16} /> New server
-        </button>
+        <div className={styles.headerActions}>
+          <button type="button" className={styles.primaryButton} onClick={openCreateModal}>
+            <LuPlus size={16} /> New server
+          </button>
+        </div>
       </header>
 
       <nav className={styles.tabs} aria-label="MCP sections">
@@ -288,6 +323,25 @@ export function McpPage() {
       {error && <div className={styles.error}>{error}</div>}
       {loading && <LoadingState label="Loading MCP configuration..." />}
 
+      <section className={styles.guideStrip} aria-label="MCP host flow">
+        <div>
+          <strong>1. Register</strong>
+          <span>Add local stdio or remote Streamable HTTP servers in OMC.</span>
+        </div>
+        <div>
+          <strong>2. Discover</strong>
+          <span>Cache tools, resources and prompts before exposing them to runs.</span>
+        </div>
+        <div>
+          <strong>3. Link</strong>
+          <span>Attach servers to agents, skills or projects with policy scope.</span>
+        </div>
+        <div>
+          <strong>4. Proxy</strong>
+          <span>Codex receives only the transient OMC MCP proxy per run.</span>
+        </div>
+      </section>
+
       <section className={styles.layout}>
         <div className={styles.content}>
           {activeTab === 'servers' && (
@@ -299,7 +353,7 @@ export function McpPage() {
                   <button type="button" className={styles.primaryButton} onClick={openCreateModal}><LuPlus size={15} /> New server</button>
                 </div>
               </div>
-              <div className={styles.serverTable}>
+              <div className={styles.tableCard}>
                 <div className={styles.serverTableHead}>
                   <span>Name</span>
                   <span>Transport</span>
@@ -318,12 +372,12 @@ export function McpPage() {
                     <span>{server.status}{server.enabled ? '' : ' · disabled'}</span>
                     <span>{server.riskTier}{server.required ? ' · required' : ''}</span>
                     <span>{server.capabilities?.length ?? 0}</span>
-                    <div className={styles.rowActions}>
-                      <button type="button" onClick={() => openEditModal(server)}>Edit</button>
+                    <div className={styles.actionsCell}>
+                      <button type="button" className={styles.iconButton} onClick={() => openEditModal(server)} aria-label={`Edit ${server.name}`}><LuPencil size={15} /></button>
                       <button type="button" onClick={() => runAction(IPC_CHANNELS.mcp.test, 'MCP test completed.', server)}>Test</button>
                       <button type="button" onClick={() => runAction(IPC_CHANNELS.mcp.discover, 'MCP discovery refreshed.', server)}>Discover</button>
                       {server.auth.type === 'oauth' && <button type="button" onClick={() => loginOAuth(server)}>OAuth</button>}
-                      <button type="button" className={styles.dangerButton} onClick={() => removeServer(server)}><LuTrash2 size={14} /> Remove</button>
+                      <button type="button" className={`${styles.iconButton} ${styles.dangerIconButton}`} onClick={() => removeServer(server)} aria-label={`Remove ${server.name}`}><LuTrash2 size={15} /></button>
                     </div>
                   </div>
                 ))}
@@ -399,60 +453,83 @@ export function McpPage() {
       </section>
 
       {serverModalOpen && (
-        <div className={styles.modalBackdrop} role="presentation" onMouseDown={() => setServerModalOpen(false)}>
-          <form className={styles.modal} onSubmit={saveServer} onMouseDown={(event) => event.stopPropagation()}>
-            <div className={styles.panelHeader}>
+        <>
+          <div className={styles.modalBackdrop} role="presentation" onMouseDown={() => setServerModalOpen(false)} />
+          <section className={styles.serverModal} role="dialog" aria-modal="true" aria-label={form.id ? 'Edit MCP server' : 'Create MCP server'}>
+          <form className={styles.serverForm} onSubmit={saveServer}>
+            <header className={styles.modalHeader}>
               <div>
                 <h2>{form.id ? 'Edit MCP server' : 'Create MCP server'}</h2>
-                <p className={styles.modalHint}>Step {formStep + 1} of 3</p>
+                <p>OMC-managed MCP server. Local, remote, OAuth and proxy policy stay scoped to OMC.</p>
               </div>
-              <button type="button" onClick={() => setServerModalOpen(false)}>Close</button>
-            </div>
-            <div className={styles.stepper}>
-              {['Basics', 'Connection', 'Policy'].map((label, index) => (
-                <button key={label} type="button" className={formStep === index ? styles.activeStep : ''} onClick={() => setFormStep(index)}>
-                  <span>{index + 1}</span>{label}
-                </button>
-              ))}
-            </div>
-            {formStep === 0 && (
-              <div className={styles.formStep}>
-                <label>Name<input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required /></label>
-                <div className={styles.grid}>
-                  <label>Transport<AppSelect value={option(form.transport, transportOptions)} options={transportOptions} onChange={(next) => setForm((current) => ({ ...current, transport: next.value as McpTransport }))} /></label>
-                  <label>Risk tier<AppSelect value={option(form.riskTier, riskOptions)} options={riskOptions} onChange={(next) => setForm((current) => ({ ...current, riskTier: next.value as McpRiskTier }))} /></label>
-                </div>
-              </div>
-            )}
-            {formStep === 1 && (
-              <div className={styles.formStep}>
-                {form.transport === 'stdio' ? (
-                  <div className={styles.grid}>
-                    <label>Command<input value={form.command} onChange={(event) => setForm((current) => ({ ...current, command: event.target.value }))} /></label>
-                    <label>Args<input value={form.args} onChange={(event) => setForm((current) => ({ ...current, args: event.target.value }))} placeholder="-y @scope/server" /></label>
-                    <label className={styles.full}>CWD<input value={form.cwd} onChange={(event) => setForm((current) => ({ ...current, cwd: event.target.value }))} placeholder="/absolute/project/path" /></label>
+              <button type="button" className={styles.iconButton} onClick={() => setServerModalOpen(false)} aria-label="Close MCP server modal"><LuX size={16} /></button>
+            </header>
+            <div className={styles.serverFormContent}>
+              <aside className={styles.stepRail} aria-label="MCP server editor sections">
+                {SERVER_STEPS.map((step) => {
+                  const complete = formStepComplete(form, step.id)
+                  return (
+                    <button key={step.id} type="button" className={`${styles.stepButton} ${formStep === step.id ? styles.activeStep : ''}`} onClick={() => setFormStep(step.id)}>
+                      <span className={`${styles.stepBadge} ${complete ? styles.stepComplete : ''}`}>{complete ? <LuCheck size={13} /> : step.id + 1}</span>
+                      <span>
+                        <strong>{step.label}</strong>
+                        <small>{step.summary}</small>
+                      </span>
+                    </button>
+                  )
+                })}
+              </aside>
+              <section className={styles.editorPane}>
+                <div className={styles.guidanceCard}>
+                  <div>
+                    <span className={styles.stepKicker}>Step {formStep + 1} of {SERVER_STEPS.length}</span>
+                    <h3>{activeStepGuidance.title}</h3>
+                    <p>{activeStepGuidance.body}</p>
                   </div>
-                ) : (
-                  <div className={styles.grid}>
-                    <label className={styles.full}>URL<input value={form.url} onChange={(event) => setForm((current) => ({ ...current, url: event.target.value }))} placeholder="https://example.com/mcp" /></label>
-                    <label>Auth<AppSelect value={option(form.authType, authOptions)} options={authOptions} onChange={(next) => setForm((current) => ({ ...current, authType: next.value as ServerForm['authType'] }))} /></label>
-                    <label>Bearer env<input value={form.bearerTokenEnvVar} onChange={(event) => setForm((current) => ({ ...current, bearerTokenEnvVar: event.target.value }))} placeholder="MCP_API_TOKEN" /></label>
+                  <ul>
+                    {activeStepGuidance.checklist.map((item) => <li key={item}>{item}</li>)}
+                  </ul>
+                </div>
+                {formStep === 0 && (
+                  <div className={styles.formStep}>
+                    <label><span>Name</span><input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required /></label>
+                    <div className={styles.grid}>
+                      <label><span>Transport</span><AppSelect value={option(form.transport, transportOptions)} options={transportOptions} onChange={(next) => setForm((current) => ({ ...current, transport: next.value as McpTransport }))} /></label>
+                      <label><span>Risk tier</span><AppSelect value={option(form.riskTier, riskOptions)} options={riskOptions} onChange={(next) => setForm((current) => ({ ...current, riskTier: next.value as McpRiskTier }))} /></label>
+                    </div>
                   </div>
                 )}
-              </div>
-            )}
-            {formStep === 2 && (
-              <div className={styles.formStep}>
-                <div className={styles.grid}>
-                  <label>Startup timeout<input type="number" min="1" value={form.startupTimeoutSec} onChange={(event) => setForm((current) => ({ ...current, startupTimeoutSec: event.target.value }))} /></label>
-                  <label>Tool timeout<input type="number" min="1" value={form.toolTimeoutSec} onChange={(event) => setForm((current) => ({ ...current, toolTimeoutSec: event.target.value }))} /></label>
-                </div>
-                <div className={styles.switches}>
-                  <label><input type="checkbox" checked={form.enabled} onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))} /> Enabled</label>
-                  <label><input type="checkbox" checked={form.required} onChange={(event) => setForm((current) => ({ ...current, required: event.target.checked }))} /> Required</label>
-                </div>
-              </div>
-            )}
+                {formStep === 1 && (
+                  <div className={styles.formStep}>
+                    {form.transport === 'stdio' ? (
+                      <div className={styles.grid}>
+                        <label><span>Command</span><input value={form.command} onChange={(event) => setForm((current) => ({ ...current, command: event.target.value }))} /></label>
+                        <label><span>Args</span><input value={form.args} onChange={(event) => setForm((current) => ({ ...current, args: event.target.value }))} placeholder="-y @scope/server" /></label>
+                        <label className={styles.full}><span>CWD</span><input value={form.cwd} onChange={(event) => setForm((current) => ({ ...current, cwd: event.target.value }))} placeholder="/absolute/project/path" /></label>
+                      </div>
+                    ) : (
+                      <div className={styles.grid}>
+                        <label className={styles.full}><span>URL</span><input value={form.url} onChange={(event) => setForm((current) => ({ ...current, url: event.target.value }))} placeholder="https://example.com/mcp" /></label>
+                        <label><span>Auth</span><AppSelect value={option(form.authType, authOptions)} options={authOptions} onChange={(next) => setForm((current) => ({ ...current, authType: next.value as ServerForm['authType'] }))} /></label>
+                        <label><span>Bearer env</span><input value={form.bearerTokenEnvVar} onChange={(event) => setForm((current) => ({ ...current, bearerTokenEnvVar: event.target.value }))} placeholder="MCP_API_TOKEN" /></label>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {formStep === 2 && (
+                  <div className={styles.formStep}>
+                    <div className={styles.grid}>
+                      <label><span>Startup timeout</span><input type="number" min="1" value={form.startupTimeoutSec} onChange={(event) => setForm((current) => ({ ...current, startupTimeoutSec: event.target.value }))} /></label>
+                      <label><span>Tool timeout</span><input type="number" min="1" value={form.toolTimeoutSec} onChange={(event) => setForm((current) => ({ ...current, toolTimeoutSec: event.target.value }))} /></label>
+                    </div>
+                    <div className={styles.switches}>
+                      <label className={styles.checkboxField}><input type="checkbox" checked={form.enabled} onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))} /> Enabled</label>
+                      <label className={styles.checkboxField}><input type="checkbox" checked={form.required} onChange={(event) => setForm((current) => ({ ...current, required: event.target.checked }))} /> Required</label>
+                    </div>
+                  </div>
+                )}
+              </section>
+            </div>
             <div className={styles.modalFooter}>
               <button type="button" disabled={formStep === 0} onClick={() => setFormStep((current) => Math.max(0, current - 1))}>Back</button>
               {formStep < 2 ? (
@@ -462,8 +539,9 @@ export function McpPage() {
               )}
             </div>
           </form>
-        </div>
+          </section>
+        </>
       )}
-    </main>
+    </section>
   )
 }
