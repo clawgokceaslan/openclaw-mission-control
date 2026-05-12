@@ -684,7 +684,9 @@ export class PipelineStatusService {
       const graphs = await Promise.all(batches.map((batch) => this.repo.get(batch.organizationId, batch.id)))
       const planBatches = await this.planRepo.listAllBatches()
       const planRecords = await this.planRepo.listAll()
+      const projects = await this.projectRepo.listAll()
       const organizationIds = Array.from(new Set([
+        ...projects.map((project) => project.organizationId),
         ...batches.map((batch) => batch.organizationId),
         ...planBatches.map((batch) => batch.organizationId),
         ...planRecords.map((record) => record.organizationId)

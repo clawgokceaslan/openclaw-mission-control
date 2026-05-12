@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { PipelineStatusService } from './run-pipeline.service.js'
 
-function createService() {
+function createService(options: { includePipelines?: boolean; includePlanPipelines?: boolean } = {}) {
+  const includePipelines = options.includePipelines ?? true
+  const includePlanPipelines = options.includePlanPipelines ?? true
   const auth = {
     requireActor: vi.fn().mockResolvedValue({ user: { organizationId: 'org-1' } })
   }
@@ -12,18 +14,21 @@ function createService() {
     items: [{ id: 'item-1', batchId: 'run-1', stageId: 'stage-1', organizationId: 'org-1', taskId: 'task-1', projectId: 'project-1', status: 'running', progress: 40, createdAt: 100, updatedAt: 200 }]
   }
   const runRepo = {
-    list: vi.fn().mockResolvedValue([runBatch]),
-    listAll: vi.fn().mockResolvedValue([runBatch]),
-    get: vi.fn().mockResolvedValue(runGraph)
+    list: vi.fn().mockResolvedValue(includePipelines ? [runBatch] : []),
+    listAll: vi.fn().mockResolvedValue(includePipelines ? [runBatch] : []),
+    get: vi.fn().mockResolvedValue(includePipelines ? runGraph : undefined)
   }
+  const planBatch = { id: 'plan-1', organizationId: 'org-1', name: 'Plan', status: 'running', createdAt: 100, updatedAt: 200 }
+  const planRecord = { id: 'record-1', organizationId: 'org-1', batchId: 'plan-1', sourceDraftName: 'Plan', groupName: 'Stage', taskIds: ['task-1'], status: 'running', progress: 40, createdAt: 100, updatedAt: 200 }
   const planRepo = {
-    listBatches: vi.fn().mockResolvedValue([{ id: 'plan-1', organizationId: 'org-1', name: 'Plan', status: 'running', createdAt: 100, updatedAt: 200 }]),
-    list: vi.fn().mockResolvedValue([{ id: 'record-1', organizationId: 'org-1', batchId: 'plan-1', sourceDraftName: 'Plan', groupName: 'Stage', taskIds: ['task-1'], status: 'running', progress: 40, createdAt: 100, updatedAt: 200 }]),
-    listAllBatches: vi.fn().mockResolvedValue([{ id: 'plan-1', organizationId: 'org-1', name: 'Plan', status: 'running', createdAt: 100, updatedAt: 200 }]),
-    listAll: vi.fn().mockResolvedValue([{ id: 'record-1', organizationId: 'org-1', batchId: 'plan-1', sourceDraftName: 'Plan', groupName: 'Stage', taskIds: ['task-1'], status: 'running', progress: 40, createdAt: 100, updatedAt: 200 }])
+    listBatches: vi.fn().mockResolvedValue(includePlanPipelines ? [planBatch] : []),
+    list: vi.fn().mockResolvedValue(includePlanPipelines ? [planRecord] : []),
+    listAllBatches: vi.fn().mockResolvedValue(includePlanPipelines ? [planBatch] : []),
+    listAll: vi.fn().mockResolvedValue(includePlanPipelines ? [planRecord] : [])
   }
   const projectRepo = {
-    list: vi.fn().mockResolvedValue([{ id: 'project-1', organizationId: 'org-1', name: 'Project One' }])
+    list: vi.fn().mockResolvedValue([{ id: 'project-1', organizationId: 'org-1', name: 'Project One' }]),
+    listAll: vi.fn().mockResolvedValue([{ id: 'project-1', organizationId: 'org-1', name: 'Project One' }])
   }
   const taskRepo = {
     listAll: vi.fn().mockResolvedValue([
@@ -105,6 +110,26 @@ describe('PipelineStatusService', () => {
       }),
       expect.objectContaining({ source: 'plan-pipeline', planBatchId: 'plan-1' }),
       expect.objectContaining({ source: 'run-pipeline', runPipelineId: 'run-1' })
+    ]))
+  })
+
+  it('keeps standalone task runs visible in fixed public status without plan or run rows', async () => {
+    const { service } = createService({ includePipelines: false, includePlanPipelines: false })
+
+    const response = await service.publicSnapshot({})
+
+    expect(response.ok).toBe(true)
+    expect(response.data?.pipelines).toHaveLength(0)
+    expect(response.data?.planBatches).toHaveLength(0)
+    expect(response.data?.statusItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        source: 'single-task',
+        sourceId: 'standalone-run-1',
+        taskId: 'task-2',
+        title: 'Standalone Task',
+        phase: 'follow-up',
+        status: 'running'
+      })
     ]))
   })
 })

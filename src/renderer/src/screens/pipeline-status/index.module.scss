@@ -659,17 +659,7 @@
   }
 
   .scanning::after {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: -2px;
-    height: 2px;
-    background: #d1d5db;
-    background: var(--omc-info-text);
-    opacity: 0.72;
-    animation: stageScanner 2.2s ease-in-out infinite;
-    pointer-events: none;
+    content: none;
   }
 
   .stages {
@@ -1067,13 +1057,6 @@
       0 0 0 1px color-mix(in srgb, var(--pipeline-active-accent) 18%, transparent),
       0 0 24px color-mix(in srgb, var(--pipeline-active-accent) 24%, transparent);
   }
-}
-
-@keyframes stageScanner {
-  0% { transform: translateY(0); opacity: 0; }
-  15% { opacity: 0.8; }
-  70% { transform: translateY(110px); opacity: 0.8; }
-  100% { transform: translateY(130px); opacity: 0; }
 }
 
 @keyframes eventEnter {

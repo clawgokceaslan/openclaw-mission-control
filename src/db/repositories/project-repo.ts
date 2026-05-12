@@ -20,6 +20,11 @@ export class ProjectRepository extends BaseRepository<Project> {
     return this.hydrateMcp(rows.map((row: any) => this.map(row)))
   }
 
+  async listAll(): Promise<Project[]> {
+    const rows = await this.db.prepare('SELECT * FROM projects ORDER BY created_at DESC').all()
+    return this.hydrateMcp(rows.map((row: any) => this.map(row)))
+  }
+
   async get(id: string): Promise<Project | undefined> {
     const row = (await this.db.prepare('SELECT * FROM projects WHERE id = @id').get({ id })) as any
     if (!row) return undefined
