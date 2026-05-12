@@ -103,8 +103,34 @@ const CHAT_FOLLOW_UP_CONTEXT_RECENT_MESSAGES = 3
 const CHAT_CONTEXT_ENTRY_PREVIEW_LENGTH = 220
 const CHAT_CONTEXT_ENTRY_BODY_LENGTH = 1_200
 const CHAT_FOLLOW_UP_FINAL_ASSISTANT_LENGTH = 360
+const NEXT_CHAT_HANDOFF_MARKER = 'NEXT_CHAT_HANDOFF'
+const NEXT_CHAT_HANDOFF_JSON_MARKER = 'NEXT_CHAT_HANDOFF_JSON'
+const NEXT_CHAT_HANDOFF_LIST_FIELDS = new Set(['completed_work', 'decisions', 'changed_areas', 'verification', 'blockers', 'next_steps'])
+const NEXT_CHAT_HANDOFF_PLACEHOLDERS = new Set(['not_reported', 'none_reported', ''])
 
 export const CHAT_RUNNING_STATUS_LABELS = ['queued', 'running', 'completed', 'failed'] as const
+
+export type ParsedNextChatHandoffTask = {
+  id?: string
+  title?: string
+  status?: string
+  raw?: unknown
+}
+
+export type ParsedNextChatHandoff = {
+  marker: 'NEXT_CHAT_HANDOFF' | 'NEXT_CHAT_HANDOFF_JSON'
+  schema?: string
+  version?: number | string
+  task?: ParsedNextChatHandoffTask
+  fields: Record<string, unknown>
+  raw: string
+}
+
+export type SplitChatBodyHandoff = {
+  body: string
+  handoff: string | null
+  parsed: ParsedNextChatHandoff | null
+}
 
 const TIMESTAMP_MS_THRESHOLD = 1_000_000_000_000
 
@@ -184,6 +210,155 @@ function parseTimestampMs(value: unknown): number | undefined {
     return Number.isFinite(parsed) ? parsed : undefined
   }
   return undefined
+}
+
+function compactStructuredValue(value: unknown): string {
+  if (typeof value === 'string') return value.trim()
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (value == null) return ''
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function parseJsonMaybe(value: string): unknown | undefined {
+  const trimmed = value.trim()
+  if (!trimmed || !/^[{[]/.test(trimmed)) return undefined
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return undefined
+  }
+}
+
+function parseHandoffInlineValue(value: string): unknown | undefined {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  const parsedJson = parseJsonMaybe(trimmed)
+  if (parsedJson !== undefined) return parsedJson
+  if (/^(true|false|null)$/i.test(trimmed)) return JSON.parse(trimmed.toLowerCase())
+  if (/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(trimmed)) {
+    const parsedNumber = Number(trimmed)
+    if (Number.isFinite(parsedNumber)) return parsedNumber
+  }
+  return undefined
+}
+
+function normalizeHandoffArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map(compactStructuredValue).map((item) => item.trim()).filter(Boolean)
+  }
+  if (typeof value === 'string') {
+    return value.split(';').map((item) => item.trim()).filter(Boolean)
+  }
+  const compact = compactStructuredValue(value)
+  return compact ? [compact] : []
+}
+
+function normalizeHandoffTask(value: unknown): ParsedNextChatHandoffTask | undefined {
+  if (typeof value === 'string') {
+    const parsed = parseJsonMaybe(value)
+    if (parsed !== undefined) return normalizeHandoffTask(parsed)
+    const parts = value.split('|').map((item) => item.trim()).filter(Boolean)
+    if (parts.length >= 3) return { id: parts[0], title: parts[1], status: parts.slice(2).join(' | '), raw: value }
+    if (parts.length === 2) return { id: parts[0], title: parts[1], raw: value }
+    return value.trim() ? { title: value.trim(), raw: value } : undefined
+  }
+  const record = asRecord(value)
+  if (!record) return value == null ? undefined : { raw: value }
+  return {
+    id: typeof record.id === 'string' ? record.id : undefined,
+    title: typeof record.title === 'string' ? record.title : undefined,
+    status: typeof record.status === 'string' ? record.status : undefined,
+    raw: value
+  }
+}
+
+function normalizeParsedHandoffPayload(payload: Record<string, unknown>, raw: string, marker: ParsedNextChatHandoff['marker']): ParsedNextChatHandoff {
+  const { schema, version, task, ...fields } = payload
+  const normalizedFields: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(fields)) {
+    normalizedFields[key] = NEXT_CHAT_HANDOFF_LIST_FIELDS.has(key) ? normalizeHandoffArray(value) : value
+  }
+  return {
+    marker,
+    schema: typeof schema === 'string' ? schema : undefined,
+    version: typeof version === 'number' || typeof version === 'string' ? version : undefined,
+    task: normalizeHandoffTask(task),
+    fields: normalizedFields,
+    raw
+  }
+}
+
+export function splitChatBodyAndHandoff(value: string): SplitChatBodyHandoff {
+  const match = value.match(/(?:^|\n\n)(NEXT_CHAT_HANDOFF(?:_JSON)?\n[\s\S]*)/)
+  const handoff = match?.[1]?.trim() || null
+  const body = handoff && match.index !== undefined
+    ? value.slice(0, match.index).trim()
+    : value
+  return { body, handoff, parsed: handoff ? parseNextChatHandoff(handoff) : null }
+}
+
+export function parseNextChatHandoff(value: string | null | undefined): ParsedNextChatHandoff | null {
+  const raw = value?.trim() ?? ''
+  if (!raw) return null
+  if (raw.startsWith(`${NEXT_CHAT_HANDOFF_JSON_MARKER}\n`)) {
+    const json = raw.slice(NEXT_CHAT_HANDOFF_JSON_MARKER.length).trim()
+    try {
+      const parsed = JSON.parse(json)
+      const record = asRecord(parsed)
+      return record ? normalizeParsedHandoffPayload(record, raw, NEXT_CHAT_HANDOFF_JSON_MARKER) : null
+    } catch {
+      return null
+    }
+  }
+  if (!raw.startsWith(`${NEXT_CHAT_HANDOFF_MARKER}\n`)) return null
+
+  const lines = raw.split(/\r?\n/)
+  const payload: Record<string, unknown> = {}
+  let index = 1
+  while (index < lines.length) {
+    const line = lines[index]
+    const match = line.match(/^([A-Za-z_][\w]*)(\[\])?:\s*(.*)$/)
+    if (!match) {
+      index += 1
+      continue
+    }
+    const key = match[1]
+    const isArray = Boolean(match[2])
+    const inlineValue = match[3]?.trim() ?? ''
+    index += 1
+    if (isArray) {
+      const items: string[] = []
+      if (inlineValue) items.push(...normalizeHandoffArray(inlineValue))
+      while (index < lines.length && !/^([A-Za-z_][\w]*)(\[\])?:/.test(lines[index])) {
+        const itemMatch = lines[index].match(/^\s*[-*]\s+(.*)$/)
+        if (itemMatch?.[1]?.trim()) items.push(itemMatch[1].trim())
+        index += 1
+      }
+      payload[key] = items
+      continue
+    }
+    const parsedValue = parseHandoffInlineValue(inlineValue)
+    payload[key] = parsedValue !== undefined ? parsedValue : inlineValue
+  }
+  return normalizeParsedHandoffPayload(payload, raw, NEXT_CHAT_HANDOFF_MARKER)
+}
+
+export function handoffFieldItems(handoff: ParsedNextChatHandoff | null | undefined, field: string, options: { includePlaceholders?: boolean } = {}): string[] {
+  if (!handoff) return []
+  const items = normalizeHandoffArray(handoff.fields[field])
+  if (options.includePlaceholders) return items
+  return items.filter((item) => !NEXT_CHAT_HANDOFF_PLACEHOLDERS.has(item.trim().toLowerCase()))
+}
+
+export function handoffScalarValue(handoff: ParsedNextChatHandoff | null | undefined, field: string, options: { includePlaceholders?: boolean } = {}): string {
+  if (!handoff) return ''
+  const value = compactStructuredValue(handoff.fields[field]).trim()
+  if (!options.includePlaceholders && NEXT_CHAT_HANDOFF_PLACEHOLDERS.has(value.toLowerCase())) return ''
+  return value
 }
 
 function extractPatchFromMessageBody(body: string): string {
@@ -432,16 +607,21 @@ function buildConversationIdLatest(messages: TaskActivityMessage[]): string | nu
 
 function messageShortLabel(message: TaskActivityMessage): string {
   const handoff = message.role === 'assistant' ? nextChatHandoffFromText(message.body) : null
-  const summary = (handoff ?? message.body).trim().replace(/\s+/g, ' ')
+  const parsed = handoff ? parseNextChatHandoff(handoff) : null
+  const summary = parsed
+    ? [
+        handoffScalarValue(parsed, 'goal'),
+        ...handoffFieldItems(parsed, 'completed_work').slice(0, 2),
+        ...handoffFieldItems(parsed, 'next_steps').slice(0, 1)
+      ].filter(Boolean).join(' · ')
+    : (handoff ?? message.body).trim().replace(/\s+/g, ' ')
   const role = message.role
   const source = message.source
   return `${source}/${role}: ${truncateText(summary, 220)}`
 }
 
 function nextChatHandoffFromText(value: string): string | null {
-  const match = value.match(/(?:^|\n\n)(NEXT_CHAT_HANDOFF(?:_JSON)?\n[\s\S]*)/)
-  const handoff = match?.[1]?.trim()
-  return handoff || null
+  return splitChatBodyAndHandoff(value).handoff
 }
 
 function latestNextChatHandoff(messages: TaskActivityMessage[]): string | null {
@@ -455,6 +635,17 @@ function latestNextChatHandoff(messages: TaskActivityMessage[]): string | null {
 
 function contextSummaryFromHandoff(handoff: string | null): string {
   if (!handoff) return ''
+  const parsed = parseNextChatHandoff(handoff)
+  if (parsed) {
+    const rows = [
+      handoffScalarValue(parsed, 'goal') ? `- goal: ${truncateText(handoffScalarValue(parsed, 'goal'), 260)}` : '',
+      ...['completed_work', 'decisions', 'changed_areas', 'next_steps'].flatMap((field) => {
+        const items = handoffFieldItems(parsed, field)
+        return items.length ? [`- ${field}: ${truncateText(items.join('; '), 260)}`] : []
+      })
+    ].filter(Boolean)
+    return rows.length > 0 ? `Structured summary:\n${rows.join('\n')}` : ''
+  }
   const fields = ['goal', 'completed_work', 'decisions', 'changed_areas', 'next_steps']
   const rows = fields.flatMap((field) => {
     const line = handoff.split(/\r?\n/).find((item) => item.startsWith(`${field}:`))
@@ -491,10 +682,10 @@ export function buildLatestRunFollowUpContext(messages: TaskActivityMessage[]): 
 
   const lines = [
     `Latest run output context for conversation ${conversationId}:`,
-    handoff ? `Latest handoff:\n${handoff}` : null,
+    handoff ? `Latest handoff summary:\n${contextSummaryFromHandoff(handoff) || truncateText(handoff, 520)}` : null,
     runComplete ? `Final run status: ${truncateText(runComplete.body.trim() || 'completed', 520)}` : 'Latest run status: not yet completed.',
     result ? `Result: ${result}` : null,
-    finalAssistant && !handoff ? `Final assistant message: ${truncateText(finalAssistant.body.trim(), CHAT_FOLLOW_UP_FINAL_ASSISTANT_LENGTH)}` : null,
+    finalAssistant && !handoff ? `Final assistant message: ${truncateText(splitChatBodyAndHandoff(finalAssistant.body).body.trim(), CHAT_FOLLOW_UP_FINAL_ASSISTANT_LENGTH)}` : null,
     changesSummary ? `Reported changes: ${truncateText(formatChangesSummary(changesSummary), 260)}` : null,
     usage ? `Usage: ${formatUsageSummary(usage)}` : null,
     'Recent run activity:',
@@ -549,7 +740,7 @@ function contextEntryFromConversation(conversationId: string, messages: TaskActi
     result ? `Result: ${result}` : '',
     structuredSummary,
     userMessages.length ? `Recent user direction:\n${userMessages.map((message) => `- ${truncateText(message.body.trim(), 280)}`).join('\n')}` : '',
-    assistant && !structuredSummary ? `Latest assistant output:\n${truncateText(nextChatHandoffFromText(assistant.body) ?? assistant.body.trim(), CHAT_FOLLOW_UP_FINAL_ASSISTANT_LENGTH)}` : '',
+    assistant && !structuredSummary ? `Latest assistant output:\n${truncateText(splitChatBodyAndHandoff(assistant.body).body.trim(), CHAT_FOLLOW_UP_FINAL_ASSISTANT_LENGTH)}` : '',
     changesSummary ? `Reported changes: ${formatChangesSummary(changesSummary)}` : '',
     usage ? `Usage: ${formatUsageSummary(usage)}` : '',
     recent.length ? `Recent activity:\n${recent.map((row) => `- ${row}`).join('\n')}` : ''
@@ -570,7 +761,7 @@ function contextEntryFromConversation(conversationId: string, messages: TaskActi
     title: phaseContextTitle(phaseMessage),
     status,
     at: last.updatedAt ?? last.createdAt,
-    preview: oneLine(assistant?.body || terminal?.body || last.body),
+    preview: oneLine(splitChatBodyAndHandoff(assistant?.body || terminal?.body || last.body).body || terminal?.body || last.body),
     body: truncateText(body, CHAT_CONTEXT_ENTRY_BODY_LENGTH),
     metadata
   }
@@ -727,7 +918,7 @@ function removeStandaloneJsonBlocks(body: string): string {
 
 export function stripRawJsonFromChatBody(body: string): string {
   if (isRawJsonText(body)) return ''
-  return removeStandaloneJsonBlocks(removeDetailsJsonSections(removeRawJsonFences(body)))
+  return removeStandaloneJsonBlocks(removeDetailsJsonSections(removeRawJsonFences(splitChatBodyAndHandoff(body).body)))
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }

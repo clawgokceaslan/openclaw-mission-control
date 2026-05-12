@@ -117,4 +117,35 @@ describe('agent markdown builders', () => {
     expect(markdown).toContain('catalog definitions only')
     expect(markdown).toContain('git status --short')
   })
+
+  it('builds Tools.md from inherited project default agent tools', () => {
+    const runtimeAgent = { ...agent(), tools: [tool()], toolIds: ['tool-1'] }
+    const markdown = buildToolsMarkdown({
+      task: {
+        id: 'task-1',
+        projectId: 'project-1',
+        title: 'Task',
+        status: 'active',
+        createdAt: 1,
+        updatedAt: 1
+      },
+      project: {
+        id: 'project-1',
+        organizationId: 'org-1',
+        name: 'Project',
+        archived: false,
+        metrics: { defaultAgentId: 'agent-1' },
+        createdAt: 1,
+        updatedAt: 1
+      },
+      projectGroup: null,
+      agents: [runtimeAgent],
+      skills: [],
+      tags: [],
+      customFields: []
+    })
+
+    expect(markdown).toContain('Project default: Project via agent Research Agent')
+    expect(markdown).toContain('git status --short')
+  })
 })

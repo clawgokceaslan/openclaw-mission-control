@@ -7,9 +7,10 @@ import { createLocalId, taskGatewayId, taskGatewayModel } from '../projectDetail
 import { GatewayRunFeedback, ChatAttachmentDraft, ChatOperationFeedbackData, ChatConversationSummary, SlashCommand, type PlannerClarificationMode } from '../types'
 import type { ProjectDetailStateBindings } from '../state/projectDetailState'
 
-const slashPlanToken = /(?:^|\s)\/[a-z]*$/i
+const trailingSlashCommandToken = /(?:^|\s)\/[a-z]*$/i
 const CHAT_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024
 const CHAT_ATTACHMENT_MAX_COUNT = 10
+const CODE_REVIEW_PROMPT = 'Please review the current task implementation and recent chat context. Prioritize bugs, regressions, missing tests, and risky assumptions. Do not make code changes unless I explicitly ask.'
 type ChatCommandMode = 'plan' | 'steer'
 
 function normalizeLeadingChatCommand(value: string): { mode: ChatCommandMode | null; message: string; hadCommand: boolean } {
@@ -672,39 +673,58 @@ export function useProjectGatewayFlow({
   }, [openChatAttachmentPicker, setChatAttachments, setGatewayRunFeedback])
 
   const applySlashCommand = useCallback(async (command: SlashCommand) => {
-    if (command.id === 'plan') {
-      setChatDraft((value) => value.replace(slashPlanToken, ''))
-      setChatComposerMode('plan')
+    if (command.id === 'review') {
+      setChatComposerMode('chat')
+      setChatIncludeContext(true)
+      setGatewayRunFeedback(null)
+      setChatDraft(CODE_REVIEW_PROMPT)
       return
     }
     if (command.id === 'run') {
-      setChatDraft((value) => value.replace(slashPlanToken, ''))
+      setChatDraft((value) => value.replace(trailingSlashCommandToken, ''))
       await runSelectedTaskWithCodex()
       return
     }
+    if (command.id === 'plan') {
+      setChatDraft((value) => value.replace(trailingSlashCommandToken, ''))
+      setGatewayRunFeedback(null)
+      await planSelectedTaskWithCodex()
+      return
+    }
     if (command.id === 'steer') {
+      if (!selectedChatConversationId) {
+        setGatewayRunFeedback({ kind: 'error', message: 'Select a conversation before sending a steer message.' })
+        return
+      }
+      setChatDraft((value) => {
+        const next = value.replace(trailingSlashCommandToken, '').trim()
+        return next ? `/steer ${next}` : '/steer '
+      })
       setChatComposerMode('steer')
-      setChatDraft((value) => value.replace(slashPlanToken, ''))
+      setGatewayRunFeedback(null)
       return
     }
     if (command.id === 'settings') {
       setChatSettingsOpen(true)
-      setChatDraft((value) => value.replace(slashPlanToken, ''))
+      setChatDraft((value) => value.replace(trailingSlashCommandToken, ''))
       return
     }
     if (command.id === 'attach') {
-      setChatDraft((value) => value.replace(slashPlanToken, ''))
+      setChatDraft((value) => value.replace(trailingSlashCommandToken, ''))
       openChatAttachmentPicker()
       return
     }
     setChatIncludeContext((value) => !value)
-    setChatDraft((value) => value.replace(slashPlanToken, ''))
+    setChatDraft((value) => value.replace(trailingSlashCommandToken, ''))
   }, [
     openChatAttachmentPicker,
+    planSelectedTaskWithCodex,
     runSelectedTaskWithCodex,
+    selectedChatConversationId,
     setChatDraft,
     setChatComposerMode,
     setChatIncludeContext,
+    setGatewayRunFeedback,
     setChatSettingsOpen
   ])
 

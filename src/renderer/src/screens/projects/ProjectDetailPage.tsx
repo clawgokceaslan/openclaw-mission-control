@@ -1393,6 +1393,9 @@ export function ProjectDetailPage() {
     return buildProjectRecentChats(tasks)
   }, [tasks])
   const taskContextSkills = selectedTaskSkills
+  const taskContextTools = useMemo(() => {
+    return (selectedTaskAgent?.tools ?? []).filter((tool) => tool.status === 'active')
+  }, [selectedTaskAgent])
 
   const selectedTaskExportContext = useMemo(() => {
     if (!selectedTask) return null
@@ -1560,6 +1563,7 @@ export function ProjectDetailPage() {
     chatStopping,
     selectedTaskAgent,
     taskContextSkills,
+    taskContextTools,
     setSlashCommandIndex,
     setChatSettingsOpen,
     setChatModel,

@@ -125,6 +125,29 @@ function getProjectPostRunPrompt(project?: Project | null): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+function projectDefaultAgentIdValue(project?: Project | null): string {
+  return typeof project?.metrics?.defaultAgentId === 'string' ? project.metrics.defaultAgentId : ''
+}
+
+function projectDefaultSkillIdsValue(project?: Project | null): string[] {
+  const value = project?.metrics?.defaultSkillIds
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : []
+}
+
+function effectiveTaskAgentId(context: ExportContext): string {
+  return context.task.agentId || projectDefaultAgentIdValue(context.project)
+}
+
+function effectiveTaskSkillIds(context: ExportContext): string[] {
+  const explicit = (context.task.skills ?? []).map((skill) => skill.id).filter(Boolean)
+  return explicit.length > 0 ? explicit : projectDefaultSkillIdsValue(context.project)
+}
+
+function effectiveSourceLabel(context: ExportContext, kind: 'agent' | 'skills'): string {
+  if (kind === 'agent') return context.task.agentId ? `Task: ${context.task.title}` : `Project default: ${context.project?.name ?? context.task.projectId}`
+  return (context.task.skills?.length ?? 0) > 0 ? `Task: ${context.task.title}` : `Project default: ${context.project?.name ?? context.task.projectId}`
+}
+
 function contextPromptShape(context: ExportContext): GatewayPromptShape {
   const gateway = context.project?.metrics?.gateway
   const value = gateway && typeof gateway === 'object' && !Array.isArray(gateway)
@@ -163,14 +186,14 @@ function buildTaskFormatContract(context: ExportContext, exportStatuses: Attachm
   const subtasks = task.subtasks ?? []
   const taskAttachments = getTaskAttachments(task)
   const subtaskAttachments = subtasks.flatMap(getSubtaskAttachments)
-  const defaultSkillIds = Array.isArray(context.project?.metrics?.defaultSkillIds) ? context.project.metrics.defaultSkillIds.filter((item): item is string => typeof item === 'string') : []
+  const defaultSkillIds = projectDefaultSkillIdsValue(context.project)
   const taskTagIds = (task.tags ?? []).map((tag) => tag.id)
   const agentReferences = [
-    agentReferencePayload(task.agentId, context.agents, 'Task'),
+    agentReferencePayload(effectiveTaskAgentId(context), context.agents, effectiveSourceLabel(context, 'agent')),
     ...subtasks.map((subtask, index) => agentReferencePayload(getSubtaskAgentId(subtask), context.agents, subtaskLabel(subtask, index)))
   ].filter((item): item is NonNullable<typeof item> => Boolean(item))
   const skillReferences = [
-    ...(task.skills ?? []).map((skill) => skillReferencePayload(skill.id, context.skills, 'Task')),
+    ...effectiveTaskSkillIds(context).map((skillId) => skillReferencePayload(skillId, context.skills, effectiveSourceLabel(context, 'skills'))),
     ...subtasks.flatMap((subtask, index) => getSubtaskSkillIds(subtask).map((skillId) => skillReferencePayload(skillId, context.skills, subtaskLabel(subtask, index))))
   ]
 
@@ -197,7 +220,7 @@ function buildTaskFormatContract(context: ExportContext, exportStatuses: Attachm
       group: context.projectGroup ? { id: context.projectGroup.id, name: context.projectGroup.name, description: context.projectGroup.description ?? '' } : null,
       description: context.project?.description ?? '',
       language: context.gatewayLanguage ?? '',
-      defaultAgentId: typeof context.project?.metrics?.defaultAgentId === 'string' ? context.project.metrics.defaultAgentId : '',
+      defaultAgentId: projectDefaultAgentIdValue(context.project),
       defaultSkillIds,
       gateway: context.project?.metrics?.gateway ?? {},
       instructions: {
@@ -477,9 +500,10 @@ function buildAiExecutionFlow(context: ExportContext): string {
     ? `Execute ${actionableSubtasks.length} actionable subtask${actionableSubtasks.length === 1 ? '' : 's'} in Subtasks Index order.${bypassedSubtasks ? ` Bypass ${bypassedSubtasks} done/closed subtask${bypassedSubtasks === 1 ? '' : 's'}.` : ''}`
     : 'No subtasks are defined; execute from the parent task details.'
   return [
-    '1. Read Project Inputs, Task Details, Agents.md, Skills.md, Tools.md, and attachments if present.',
+    '1. Read Task Details, Acceptance Criteria, Subtasks, Comments, Checklist, and attachments first.',
     `2. ${subtaskHint} Use each subtask description as the main AI guidance; checklist items are optional supporting detail.`,
-    `3. Implement, verify, and finalize output.${metadataHint}`
+    `3. Apply Project Instructions, then Agents.md, Skills.md, and Tools.md as supporting context.${metadataHint}`,
+    '4. Implement, verify, and finalize output.'
   ].join('\n')
 }
 
@@ -563,8 +587,8 @@ export function buildTaskMarkdown(context: ExportContext, exportStatuses: Attach
   const gatewaySettings = context.project?.metrics?.gateway && typeof context.project.metrics.gateway === 'object' && !Array.isArray(context.project.metrics.gateway)
     ? context.project.metrics.gateway as Record<string, unknown>
     : {}
-  const defaultSkillIds = Array.isArray(context.project?.metrics?.defaultSkillIds) ? context.project.metrics.defaultSkillIds.filter((item): item is string => typeof item === 'string') : []
-  const defaultAgentId = typeof context.project?.metrics?.defaultAgentId === 'string' ? context.project.metrics.defaultAgentId : ''
+  const defaultSkillIds = projectDefaultSkillIdsValue(context.project)
+  const defaultAgentId = projectDefaultAgentIdValue(context.project)
   const defaultAgentName = defaultAgentId ? context.agents.find((agent) => agent.id === defaultAgentId)?.name ?? defaultAgentId : ''
   const defaultSkillNames = defaultSkillIds.map((skillId) => context.skills.find((skill) => skill.id === skillId)?.name ?? skillId)
   const projectInputs = [
@@ -587,8 +611,6 @@ export function buildTaskMarkdown(context: ExportContext, exportStatuses: Attach
     getProjectRules(context.project) ? `### Project Rules\n${getProjectRules(context.project)}` : '',
     getProjectPostRunPrompt(context.project) ? `### Post-run Prompt\n${getProjectPostRunPrompt(context.project)}` : ''
   ].filter(Boolean).join('\n\n')
-  pushSection(sections, 'AI Execution Flow', buildAiExecutionFlow(context))
-  pushSection(sections, 'Project Inputs', projectInputs)
   pushSection(sections, 'Task Details', buildDetailsMarkdown([
     ['Title', task.title],
     ['Status', humanizeStatus(task.status, context.projectStatuses)],
@@ -608,8 +630,7 @@ export function buildTaskMarkdown(context: ExportContext, exportStatuses: Attach
   pushSection(sections, 'Checklist', checklistMarkdown(task.checklistItems))
   pushSection(sections, 'Attachments Manifest', attachmentsMarkdown(taskAttachments, 'Task', exportStatuses.filter((item) => item.ownerId === task.id)))
   pushSection(sections, 'Attachment Folder', attachmentFolderMarkdown(exportStatuses))
-  pushSection(sections, 'Agent References', agentReferencesMarkdown(task, context.agents))
-  pushSection(sections, 'Skill References', skillReferencesMarkdown(task, context.skills))
+  pushSection(sections, 'AI Execution Flow', buildAiExecutionFlow(context))
   pushSection(sections, 'Subtasks as Primary Execution Plan', subtaskExecutionPlanMarkdown(context))
   if (subtasks.length) {
     pushSection(sections, 'Subtasks Index', subtasks.map((subtask, index) => {
@@ -620,6 +641,9 @@ export function buildTaskMarkdown(context: ExportContext, exportStatuses: Attach
     }).join('\n'))
   }
   for (const [index, subtask] of subtasks.entries()) sections.push(buildSubtaskSection(subtask, index, context, subtaskExportStatuses[subtask.id] ?? []))
+  pushSection(sections, 'Project Instructions', projectInputs)
+  pushSection(sections, 'Agent References', agentReferencesMarkdown(task, context.agents))
+  pushSection(sections, 'Skill References', skillReferencesMarkdown(task, context.skills))
   return `${sections.join(SECTION_SEPARATOR)}\n`
 }
 
@@ -713,10 +737,13 @@ export function buildAgentMarkdown(context: ExportContext): string {
     current.sources.push(source)
     refs.set(agent.id, current)
   }
-  add(context.task.agentId, `Task: ${context.task.title}`)
-    for (const [index, subtask] of (context.task.subtasks ?? []).entries()) add(getSubtaskAgentId(subtask), subtaskLabel(subtask, index))
+  add(effectiveTaskAgentId(context), effectiveSourceLabel(context, 'agent'))
+  for (const [index, subtask] of (context.task.subtasks ?? []).entries()) add(getSubtaskAgentId(subtask), subtaskLabel(subtask, index))
   if (!refs.size) return ''
-  const sections = ['# Agents']
+  const sections = [
+    '# Agents',
+    'Effective Agent instructions are execution guidance. Skills provide procedural/domain guidance, and linked Tools describe the Agent capability catalog for this task flow.'
+  ]
   for (const { agent, sources } of Array.from(refs.values()).sort((a, b) => a.agent.name.localeCompare(b.agent.name, 'tr'))) {
     const description = agentDescription(agent)
     const prompt = agentPrompt(agent)
@@ -737,6 +764,7 @@ export function buildAgentMarkdown(context: ExportContext): string {
       ].join('\n'),
       `### References\n${sources.map((source) => `- ${source}`).join('\n')}`
     ]
+    agentSections.push(`### Capability Relationship\n- Agent role: primary executor for referenced task/subtask sources.\n- Skills: apply effective task/project skills as procedural guidance.\n- Tools: linked active tools are capability catalog context only; do not execute command templates unless a future runtime explicitly enables tool invocation and approval.`)
     if (prompt) agentSections.push(`### Agent Prompt\n${prompt}`)
     const extraConfig = agentExtraConfig(agent)
     if (Object.keys(extraConfig).length > 0) {
@@ -759,12 +787,12 @@ export function buildToolsMarkdown(context: ExportContext): string {
       refs.set(tool.id, current)
     }
   }
-  addAgentTools(context.task.agentId, `Task: ${context.task.title}`)
+  addAgentTools(effectiveTaskAgentId(context), effectiveSourceLabel(context, 'agent'))
   for (const [index, subtask] of (context.task.subtasks ?? []).entries()) addAgentTools(getSubtaskAgentId(subtask), subtaskLabel(subtask, index))
   if (!refs.size) return ''
   const sections = [
     '# Tools',
-    'These AI tools are catalog definitions only. Open Mission Control v1 exports them as context for the effective agent; do not execute listed commands unless a future runtime explicitly enables tool invocation.'
+    'These AI tools are catalog definitions only. Open Mission Control exports them as context for the effective Agent; do not execute listed commands, function bodies, or code bodies unless a future runtime explicitly enables tool invocation and approval.'
   ]
   for (const { tool, sources } of Array.from(refs.values()).sort((a, b) => a.tool.name.localeCompare(b.tool.name, 'tr'))) {
     const rows = [
@@ -803,7 +831,7 @@ export function buildSkillsMarkdown(context: ExportContext): string {
     current.sources.push(source)
     refs.set(skill.id, current)
   }
-  for (const skill of context.task.skills ?? []) add(skill, `Task: ${context.task.title}`)
+  for (const skillId of effectiveTaskSkillIds(context)) add(context.skills.find((skill) => skill.id === skillId) ?? (context.task.skills ?? []).find((skill) => skill.id === skillId), effectiveSourceLabel(context, 'skills'))
   for (const [index, subtask] of (context.task.subtasks ?? []).entries()) {
     for (const skillId of getSubtaskSkillIds(subtask)) add(context.skills.find((skill) => skill.id === skillId), subtaskLabel(subtask, index))
   }

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type RefObject } from 'react'
 import type { IconType } from 'react-icons'
-import { LuBot, LuCircleStop, LuCloudUpload, LuEllipsis, LuEye, LuFileText, LuHistory, LuImage, LuMessageSquare, LuPaperclip, LuPlay, LuPlus, LuSend, LuSettings2, LuSignal, LuSparkles, LuX } from 'react-icons/lu'
+import { LuBot, LuChevronRight, LuCircleStop, LuCloudUpload, LuEllipsis, LuEye, LuFileText, LuHistory, LuImage, LuMessageSquare, LuPaperclip, LuPlay, LuPlus, LuSend, LuSettings2, LuSignal, LuSparkles, LuX } from 'react-icons/lu'
 import { formatUsageSummary } from '@shared/utils/gateway-events'
-import type { Agent, Gateway, Skill, TaskEntity, Workspace } from '@shared/types/entities'
+import type { Agent, AiTool, Gateway, Skill, TaskEntity, Workspace } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { GatewayChatMessageItem, CodexWorkBlock } from '@renderer/components/projects/detail/chat/CodexChatMessageItem'
 import { formatChatTime, groupCodexTranscriptMessages } from '@renderer/screens/projects/detail/chat/chatUtils'
@@ -67,6 +67,7 @@ interface ChatPopupFlatProps {
   selectedChatUsage: Parameters<typeof formatUsageSummary>[0] | null
   selectedTaskAgent: Agent | null
   taskContextSkills: Skill[]
+  taskContextTools: AiTool[]
   onClose: () => void
   onDragEnter: (event: DragEvent<HTMLElement>) => void
   onDragOver: (event: DragEvent<HTMLElement>) => void
@@ -98,6 +99,7 @@ interface ChatPopupFlatProps {
   onSlashCommandApply: (command: SlashCommand) => void
   onSlashCommandIndexChange: (updater: (value: number) => number) => void
   onClearSlashDraft: () => void
+  onSteerMessageClick: (conversationId: string) => void
   onSend: () => void
   onPlannerQuestionAnswer: (answer: string) => void
 }
@@ -135,6 +137,7 @@ type ChatPopupStateProps = Omit<
   | 'onSlashCommandApply'
   | 'onSlashCommandIndexChange'
   | 'onClearSlashDraft'
+  | 'onSteerMessageClick'
   | 'onSend'
   | 'onPlannerQuestionAnswer'
 >
@@ -172,6 +175,7 @@ type ChatPopupHandlerProps = Pick<
   | 'onSlashCommandApply'
   | 'onSlashCommandIndexChange'
   | 'onClearSlashDraft'
+  | 'onSteerMessageClick'
   | 'onSend'
   | 'onPlannerQuestionAnswer'
 >
@@ -198,6 +202,22 @@ type ChatHeaderAction = {
   disabled?: boolean
   active?: boolean
   danger?: boolean
+}
+
+type CodexOptionsModal = 'runtime' | 'model' | 'reasoning' | 'capability'
+
+type CodexOptionAction = {
+  key: string
+  label: string
+  detail: string
+  meta?: string
+  group?: 'context' | 'execution' | 'config' | 'runtime'
+  icon: IconType
+  onSelect: () => void
+  active?: boolean
+  disabled?: boolean
+  danger?: boolean
+  opensModal?: boolean
 }
 
 function ChatHeaderOverflowMenu({ actions }: { actions: ChatHeaderAction[] }) {
@@ -271,6 +291,85 @@ function ChatHeaderOverflowMenu({ actions }: { actions: ChatHeaderAction[] }) {
   )
 }
 
+function CodexOptionsMenu({ actions }: { actions: CodexOptionAction[] }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const buttonRef = useRef<HTMLButtonElement | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    const close = (event: MouseEvent) => {
+      if (menuRef.current?.contains(event.target as Node)) return
+      setIsOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setIsOpen(false)
+      buttonRef.current?.focus()
+    }
+    window.addEventListener('mousedown', close)
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [isOpen])
+
+  return (
+    <div className={popupStyles.codexOptionsWrap} ref={menuRef}>
+      <button
+        ref={buttonRef}
+        type="button"
+        className={`${styles.chatConfigurationButton} ${popupStyles.codexOptionsButton} ${isOpen ? styles.chatActionActive : ''}`}
+        onClick={() => setIsOpen((value) => !value)}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+      >
+        <LuSettings2 size={13} />
+        <span>Gateway options</span>
+      </button>
+      {isOpen ? (
+        <div className={popupStyles.codexOptionsMenu} role="menu">
+          {actions.map((action, index) => {
+            const Icon = action.icon
+            const previous = actions[index - 1]
+            const separated = index > 0 && previous?.group !== action.group
+            return (
+              <div key={action.key} className={separated ? popupStyles.codexOptionsGroupBreak : undefined}>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={action.disabled}
+                  className={[
+                    popupStyles.codexOptionsItem,
+                    action.active ? popupStyles.codexOptionsItemActive : '',
+                    action.danger ? popupStyles.codexOptionsItemDanger : ''
+                  ].filter(Boolean).join(' ')}
+                  onClick={() => {
+                    if (action.disabled) return
+                    setIsOpen(false)
+                    action.onSelect()
+                  }}
+                >
+                  <Icon size={15} />
+                  <span>
+                    <b>{action.label}</b>
+                    <small>{action.detail}</small>
+                  </span>
+                  <em>
+                    {action.meta ? <span>{action.meta}</span> : null}
+                    {action.opensModal ? <LuChevronRight size={13} /> : null}
+                  </em>
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function formatAttachmentSize(size: number): string {
   if (!Number.isFinite(size) || size <= 0) return '0 B'
   if (size < 1024) return `${Math.round(size)} B`
@@ -283,6 +382,16 @@ function attachmentExtension(name: string): string {
   return ext ? ext.slice(0, 6).toUpperCase() : 'FILE'
 }
 
+function slashCommandIcon(commandId: SlashCommand['id']): IconType {
+  if (commandId === 'review') return LuEye
+  if (commandId === 'run') return LuPlay
+  if (commandId === 'plan') return LuSparkles
+  if (commandId === 'steer') return LuMessageSquare
+  if (commandId === 'settings') return LuSettings2
+  if (commandId === 'attach') return LuPaperclip
+  return LuFileText
+}
+
 export function ChatPopup({
   chatState,
   chatHandlers,
@@ -291,7 +400,7 @@ export function ChatPopup({
 }: ChatPopupProps) {
   const noOp = () => {}
   const state = (chatState ?? flatProps) as ChatPopupStateProps | null
-  const [isConfigurationDetailsOpen, setIsConfigurationDetailsOpen] = useState(false)
+  const [activeCodexOptionsModal, setActiveCodexOptionsModal] = useState<CodexOptionsModal | null>(null)
   const [isContextDrawerOpen, setIsContextDrawerOpen] = useState(false)
   const [selectedContextEntryId, setSelectedContextEntryId] = useState<string>('')
   const activeCommand = state?.chatMode === 'plan' || state?.chatMode === 'steer' ? state.chatMode : null
@@ -302,6 +411,7 @@ export function ChatPopup({
     const workspaceLabel = state?.chatRuntimeWorkspace?.name || state?.runtimeWorkspaceId || 'Workspace required'
     const sessionLabel = state?.selectedChatSummary?.status ?? (state?.visibleMessages.length ? 'mixed' : 'ready')
     const skillsLabel = state?.taskContextSkills.length ? state.taskContextSkills.map((skill) => skill.name).join(', ') : 'None'
+    const toolsLabel = state?.taskContextTools.length ? state.taskContextTools.map((tool) => tool.name).join(', ') : 'None'
     const usageLabel = state?.selectedChatUsage ? formatUsageSummary(state.selectedChatUsage) : 'N/A'
     const includeContextLabel = state?.chatIncludeContext ? 'On' : 'Off'
 
@@ -316,6 +426,8 @@ export function ChatPopup({
       { label: 'Session', value: sessionLabel },
       { label: 'Agent', value: state?.selectedTaskAgent?.name ?? 'Unassigned' },
       { label: 'Skills', value: skillsLabel },
+      { label: 'Tools', value: toolsLabel },
+      { label: 'Tool execution', value: state?.taskContextTools.length ? 'Catalog only' : 'No active agent tools' },
       { label: 'Usage', value: usageLabel, hidden: !usageLabel },
       { label: 'Task context', value: includeContextLabel }
     ]
@@ -333,6 +445,7 @@ export function ChatPopup({
     state?.selectedTaskAgent?.name,
     state?.selectedChatUsage,
     state?.taskContextSkills,
+    state?.taskContextTools,
     state?.visibleMessages.length,
     state?.chatRunModel,
     state?.chatRunReasoningEffort,
@@ -349,19 +462,19 @@ export function ChatPopup({
     return [
       { title: 'Runtime', items: pick(['Gateway', 'Mode', 'Workspace', 'Session']) },
       { title: 'Models', items: pick(['Plan model', 'Plan reasoning', 'Run model', 'Run reasoning']) },
-      { title: 'Task context', items: pick(['Agent', 'Skills', 'Task context']) },
+      { title: 'Capability context', items: pick(['Agent', 'Skills', 'Tools', 'Tool execution', 'Task context']) },
       { title: 'Usage', items: pick(['Usage']) }
     ].filter((group) => group.items.length > 0)
   }, [visibleConfigurationDetails])
 
   useEffect(() => {
-    if (!isConfigurationDetailsOpen) return
+    if (!activeCodexOptionsModal) return
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setIsConfigurationDetailsOpen(false)
+      if (event.key === 'Escape') setActiveCodexOptionsModal(null)
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [isConfigurationDetailsOpen])
+  }, [activeCodexOptionsModal])
 
   if (!state) {
     return null
@@ -398,6 +511,7 @@ export function ChatPopup({
     onSlashCommandApply: chatHandlers?.onSlashCommandApply ?? flatProps.onSlashCommandApply ?? noOp,
     onSlashCommandIndexChange: chatHandlers?.onSlashCommandIndexChange ?? flatProps.onSlashCommandIndexChange ?? (() => {}),
     onClearSlashDraft: chatHandlers?.onClearSlashDraft ?? flatProps.onClearSlashDraft ?? noOp,
+    onSteerMessageClick: chatHandlers?.onSteerMessageClick ?? flatProps.onSteerMessageClick ?? noOp,
     onSend: chatHandlers?.onSend ?? flatProps.onSend ?? noOp,
     onPlannerQuestionAnswer: chatHandlers?.onPlannerQuestionAnswer ?? flatProps.onPlannerQuestionAnswer ?? noOp
   }
@@ -453,7 +567,8 @@ export function ChatPopup({
     selectedChatSummary,
     selectedChatUsage,
     selectedTaskAgent,
-    taskContextSkills
+    taskContextSkills,
+    taskContextTools
   } = state
 
   const {
@@ -485,6 +600,7 @@ export function ChatPopup({
     onSlashCommandApply,
     onSlashCommandIndexChange,
     onClearSlashDraft,
+    onSteerMessageClick,
     onSend,
   } = handlers
 
@@ -520,6 +636,148 @@ export function ChatPopup({
   }
   const selectedChatStatusMeta = selectedChatSummary ? conversationStatusMeta(selectedChatSummary) : null
   const sendButtonStopsConversation = selectedChatCanStop && activeCommand !== 'steer'
+  const runModelLabel = chatRunModel || chatModel || 'Not set'
+  const planModelLabel = chatPlanModel || chatModel || 'Not set'
+  const toolsMeta = taskContextTools.length ? `${taskContextTools.length} catalog tools` : 'No active tools'
+  const codexOptionActions: CodexOptionAction[] = [
+    {
+      key: 'review',
+      label: 'Code review',
+      detail: 'Prepare a review prompt with task context',
+      group: 'context',
+      icon: LuEye,
+      onSelect: () => onSlashCommandApply({ id: 'review', label: '/review', hint: 'Prepare a code review prompt' })
+    },
+    ...(showContextHistory ? [{
+      key: 'context-history',
+      label: 'Context history',
+      detail: 'Show generated plan, run, and chat context',
+      meta: `${contextEntries.length}`,
+      group: 'context',
+      icon: LuHistory,
+      onSelect: () => setIsContextDrawerOpen(true),
+      active: isContextDrawerOpen
+    }] : []),
+    {
+      key: 'attach',
+      label: 'Attach files',
+      detail: 'Choose files for the next message',
+      meta: attachments.length ? `${attachments.length}` : undefined,
+      group: 'context',
+      icon: LuPaperclip,
+      onSelect: onAttachFilesClick
+    },
+    ...(showRunActions ? [{
+      key: 'run',
+      label: 'Run',
+      detail: gatewayRunLaunching ? 'Codex run is starting' : 'Start a Codex run for this task',
+      meta: runModelLabel,
+      group: 'execution',
+      icon: LuPlay,
+      onSelect: onRun,
+      disabled: gatewayRunLaunching
+    }, {
+      key: 'plan',
+      label: 'Plan',
+      detail: gatewayPlanLaunching ? 'Codex planner is starting' : 'Start Codex planning for this task',
+      meta: chatPlanModel || chatModel || 'Not set',
+      group: 'execution',
+      icon: LuSparkles,
+      onSelect: () => onSlashCommandApply({ id: 'plan', label: '/plan', hint: 'Start Codex planning for the task' }),
+      disabled: gatewayPlanLaunching
+    }] : []),
+    ...(selectedChatSummary ? [{
+      key: 'steer',
+      label: 'Steer',
+      detail: activeCommand === 'steer' ? 'Steering selected conversation' : 'Target the selected conversation',
+      meta: activeCommand === 'steer' ? 'On' : selectedChatSummary.status,
+      group: 'execution',
+      icon: LuMessageSquare,
+      onSelect: () => onSlashCommandApply({ id: 'steer', label: '/steer', hint: 'Steer the selected conversation' }),
+      active: activeCommand === 'steer'
+    }] : []),
+    {
+      key: 'model',
+      label: 'Model',
+      detail: `Run/chat: ${runModelLabel}`,
+      meta: planModelLabel !== runModelLabel ? `Plan: ${planModelLabel}` : runModelLabel,
+      group: 'config',
+      icon: LuBot,
+      onSelect: () => setActiveCodexOptionsModal('model'),
+      opensModal: true
+    },
+    {
+      key: 'reasoning',
+      label: 'Reasoning',
+      detail: `Run: ${chatRunReasoningEffort || 'Project default'}`,
+      meta: chatPlanReasoningEffort && chatPlanReasoningEffort !== chatRunReasoningEffort ? `Plan: ${chatPlanReasoningEffort}` : chatRunReasoningEffort || 'Default',
+      group: 'config',
+      icon: LuSparkles,
+      onSelect: () => setActiveCodexOptionsModal('reasoning'),
+      opensModal: true
+    },
+    {
+      key: 'task-context',
+      label: 'Task context',
+      detail: 'Include task details and generated context',
+      meta: chatIncludeContext ? 'On' : 'Off',
+      group: 'config',
+      icon: LuFileText,
+      onSelect: () => onIncludeContextChange(!chatIncludeContext),
+      active: chatIncludeContext
+    },
+    {
+      key: 'capability',
+      label: 'Capability context',
+      detail: `${selectedTaskAgent?.name ?? 'Unassigned agent'} · ${toolsMeta}`,
+      meta: taskContextSkills.length ? `${taskContextSkills.length} skills` : 'No skills',
+      group: 'runtime',
+      icon: LuSignal,
+      onSelect: () => setActiveCodexOptionsModal('capability'),
+      opensModal: true
+    },
+    {
+      key: 'runtime',
+      label: 'Runtime details',
+      detail: `${chatGateway?.name ?? 'Gateway required'} · ${chatGatewayConfig.executionMode === 'exec' ? 'Exec' : 'Terminal'}`,
+      meta: chatRuntimeWorkspace?.name ?? runtimeWorkspaceId ?? 'No workspace',
+      group: 'runtime',
+      icon: LuSettings2,
+      onSelect: () => setActiveCodexOptionsModal('runtime'),
+      opensModal: true
+    },
+    ...(selectedChatCanStop ? [{
+      key: 'stop',
+      label: 'Stop',
+      detail: 'Stop the active Codex chat',
+      group: 'runtime',
+      icon: LuCircleStop,
+      onSelect: () => onStopChat(),
+      disabled: chatStopping,
+      danger: true
+    }] : [])
+  ]
+  const codexModalTitle = activeCodexOptionsModal === 'model'
+    ? 'Model'
+    : activeCodexOptionsModal === 'reasoning'
+      ? 'Reasoning'
+      : activeCodexOptionsModal === 'capability'
+        ? 'Capability context'
+        : 'Runtime details'
+  const codexModalDescription = activeCodexOptionsModal === 'model'
+    ? 'Select the models used for planning and run/chat turns.'
+    : activeCodexOptionsModal === 'reasoning'
+      ? 'Set reasoning effort for plan and run/chat execution.'
+      : activeCodexOptionsModal === 'capability'
+        ? 'Effective Agent, Skills, and catalog-only Tools visible to Codex.'
+        : 'Read-only gateway, execution mode, workspace, session, and usage details.'
+  const codexModalGroups = configurationGroups.filter((group) => (
+    activeCodexOptionsModal === 'capability'
+      ? group.title === 'Capability context'
+      : activeCodexOptionsModal === 'runtime'
+        ? group.title === 'Runtime' || group.title === 'Usage'
+        : false
+  ))
   const headerActions: ChatHeaderAction[] = [
     ...(showContextHistory ? [{
       key: 'context',
@@ -680,18 +938,18 @@ export function ChatPopup({
                   {transcriptItems.map((item) => (
                     item.kind === 'work-block'
                       ? <CodexWorkBlock key={item.id} block={item.block} />
-                      : <GatewayChatMessageItem key={item.id} message={item.message} />
+                      : <GatewayChatMessageItem key={item.id} message={item.message} onSteerMessageClick={onSteerMessageClick} />
                   ))}
                 </div>
               ) : (
                 <div className={styles.chatEmptyState}>
                   {localStatusMessage ? (
-                    <div className={styles.chatMessageList}><GatewayChatMessageItem message={localStatusMessage} /></div>
+                    <div className={styles.chatMessageList}><GatewayChatMessageItem message={localStatusMessage} onSteerMessageClick={onSteerMessageClick} /></div>
                   ) : (
                     <>
                       <LuMessageSquare size={28} />
                       <h3>Task akışını başlat</h3>
-                      <p>Planla, çalıştır, doğrula veya devam mesajı gönder. Ajan aksiyonları bu task içinde geçmiş olarak görünür.</p>
+                      <p>Planla, çalıştır, takip mesajı gönder veya aktif konuşmayı yönlendir. Agent, Skill ve Tool capability context bu task akışına eklenir.</p>
                       <div>
                         {showRunActions ? <button type="button" onClick={onPlan} disabled={gatewayPlanLaunching}><LuSparkles size={15} /> {gatewayPlanLaunching ? 'Planlanıyor' : 'Planla'}</button> : null}
                         {showRunActions ? <button type="button" onClick={onRun} disabled={gatewayRunLaunching}><LuPlay size={15} /> {gatewayRunLaunching ? 'Çalışıyor' : 'Çalıştır'}</button> : null}
@@ -740,7 +998,7 @@ export function ChatPopup({
                   </div>
                   <label className={styles.chatSettingsToggle}>
                     <input type="checkbox" checked={chatIncludeContext} onChange={(event) => onIncludeContextChange(event.target.checked)} />
-                    <span><b>Task context</b><small>Include current task details in the next run.</small></span>
+                    <span><b>Capability context</b><small>Include current task details, effective Agent, Skills, and catalog-only Tools in the next run.</small></span>
                   </label>
                 </aside>
               </>
@@ -808,21 +1066,26 @@ export function ChatPopup({
             <div className={styles.chatComposerFrame}>
               {slashMenuOpen && slashCommands.length > 0 ? (
                 <div className={styles.slashCommandMenu} role="listbox" aria-label="Slash commands">
-                  {slashCommands.map((command, index) => (
-                    <button key={command.id} type="button" className={index === slashCommandIndex ? styles.slashCommandActive : ''} onMouseDown={(event) => { event.preventDefault(); onSlashCommandApply(command) }} role="option" aria-selected={index === slashCommandIndex}>
-                      <span>{command.label}</span>
-                      <small>{command.hint}</small>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              {activeCommand ? (
-                <div className={styles.chatSteerModeRow}>
-                  <span>{activeCommand === 'plan' ? '/plan' : '/steer'}</span>
-                  <small>{activeCommand === 'plan' ? 'Plan komutu prompt metninden ayrı gönderilecek' : 'Steer komutu seçili konuşmaya gönderilecek'}</small>
-                  <button type="button" onClick={onClearSlashDraft} aria-label={`${activeCommand} komutunu kaldır`} title="Komutu kaldır">
-                    <LuX size={13} />
-                  </button>
+                  {slashCommands.map((command, index) => {
+                    const SlashIcon = slashCommandIcon(command.id)
+                    const meta = command.id === 'context'
+                      ? chatIncludeContext ? 'On' : 'Off'
+                      : command.id === 'plan'
+                        ? activeCommand === 'plan' ? 'On' : ''
+                        : command.id === 'steer'
+                          ? activeCommand === 'steer' ? 'On' : ''
+                          : ''
+                    return (
+                      <button key={command.id} type="button" className={index === slashCommandIndex ? styles.slashCommandActive : ''} onMouseDown={(event) => { event.preventDefault(); onSlashCommandApply(command) }} role="option" aria-selected={index === slashCommandIndex}>
+                        <SlashIcon size={15} />
+                        <span>
+                          <b>{command.label}</b>
+                          <small>{command.hint}</small>
+                        </span>
+                        {meta ? <em>{meta}</em> : null}
+                      </button>
+                    )
+                  })}
                 </div>
               ) : null}
               <div className={`${styles.chatComposerBox} ${popupStyles.chatComposerBox}`}>
@@ -852,26 +1115,75 @@ export function ChatPopup({
                 </button>
                 <div className={styles.chatComposerFooter}>
                   <button type="button" className={styles.chatAttachButton} onClick={onAttachFilesClick} aria-label="Attach files"><LuPaperclip size={16} /></button>
-                  <button type="button" className={styles.chatConfigurationButton} onClick={() => setIsConfigurationDetailsOpen(true)} aria-haspopup="dialog">
-                    <LuSettings2 size={13} />
-                    <span>Configuration details</span>
-                  </button>
+                  {activeCommand ? (
+                    <span className={styles.chatActiveCommandBadge}>
+                      <b>{activeCommand === 'plan' ? '/plan' : '/steer'}</b>
+                      <small>{activeCommand === 'plan' ? 'Plan' : 'Steer'}</small>
+                      <button type="button" onClick={onClearSlashDraft} aria-label={`${activeCommand} komutunu kaldır`} title="Komutu kaldır">
+                        <LuX size={12} />
+                      </button>
+                    </span>
+                  ) : null}
+                  <CodexOptionsMenu actions={codexOptionActions} />
                 </div>
               </div>
             </div>
-            {isConfigurationDetailsOpen ? (
-              <div className={styles.chatConfigModalOverlay} onMouseDown={() => setIsConfigurationDetailsOpen(false)}>
-                <div className={styles.chatConfigModal} role="dialog" aria-modal="true" aria-label="Configuration details" onMouseDown={(event) => event.stopPropagation()}>
+            {activeCodexOptionsModal ? (
+              <div className={styles.chatConfigModalOverlay} onMouseDown={() => setActiveCodexOptionsModal(null)}>
+                <div className={styles.chatConfigModal} role="dialog" aria-modal="true" aria-label={codexModalTitle} onMouseDown={(event) => event.stopPropagation()}>
                   <header className={styles.chatConfigModalHeader}>
                     <span><LuSettings2 size={16} /></span>
                     <div>
-                      <h3>Configuration details</h3>
-                      <p>Read-only Codex runtime, model, agent, skills, and context settings.</p>
+                      <h3>{codexModalTitle}</h3>
+                      <p>{codexModalDescription}</p>
                     </div>
-                    <button type="button" onClick={() => setIsConfigurationDetailsOpen(false)} aria-label="Close configuration details"><LuX size={16} /></button>
+                    <button type="button" onClick={() => setActiveCodexOptionsModal(null)} aria-label={`Close ${codexModalTitle}`}><LuX size={16} /></button>
                   </header>
                   <div className={styles.chatConfigModalBody}>
-                    {configurationGroups.map((group) => (
+                    {activeCodexOptionsModal === 'model' ? (
+                      <>
+                        <section className={styles.chatConfigModalSection}>
+                          <h4>Gateway</h4>
+                          <div className={styles.chatSettingsCard}>
+                            <div className={styles.chatSettingTitle}><span><LuSignal size={14} /></span><div><b>Gateway</b><small>{chatGateway?.name ?? 'Select a gateway'}</small></div></div>
+                            <AppSelect mode="single" value={chatGatewayOption} options={chatGatewayOptions} onChange={(option) => { if (!Array.isArray(option)) onGatewayChange(option) }} placeholder="Select gateway" />
+                          </div>
+                        </section>
+                        <section className={styles.chatConfigModalSection}>
+                          <h4>Models</h4>
+                          <div className={styles.chatConfigModalControls}>
+                            <div className={styles.chatSettingsCard}>
+                              <div className={styles.chatSettingTitle}><span><LuBot size={14} /></span><div><b>Plan model</b><small>{chatPlanModel || chatModel || 'Select a plan model'}</small></div></div>
+                              <AppSelect mode="single" value={chatPlanModelOption} options={chatModelOptions} onChange={(option) => { if (!Array.isArray(option)) onPlanModelChange(option) }} placeholder="Select plan model" isDisabled={!chatGatewayOption} />
+                            </div>
+                            <div className={styles.chatSettingsCard}>
+                              <div className={styles.chatSettingTitle}><span><LuBot size={14} /></span><div><b>Run / chat model</b><small>{chatRunModel || chatModel || 'Select a run model'}</small></div></div>
+                              <AppSelect mode="single" value={chatRunModelOption ?? chatModelOption} options={chatModelOptions} onChange={(option) => { if (!Array.isArray(option)) onRunModelChange(option) }} placeholder="Select run model" isDisabled={!chatGatewayOption} />
+                            </div>
+                          </div>
+                        </section>
+                      </>
+                    ) : null}
+                    {activeCodexOptionsModal === 'reasoning' ? (
+                      <section className={styles.chatConfigModalSection}>
+                        <h4>Reasoning effort</h4>
+                        <div className={styles.chatConfigModalControls}>
+                          {chatPlanReasoningOptions.length > 0 ? (
+                            <div className={styles.chatSettingsCard}>
+                              <div className={styles.chatSettingTitle}><span><LuSparkles size={14} /></span><div><b>Plan reasoning</b><small>{chatPlanReasoningEffort || 'Select reasoning'}</small></div></div>
+                              <AppSelect mode="single" value={chatPlanReasoningOptions.find((option) => option.value === chatPlanReasoningEffort) ?? null} options={chatPlanReasoningOptions} onChange={(option) => { if (!Array.isArray(option)) onPlanReasoningChange(option) }} placeholder="Select plan reasoning" />
+                            </div>
+                          ) : <div className={styles.chatSettingReadout}><span>Plan reasoning</span><b>Project default</b></div>}
+                          {chatRunReasoningOptions.length > 0 ? (
+                            <div className={styles.chatSettingsCard}>
+                              <div className={styles.chatSettingTitle}><span><LuSparkles size={14} /></span><div><b>Run reasoning</b><small>{chatRunReasoningEffort || 'Select reasoning'}</small></div></div>
+                              <AppSelect mode="single" value={chatRunReasoningOptions.find((option) => option.value === chatRunReasoningEffort) ?? null} options={chatRunReasoningOptions} onChange={(option) => { if (!Array.isArray(option)) onRunReasoningChange(option) }} placeholder="Select run reasoning" />
+                            </div>
+                          ) : <div className={styles.chatSettingReadout}><span>Run reasoning</span><b>Project default</b></div>}
+                        </div>
+                      </section>
+                    ) : null}
+                    {codexModalGroups.map((group) => (
                       <section key={group.title} className={styles.chatConfigModalSection}>
                         <h4>{group.title}</h4>
                         <div className={styles.chatConfigDetailList}>

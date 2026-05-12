@@ -1,6 +1,6 @@
 import { type RefObject, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { type AppSelectOption } from '@renderer/components/select/AppSelect'
-import { type Agent, type Gateway, type Skill, type TaskEntity, type Workspace } from '@shared/types/entities'
+import { type Agent, type AiTool, type Gateway, type Skill, type TaskEntity, type Workspace } from '@shared/types/entities'
 import {
   CHAT_MESSAGE_LOAD_STEP,
   CHAT_INITIAL_MESSAGE_LIMIT,
@@ -76,6 +76,7 @@ export interface ChatPopupState {
   selectedChatUsage: ReturnType<typeof usageFromMetadata> | null
   selectedTaskAgent: Agent | null
   taskContextSkills: Skill[]
+  taskContextTools: AiTool[]
 }
 
 interface ChatPopupHandlers {
@@ -110,6 +111,7 @@ interface ChatPopupHandlers {
   onSlashCommandApply: (command: SlashCommand) => void
   onSlashCommandIndexChange: (updater: (value: number) => number) => void
   onClearSlashDraft: () => void
+  onSteerMessageClick: (conversationId: string) => void
   onSend: () => void
   onPlannerQuestionAnswer: (answer: string) => void
 }
@@ -118,8 +120,9 @@ const LOCAL_CHAT_STATUS_RUN_ID = 'local-chat-status'
 const CHAT_BOTTOM_STICKY_THRESHOLD = 96
 const CHAT_COMPACT_VIEWPORT_QUERY = '(max-width: 860px)'
 const slashCommands: SlashCommand[] = [
-  { id: 'plan', label: '/plan', hint: 'Draft a plan in this chat' },
+  { id: 'review', label: '/review', hint: 'Prepare a code review prompt' },
   { id: 'run', label: '/run', hint: 'Start a Codex run for the task' },
+  { id: 'plan', label: '/plan', hint: 'Start Codex planning for the task' },
   { id: 'steer', label: '/steer', hint: 'Steer the selected conversation' },
   { id: 'settings', label: '/settings', hint: 'Open Codex chat settings' },
   { id: 'attach', label: '/attach', hint: 'Choose files to attach' },
@@ -196,6 +199,7 @@ interface ChatPopupParams {
   chatStopping: boolean
   selectedTaskAgent: Agent | null
   taskContextSkills: Skill[]
+  taskContextTools: AiTool[]
   chatMode: 'chat' | 'plan' | 'steer'
   setSlashCommandIndex: Setter<number>
   setChatSettingsOpen: Setter<boolean>
@@ -281,6 +285,7 @@ export function useProjectChatPopup({
   chatStopping,
   selectedTaskAgent,
   taskContextSkills,
+  taskContextTools,
   setSlashCommandIndex,
   setChatSettingsOpen,
   setChatModel,
@@ -449,7 +454,7 @@ export function useProjectChatPopup({
   const slashMenuOpen = chatComposerFocused && Boolean(slashMatch)
   const filteredSlashCommands = useMemo(() => slashCommands
     .filter((command) => command.label.slice(1).startsWith(slashQuery))
-    .slice(0, 6), [slashQuery])
+    .slice(0, 8), [slashQuery])
 
   useEffect(() => {
     if (!isChatModalMounted) return
@@ -626,7 +631,8 @@ export function useProjectChatPopup({
     selectedChatSummary,
     selectedChatUsage,
     selectedTaskAgent,
-    taskContextSkills
+    taskContextSkills,
+    taskContextTools
   }
 
   const chatHandlers: ChatPopupHandlers = {
@@ -740,6 +746,15 @@ export function useProjectChatPopup({
     onClearSlashDraft: () => {
       setChatComposerMode('chat')
       setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))
+    },
+    onSteerMessageClick: (conversationId) => {
+      if (!conversationId) return
+      setIsStartingNewChat(false)
+      setSelectedChatConversationId(conversationId)
+      setChatComposerMode('steer')
+      setGatewayRunFeedback(null)
+      closeSettingsOnCompactViewport()
+      requestAnimationFrame(() => chatDraftTextareaRef.current?.focus())
     },
     onSend: () => {
       closeSettingsOnCompactViewport()

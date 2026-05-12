@@ -92,7 +92,7 @@ export type ChatOperationFeedbackData = {
   message: string
 }
 export type SlashCommand = {
-  id: 'plan' | 'run' | 'steer' | 'settings' | 'attach' | 'context'
+  id: 'review' | 'run' | 'plan' | 'steer' | 'settings' | 'attach' | 'context'
   label: string
   hint: string
 }

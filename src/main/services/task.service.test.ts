@@ -95,9 +95,10 @@ describe('gatewayChatPrompt', () => {
       mode: 'chat'
     })
 
-    expect(prompt).toContain('Latest run output context:\nNEXT_CHAT_HANDOFF')
-    expect(prompt).toContain('Follow-up task metadata JSON:')
+    expect(prompt).toContain('Generated chat context / latest handoff:\nNEXT_CHAT_HANDOFF')
+    expect(prompt).toContain('Minimal follow-up task reference JSON:')
     expect(prompt).not.toContain('Current task context JSON:')
+    expect(prompt).not.toContain('Task description:\nTask details should support the prompt.')
     expect(prompt).toContain('"status": "review"')
     expect(prompt).not.toContain('context context context context context context')
     expect((prompt.match(/ASSISTANT:/g) ?? []).length).toBe(10)
@@ -213,9 +214,41 @@ describe('gatewayChatPrompt', () => {
     expect(prompt).toContain('Selected Codex language: English.')
     expect(prompt).toContain('High-priority Project Instructions:')
     expect(prompt).toContain('Effective agent: name=Frontend Agent')
-    expect(prompt.indexOf('Selected Codex language: English.')).toBeLessThan(prompt.indexOf('User follow-up:'))
+    expect(prompt.indexOf('User follow-up:\nContinue.')).toBeLessThan(prompt.indexOf('High-priority Project Instructions:'))
     expect(prompt.indexOf('High-priority Project Instructions:')).toBeLessThan(prompt.indexOf('Current task context JSON:'))
     expect(prompt.indexOf('Effective agent:')).toBeLessThan(prompt.indexOf('Current task context JSON:'))
+    expect(prompt.indexOf('Selected Codex language: English.')).toBeLessThan(prompt.indexOf('Current task context JSON:'))
+  })
+
+  it('includes effective Agent, Skills, Tools, and catalog-only policy before task context', () => {
+    const prompt = gatewayChatPrompt({
+      task: taskWithComments(),
+      message: 'Continue.',
+      transcript: [],
+      context: {
+        project: { generalPrompt: 'Project prompt.' },
+        capabilityContext: {
+          effectiveAgent: {
+            id: 'agent-1',
+            name: 'Runtime Agent',
+            inherited: true,
+            tools: [{ id: 'tool-1', name: 'List changed files', slug: 'list-changed-files', status: 'active', toolType: 'local_command', approvalRequired: true }]
+          },
+          effectiveSkills: [{ id: 'skill-1', name: 'Code Review', slug: 'code-review', category: 'quality', version: '1.0.0', status: 'active', enabled: true, descriptionMarkdown: 'Review code changes.' }],
+          effectiveTools: [{ id: 'tool-1', name: 'List changed files', slug: 'list-changed-files', status: 'active', toolType: 'local_command', approvalRequired: true, descriptionMarkdown: 'Inspect changed files.' }]
+        },
+        currentTaskJson: { title: 'Context task' }
+      },
+      mode: 'chat'
+    })
+
+    expect(prompt).toContain('Capability context:')
+    expect(prompt).toContain('Runtime Agent')
+    expect(prompt).toContain('Code Review')
+    expect(prompt).toContain('List changed files [local_command, approval required]')
+    expect(prompt).toContain('catalog command templates')
+    expect(prompt.indexOf('Project prompt.')).toBeLessThan(prompt.indexOf('Capability context:'))
+    expect(prompt.indexOf('Capability context:')).toBeLessThan(prompt.indexOf('Current task context JSON:'))
   })
 
   it('places selected language before task context', () => {
@@ -756,6 +789,36 @@ describe('planner quality gate', () => {
     expect(runPrompt).not.toContain('Post-run prompt text.')
   })
 
+  it('starts initial plan and run prompts from task priority and leaves OMC runtime last', () => {
+    const plannerPrompt = initialPlannerPrompt('project-1', 'task-1', 'helper.mjs', 'context.json', 'planned-task.json')
+    const runPrompt = initialGatewayPrompt('/export', '/runtime', 'project-1', 'task-1', '.omc/runs/run/OMC_CLI.md')
+
+    expect(plannerPrompt.trim().startsWith('Task/User Objective (priority 100):')).toBe(true)
+    expect(runPrompt.trim().startsWith('Task/User Objective (priority 100):')).toBe(true)
+    expect(plannerPrompt.indexOf('High-priority Project Instructions:')).toBeLessThan(plannerPrompt.indexOf('Capability context:'))
+    expect(runPrompt.indexOf('High-priority Project Instructions:')).toBeLessThan(runPrompt.indexOf('Capability context:'))
+    expect(plannerPrompt.indexOf('Capability context:')).toBeLessThan(plannerPrompt.indexOf('Internal OMC runtime operations'))
+    expect(runPrompt.indexOf('Capability context:')).toBeLessThan(runPrompt.indexOf('Internal OMC runtime operations'))
+  })
+
+  it('serializes capability context in planner and run prompt shapes', () => {
+    const effectiveAgent = {
+      id: 'agent-1',
+      name: 'Runtime Agent',
+      inherited: true,
+      tools: [{ id: 'tool-1', name: 'List changed files', slug: 'list-changed-files', status: 'active' as const, toolType: 'local_command' as const, approvalRequired: true }]
+    }
+    const effectiveSkills = [{ id: 'skill-1', name: 'Code Review', slug: 'code-review', category: 'quality', version: '1.0.0', status: 'active' as const, enabled: true, descriptionMarkdown: 'Review code changes.' }]
+    const plannerPrompt = initialPlannerPrompt('project-1', 'task-1', 'helper.mjs', 'context.json', 'planned-task.json', { effectiveAgent, effectiveSkills })
+    const runJson = JSON.parse(initialGatewayPrompt('/export', '/runtime', 'project-1', 'task-1', '.omc/runs/run/OMC_CLI.md', { promptShape: 'json', effectiveAgent, effectiveSkills }))
+
+    expect(plannerPrompt).toContain('Capability context:')
+    expect(plannerPrompt).toContain('Code Review')
+    expect(plannerPrompt).toContain('List changed files')
+    expect(runJson.sections.find((section: { name: string }) => section.name === 'capability_context').value.effectiveTools[0].name).toBe('List changed files')
+    expect(runJson.sections.find((section: { name: string }) => section.name === 'capability_context').value.toolExecutionPolicy).toContain('catalog')
+  })
+
   it('keeps Markdown as the default and serializes plan and run prompts as valid JSON or Toon', () => {
     const markdown = initialPlannerPrompt('project-1', 'task-1', 'helper.mjs', 'context.json', 'planned-task.json')
     const jsonPlanner = initialPlannerPrompt('project-1', 'task-1', 'helper.mjs', 'context.json', 'planned-task.json', { promptShape: 'json' })
@@ -769,6 +832,19 @@ describe('planner quality gate', () => {
     expect(toonRun).toContain('shape: "toon"')
     expect(toonRun).toContain('family: "run"')
     expect(toonRun).toContain('primary_task_file: "/export/Task.toon"')
+  })
+
+  it('serializes priority contract and internal OMC runtime after task context in structured prompts', () => {
+    const jsonPlanner = JSON.parse(initialPlannerPrompt('project-1', 'task-1', 'helper.mjs', 'context.json', 'planned-task.json', { promptShape: 'json' }))
+    const toonRun = initialGatewayPrompt('/export', '/runtime', 'project-1', 'task-1', '.omc/runs/run/OMC_CLI.md', { promptShape: 'toon' })
+    const plannerSections = jsonPlanner.sections.map((section: { name: string }) => section.name)
+
+    expect(plannerSections.indexOf('task_user_objective')).toBe(0)
+    expect(plannerSections.indexOf('prompt_priority_contract')).toBeGreaterThan(plannerSections.indexOf('capability_context'))
+    expect(plannerSections[plannerSections.length - 1]).toBe('internal_omc_runtime')
+    expect(jsonPlanner.sections.find((section: { name: string }) => section.name === 'internal_omc_runtime').value).toContain('hidden tool')
+    expect(toonRun.indexOf('task_user_objective:')).toBeLessThan(toonRun.indexOf('prompt_priority_contract:'))
+    expect(toonRun.indexOf('prompt_priority_contract:')).toBeLessThan(toonRun.indexOf('internal_omc_runtime:'))
   })
 
   it('serializes post-run prompts as structured JSON', () => {

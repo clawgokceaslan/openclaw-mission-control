@@ -42,6 +42,17 @@ function formatTimestamp(value?: number): string {
   }).format(new Date(value))
 }
 
+function activeToolNames(agent?: Agent | null): string[] {
+  return (agent?.tools ?? []).filter((tool) => tool.status === 'active').map((tool) => tool.name).filter(Boolean)
+}
+
+function toolsSummary(agent?: Agent | null): string {
+  const names = activeToolNames(agent)
+  if (names.length === 0) return 'No active tools'
+  if (names.length <= 2) return names.join(', ')
+  return `${names.slice(0, 2).join(', ')} +${names.length - 2}`
+}
+
 export function AgentAssignmentPanel({ agent, agents, ctaDescription, inheritedLabel, canClear = Boolean(agent), onChange }: AgentAssignmentPanelProps) {
   const [isPickerOpen, setIsPickerOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -89,6 +100,7 @@ export function AgentAssignmentPanel({ agent, agents, ctaDescription, inheritedL
             <tr>
               <th>Name</th>
               <th>Title</th>
+              <th>Tools</th>
               <th>Tags</th>
               <th>Last heartbeat</th>
             </tr>
@@ -102,12 +114,13 @@ export function AgentAssignmentPanel({ agent, agents, ctaDescription, inheritedL
                   <span className={styles.assignmentSecondary}>{markdownSnippet(agent.trainingMarkdown)}</span>
                 </td>
                 <td>{agent.title || 'Not set'}</td>
+                <td>{toolsSummary(agent)}</td>
                 <td>{(agent.tags ?? []).map((tag) => tag.name).join(', ') || 'No tags'}</td>
                 <td>{formatTimestamp(agent.heartbeatAt)}</td>
               </tr>
             ) : (
               <tr>
-                <td colSpan={4} className={styles.assignmentEmptyCell}>Unassigned</td>
+                <td colSpan={5} className={styles.assignmentEmptyCell}>Unassigned</td>
               </tr>
             )}
           </tbody>
@@ -134,6 +147,7 @@ export function AgentAssignmentPanel({ agent, agents, ctaDescription, inheritedL
                   <tr>
                     <th>Name</th>
                     <th>Title</th>
+                    <th>Tools</th>
                     <th>Tags</th>
                     <th>Actions</th>
                   </tr>
@@ -146,6 +160,7 @@ export function AgentAssignmentPanel({ agent, agents, ctaDescription, inheritedL
                         <span className={styles.assignmentSecondary}>{markdownSnippet(item.trainingMarkdown)}</span>
                       </td>
                       <td>{item.title || 'Not set'}</td>
+                      <td>{toolsSummary(item)}</td>
                       <td>{(item.tags ?? []).map((tag) => tag.name).join(', ') || 'No tags'}</td>
                       <td>
                         <button
@@ -229,7 +244,7 @@ export function SkillsAssignmentPanel({ selectedSkills, skills, source, ctaDescr
       <div className={styles.tabCtaCard}>
         <div>
           <strong>Attach skills{inheritedLabel ? <span className={styles.assignmentInlineBadge}>{inheritedLabel}</span> : null}</strong>
-          <span>{ctaDescription}</span>
+          <span>{ctaDescription} Skills guide the prompt; Tools come through the selected Agent.</span>
         </div>
         <button
           type="button"

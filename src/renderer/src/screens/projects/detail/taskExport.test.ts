@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { unzipSync, strFromU8 } from 'fflate'
 import type { TaskChecklistItem, TaskEntity, TaskSubtask } from '@shared/types/entities'
-import { buildProjectWorkspaceExportTaskPayload, buildSelectedTaskFile, buildTaskImportJson, buildTaskJson, buildTaskMarkdown, buildTaskToon, buildTaskZipArchive, parseTaskToon } from './taskExport'
+import { buildAgentMarkdown, buildProjectWorkspaceExportTaskPayload, buildSelectedTaskFile, buildSkillsMarkdown, buildTaskImportJson, buildTaskJson, buildTaskMarkdown, buildTaskToon, buildTaskZipArchive, buildToolsMarkdown, parseTaskToon } from './taskExport'
 
 function checklist(title: string): TaskChecklistItem {
   return { id: `check-${title}`, title, checked: false, createdAt: 1, updatedAt: 1 }
@@ -57,8 +57,9 @@ describe('buildTaskMarkdown', () => {
     })
 
     expect(markdown).toContain('## Subtasks as Primary Execution Plan')
-    expect(markdown).toContain('1. Read Project Inputs, Task Details, Agents.md, Skills.md, Tools.md, and attachments if present.')
+    expect(markdown).toContain('1. Read Task Details, Acceptance Criteria, Subtasks, Comments, Checklist, and attachments first.')
     expect(markdown).toContain('2. Execute 1 actionable subtask in Subtasks Index order.')
+    expect(markdown.indexOf('## Task Details')).toBeLessThan(markdown.indexOf('## Project Instructions'))
     expect(markdown).not.toContain('```text')
     expect(markdown).toContain('Subtasks are the authoritative execution plan for this task.')
     expect(markdown).toContain('Optional checklist: 2')
@@ -235,5 +236,46 @@ describe('buildTaskMarkdown', () => {
     expect(parsed.format).toBeUndefined()
     expect(importJson).not.toContain('activityMessages')
     expect(importJson).not.toContain('debugSnapshot')
+  })
+
+  it('exports project-default effective skills and inherited agent tools', () => {
+    const runtimeTool = {
+      id: 'tool-1',
+      organizationId: 'org-1',
+      name: 'List changed files',
+      slug: 'list-changed-files',
+      status: 'active' as const,
+      toolType: 'local_command' as const,
+      descriptionMarkdown: 'Inspect changed files.',
+      commandTemplate: 'git status --short',
+      approvalRequired: true,
+      createdAt: 1,
+      updatedAt: 1
+    }
+    const context = {
+      task: { ...task(), agentId: null, skills: [] },
+      project: {
+        id: 'project-1',
+        organizationId: 'org-1',
+        name: 'Mission project',
+        archived: false,
+        metrics: { defaultAgentId: 'agent-1', defaultSkillIds: ['skill-1'] },
+        createdAt: 1,
+        updatedAt: 1
+      },
+      projectGroup: null,
+      agents: [{ id: 'agent-1', organizationId: 'org-1', name: 'Runtime Agent', title: 'Agent', heartbeatAt: 1, tools: [runtimeTool], createdAt: 1, updatedAt: 1 }],
+      skills: [{ id: 'skill-1', organizationId: 'org-1', name: 'Runtime Skill', slug: 'runtime-skill', category: 'runtime', version: '1.0.0', enabled: true, status: 'active' as const, descriptionMarkdown: 'Use runtime flow.', updatedAt: 1 }],
+      tags: [],
+      customFields: [],
+      projectStatuses: []
+    }
+
+    expect(buildAgentMarkdown(context)).toContain('Project default: Mission project')
+    expect(buildAgentMarkdown(context)).toContain('| Tools | List changed files |')
+    expect(buildSkillsMarkdown(context)).toContain('Runtime Skill')
+    expect(buildSkillsMarkdown(context)).toContain('Project default: Mission project')
+    expect(buildToolsMarkdown(context)).toContain('git status --short')
+    expect(buildToolsMarkdown(context)).toContain('Project default: Mission project via agent Runtime Agent')
   })
 })

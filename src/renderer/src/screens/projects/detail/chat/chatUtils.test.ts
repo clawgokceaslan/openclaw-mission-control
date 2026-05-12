@@ -14,10 +14,14 @@ import {
   firstPlannerQuestionOptionAnswers,
   groupCodexTranscriptMessages,
   hasNoChangesMessage,
+  handoffFieldItems,
+  handoffScalarValue,
+  parseNextChatHandoff,
   plannerQuestionPromptFromMessages,
   prunePlannerQuestionPathAnswers,
   preserveScrollTopAfterPrepend,
   shouldLoadEarlierMessages,
+  splitChatBodyAndHandoff,
   stripRawJsonFromChatBody,
   thinkingDurationLabel,
   userMessageCount,
@@ -616,6 +620,120 @@ describe('chat utils helpers', () => {
     expect(stripRawJsonFromChatBody('{ "raw": true }')).toBe('')
   })
 
+  it('parses NEXT_CHAT_HANDOFF blocks with JSON task and TOON-style lists', () => {
+    const handoff = [
+      'NEXT_CHAT_HANDOFF',
+      '',
+      'schema: open_mission_control_next_chat_handoff',
+      '',
+      'version: 1',
+      '',
+      'task: {"id":"8c5750f0-82cb-4666-ba5d-82fb88bf01ab","title":"Naber Nasılsın?","status":"6d6a97d5-f0a8-407d-b974-410f3fbdab3f"}',
+      '',
+      'goal: not_reported',
+      '',
+      'completed_work[]:',
+      '',
+      '- completed',
+      '',
+      'decisions[]:',
+      '',
+      '- not_reported',
+      '',
+      'changed_areas[]:',
+      '',
+      '- none_reported',
+      '',
+      'verification[]:',
+      '',
+      '- Doğrulama: npm test çalıştırıldı ancak mevcut ana dalda 9 test başarısız:',
+      '',
+      '- src/db/config.test.ts: 6 başarısız test',
+      '',
+      '- src/renderer/src/utils/api.test.ts: 3 başarısız test',
+      '',
+      'blockers[]:',
+      '',
+      '- none_reported',
+      '',
+      'next_steps[]:',
+      '',
+      '- none_reported'
+    ].join('\n')
+
+    const parsed = parseNextChatHandoff(handoff)
+
+    expect(parsed?.schema).toBe('open_mission_control_next_chat_handoff')
+    expect(parsed?.version).toBe(1)
+    expect(parsed?.task).toMatchObject({
+      id: '8c5750f0-82cb-4666-ba5d-82fb88bf01ab',
+      title: 'Naber Nasılsın?',
+      status: '6d6a97d5-f0a8-407d-b974-410f3fbdab3f'
+    })
+    expect(handoffFieldItems(parsed, 'completed_work')).toEqual(['completed'])
+    expect(handoffFieldItems(parsed, 'verification')).toEqual([
+      'Doğrulama: npm test çalıştırıldı ancak mevcut ana dalda 9 test başarısız:',
+      'src/db/config.test.ts: 6 başarısız test',
+      'src/renderer/src/utils/api.test.ts: 3 başarısız test'
+    ])
+    expect(handoffScalarValue(parsed, 'goal')).toBe('')
+    expect(handoffFieldItems(parsed, 'changed_areas')).toEqual([])
+    expect(handoffFieldItems(parsed, 'changed_areas', { includePlaceholders: true })).toEqual(['none_reported'])
+  })
+
+  it('parses semicolon-separated Markdown handoff fields', () => {
+    const parsed = parseNextChatHandoff([
+      'NEXT_CHAT_HANDOFF',
+      'task: task-1 | Fix status | active',
+      'completed_work: added resolver; ran tests',
+      'next_steps: none_reported'
+    ].join('\n'))
+
+    expect(parsed?.task).toMatchObject({ id: 'task-1', title: 'Fix status', status: 'active' })
+    expect(handoffFieldItems(parsed, 'completed_work')).toEqual(['added resolver', 'ran tests'])
+    expect(handoffFieldItems(parsed, 'next_steps')).toEqual([])
+  })
+
+  it('parses NEXT_CHAT_HANDOFF_JSON payloads and mixed structured values', () => {
+    const parsed = parseNextChatHandoff(`NEXT_CHAT_HANDOFF_JSON\n${JSON.stringify({
+      schema: 'open_mission_control_next_chat_handoff',
+      version: 2,
+      task: { id: 'task-2', title: 'JSON task', status: 'done' },
+      goal: 'Ship the parser',
+      completed_work: ['parsed JSON', { file: 'chatUtils.tsx' }],
+      decisions: true,
+      changed_areas: ['src/renderer/src/screens/projects/detail/chat/chatUtils.tsx'],
+      next_steps: null
+    })}`)
+
+    expect(parsed?.marker).toBe('NEXT_CHAT_HANDOFF_JSON')
+    expect(parsed?.task?.title).toBe('JSON task')
+    expect(handoffScalarValue(parsed, 'goal')).toBe('Ship the parser')
+    expect(handoffFieldItems(parsed, 'completed_work')).toEqual(['parsed JSON', '{"file":"chatUtils.tsx"}'])
+    expect(handoffFieldItems(parsed, 'decisions')).toEqual(['true'])
+    expect(handoffFieldItems(parsed, 'changed_areas')).toEqual(['src/renderer/src/screens/projects/detail/chat/chatUtils.tsx'])
+    expect(handoffFieldItems(parsed, 'next_steps')).toEqual([])
+  })
+
+  it('splits and strips raw handoff blocks while preserving display text', () => {
+    const body = [
+      'Visible assistant summary.',
+      '',
+      'NEXT_CHAT_HANDOFF',
+      'task: task-3 | Parse display | active',
+      'completed_work[]:',
+      '- hid raw block',
+      '- rendered summary'
+    ].join('\n')
+
+    const split = splitChatBodyAndHandoff(body)
+
+    expect(split.body).toBe('Visible assistant summary.')
+    expect(split.parsed?.task?.title).toBe('Parse display')
+    expect(handoffFieldItems(split.parsed, 'completed_work')).toEqual(['hid raw block', 'rendered summary'])
+    expect(stripRawJsonFromChatBody(body)).toBe('Visible assistant summary.')
+  })
+
   it('maps gateway activity statuses to short Turkish labels', () => {
     expect(formatGatewayActivityStatus('running')).toBe('Çalışıyor')
     expect(formatGatewayActivityStatus('completed')).toBe('Tamamlandı')
@@ -717,8 +835,8 @@ describe('chat utils helpers', () => {
       })
     ])
 
-    expect(context).toContain('Latest handoff:')
-    expect(context).toContain('NEXT_CHAT_HANDOFF')
+    expect(context).toContain('Latest handoff summary:')
+    expect(context).not.toContain('NEXT_CHAT_HANDOFF')
     expect(context).toContain('completed_work: added resolver')
     expect(context).not.toContain('Full assistant explanation Full assistant explanation Full assistant explanation')
     expect(context.length).toBeLessThanOrEqual(1_600)

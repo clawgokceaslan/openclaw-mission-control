@@ -37,7 +37,7 @@ import type {
   UpdateTaskCommentRequest
 } from '../../shared/contracts/ipc.js'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc.js'
-import type { Agent, ProjectStatus, Skill, Tag, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask } from '../../shared/types/entities.js'
+import type { Agent, AiTool, ProjectStatus, Skill, Tag, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask } from '../../shared/types/entities.js'
 import { AuthService } from './auth.service.js'
 import { TaskRepository, TaskSkillRepository, TaskSubtaskRepository, TaskTagRepository } from '../../db/repositories/task-repo.js'
 import { ProjectRepository } from '../../db/repositories/project-repo.js'
@@ -166,6 +166,39 @@ type PromptSection = {
   name: string
   value: unknown
 }
+
+type PromptPriorityItem = {
+  name: string
+  score: number
+  policy: string
+}
+
+type EffectiveAgentContext = Partial<Agent> & { inherited?: boolean }
+
+type EffectiveCapabilityContext = {
+  effectiveAgent: EffectiveAgentContext | null
+  effectiveSkills: Array<Pick<Skill, 'id' | 'name' | 'slug' | 'category' | 'version' | 'status' | 'enabled' | 'descriptionMarkdown'>>
+  effectiveTools: Array<Pick<AiTool, 'id' | 'name' | 'slug' | 'status' | 'toolType' | 'descriptionMarkdown' | 'functionName' | 'commandTemplate' | 'approvalRequired' | 'timeoutSeconds'>>
+  toolExecutionPolicy: string
+}
+
+const CAPABILITY_TOOL_EXECUTION_POLICY = 'Agent Tools are capability catalog context only in this flow. Do not execute catalog command templates or function/code bodies unless a future approved tool runtime explicitly enables runnable tool invocation and approval for that tool.'
+
+const INITIAL_PROMPT_PRIORITY_CONTRACT: PromptPriorityItem[] = [
+  { name: 'Task/User Objective', score: 100, policy: 'Start from the task objective or user request.' },
+  { name: 'Task Details', score: 95, policy: 'Use task details, acceptance criteria, comments, subtasks, and attachments as the main work context.' },
+  { name: 'Project Instructions', score: 85, policy: 'Apply project instructions after task details when making implementation decisions.' },
+  { name: 'Agent/Skills/Tools capability', score: 70, policy: 'Apply effective Agent and Skill guidance; treat Agent Tools as catalog context only.' },
+  { name: 'Runtime/OMC hidden operations', score: 40, policy: 'Use OMC helper operations only as internal runtime mechanics, never as visible Agent Tools.' }
+]
+
+const FOLLOW_UP_PROMPT_PRIORITY_CONTRACT: PromptPriorityItem[] = [
+  { name: 'User follow-up/steer', score: 100, policy: 'Treat the current user follow-up or steer instruction as the primary instruction.' },
+  { name: 'Generated chat context/handoff', score: 90, policy: 'Use generated chat context and NEXT_CHAT_HANDOFF summaries for continuity.' },
+  { name: 'Project Instructions', score: 80, policy: 'Apply project instructions after the user follow-up and handoff context.' },
+  { name: 'Agent/Skills/Tools', score: 65, policy: 'Apply effective Agent and Skill guidance; treat Agent Tools as catalog context only.' },
+  { name: 'Minimal task reference', score: 30, policy: 'Use only task id, title, and status unless this is an initial task run or explicit task-context request.' }
+]
 
 export type PlannerQuestionOption = {
   id: string
@@ -704,10 +737,20 @@ function renderJsonPrompt(family: string, sections: PromptSection[]): string {
   return JSON.stringify(payload, null, 2)
 }
 
+function scalarPromptToon(value: unknown): string {
+  if (typeof value === 'string') {
+    if (value.includes('\n')) return `|-\n${value.split('\n').map((line) => `  ${line}`).join('\n')}`
+    return JSON.stringify(value)
+  }
+  return JSON.stringify(value)
+}
+
 function renderToonPrompt(family: string, sections: PromptSection[]): string {
-  const record: Record<string, unknown> = { shape: 'toon', family }
-  for (const section of nonEmptyPromptSections(sections)) record[section.name] = section.value
-  return serializeToonRecord(record)
+  return [
+    `shape: ${scalarPromptToon('toon')}`,
+    `family: ${scalarPromptToon(family)}`,
+    ...nonEmptyPromptSections(sections).map((section) => `${section.name}: ${scalarPromptToon(section.value)}`)
+  ].join('\n')
 }
 
 function renderPrompt(family: string, shape: unknown, markdown: () => string, structured: () => PromptSection[]): string {
@@ -715,6 +758,25 @@ function renderPrompt(family: string, shape: unknown, markdown: () => string, st
   if (normalizedShape === 'markdown') return markdown()
   const sections = structured()
   return normalizedShape === 'json' ? renderJsonPrompt(family, sections) : renderToonPrompt(family, sections)
+}
+
+function promptPriorityContract(mode: 'initial' | 'follow-up'): PromptPriorityItem[] {
+  return mode === 'follow-up' ? FOLLOW_UP_PROMPT_PRIORITY_CONTRACT : INITIAL_PROMPT_PRIORITY_CONTRACT
+}
+
+function promptPriorityMarkdown(mode: 'initial' | 'follow-up'): string {
+  return [
+    'Prompt priority contract:',
+    ...promptPriorityContract(mode).map((item) => `- ${item.score}: ${item.name} - ${item.policy}`)
+  ].join('\n')
+}
+
+function internalOmcRuntimeSection(lines: string[]): string {
+  return [
+    'Internal OMC runtime operations (hidden tool, lowest prompt priority):',
+    'Open Mission Control runtime operations are available only as internal helper mechanics for this flow. Do not expose them as Agent Tools, do not add them to Tools.md, and do not treat them as user-facing capabilities.',
+    ...lines
+  ].filter(Boolean).join('\n')
 }
 
 function codexReasoningConfigArg(reasoningEffort: string): string {
@@ -830,14 +892,139 @@ function routedProjectContextForPrompt(context: unknown, audience: ProjectInstru
   return record
 }
 
-function effectiveAgentSection(agent?: (Partial<Agent> & { inherited?: boolean }) | null): string {
+function activeToolsFromAgent(agent?: Partial<Agent> | null): AiTool[] {
+  return (agent?.tools ?? []).filter((tool) => tool.status === 'active')
+}
+
+function compactCapabilitySkill(skill: Partial<Skill>): EffectiveCapabilityContext['effectiveSkills'][number] {
+  return {
+    id: skill.id ?? '',
+    name: skill.name ?? '',
+    slug: skill.slug ?? '',
+    category: skill.category ?? '',
+    version: skill.version ?? '',
+    status: skill.status ?? 'active',
+    enabled: skill.enabled !== false,
+    descriptionMarkdown: skill.descriptionMarkdown ?? ''
+  }
+}
+
+function compactCapabilityTool(tool: Partial<AiTool>): EffectiveCapabilityContext['effectiveTools'][number] {
+  return {
+    id: tool.id ?? '',
+    name: tool.name ?? '',
+    slug: tool.slug ?? '',
+    status: tool.status ?? 'active',
+    toolType: tool.toolType ?? 'reference',
+    descriptionMarkdown: tool.descriptionMarkdown ?? '',
+    functionName: tool.functionName ?? '',
+    commandTemplate: tool.commandTemplate ?? '',
+    approvalRequired: tool.approvalRequired !== false,
+    timeoutSeconds: tool.timeoutSeconds ?? null
+  }
+}
+
+function capabilityContextFromPlannerContext(context?: unknown): EffectiveCapabilityContext | null {
+  const contextRecord = context && typeof context === 'object' && !Array.isArray(context) ? context as Record<string, unknown> : {}
+  const capability = contextRecord.capabilityContext && typeof contextRecord.capabilityContext === 'object' && !Array.isArray(contextRecord.capabilityContext)
+    ? contextRecord.capabilityContext as Record<string, unknown>
+    : null
+  if (capability) {
+    const rawAgent = capability.effectiveAgent && typeof capability.effectiveAgent === 'object' && !Array.isArray(capability.effectiveAgent)
+      ? capability.effectiveAgent as EffectiveAgentContext
+      : null
+    const rawSkills = Array.isArray(capability.effectiveSkills) ? capability.effectiveSkills : []
+    const rawTools = Array.isArray(capability.effectiveTools) ? capability.effectiveTools : []
+    return {
+      effectiveAgent: rawAgent,
+      effectiveSkills: rawSkills
+        .filter((item): item is Partial<Skill> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+        .map(compactCapabilitySkill)
+        .filter((skill) => Boolean(skill.id || skill.name)),
+      effectiveTools: rawTools
+        .filter((item): item is Partial<AiTool> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+        .map(compactCapabilityTool)
+        .filter((tool) => Boolean(tool.id || tool.name)),
+      toolExecutionPolicy: typeof capability.toolExecutionPolicy === 'string' && capability.toolExecutionPolicy.trim()
+        ? capability.toolExecutionPolicy.trim()
+        : CAPABILITY_TOOL_EXECUTION_POLICY
+    }
+  }
+  const effectiveAgent = contextRecord.effectiveAgent && typeof contextRecord.effectiveAgent === 'object' && !Array.isArray(contextRecord.effectiveAgent)
+    ? contextRecord.effectiveAgent as EffectiveAgentContext
+    : null
+  const effectiveSkills = Array.isArray(contextRecord.effectiveSkills)
+    ? contextRecord.effectiveSkills
+      .filter((item): item is Partial<Skill> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+      .map(compactCapabilitySkill)
+      .filter((skill) => Boolean(skill.id || skill.name))
+    : []
+  const effectiveTools = activeToolsFromAgent(effectiveAgent).map(compactCapabilityTool)
+  if (!effectiveAgent && effectiveSkills.length === 0 && effectiveTools.length === 0) return null
+  return { effectiveAgent, effectiveSkills, effectiveTools, toolExecutionPolicy: CAPABILITY_TOOL_EXECUTION_POLICY }
+}
+
+function capabilityContextFromOptions(options: {
+  effectiveAgent?: EffectiveAgentContext | null
+  effectiveSkills?: Array<Partial<Skill>> | null
+  effectiveTools?: Array<Partial<AiTool>> | null
+}): EffectiveCapabilityContext {
+  const effectiveTools = options.effectiveTools?.length
+    ? options.effectiveTools.map(compactCapabilityTool)
+    : activeToolsFromAgent(options.effectiveAgent).map(compactCapabilityTool)
+  return {
+    effectiveAgent: options.effectiveAgent ?? null,
+    effectiveSkills: (options.effectiveSkills ?? []).map(compactCapabilitySkill).filter((skill) => Boolean(skill.id || skill.name)),
+    effectiveTools: effectiveTools.filter((tool) => Boolean(tool.id || tool.name)),
+    toolExecutionPolicy: CAPABILITY_TOOL_EXECUTION_POLICY
+  }
+}
+
+function capabilityContextSection(capability?: EffectiveCapabilityContext | null): string {
+  const context = capability ?? capabilityContextFromOptions({})
+  const agent = context.effectiveAgent
+  const agentLine = agent?.id || agent?.name
+    ? [
+        agent.name ? `name=${agent.name}` : '',
+        agent.id ? `id=${agent.id}` : '',
+        agent.title ? `title=${agent.title}` : '',
+        agent.inherited ? 'source=inherited default agent' : 'source=task/subtask agent'
+      ].filter(Boolean).join(', ')
+    : 'none assigned'
+  const skillRows = context.effectiveSkills.length > 0
+    ? context.effectiveSkills.map((skill) => {
+      const notes = skill.descriptionMarkdown?.trim() ? ` - ${compactPromptText(skill.descriptionMarkdown, 220)}` : ''
+      return `- ${skill.name || skill.id}${skill.category ? ` (${skill.category})` : ''}${notes}`
+    })
+    : ['- none']
+  const toolRows = context.effectiveTools.length > 0
+    ? context.effectiveTools.map((tool) => {
+      const approval = tool.approvalRequired ? 'approval required' : 'approval not required'
+      const notes = tool.descriptionMarkdown?.trim() ? ` - ${compactPromptText(tool.descriptionMarkdown, 220)}` : ''
+      return `- ${tool.name || tool.id} [${tool.toolType}, ${approval}]${tool.functionName ? ` function=${tool.functionName}` : ''}${tool.commandTemplate ? ' commandTemplate=available' : ''}${notes}`
+    })
+    : ['- none']
+  return [
+    'Capability context:',
+    `Effective Agent: ${agentLine}. Treat Agent instructions as execution guidance.`,
+    'Effective Skills: treat these as procedural or domain guidance.',
+    ...skillRows,
+    'Agent Tools: treat these as capability catalog context.',
+    ...toolRows,
+    `Tool execution policy: ${context.toolExecutionPolicy}`
+  ].join('\n')
+}
+
+function effectiveAgentSection(agent?: EffectiveAgentContext | null): string {
   if (!agent?.id && !agent?.name) return 'Effective agent: none assigned.'
+  const tools = activeToolsFromAgent(agent)
   const parts = [
     agent.name ? `name=${agent.name}` : '',
     agent.id ? `id=${agent.id}` : '',
     agent.title ? `title=${agent.title}` : '',
     agent.description ? `description=available` : '',
     agent.tags?.length ? `tags=${agent.tags.map((tag) => tag.name).filter(Boolean).join(',')}` : '',
+    tools.length ? `tools=${tools.map((tool) => tool.name).filter(Boolean).join(',')}` : '',
     agent.trainingMarkdown?.trim() ? 'generalPrompt=available' : '',
     agent.inherited ? 'source=default inherited agent' : 'source=task/project agent'
   ].filter(Boolean)
@@ -898,40 +1085,55 @@ export function initialGatewayPrompt(
   projectId: string,
   taskId: string,
   omcInstructionsPath: string,
-  options: { language?: string; languages?: GatewayLanguagePair; promptShape?: GatewayPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null } = {}
+  options: { language?: string; languages?: GatewayLanguagePair; promptShape?: GatewayPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: EffectiveAgentContext | null; effectiveSkills?: Array<Partial<Skill>>; effectiveTools?: Array<Partial<AiTool>> } = {}
 ): string {
   const language = typeof options.languages === 'object' ? options.languages.outputLanguage : options.language
   const promptShape = normalizeGatewayPromptShape(options.promptShape)
   const taskFileName = promptShape === 'json' ? 'Task.json' : promptShape === 'toon' ? 'Task.toon' : 'Task.md'
-  const rows = [
-    `Open Mission Control runtime workspace is ${runtimeWorkspacePath}.`,
-    `The exported task files are in ${exportWorkspacePath}.`,
-    `The Open Mission Control project id is ${projectId} and task id is ${taskId}.`,
-    gatewayLanguageInstruction(language),
-    projectInstructionsSection(options.projectPrompt, { audience: 'run' }),
-    effectiveAgentSection(options.effectiveAgent),
-    `Before making changes, read the run-specific .omc CLI instructions at ${omcInstructionsPath} in the runtime workspace.`,
-    `Read ${exportWorkspacePath}/${taskFileName} as the primary task context. Read ${exportWorkspacePath}/Agents.md, ${exportWorkspacePath}/Skills.md, ${exportWorkspacePath}/Tools.md, and ${exportWorkspacePath}/attachments/ only if present and needed. Tools.md contains catalog definitions only; do not execute any listed command unless a future runtime explicitly enables tool invocation.`,
+  const capability = capabilityContextFromOptions(options)
+  const taskObjective = `Task/User Objective (priority 100): Execute the task described in ${exportWorkspacePath}/${taskFileName}.`
+  const taskDetails = [
+    `Task Details (priority 95): Read ${exportWorkspacePath}/${taskFileName} as the primary task context before implementation decisions.`,
+    `Read ${exportWorkspacePath}/Agents.md, ${exportWorkspacePath}/Skills.md, ${exportWorkspacePath}/Tools.md, and ${exportWorkspacePath}/attachments/ only if present and needed.`,
     `Apply the Project Rules section in ${taskFileName} before making implementation decisions.`,
     `Apply the Plan Guide section in ${taskFileName} when planning or interpreting the task execution strategy.`,
-    `Execute the task described in ${taskFileName}.`,
     'Respect subtask status instructions: bypass subtasks marked completed/done/closed.',
-    'Do not use MCP in this flow.',
-    'Use the local .omc CLI ready-for-review operation only after implementation and checks are complete.',
-    'When the implementation is complete, summarize the changed files and remaining checks in Codex.',
     'Do not ask for the ZIP; all exported files are already available in the export directory.'
   ]
+  const projectInstruction = projectInstructionsSection(options.projectPrompt, { audience: 'run' })
+  const capabilityText = [
+    effectiveAgentSection(options.effectiveAgent),
+    capabilityContextSection(capability)
+  ].join('\n\n')
+  const internalOmcRuntime = internalOmcRuntimeSection([
+    `Runtime workspace: ${runtimeWorkspacePath}.`,
+    `Exported task files: ${exportWorkspacePath}.`,
+    `Project id: ${projectId}. Task id: ${taskId}.`,
+    `Read the run-specific .omc CLI instructions at ${omcInstructionsPath} only after the task, project instructions, and capability context are understood.`,
+    'Do not use MCP in this flow.',
+    'Use the local .omc CLI ready-for-review operation only after implementation and checks are complete.',
+    'When the implementation is complete, summarize the changed files and remaining checks in Codex.'
+  ])
+  const rows = [
+    taskObjective,
+    ...taskDetails,
+    projectInstruction,
+    capabilityText,
+    gatewayLanguageInstruction(language),
+    promptPriorityMarkdown('initial'),
+    internalOmcRuntime
+  ]
   return renderPrompt('run', options.promptShape, () => rows.join(' '), () => [
-    { name: 'runtime_workspace', value: runtimeWorkspacePath },
-    { name: 'export_workspace', value: exportWorkspacePath },
-    { name: 'ids', value: { projectId, taskId } },
-    { name: 'language_instruction', value: gatewayLanguageInstruction(language) },
-    { name: 'project_instructions', value: projectInstructionsSection(options.projectPrompt, { audience: 'run' }) },
+    { name: 'task_user_objective', value: taskObjective },
+    { name: 'task_details', value: taskDetails },
+    { name: 'project_instructions', value: projectInstruction },
     { name: 'effective_agent', value: effectiveAgentSection(options.effectiveAgent) },
-    { name: 'omc_cli_instructions_path', value: omcInstructionsPath },
+    { name: 'capability_context', value: capability },
+    { name: 'language_instruction', value: gatewayLanguageInstruction(language) },
+    { name: 'prompt_priority_contract', value: promptPriorityContract('initial') },
     { name: 'primary_task_file', value: `${exportWorkspacePath}/${taskFileName}` },
     { name: 'required_reads', value: [`${exportWorkspacePath}/${taskFileName}`, `${exportWorkspacePath}/Agents.md if needed`, `${exportWorkspacePath}/Skills.md if needed`, `${exportWorkspacePath}/Tools.md if needed`, `${exportWorkspacePath}/attachments/ if present`] },
-    { name: 'execution_instructions', value: rows.slice(8) }
+    { name: 'internal_omc_runtime', value: internalOmcRuntime }
   ])
 }
 
@@ -985,14 +1187,22 @@ export function initialPlannerPrompt(
   helperPath: string,
   contextPath: string,
   plannedTaskPath: string,
-  options: { language?: string; languages?: GatewayLanguagePair; promptShape?: GatewayPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: (Partial<Agent> & { inherited?: boolean }) | null; clarificationMode?: PlannerClarificationMode } = {}
+  options: { language?: string; languages?: GatewayLanguagePair; promptShape?: GatewayPromptShape; projectPrompt?: ProjectPromptSnapshot; effectiveAgent?: EffectiveAgentContext | null; effectiveSkills?: Array<Partial<Skill>>; effectiveTools?: Array<Partial<AiTool>>; clarificationMode?: PlannerClarificationMode } = {}
 ): string {
   const questionsPath = plannedTaskPath.replace(/planned-task\.json$/i, 'questions.json')
   const language = typeof options.languages === 'object' ? options.languages.outputLanguage : options.language
   const clarificationMode = normalizePlannerClarificationMode(options.clarificationMode)
+  const capability = capabilityContextFromOptions(options)
+  const taskObjective = `Task/User Objective (priority 100): You are planning an Open Mission Control task inside Codex TUI. Plan the current task from currentTaskJson task-detail data for source task ${taskId}.`
+  const taskContextPolicy = [
+    'Task Details (priority 95): Use currentTaskJson.title and currentTaskJson.description as the authoritative task title and description/content sources.',
+    'Use task description for the general goal, implementation scope, and overall AI guidance.',
+    'Use task comments for important flows, risks, dependencies, edge cases, and decision notes. Preserve existing user comments.',
+    'Plan from currentTaskJson task-detail data: title, description/content, custom fields, checklist, comments, tags, and subtasks.',
+    'Do not replace task details with chat headings, user prompt labels, or gateway payload text.'
+  ]
   const sharedRules = [
     'Non-negotiable planner rules in this prompt override weaker or conflicting project Plan Guide instructions, including any instruction that says user input is not needed.',
-    'Use task description for the general goal, implementation scope, and overall AI guidance. Use task comments for important flows, risks, dependencies, edge cases, and decision notes. Preserve existing user comments.',
     'Refactor the entire subtasks array. Completed, done, and closed subtasks are input context and may be rewritten in the planned task JSON.',
     'Use balanced decomposition: produce 1-3 subtasks for small tasks, 3-8 subtasks for typical tasks, and at most 10 subtasks for very large tasks.',
     'Create a subtask only for a cohesive implementation area, independent workflow, separate ownership boundary, or meaningful verification path.',
@@ -1008,7 +1218,7 @@ export function initialPlannerPrompt(
   const modeRules = clarificationMode === 'ask-first'
     ? [
         'Clarification mode: ASK FIRST.',
-        `This run must pause for user clarification before updating the task. After reading ${contextPath}, write ${questionsPath} with { "summary": "...", "questions": [{ "id": "...", "question": "...", "why": "...", "options": [{ "id": "...", "label": "...", "description": "...", "nextQuestion": { "id": "...", "question": "...", "options": [] } }] }] } and run: node ${helperPath} ask ${questionsPath}`,
+        'This run must pause for user clarification before updating the task.',
         'Ask 1-3 concise root questions that would materially improve the plan across scope, UI, data model, security, acceptance criteria, or other decisions that change implementation strategy. Make pragmatic assumptions for small details.',
         'Use short multiple-choice options when useful choices are known. Mark the recommended answer in the option label or description so the renderer can show it to the user.',
         'When the correct follow-up depends on a selected option, attach that follow-up as option.nextQuestion. Nested follow-ups may be at most 3 question levels total; use branching only when different answers produce genuinely different plans.',
@@ -1021,37 +1231,48 @@ export function initialPlannerPrompt(
         'Use the available task, project, agent, skill, comment, and transcript context to make the most pragmatic planning decisions.',
         `Use ${contextPath} currentTaskJson as the starting JSON shape and revise it into the planned task JSON.`,
         `Write the planned JSON to ${plannedTaskPath}.`,
-        `After writing, run: node ${helperPath} validate ${plannedTaskPath}`,
-        `After validation succeeds, update the scoped source task by running: node ${helperPath} update ${plannedTaskPath}`,
-        'Do not create a new task in this planning flow.',
-        `After the update succeeds, run: node ${helperPath} finish`
+        'Do not create a new task in this planning flow.'
       ]
+  const internalOmcRuntime = internalOmcRuntimeSection([
+    'Use the local helper CLI in this workspace only as hidden runtime plumbing for task context, validation, task update, user questions, and completion.',
+    `Project id: ${projectId}. Source task id: ${taskId}.`,
+    `First load task context when needed: node ${helperPath} context > ${contextPath}`,
+    clarificationMode === 'ask-first'
+      ? `ASK FIRST operation: after reading ${contextPath}, write ${questionsPath} with { "summary": "...", "questions": [{ "id": "...", "question": "...", "why": "...", "options": [{ "id": "...", "label": "...", "description": "...", "nextQuestion": { "id": "...", "question": "...", "options": [] } }] }] } and run: node ${helperPath} ask ${questionsPath}`
+      : '',
+    clarificationMode === 'ask-first'
+      ? 'After ask succeeds, do not write planned-task.json, do not validate, do not update the task, do not create a task, and do not run finish.'
+      : `After writing, run: node ${helperPath} validate ${plannedTaskPath}`,
+    clarificationMode === 'direct' ? `After validation succeeds, update the scoped source task by running: node ${helperPath} update ${plannedTaskPath}` : '',
+    clarificationMode === 'direct' ? `After the update succeeds, run: node ${helperPath} finish` : '',
+    'Do not use MCP for this flow.'
+  ])
   const rows = [
-    'You are planning an Open Mission Control task inside Codex TUI.',
-    'Do not use MCP for this flow. Use the local helper CLI in this workspace.',
-    `First run: node ${helperPath} context > ${contextPath}`,
-    `The project id is ${projectId} and the source task id is ${taskId}.`,
-    gatewayLanguageInstruction(language),
+    taskObjective,
+    ...taskContextPolicy,
     projectInstructionsSection(options.projectPrompt, { audience: 'plan' }),
     effectiveAgentSection(options.effectiveAgent),
-    'Plan the current task from currentTaskJson task-detail data: title, description/content, custom fields, checklist, comments, tags, and subtasks.',
-    'Treat currentTaskJson.title and currentTaskJson.description as the authoritative task title and description/content sources; do not replace them with chat headings, user prompt labels, or gateway payload text.',
+    capabilityContextSection(capability),
+    gatewayLanguageInstruction(language),
+    promptPriorityMarkdown('initial'),
     'Apply the high-priority project instructions before producing the planned task. Use context JSON as supporting detail, not as a replacement for those instructions.',
     ...modeRules,
-    ...sharedRules
+    ...sharedRules,
+    internalOmcRuntime
   ]
   return renderPrompt('plan', options.promptShape, () => rows.join(' '), () => [
-    { name: 'role', value: rows[0] },
-    { name: 'mcp_policy', value: rows[1] },
-    { name: 'first_command', value: `node ${helperPath} context > ${contextPath}` },
+    { name: 'task_user_objective', value: taskObjective },
+    { name: 'task_details', value: taskContextPolicy },
     { name: 'ids', value: { projectId, taskId } },
-    { name: 'language_instruction', value: gatewayLanguageInstruction(language) },
     { name: 'project_instructions', value: projectInstructionsSection(options.projectPrompt, { audience: 'plan' }) },
     { name: 'effective_agent', value: effectiveAgentSection(options.effectiveAgent) },
-    { name: 'task_context_policy', value: rows.slice(7, 10) },
+    { name: 'capability_context', value: capability },
+    { name: 'language_instruction', value: gatewayLanguageInstruction(language) },
+    { name: 'prompt_priority_contract', value: promptPriorityContract('initial') },
     { name: 'clarification_mode', value: clarificationMode },
     { name: 'mode_rules', value: modeRules },
-    { name: 'shared_rules', value: sharedRules }
+    { name: 'shared_rules', value: sharedRules },
+    { name: 'internal_omc_runtime', value: internalOmcRuntime }
   ])
 }
 
@@ -1301,8 +1522,7 @@ function compactFollowUpTaskMetadata(task: TaskEntity, context: unknown): Record
     task: {
       id: task.id,
       title: task.title,
-      status,
-      description: compactPromptText(task.description ?? '', 500)
+      status
     },
     project: {
       id: typeof project.id === 'string' ? project.id : task.projectId,
@@ -1328,10 +1548,12 @@ function buildChatContextFileContent(input: {
   promptShape: GatewayPromptShape
 }): string {
   const contextRecord = input.context && typeof input.context === 'object' && !Array.isArray(input.context) ? input.context as Record<string, unknown> : {}
+  const hasFollowUpContext = Boolean(input.followUpContext?.trim())
   const routedContext = routedProjectContextForPrompt(input.context, input.mode === 'plan' ? 'plan' : 'chat')
-  const promptContext = input.includeTaskContext === false && !input.followUpContext?.trim()
+  const capability = capabilityContextFromPlannerContext(input.context)
+  const promptContext = input.includeTaskContext === false && !hasFollowUpContext
     ? undefined
-    : input.followUpContext?.trim()
+    : hasFollowUpContext
       ? compactFollowUpTaskMetadata(input.task, routedContext ?? input.context)
       : compactGatewayPromptContext(input.task, routedContext)
   const compactTranscript = input.transcript.slice(-18).map((message) => ({
@@ -1348,12 +1570,14 @@ function buildChatContextFileContent(input: {
       id: input.task.id,
       title: input.task.title,
       status: input.task.status,
-      description: input.task.description ?? ''
+      ...(hasFollowUpContext ? {} : { description: input.task.description ?? '' })
     },
     contextSummary: contextRecord.contextSummary ?? gatewayCompactContextSummary(input.task, taskActivityMessagesFromPayload(input.task.payload)),
     followUpContext: input.followUpContext?.trim() || '',
-    currentTaskContext: promptContext,
-    projectGuide: asRecord(contextRecord.project).planGuide || asRecord(contextRecord.project).generalPrompt || '',
+    currentTaskContext: hasFollowUpContext ? undefined : promptContext,
+    followUpTaskReference: hasFollowUpContext ? promptContext : undefined,
+    capabilityContext: capability,
+    projectGuide: hasFollowUpContext ? '' : asRecord(contextRecord.project).planGuide || asRecord(contextRecord.project).generalPrompt || '',
     recentTranscript: compactTranscript
   }
   if (input.promptShape === 'json') return JSON.stringify(payload, null, 2)
@@ -1364,11 +1588,11 @@ function buildChatContextFileContent(input: {
     `Mode: ${payload.mode}`,
     `Task: ${payload.task.title} (${payload.task.id})`,
     `Status: ${payload.task.status}`,
-    payload.task.description ? `\n## Task Description\n${payload.task.description}` : '',
-    payload.followUpContext ? `\n## Latest Handoff\n${payload.followUpContext}` : '',
+    payload.followUpContext ? `\n## Generated Chat Context / Latest Handoff\n${payload.followUpContext}` : '',
+    capability ? `\n## Capability Context\n${capabilityContextSection(capability)}` : '',
     `\n## Context Summary\n${JSON.stringify(payload.contextSummary, null, 2)}`,
     payload.projectGuide ? `\n## Project Guide\n${payload.projectGuide}` : '',
-    `\n## Current Task Context\n${JSON.stringify(payload.currentTaskContext ?? {}, null, 2)}`,
+    payload.followUpTaskReference ? `\n## Minimal Task Reference\n${JSON.stringify(payload.followUpTaskReference, null, 2)}` : `\n## Current Task Context\n${JSON.stringify(payload.currentTaskContext ?? {}, null, 2)}`,
     `\n## Recent Transcript\n${payload.recentTranscript.map((message) => `${String(message.role).toUpperCase()} [${message.source}/${message.status ?? 'unknown'}]: ${message.body}`).join('\n\n') || 'No prior transcript.'}`
   ].filter(Boolean).join('\n')
 }
@@ -1403,15 +1627,18 @@ export function gatewayChatPrompt(input: {
     ? 'The user invoked /plan. Stay in planning mode: reason about the work, propose a clear plan, and do not make code or file changes unless the user explicitly asks.'
     : input.mode === 'steer'
       ? 'The user is steering an existing Codex conversation. Treat the user steer instruction and task comments as high-signal guidance for continuing the existing conversation; if this follows an interrupted active turn, resume from the latest transcript and change direction without repeating completed work.'
-      : 'Continue the task chat normally. Primary instruction is the user follow-up prompt; use task details as supporting context.'
+      : hasFollowUpContext
+        ? 'Continue the task chat normally. Primary instruction is the user follow-up prompt; use generated chat context and handoff summaries for continuity.'
+        : 'Continue the task chat normally. Primary instruction is the user follow-up prompt; use task details as supporting context.'
   const attachments = input.attachments?.length
     ? `Attached files for this message:\n${input.attachments.map((item) => `- ${item.name}: ${item.path}${item.mimeType ? ` (${item.mimeType})` : ''}`).join('\n')}`
     : ''
   const contextRecord = input.context && typeof input.context === 'object' && !Array.isArray(input.context) ? input.context as Record<string, unknown> : {}
   const projectInstructions = projectInstructionsFromPlannerContext(input.context)
   const effectiveAgent = contextRecord.effectiveAgent && typeof contextRecord.effectiveAgent === 'object' && !Array.isArray(contextRecord.effectiveAgent)
-    ? contextRecord.effectiveAgent as Partial<Agent> & { inherited?: boolean }
+    ? contextRecord.effectiveAgent as EffectiveAgentContext
     : null
+  const capability = capabilityContextFromPlannerContext(input.context) ?? capabilityContextFromOptions({ effectiveAgent })
   const language = typeof input.languages === 'object' ? input.languages.outputLanguage : input.language
   const instructionAudience: ProjectInstructionAudience = input.mode === 'plan' ? 'plan' : 'chat'
   const routedContext = routedProjectContextForPrompt(input.context, instructionAudience)
@@ -1426,48 +1653,53 @@ export function gatewayChatPrompt(input: {
       ? 'User prompt'
       : 'User follow-up'
   const followUpContext = input.followUpContext?.trim()
-    ? `Latest run output context:\n${input.followUpContext.trim()}`
+    ? `Generated chat context / latest handoff:\n${input.followUpContext.trim()}`
     : ''
   const contextFileReference = input.contextFilePath?.trim()
     ? `Compact chat context file: ${input.contextFilePath.trim()}\nRead this file before answering. It contains the latest handoff, generated context, task guide, and compact prior transcript for continuity.`
     : ''
-  const importantComments = importantTaskCommentsSection(input.task, input.context)
+  const importantComments = hasFollowUpContext ? '' : importantTaskCommentsSection(input.task, input.context)
+  const minimalTaskReference = { id: input.task.id, title: input.task.title, status: input.task.status }
   const rows = [
-    'You are continuing an Open Mission Control task chat.',
-    modeInstruction,
-    gatewayLanguageInstruction(language),
-    projectSettingsSectionFromPlannerContext(input.context),
     `${userPromptLabel}:\n${input.message}`,
     contextFileReference,
     followUpContext,
     projectInstructionsSection(projectInstructions, { audience: instructionAudience }),
     effectiveAgentSection(effectiveAgent),
+    capabilityContextSection(capability),
+    gatewayLanguageInstruction(language),
+    promptPriorityMarkdown('follow-up'),
+    modeInstruction,
+    projectSettingsSectionFromPlannerContext(input.context),
     importantComments,
     `Task id: ${input.task.id}`,
     `Task title: ${input.task.title}`,
-    input.task.description ? `Task description:\n${input.task.description}` : '',
-    promptContext ? `${hasFollowUpContext ? 'Follow-up task metadata JSON' : 'Current task context JSON'}:\n${JSON.stringify(promptContext, null, 2)}` : '',
+    `Task status: ${input.task.status}`,
+    !hasFollowUpContext && input.task.description ? `Task description:\n${input.task.description}` : '',
+    promptContext ? `${hasFollowUpContext ? 'Minimal follow-up task reference JSON' : 'Current task context JSON'}:\n${JSON.stringify(promptContext, null, 2)}` : '',
     transcript ? `Recent chat transcript:\n${transcript}` : '',
     attachments,
     'Respond with concrete next steps or implementation notes. If you make changes, summarize files and checks.',
-    'Do not use MCP in this flow.'
+    internalOmcRuntimeSection(['Do not use MCP in this flow.'])
   ]
   return renderPrompt('chat', input.promptShape, () => rows.filter(Boolean).join('\n\n'), () => [
-    { name: 'role', value: rows[0] },
-    { name: 'mode_instruction', value: modeInstruction },
-    { name: 'language_instruction', value: gatewayLanguageInstruction(language) },
-    { name: 'project_settings', value: projectSettingsSectionFromPlannerContext(input.context) },
     { name: userPromptLabel.replace(/\s+/g, '_').toLowerCase(), value: input.message },
     { name: 'compact_chat_context_file', value: input.contextFilePath?.trim() || '' },
-    { name: 'latest_run_output_context', value: input.followUpContext?.trim() || '' },
+    { name: 'generated_chat_context_handoff', value: input.followUpContext?.trim() || '' },
     { name: 'project_instructions', value: projectInstructionsSection(projectInstructions, { audience: instructionAudience }) },
     { name: 'effective_agent', value: effectiveAgentSection(effectiveAgent) },
+    { name: 'capability_context', value: capability },
+    { name: 'language_instruction', value: gatewayLanguageInstruction(language) },
+    { name: 'prompt_priority_contract', value: promptPriorityContract('follow-up') },
+    { name: 'mode_instruction', value: modeInstruction },
+    { name: 'project_settings', value: projectSettingsSectionFromPlannerContext(input.context) },
     { name: 'important_task_comments', value: importantComments },
-    { name: 'task', value: { id: input.task.id, title: input.task.title, description: input.task.description ?? '' } },
-    { name: hasFollowUpContext ? 'follow_up_task_metadata' : 'current_task_context', value: promptContext },
+    { name: hasFollowUpContext ? 'minimal_task_reference' : 'task', value: hasFollowUpContext ? minimalTaskReference : { ...minimalTaskReference, description: input.task.description ?? '' } },
+    { name: hasFollowUpContext ? 'minimal_follow_up_task_reference' : 'current_task_context', value: promptContext },
     { name: 'recent_chat_transcript', value: transcriptRows },
     { name: 'attachments', value: input.attachments ?? [] },
-    { name: 'response_policy', value: ['Respond with concrete next steps or implementation notes. If you make changes, summarize files and checks.', 'Do not use MCP in this flow.'] }
+    { name: 'response_policy', value: ['Respond with concrete next steps or implementation notes. If you make changes, summarize files and checks.'] },
+    { name: 'internal_omc_runtime', value: internalOmcRuntimeSection(['Do not use MCP in this flow.']) }
   ])
 }
 
@@ -3014,14 +3246,22 @@ export class TaskService {
     if (task.agentId) {
       const agent = await this.agents.get(task.agentId)
       return agent && agent.organizationId === organizationId
-        ? { id: agent.id, name: agent.name, title: agent.title, description: agent.description, trainingMarkdown: agent.trainingMarkdown, tags: agent.tags, inherited: false }
+        ? { id: agent.id, name: agent.name, title: agent.title, description: agent.description, trainingMarkdown: agent.trainingMarkdown, tags: agent.tags, tools: activeToolsFromAgent(agent), inherited: false }
         : { id: task.agentId, inherited: false }
     }
     const defaultAgentId = projectDefaultAgentId(project ?? {}) || await this.appSettings.get<string | null>(organizationId, DEFAULT_AGENT_KEY)
     const defaultAgent = defaultAgentId ? await this.agents.get(defaultAgentId) : undefined
     return defaultAgent && defaultAgent.organizationId === organizationId
-      ? { id: defaultAgent.id, name: defaultAgent.name, title: defaultAgent.title, description: defaultAgent.description, trainingMarkdown: defaultAgent.trainingMarkdown, tags: defaultAgent.tags, inherited: true }
+      ? { id: defaultAgent.id, name: defaultAgent.name, title: defaultAgent.title, description: defaultAgent.description, trainingMarkdown: defaultAgent.trainingMarkdown, tags: defaultAgent.tags, tools: activeToolsFromAgent(defaultAgent), inherited: true }
       : null
+  }
+
+  private async effectiveSkillsForTask(task: TaskEntity, organizationId: string, project?: { metrics?: Record<string, unknown> | null }): Promise<Skill[]> {
+    const [enrichedTask] = await this.enrichTasks([task])
+    if ((enrichedTask.skills?.length ?? 0) > 0) return enrichedTask.skills ?? []
+    const inheritedSkillIds = new Set(projectDefaultSkillIds(project ?? {}))
+    if (inheritedSkillIds.size === 0) return []
+    return (await this.skills.list(organizationId)).filter((skill) => inheritedSkillIds.has(skill.id))
   }
 
   private async finishPlannerBridgeRuntime(context: PlannerBridgeContext): Promise<void> {
@@ -3537,6 +3777,30 @@ export class TaskService {
     const taskForContextWithSkills = (taskForContext.skills?.length ?? 0) > 0 || effectiveSkills.length === 0
       ? taskForContext
       : { ...taskForContext, skills: effectiveSkills }
+    const effectiveAgentContext: EffectiveAgentContext | null = effectiveTaskAgent ? {
+      id: effectiveTaskAgent.id,
+      name: effectiveTaskAgent.name,
+      title: effectiveTaskAgent.title,
+      description: effectiveTaskAgent.description,
+      trainingMarkdown: effectiveTaskAgent.trainingMarkdown,
+      tags: effectiveTaskAgent.tags,
+      tools: activeToolsFromAgent(effectiveTaskAgent),
+      inherited: false
+    } : effectiveDefaultAgent ? {
+      id: effectiveDefaultAgent.id,
+      name: effectiveDefaultAgent.name,
+      title: effectiveDefaultAgent.title,
+      description: effectiveDefaultAgent.description,
+      trainingMarkdown: effectiveDefaultAgent.trainingMarkdown,
+      tags: effectiveDefaultAgent.tags,
+      tools: activeToolsFromAgent(effectiveDefaultAgent),
+      inherited: true
+    } : null
+    const capabilityContext = capabilityContextFromOptions({
+      effectiveAgent: effectiveAgentContext,
+      effectiveSkills,
+      effectiveTools: activeToolsFromAgent(effectiveAgentContext)
+    })
     const activityMessages = taskActivityMessagesFromPayload(task.payload)
     const contextSummary = gatewayCompactContextSummary(taskForContextWithSkills, activityMessages)
     const currentTaskJson = plannerTaskJson(taskForContextWithSkills, customFields)
@@ -3576,15 +3840,8 @@ export class TaskService {
           value: typeof currentTaskJson.description === 'string' ? currentTaskJson.description : taskForContextWithSkills.description ?? ''
         }
       },
-      effectiveAgent: effectiveTaskAgent ? {
-        id: effectiveTaskAgent.id,
-        name: effectiveTaskAgent.name,
-        inherited: false
-      } : effectiveDefaultAgent ? {
-        id: effectiveDefaultAgent.id,
-        name: effectiveDefaultAgent.name,
-        inherited: true
-      } : null,
+      effectiveAgent: effectiveAgentContext,
+      capabilityContext,
       gatewayLanguage: language,
       projectSettings: {
         language,
@@ -3592,7 +3849,7 @@ export class TaskService {
         defaultSkills: skills.filter((skill) => inheritedSkillIds.has(skill.id)).map((skill) => ({ id: skill.id, name: skill.name })),
         gateway: project.metrics?.gateway ?? {}
       },
-      effectiveSkills: effectiveSkills.map((skill) => ({ id: skill.id, name: skill.name, slug: skill.slug })),
+      effectiveSkills: effectiveSkills.map((skill) => ({ id: skill.id, name: skill.name, slug: skill.slug, category: skill.category, version: skill.version, status: skill.status, enabled: skill.enabled, descriptionMarkdown: skill.descriptionMarkdown ?? '' })),
       currentTaskJson,
       allowed: {
         tags: tags.map((tag) => ({ id: tag.id, name: tag.name })),
@@ -3988,6 +4245,7 @@ export class TaskService {
     const promptShape = projectGatewayPromptShape(project)
     const reasoningEffort = projectGatewayReasoningEffort(project, 'run', payload.reasoningEffort)
     const effectiveAgent = await this.effectiveAgentForTask(access.data.task, access.data.actorOrgId, project)
+    const effectiveSkills = await this.effectiveSkillsForTask(access.data.task, access.data.actorOrgId, project)
 
     const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-gateway-run-'))
     let bridge: { url: string; close: () => Promise<void> } | null = null
@@ -4038,7 +4296,9 @@ export class TaskService {
         language,
         promptShape,
         projectPrompt,
-        effectiveAgent
+        effectiveAgent,
+        effectiveSkills,
+        effectiveTools: activeToolsFromAgent(effectiveAgent)
       })
       const workspaceRunPath = join(runtimeWorkspacePath, '.omc', 'runs', runId)
       workspaceRunPathForCleanup = workspaceRunPath
@@ -4833,6 +5093,7 @@ export class TaskService {
     const promptShape = projectGatewayPromptShape(project)
     const reasoningEffort = projectGatewayReasoningEffort(project, 'plan', payload.reasoningEffort)
     const effectiveAgent = await this.effectiveAgentForTask(access.data.task, access.data.actorOrgId, project)
+    const effectiveSkills = await this.effectiveSkillsForTask(access.data.task, access.data.actorOrgId, project)
     const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-gateway-planner-'))
     let bridge: { url: string; close: () => Promise<void> } | null = null
     let preserveRunFolderOnError = false
@@ -4916,12 +5177,13 @@ export class TaskService {
       const transcript = taskActivityMessagesFromPayload(access.data.task.payload)
         .filter((item) => (item.conversationId || item.runId) === conversationId)
       const prompt = [
-        `Read ${instructionsRelativePath} first.`,
         initialPlannerPrompt(project.id, access.data.task.id, helperRelativePath, contextRelativePath, plannedTaskRelativePath, {
           language,
           promptShape,
           projectPrompt,
           effectiveAgent,
+          effectiveSkills,
+          effectiveTools: activeToolsFromAgent(effectiveAgent),
           clarificationMode
         }),
         plannerClarificationPrompt({ conversationId, clarificationMessage, transcript, language, promptShape })

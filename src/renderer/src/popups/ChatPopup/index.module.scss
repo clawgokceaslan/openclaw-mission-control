@@ -145,6 +145,140 @@
   color: var(--omc-danger) !important;
 }
 
+.codexOptionsWrap {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.codexOptionsButton {
+  min-width: 0;
+  height: 34px !important;
+  min-height: 34px !important;
+  border-radius: 9px !important;
+  padding: 0 8px !important;
+  font-size: 0.72rem !important;
+}
+
+.codexOptionsMenu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 70;
+  width: min(392px, calc(100vw - 34px));
+  max-height: min(390px, calc(100dvh - 180px));
+  overflow-y: auto;
+  border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 70%, transparent);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--omc-bg) 36%, var(--omc-surface) 64%), color-mix(in srgb, var(--omc-surface) 90%, var(--omc-bg) 10%));
+  box-shadow: 0 18px 58px color-mix(in srgb, #000 34%, transparent);
+  padding: 5px;
+  scrollbar-width: thin;
+}
+
+.codexOptionsGroupBreak {
+  border-top: 1px solid color-mix(in srgb, var(--omc-border-subtle) 52%, transparent);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+.codexOptionsItem {
+  width: 100%;
+  min-width: 0;
+  min-height: 33px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--omc-text-muted) 86%, var(--omc-text-strong) 14%);
+  display: grid;
+  grid-template-columns: 17px minmax(0, 1fr) minmax(54px, auto);
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  text-align: left;
+
+  &:hover {
+    background: color-mix(in srgb, var(--omc-hover-bg) 62%, transparent);
+    color: var(--omc-text-strong);
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--omc-primary) 48%, transparent);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  > svg {
+    color: color-mix(in srgb, var(--omc-text-muted) 76%, transparent);
+  }
+
+  > span {
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+
+  b {
+    flex: 0 0 auto;
+    color: inherit;
+    font-size: 0.84rem;
+    font-weight: 780;
+    line-height: 1.25;
+  }
+
+  small {
+    min-width: 0;
+    color: color-mix(in srgb, var(--omc-text-muted) 66%, transparent);
+    font-size: 0.76rem;
+    font-weight: 620;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  em {
+    min-width: 0;
+    max-width: 126px;
+    color: color-mix(in srgb, var(--omc-text-muted) 64%, transparent);
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    font-size: 0.73rem;
+    font-style: normal;
+    font-weight: 700;
+    overflow: hidden;
+
+    span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    svg {
+      flex: 0 0 auto;
+      color: color-mix(in srgb, var(--omc-text-muted) 54%, transparent);
+    }
+  }
+}
+
+.codexOptionsItemActive {
+  background: color-mix(in srgb, var(--omc-active-bg) 36%, transparent);
+  color: color-mix(in srgb, var(--omc-text-strong) 88%, var(--omc-primary-strong) 12%);
+}
+
+.codexOptionsItemDanger {
+  color: var(--omc-danger) !important;
+}
+
 @media (max-width: 1120px) and (min-width: 861px) {
   .chatPopupShell {
     inset: 12px;
@@ -194,6 +328,26 @@
 
   .chatComposer {
     padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .codexOptionsMenu {
+    left: 0;
+    width: min(390px, calc(100vw - 20px));
+    max-height: min(430px, calc(100dvh - 152px));
+  }
+
+  .codexOptionsItem {
+    grid-template-columns: 18px minmax(0, 1fr);
+
+    > span {
+      display: grid;
+      gap: 1px;
+    }
+
+    em {
+      grid-column: 2;
+      max-width: 100%;
+    }
   }
 
   .chatTopbarActions {

@@ -19,12 +19,15 @@ import {
   formatGatewayToolBody,
   codexChangesSummary,
   parseNumberMetadata,
+  parseNextChatHandoff,
+  handoffFieldItems,
+  handoffScalarValue,
   thinkingDurationLabel as resolveThinkingDurationLabel,
   roleLabel,
   stripRawJsonFromChatBody,
   usageFromMetadata
 } from '@renderer/screens/projects/detail/chat/chatUtils'
-import type { CodexWorkBlock as CodexWorkBlockData, CodexWorkSummaryKind, CodexWorkSummaryRow } from '@renderer/screens/projects/detail/chat/chatUtils'
+import type { CodexWorkBlock as CodexWorkBlockData, CodexWorkSummaryKind, CodexWorkSummaryRow, ParsedNextChatHandoff } from '@renderer/screens/projects/detail/chat/chatUtils'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
 
 const MAX_HIGHLIGHT_CHARS = 25_000
@@ -201,6 +204,94 @@ function renderMarkdownLite(body: string) {
       return <p key={`${index}-${lineIndex}`} className={styles.codexMarkdownLine}>{line}</p>
     })
   })
+}
+
+type HandoffDisplayGroup = {
+  key: string
+  label: string
+  tone: 'success' | 'info' | 'warning' | 'neutral'
+  items: string[]
+  mode?: 'chips'
+}
+
+function nextChatHandoffFromBody(body: string): ParsedNextChatHandoff | null {
+  const match = body.match(/(?:^|\n\n)(NEXT_CHAT_HANDOFF(?:_JSON)?\n[\s\S]*)/)
+  return parseNextChatHandoff(match?.[1])
+}
+
+function meaningfulHandoffGroups(handoff: ParsedNextChatHandoff): HandoffDisplayGroup[] {
+  const goal = handoffScalarValue(handoff, 'goal')
+  const groups: HandoffDisplayGroup[] = [
+    goal ? { key: 'goal', label: 'Goal', tone: 'neutral', items: [goal] } : null,
+    { key: 'completed_work', label: 'Completed', tone: 'success', items: handoffFieldItems(handoff, 'completed_work') },
+    { key: 'decisions', label: 'Decisions', tone: 'neutral', items: handoffFieldItems(handoff, 'decisions') },
+    { key: 'changed_areas', label: 'Changed areas', tone: 'neutral', items: handoffFieldItems(handoff, 'changed_areas'), mode: 'chips' },
+    { key: 'verification', label: 'Verification', tone: 'info', items: handoffFieldItems(handoff, 'verification') },
+    { key: 'blockers', label: 'Blockers', tone: 'warning', items: handoffFieldItems(handoff, 'blockers') },
+    { key: 'next_steps', label: 'Next steps', tone: 'info', items: handoffFieldItems(handoff, 'next_steps') }
+  ].filter((group): group is HandoffDisplayGroup => Boolean(group && group.items.length > 0))
+  return groups
+}
+
+function renderHandoffValue(group: HandoffDisplayGroup) {
+  if (group.mode === 'chips') {
+    return (
+      <div className={styles.codexHandoffChipList}>
+        {group.items.map((item, index) => (
+          <span key={`${group.key}-${index}`} className={styles.codexHandoffPathChip} title={item}>
+            {shortenPath(item)}
+          </span>
+        ))}
+      </div>
+    )
+  }
+  if (group.items.length === 1) return <div className={styles.codexHandoffValue}>{group.items[0]}</div>
+  return (
+    <div className={styles.codexHandoffStack}>
+      {group.items.map((item, index) => (
+        <div key={`${group.key}-${index}`} className={styles.codexHandoffItem}>
+          {item}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function renderNextChatHandoffCard(message: TaskActivityMessage) {
+  if (message.role !== 'assistant') return null
+  const handoff = nextChatHandoffFromBody(message.body)
+  if (!handoff) return null
+  const groups = meaningfulHandoffGroups(handoff)
+  const fallbackGroups = groups.length > 0
+    ? groups
+    : [{ key: 'empty', label: 'Summary', tone: 'neutral' as const, items: ['No structured details reported'] }]
+  const totalItems = fallbackGroups.reduce((sum, group) => sum + group.items.length, 0)
+  const defaultOpen = totalItems <= 6 && fallbackGroups.length <= 4
+  const taskTitle = handoff.task?.title || 'Task'
+  const taskStatus = handoff.task?.status || ''
+  const title = message.source === 'gateway-run' ? 'Run summary' : 'Chat handoff'
+
+  return (
+    <details className={styles.codexHandoffCard} open={defaultOpen}>
+      <summary className={styles.codexHandoffHeader}>
+        <span className={styles.codexHandoffTitle}>
+          <LuChevronDown className={styles.codexHandoffChevron} size={14} />
+          <LuFileText size={14} />
+          {title}
+        </span>
+        <span className={styles.codexHandoffTask} title={taskTitle}>{taskTitle}</span>
+        {taskStatus ? <span className={styles.codexHandoffStatus}>{taskStatus}</span> : null}
+      </summary>
+      <div className={styles.codexHandoffGrid}>
+        {fallbackGroups.map((group) => (
+          <section key={group.key} className={`${styles.codexHandoffSection} ${styles[`codexHandoff_${group.tone}`] ?? ''}`}>
+            <h4>{group.label}</h4>
+            {renderHandoffValue(group)}
+          </section>
+        ))}
+      </div>
+    </details>
+  )
 }
 
 function shortenPath(value: string): string {
@@ -387,6 +478,7 @@ function renderChangesCard(message: TaskActivityMessage, pathEntries: Array<{ ke
 
 type GatewayChatMessageItemProps = {
   message: TaskActivityMessage
+  onSteerMessageClick?: (conversationId: string) => void
 }
 
 type CodexWorkBlockProps = {
@@ -588,12 +680,13 @@ function renderCodexTranscriptMessage(params: {
 
   return (
     <article className={`${styles.chatMessage} ${styles.codexTranscriptRow}`}>
-      <div className={styles.codexTranscriptText}>{messageBody}</div>
+      {stripRawJsonFromChatBody(message.body) ? <div className={styles.codexTranscriptText}>{messageBody}</div> : null}
+      {renderNextChatHandoffCard(message)}
     </article>
   )
 }
 
-export const GatewayChatMessageItem = memo(function GatewayChatMessageItem({ message }: GatewayChatMessageItemProps) {
+export const GatewayChatMessageItem = memo(function GatewayChatMessageItem({ message, onSteerMessageClick }: GatewayChatMessageItemProps) {
   const usage = usageFromMetadata(message.metadata)
   const gatewayBlock = gatewayMetadataBlock(message.metadata)
   const changesSummary = codexChangesSummary(message)
@@ -627,6 +720,14 @@ export const GatewayChatMessageItem = memo(function GatewayChatMessageItem({ mes
   const pathEntries = useMemo(() => metadataPathEntries(message.metadata), [message.metadata])
   const commandLabel = messageCommandLabel(message.metadata)
   const attachments = messageAttachments(message.metadata)
+  const steerConversationId = message.role === 'user' && message.metadata?.mode === 'steer'
+    ? message.conversationId || message.runId
+    : ''
+  const isClickableSteerMessage = Boolean(steerConversationId && onSteerMessageClick)
+  const handleSteerMessageClick = () => {
+    if (!steerConversationId) return
+    onSteerMessageClick?.(steerConversationId)
+  }
 
   if (message.role !== 'user') {
     return renderCodexTranscriptMessage({
@@ -644,7 +745,21 @@ export const GatewayChatMessageItem = memo(function GatewayChatMessageItem({ mes
   }
 
   return (
-    <article className={`${styles.chatMessage} ${styles[`chatRole_${message.role}`] ?? ''}`}>
+    <article
+      className={`${styles.chatMessage} ${styles[`chatRole_${message.role}`] ?? ''} ${isClickableSteerMessage ? styles.chatSteerMessageClickable : ''}`}
+      role={isClickableSteerMessage ? 'button' : undefined}
+      tabIndex={isClickableSteerMessage ? 0 : undefined}
+      onClick={isClickableSteerMessage ? handleSteerMessageClick : undefined}
+      onKeyDown={isClickableSteerMessage
+        ? (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return
+            event.preventDefault()
+            handleSteerMessageClick()
+          }
+        : undefined}
+      aria-label={isClickableSteerMessage ? 'Open steer conversation' : undefined}
+      title={isClickableSteerMessage ? 'Open steer conversation' : undefined}
+    >
       <div className={styles.chatMessageHeader}>
         <span className={styles.chatRoleGlyph} aria-hidden="true">
           {message.role === 'assistant' ? <LuBot size={14} /> : null}
@@ -714,7 +829,11 @@ export const GatewayChatMessageItem = memo(function GatewayChatMessageItem({ mes
         <button
           type="button"
           className={styles.copyMessageButton}
-          onClick={() => void navigator.clipboard?.writeText(message.body)}
+          onClick={(event) => {
+            event.stopPropagation()
+            void navigator.clipboard?.writeText(message.body)
+          }}
+          onKeyDown={(event) => event.stopPropagation()}
           aria-label="Copy message"
           title="Copy message"
         >
