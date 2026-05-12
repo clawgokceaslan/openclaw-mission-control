@@ -319,7 +319,6 @@ function messageCommandLabel(metadata: Record<string, unknown> | undefined): str
   const mode = typeof metadata?.mode === 'string' ? metadata.mode : ''
   if (label) return label.startsWith('/') ? label : `/${label}`
   if (mode === 'plan') return '/plan'
-  if (mode === 'steer') return '/steer'
   return ''
 }
 
@@ -478,7 +477,6 @@ function renderChangesCard(message: TaskActivityMessage, pathEntries: Array<{ ke
 
 type GatewayChatMessageItemProps = {
   message: TaskActivityMessage
-  onSteerMessageClick?: (conversationId: string) => void
 }
 
 type CodexWorkBlockProps = {
@@ -701,7 +699,7 @@ function renderCodexTranscriptMessage(params: {
   )
 }
 
-export const GatewayChatMessageItem = memo(function GatewayChatMessageItem({ message, onSteerMessageClick }: GatewayChatMessageItemProps) {
+export const GatewayChatMessageItem = memo(function GatewayChatMessageItem({ message }: GatewayChatMessageItemProps) {
   const usage = usageFromMetadata(message.metadata)
   const gatewayBlock = gatewayMetadataBlock(message.metadata)
   const changesSummary = codexChangesSummary(message)
@@ -735,15 +733,6 @@ export const GatewayChatMessageItem = memo(function GatewayChatMessageItem({ mes
   const pathEntries = useMemo(() => metadataPathEntries(message.metadata), [message.metadata])
   const commandLabel = messageCommandLabel(message.metadata)
   const attachments = messageAttachments(message.metadata)
-  const steerConversationId = message.role === 'user' && message.metadata?.mode === 'steer'
-    ? message.conversationId || message.runId
-    : ''
-  const isClickableSteerMessage = Boolean(steerConversationId && onSteerMessageClick)
-  const handleSteerMessageClick = () => {
-    if (!steerConversationId) return
-    onSteerMessageClick?.(steerConversationId)
-  }
-
   if (message.role !== 'user') {
     return renderCodexTranscriptMessage({
       message,
@@ -761,19 +750,7 @@ export const GatewayChatMessageItem = memo(function GatewayChatMessageItem({ mes
 
   return (
     <article
-      className={`${styles.chatMessage} ${styles[`chatRole_${message.role}`] ?? ''} ${isClickableSteerMessage ? styles.chatSteerMessageClickable : ''}`}
-      role={isClickableSteerMessage ? 'button' : undefined}
-      tabIndex={isClickableSteerMessage ? 0 : undefined}
-      onClick={isClickableSteerMessage ? handleSteerMessageClick : undefined}
-      onKeyDown={isClickableSteerMessage
-        ? (event) => {
-            if (event.key !== 'Enter' && event.key !== ' ') return
-            event.preventDefault()
-            handleSteerMessageClick()
-          }
-        : undefined}
-      aria-label={isClickableSteerMessage ? 'Open steer conversation' : undefined}
-      title={isClickableSteerMessage ? 'Open steer conversation' : undefined}
+      className={`${styles.chatMessage} ${styles[`chatRole_${message.role}`] ?? ''}`}
     >
       <div className={styles.chatMessageHeader}>
         <span className={styles.chatRoleGlyph} aria-hidden="true">

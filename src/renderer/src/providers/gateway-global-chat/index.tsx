@@ -70,7 +70,7 @@ export function GlobalGatewayChatProvider({ children }: { children: ReactNode })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [localStatus, setLocalStatus] = useState<TaskActivityMessage | null>(null)
-  const [chatMode, setChatMode] = useState<'chat' | 'steer'>('chat')
+  const [chatMode, setChatMode] = useState<'chat'>('chat')
 
   const openProjectGatewaySettings = useCallback((projectId: string, taskId?: string) => {
     navigate(`${APP_ROUTES.PROJECTS}/${projectId}`, {
@@ -142,7 +142,7 @@ export function GlobalGatewayChatProvider({ children }: { children: ReactNode })
       setWorkspaces(context.workspaces)
       setSelectedConversationId(conversationId)
       setTaskDetailTarget({ projectId, taskId })
-      setChatMode(conversationType === 'steer' ? 'steer' : 'chat')
+      setChatMode('chat')
       setPopupOpen(true)
       return true
     } catch (openError) {

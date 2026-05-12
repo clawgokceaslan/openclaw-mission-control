@@ -2505,20 +2505,6 @@
   }
 }
 
-.chatSteerMessageClickable {
-  cursor: pointer;
-
-  &:hover {
-    border-color: var(--omc-border);
-    background: color-mix(in srgb, var(--omc-active-bg) 54%, var(--omc-surface-muted) 46%);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--omc-primary);
-    outline-offset: 2px;
-  }
-}
-
 .chatRole_assistant {
   align-self: stretch;
   max-width: 100%;
@@ -3065,141 +3051,6 @@
       background: var(--omc-hover-bg);
     }
   }
-}
-
-.chatSteerQuickAction {
-  flex: 0 0 auto;
-  min-width: 0;
-  min-height: 34px;
-  border: 1px solid color-mix(in srgb, var(--omc-primary) 34%, var(--omc-border-subtle));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--omc-active-bg) 38%, var(--omc-bg));
-  color: var(--omc-primary-strong);
-  padding: 0 10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  font-size: 0.74rem;
-  font-weight: 900;
-  pointer-events: auto;
-
-  &:hover {
-    background: color-mix(in srgb, var(--omc-active-bg) 58%, var(--omc-hover-bg));
-    color: var(--omc-text-strong);
-  }
-
-  span {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-.chatSteerTargetTable {
-  position: relative;
-  z-index: 30;
-  min-width: 0;
-  margin-bottom: 7px;
-  border: 1px solid color-mix(in srgb, var(--omc-border-subtle) 76%, transparent);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--omc-surface-muted) 74%, var(--omc-surface) 26%);
-  overflow: hidden;
-  box-shadow: 0 12px 36px color-mix(in srgb, var(--omc-shadow-color) 18%, transparent);
-}
-
-.chatSteerTargetHeader,
-.chatSteerTargetRow {
-  width: 100%;
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(170px, 1.35fr) minmax(110px, 0.7fr) minmax(92px, 0.6fr) 76px;
-  align-items: center;
-  gap: 8px;
-}
-
-.chatSteerTargetHeader {
-  min-height: 30px;
-  border-bottom: 1px solid color-mix(in srgb, var(--omc-border-subtle) 58%, transparent);
-  padding: 0 8px;
-  color: var(--omc-text-soft);
-  font-size: 0.64rem;
-  font-weight: 950;
-  text-transform: uppercase;
-}
-
-.chatSteerTargetRow {
-  min-height: 48px;
-  border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--omc-border-subtle) 42%, transparent);
-  background: transparent;
-  color: var(--omc-text-strong);
-  padding: 6px 8px;
-  text-align: left;
-
-  &:last-child {
-    border-bottom: 0;
-  }
-
-  &:hover {
-    background: color-mix(in srgb, var(--omc-hover-bg) 66%, transparent);
-  }
-
-  &:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--omc-primary) 46%, transparent);
-    outline-offset: -2px;
-  }
-}
-
-.chatSteerTargetActive {
-  background: color-mix(in srgb, var(--omc-active-bg) 42%, transparent);
-}
-
-.chatSteerTargetTitle {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-
-  b,
-  small {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  small {
-    color: var(--omc-text-muted);
-    font-size: 0.68rem;
-    font-weight: 760;
-  }
-}
-
-.chatSteerTargetModel {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--omc-text-muted);
-  font-size: 0.74rem;
-  font-weight: 820;
-}
-
-.chatSteerTargetAction {
-  min-width: 0;
-  min-height: 28px;
-  border: 1px solid color-mix(in srgb, var(--omc-primary) 34%, var(--omc-border-subtle));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--omc-active-bg) 42%, transparent);
-  color: var(--omc-primary-strong);
-  padding: 0 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.72rem;
-  font-weight: 900;
-  white-space: nowrap;
 }
 
 .chatConfigurationButton {
@@ -8831,42 +8682,6 @@
   .chatComposerFooter {
     min-height: 44px;
     gap: 6px;
-  }
-
-  .chatSteerTargetTable {
-    margin-bottom: 6px;
-  }
-
-  .chatSteerTargetHeader {
-    display: none;
-  }
-
-  .chatSteerTargetRow {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "target action"
-      "status model";
-    min-height: 64px;
-    gap: 4px 8px;
-  }
-
-  .chatSteerTargetTitle {
-    grid-area: target;
-  }
-
-  .chatSteerTargetRow > .chatStatusBadge {
-    grid-area: status;
-    justify-self: start;
-  }
-
-  .chatSteerTargetModel {
-    grid-area: model;
-    justify-self: end;
-    max-width: 44vw;
-  }
-
-  .chatSteerTargetAction {
-    grid-area: action;
   }
 
   .chatComposerBox .chatConfigurationButton {

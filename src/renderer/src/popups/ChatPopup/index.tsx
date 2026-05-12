@@ -24,7 +24,7 @@ interface ChatPopupFlatProps {
   chatHistoryCount: number
   contextEntries: GeneratedContextEntry[]
   chatSettingsOpen: boolean
-  chatMode?: 'chat' | 'plan' | 'steer'
+  chatMode?: 'chat' | 'plan'
   selectedChatCanStop: boolean
   chatStopping: boolean
   gatewayPlanLaunching: boolean
@@ -99,7 +99,6 @@ interface ChatPopupFlatProps {
   onSlashCommandApply: (command: SlashCommand) => void
   onSlashCommandIndexChange: (updater: (value: number) => number) => void
   onClearSlashDraft: () => void
-  onSteerMessageClick: (conversationId: string) => void
   onSend: () => void
   onPlannerQuestionAnswer: (answer: string) => void
 }
@@ -137,7 +136,6 @@ type ChatPopupStateProps = Omit<
   | 'onSlashCommandApply'
   | 'onSlashCommandIndexChange'
   | 'onClearSlashDraft'
-  | 'onSteerMessageClick'
   | 'onSend'
   | 'onPlannerQuestionAnswer'
 >
@@ -175,7 +173,6 @@ type ChatPopupHandlerProps = Pick<
   | 'onSlashCommandApply'
   | 'onSlashCommandIndexChange'
   | 'onClearSlashDraft'
-  | 'onSteerMessageClick'
   | 'onSend'
   | 'onPlannerQuestionAnswer'
 >
@@ -403,7 +400,6 @@ function slashCommandIcon(commandId: SlashCommand['id']): IconType {
   if (commandId === 'review') return LuEye
   if (commandId === 'run') return LuPlay
   if (commandId === 'plan') return LuSparkles
-  if (commandId === 'steer') return LuMessageSquare
   if (commandId === 'settings') return LuSettings2
   if (commandId === 'attach') return LuPaperclip
   return LuFileText
@@ -420,7 +416,7 @@ export function ChatPopup({
   const [activeCodexOptionsModal, setActiveCodexOptionsModal] = useState<CodexOptionsModal | null>(null)
   const [isContextDrawerOpen, setIsContextDrawerOpen] = useState(false)
   const [selectedContextEntryId, setSelectedContextEntryId] = useState<string>('')
-  const activeCommand = state?.chatMode === 'plan' || state?.chatMode === 'steer' ? state.chatMode : null
+  const activeCommand = state?.chatMode === 'plan' ? state.chatMode : null
 
   useEffect(() => lockModalInteractionRegion(), [])
 
@@ -528,7 +524,6 @@ export function ChatPopup({
     onSlashCommandApply: chatHandlers?.onSlashCommandApply ?? flatProps.onSlashCommandApply ?? noOp,
     onSlashCommandIndexChange: chatHandlers?.onSlashCommandIndexChange ?? flatProps.onSlashCommandIndexChange ?? (() => {}),
     onClearSlashDraft: chatHandlers?.onClearSlashDraft ?? flatProps.onClearSlashDraft ?? noOp,
-    onSteerMessageClick: chatHandlers?.onSteerMessageClick ?? flatProps.onSteerMessageClick ?? noOp,
     onSend: chatHandlers?.onSend ?? flatProps.onSend ?? noOp,
     onPlannerQuestionAnswer: chatHandlers?.onPlannerQuestionAnswer ?? flatProps.onPlannerQuestionAnswer ?? noOp
   }
@@ -617,7 +612,6 @@ export function ChatPopup({
     onSlashCommandApply,
     onSlashCommandIndexChange,
     onClearSlashDraft,
-    onSteerMessageClick,
     onSend,
   } = handlers
 
@@ -653,10 +647,6 @@ export function ChatPopup({
     return styles[`chatSource_${gatewayChatPhaseTone(conversation.phase)}`] ?? ''
   }
   const selectedChatStatusMeta = selectedChatSummary ? conversationStatusMeta(selectedChatSummary) : null
-  const steerableConversations = conversations
-    .filter((conversation) => runningConversationIds.has(conversation.id))
-    .filter((conversation) => conversation.source !== 'gateway-plan')
-    .sort((a, b) => b.at - a.at)
   const sendButtonStopsConversation = selectedChatCanStop && activeCommand !== 'plan' && !canSendChat
   const runModelLabel = chatRunModel || chatModel || 'Not set'
   const planModelLabel = chatPlanModel || chatModel || 'Not set'
@@ -950,18 +940,18 @@ export function ChatPopup({
                   {transcriptItems.map((item) => (
                     item.kind === 'work-block'
                       ? <CodexWorkBlock key={item.id} block={item.block} animateLatestAssistant={selectedChatIsRunning && item.id === latestTranscriptItemId} />
-                      : <GatewayChatMessageItem key={item.id} message={item.message} onSteerMessageClick={onSteerMessageClick} />
+                      : <GatewayChatMessageItem key={item.id} message={item.message} />
                   ))}
                 </div>
               ) : (
                 <div className={styles.chatEmptyState}>
                   {localStatusMessage ? (
-                    <div className={styles.chatMessageList}><GatewayChatMessageItem message={localStatusMessage} onSteerMessageClick={onSteerMessageClick} /></div>
+                    <div className={styles.chatMessageList}><GatewayChatMessageItem message={localStatusMessage} /></div>
                   ) : (
                     <>
                       <LuMessageSquare size={28} />
                       <h3>Task akışını başlat</h3>
-                      <p>Planla, çalıştır, takip mesajı gönder veya aktif konuşmayı yönlendir. Agent, Skill ve Tool capability context bu task akışına eklenir.</p>
+                      <p>Planla, çalıştır veya takip mesajı gönder. Agent, Skill ve Tool capability context bu task akışına eklenir.</p>
                       <div>
                         {showRunActions ? <button type="button" onClick={onPlan} disabled={gatewayPlanLaunching}><LuSparkles size={15} /> {gatewayPlanLaunching ? 'Planlanıyor' : 'Planla'}</button> : null}
                         {showRunActions ? <button type="button" onClick={onRun} disabled={gatewayRunLaunching}><LuPlay size={15} /> {gatewayRunLaunching ? 'Çalışıyor' : 'Çalıştır'}</button> : null}
@@ -1076,38 +1066,6 @@ export function ChatPopup({
                   })}
                 </div>
               ) : null}
-              {steerableConversations.length > 0 ? (
-                <div className={styles.chatSteerTargetTable} role="table" aria-label="Active chat and run conversations available as steer targets">
-                  <div className={styles.chatSteerTargetHeader} role="row">
-                    <span role="columnheader">Target</span>
-                    <span role="columnheader">Status</span>
-                    <span role="columnheader">Model</span>
-                    <span role="columnheader">Action</span>
-                  </div>
-                  {steerableConversations.map((conversation) => {
-                    const isSelectedSteerTarget = activeCommand === 'steer' && selectedConversationId === conversation.id
-                    return (
-                      <button
-                        key={conversation.id}
-                        type="button"
-                        className={`${styles.chatSteerTargetRow} ${isSelectedSteerTarget ? styles.chatSteerTargetActive : ''}`}
-                        onClick={() => onSteerMessageClick(conversation.id)}
-                        role="row"
-                        aria-pressed={isSelectedSteerTarget}
-                        title={`Use ${conversation.title} as the steer target`}
-                      >
-                        <span role="cell" className={styles.chatSteerTargetTitle}>
-                          <b className={`${styles.chatConversationSourceBadge} ${conversationSourceClass(conversation)}`}>{conversation.title}</b>
-                          <small>{conversation.count} messages · {formatChatTime(conversation.at)}</small>
-                        </span>
-                        <span role="cell" className={`${styles.chatStatusBadge} ${conversationStatusClass(conversation)}`}>{conversationStatusLabel(conversation)}</span>
-                        <span role="cell" className={styles.chatSteerTargetModel}>{conversation.model || 'Default'}</span>
-                        <span role="cell" className={styles.chatSteerTargetAction}>{isSelectedSteerTarget ? 'Targeted' : 'Target'}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              ) : null}
               <div className={`${styles.chatComposerBox} ${popupStyles.chatComposerBox}`}>
                 {attachments.length > 0 ? (
                   <div className={styles.chatAttachmentPreviewGrid} aria-label="Giden mesaj ekleri">
@@ -1133,7 +1091,7 @@ export function ChatPopup({
                   onChange={(event) => onDraftChange(event.target.value, event.currentTarget)}
                   onFocus={() => onComposerFocusChange(true)}
                   onBlur={() => onComposerFocusChange(false)}
-                  placeholder={activeCommand === 'plan' ? 'Add planning instructions...' : activeCommand === 'steer' ? 'Write the steer instruction to send...' : 'Message Codex or type / for commands...'}
+                  placeholder={activeCommand === 'plan' ? 'Add planning instructions...' : 'Message Codex or type / for commands...'}
                   onKeyDown={(event) => {
                     if (slashMenuOpen && slashCommands.length > 0) {
                       if (event.key === 'ArrowDown') { event.preventDefault(); onSlashCommandIndexChange((value) => (value + 1) % slashCommands.length); return }
@@ -1155,8 +1113,8 @@ export function ChatPopup({
                   <button type="button" className={styles.chatAttachButton} onClick={onAttachFilesClick} aria-label="Attach files"><LuPaperclip size={16} /></button>
                   {activeCommand ? (
                     <span className={styles.chatActiveCommandBadge}>
-                      <b>{activeCommand === 'plan' ? 'Plan' : 'Steer'}</b>
-                      <small>{activeCommand === 'plan' ? 'Planning' : 'Input only'}</small>
+                      <b>Plan</b>
+                      <small>Planning</small>
                       <button type="button" onClick={onClearSlashDraft} aria-label={`${activeCommand} komutunu kaldır`} title="Komutu kaldır">
                         <LuX size={12} />
                       </button>

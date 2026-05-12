@@ -131,12 +131,12 @@ describe('codex notifications', () => {
     })
   })
 
-  it('shows stopped notifications for observable exec runs', () => {
+  it('shows stopped notifications for observable exec chat runs', () => {
     const { instances, runtime } = createRuntime()
 
     maybeShowGatewayChatCompletionNotification({
       ...baseNotification,
-      mode: 'steer',
+      mode: 'chat',
       executionMode: 'exec',
       success: true,
       stopped: true
@@ -144,8 +144,8 @@ describe('codex notifications', () => {
 
     expect(instances).toHaveLength(1)
     expect(instances[0].options).toMatchObject({
-      title: 'Stopped · Steer · Task Alpha',
-      subtitle: 'Codex Steer stopped'
+      title: 'Stopped · Chat · Task Alpha',
+      subtitle: 'Codex Chat stopped'
     })
   })
 

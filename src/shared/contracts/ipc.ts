@@ -606,7 +606,7 @@ export interface ListRunningGatewayTasksRequest {
   projectId?: string
 }
 
-export type RunningGatewayConversationType = 'plan' | 'run' | 'chat' | 'steer' | 'post-run'
+export type RunningGatewayConversationType = 'plan' | 'run' | 'chat' | 'post-run'
 export type RunningGatewayGroupKey = 'all' | 'planning' | 'running' | 'postRunning'
 
 export interface RunningGatewayGroupCounts {
@@ -715,9 +715,9 @@ export interface GatewayChatSendRequest {
   outputLanguage?: string
   conversationId?: string
   includeTaskContext?: boolean
-  mode?: 'chat' | 'plan' | 'steer'
+  mode?: 'chat' | 'plan'
   command?: {
-    id?: 'chat' | 'plan' | 'steer'
+    id?: 'chat' | 'plan'
     source?: 'slash' | 'button' | 'chip'
     label?: string
   }

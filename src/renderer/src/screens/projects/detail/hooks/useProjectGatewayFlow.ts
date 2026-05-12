@@ -11,11 +11,11 @@ const trailingSlashCommandToken = /(?:^|\s)\/[a-z]*$/i
 const CHAT_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024
 const CHAT_ATTACHMENT_MAX_COUNT = 10
 const CODE_REVIEW_PROMPT = 'Please review the current task implementation and recent chat context. Prioritize bugs, regressions, missing tests, and risky assumptions. Do not make code changes unless I explicitly ask.'
-type ChatCommandMode = 'plan' | 'steer'
-type GatewayChatMode = 'chat' | 'plan' | 'steer'
+type ChatCommandMode = 'plan'
+type GatewayChatMode = 'chat' | 'plan'
 
 export function normalizeLeadingChatCommand(value: string): { mode: ChatCommandMode | null; message: string; hadCommand: boolean } {
-  const match = value.match(/^\s*\/(plan|steer)(?:\s+|$)/i)
+  const match = value.match(/^\s*\/(plan)(?:\s+|$)/i)
   if (!match) return { mode: null, message: value.trim(), hadCommand: false }
   return {
     mode: match[1].toLowerCase() as ChatCommandMode,
@@ -25,7 +25,7 @@ export function normalizeLeadingChatCommand(value: string): { mode: ChatCommandM
 }
 
 export function shouldStartNewGatewayChatConversation(isStartingNewChat: boolean, requestedChatMode: GatewayChatMode): boolean {
-  return isStartingNewChat && requestedChatMode !== 'steer'
+  return isStartingNewChat
 }
 
 export function effectiveGatewayChatMode(requestedChatMode: GatewayChatMode, _selectedConversationIsRunning: boolean, _isStartingNewChat: boolean): GatewayChatMode {
@@ -119,7 +119,7 @@ export interface ProjectGatewayFlowContext {
   planReasoningEffort?: string
   runReasoningEffort?: string
   chatIncludeContext: boolean
-  chatComposerMode: 'chat' | 'plan' | 'steer'
+  chatComposerMode: 'chat' | 'plan'
   selectedChatConversationId: string
   isStartingNewChat: boolean
   selectedChatSummary: ChatConversationSummary | null
@@ -155,7 +155,7 @@ export interface ProjectGatewayFlowContext {
 }
 
 export interface UseProjectGatewayFlowResult {
-  chatMode: 'chat' | 'plan' | 'steer'
+  chatMode: 'chat' | 'plan'
   canRunSelectedTaskWithCodex: boolean
   canPlanSelectedTaskWithCodex: boolean
   canSendChat: boolean
@@ -238,7 +238,7 @@ export function useProjectGatewayFlow({
   const resolvedRunModel = taskRunModel || selectedTaskGatewayModel || savedGatewayDefaultRunModel || savedGatewayDefaultModel
 
   const draftCommand = normalizeLeadingChatCommand(chatDraft)
-  const chatMode: 'chat' | 'plan' | 'steer' = draftCommand.mode ?? chatComposerMode
+  const chatMode: 'chat' | 'plan' = draftCommand.mode ?? chatComposerMode
   const canRunSelectedTaskWithCodex = Boolean(selectedTaskExportContext && resolvedTaskGatewayId && resolvedRunModel)
   const canPlanSelectedTaskWithCodex = Boolean(selectedTask && resolvedTaskGatewayId && resolvedPlanModel)
   const canSendChat = Boolean(draftCommand.message || chatAttachments.length > 0)
@@ -478,11 +478,11 @@ export function useProjectGatewayFlow({
     const effectiveRequestedChatMode = effectiveGatewayChatMode(requestedChatMode, selectedChatSummary?.status === 'running', isStartingNewChat)
     const effectiveIsStartingNewChat = shouldStartNewGatewayChatConversation(isStartingNewChat, effectiveRequestedChatMode)
     const effectiveSelectedChatSummary = effectiveIsStartingNewChat ? null : selectedChatSummary
-    const sendAsPlanRevision = effectiveRequestedChatMode !== 'steer' && !effectiveIsStartingNewChat && effectiveSelectedChatSummary?.source === 'gateway-plan'
-    const effectiveChatMode = effectiveRequestedChatMode === 'steer' ? 'steer' : sendAsPlanRevision ? 'plan' : effectiveRequestedChatMode
-    const sendAsPlannerClarification = effectiveChatMode !== 'steer' && !effectiveIsStartingNewChat && effectiveSelectedChatSummary?.source === 'gateway-plan'
+    const sendAsPlanRevision = !effectiveIsStartingNewChat && effectiveSelectedChatSummary?.source === 'gateway-plan'
+    const effectiveChatMode = sendAsPlanRevision ? 'plan' : effectiveRequestedChatMode
+    const sendAsPlannerClarification = !effectiveIsStartingNewChat && effectiveSelectedChatSummary?.source === 'gateway-plan'
     const sendAsDirectPlan = effectiveChatMode === 'plan' && !sendAsPlannerClarification
-    if (selectedChatSummary?.status === 'running' && effectiveChatMode !== 'steer' && !sendAsDirectPlan) {
+    if (selectedChatSummary?.status === 'running' && !sendAsDirectPlan) {
       setGatewayRunFeedback({ kind: 'error', message: 'Codex is still working in this conversation. Stop it or wait before sending another message.' })
       return
     }
@@ -497,12 +497,8 @@ export function useProjectGatewayFlow({
       setGatewayRunFeedback({ kind: 'error', message: 'Choose a Codex gateway and model before sending chat.' })
       return
     }
-    if ((effectiveChatMode === 'steer' || effectiveSelectedChatSummary?.source === 'gateway-plan') && !selectedChatConversationId) {
-      setGatewayRunFeedback({ kind: 'error', message: 'Select a conversation before sending a steer message.' })
-      return
-    }
-    if (effectiveChatMode === 'steer' && effectiveSelectedChatSummary?.source === 'gateway-plan') {
-      setGatewayRunFeedback({ kind: 'error', message: 'Steer applies only to the text you write for active chat/run conversations. Use planner clarification or /plan for plan conversations.' })
+    if (effectiveSelectedChatSummary?.source === 'gateway-plan' && !selectedChatConversationId) {
+      setGatewayRunFeedback({ kind: 'error', message: 'Select a planner conversation before sending clarification.' })
       return
     }
 
@@ -596,8 +592,8 @@ export function useProjectGatewayFlow({
         mode: effectiveChatMode,
         command: {
           id: effectiveChatMode,
-          source: requestedChatMode === 'plan' || requestedChatMode === 'steer' ? normalizedDraft.hadCommand ? 'slash' : 'chip' : 'button',
-          label: effectiveChatMode === 'plan' ? '/plan' : effectiveChatMode === 'steer' ? '/steer' : 'chat'
+          source: requestedChatMode === 'plan' ? normalizedDraft.hadCommand ? 'slash' : 'chip' : 'button',
+          label: effectiveChatMode === 'plan' ? '/plan' : 'chat'
         },
         attachments: chatAttachments.map((attachment) => ({
           name: attachment.name,
@@ -748,17 +744,6 @@ export function useProjectGatewayFlow({
       setChatDraft((value) => value.replace(trailingSlashCommandToken, ''))
       setChatComposerMode('plan')
       setIsStartingNewChat(true)
-      setGatewayRunFeedback(null)
-      return
-    }
-    if (command.id === 'steer') {
-      setChatDraft((value) => value.replace(trailingSlashCommandToken, ''))
-      if (!selectedChatConversationId) {
-        setGatewayRunFeedback({ kind: 'error', message: 'Choose an active chat/run target, then write the steer instruction in the input.' })
-        return
-      }
-      setChatComposerMode('steer')
-      setIsStartingNewChat(false)
       setGatewayRunFeedback(null)
       return
     }

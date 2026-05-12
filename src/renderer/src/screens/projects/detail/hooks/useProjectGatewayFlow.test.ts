@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { effectiveGatewayChatMode, normalizeLeadingChatCommand, shouldStartNewGatewayChatConversation } from './useProjectGatewayFlow'
 
 describe('normalizeLeadingChatCommand', () => {
-  it('parses steer commands and keeps the steer instruction body', () => {
-    expect(normalizeLeadingChatCommand('/steer Change direction')).toEqual({
-      mode: 'steer',
-      message: 'Change direction',
-      hadCommand: true
+  it('leaves unsupported slash commands as plain chat text', () => {
+    expect(normalizeLeadingChatCommand('/unknown Change direction')).toEqual({
+      mode: null,
+      message: '/unknown Change direction',
+      hadCommand: false
     })
   })
 
@@ -28,10 +28,6 @@ describe('normalizeLeadingChatCommand', () => {
 })
 
 describe('shouldStartNewGatewayChatConversation', () => {
-  it('keeps steer messages on the selected conversation even from new-chat mode', () => {
-    expect(shouldStartNewGatewayChatConversation(true, 'steer')).toBe(false)
-  })
-
   it('keeps ordinary new chat behavior for chat and plan messages', () => {
     expect(shouldStartNewGatewayChatConversation(true, 'chat')).toBe(true)
     expect(shouldStartNewGatewayChatConversation(true, 'plan')).toBe(true)
@@ -40,7 +36,7 @@ describe('shouldStartNewGatewayChatConversation', () => {
 })
 
 describe('effectiveGatewayChatMode', () => {
-  it('does not rewrite plain messages to steer automatically', () => {
+  it('keeps plain messages in chat mode', () => {
     expect(effectiveGatewayChatMode('chat', true, false)).toBe('chat')
   })
 

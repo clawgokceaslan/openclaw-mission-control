@@ -144,21 +144,6 @@ describe('gatewayChatPrompt', () => {
     expect(prompt).toContain('Subtask comments:\nSubtask: Context Subtask\n- Margaret, 2023-11-14T22:18:20.000Z: Context subtask comment.')
   })
 
-  it('keeps steer scoped to the user-written input only', () => {
-    const prompt = gatewayChatPrompt({
-      task: taskWithComments(),
-      message: 'Change direction.',
-      transcript: [{ role: 'assistant', body: 'Earlier work', id: 'm1', runId: 'r1', source: 'gateway-chat', createdAt: 1 }],
-      mode: 'steer'
-    })
-
-    expect(prompt).toContain('User steer instruction:\nChange direction.')
-    expect(prompt).toContain('Steer policy: apply only the user-written instruction')
-    expect(prompt).not.toContain('Important task comments:')
-    expect(prompt).not.toContain('Recent chat transcript:')
-    expect(prompt).not.toContain('Task description:')
-  })
-
   it('references compact chat context files in prompt shapes', () => {
     const markdownPrompt = gatewayChatPrompt({
       task: taskWithComments(),
@@ -1375,26 +1360,6 @@ describe('codex activity persistence', () => {
     expect((taskUpdatedEvents[0] as { action: string }).action).toBe('plan_status_advanced')
   })
 
-  it('keeps active conversation running before applying a steer turn', async () => {
-    const killed: string[] = []
-    const service = Object.create(TaskService.prototype) as any
-    const activeRun = {
-      taskId: 'task-1',
-      conversationId: 'conversation-1',
-      runId: 'run-1',
-      child: { kill: (signal: string) => killed.push(signal) }
-    }
-    service.activeGatewayChatRuns = new Map([['run-1', activeRun]])
-
-    const interrupted = await service.interruptActiveGatewayConversationForSteer('task-1', 'conversation-1')
-
-    expect(interrupted.count).toBe(1)
-    expect(interrupted.interruptedRunId).toBe('run-1')
-    expect(activeRun.stopRequested).toBe(true)
-    expect(activeRun.supersededBySteer).toBe(true)
-    expect(killed).toEqual([])
-  })
-
   it('batch appends activity messages with one repo update and per-message activity events', async () => {
     const eventBus = new EventEmitter()
     const activityEvents: unknown[] = []
@@ -1494,7 +1459,7 @@ describe('codex run snapshot export', () => {
 })
 
 describe('running Codex conversations', () => {
-  it('filters out settled conversations and keeps active plan/run/chat/steer rows', () => {
+  it('filters out settled conversations and keeps active plan/run/chat rows', () => {
     const now = 1_700_000_000_000
     const task = {
       id: 'task-1',
@@ -1506,7 +1471,6 @@ describe('running Codex conversations', () => {
           { id: 'plan-live', runId: 'plan-run', source: 'gateway-plan', role: 'thinking', status: 'running', body: 'Planning', createdAt: now - 60_000 },
           { id: 'plan-done', runId: 'plan-run', source: 'gateway-plan', role: 'system', status: 'completed', body: 'Done', createdAt: now - 30_000, metadata: { gatewayBlock: 'run-complete' } },
           { id: 'run-live', runId: 'run-run', source: 'gateway-run', role: 'thinking', status: 'running', body: 'Running task', createdAt: now - 20_000 },
-          { id: 'steer-live', runId: 'steer-run', conversationId: 'steer-run', source: 'gateway-chat', role: 'thinking', status: 'running', body: 'Steering', createdAt: now - 15_000, metadata: { mode: 'steer' } },
           { id: 'chat-live', runId: 'chat-run', conversationId: 'chat-run', source: 'gateway-chat', role: 'thinking', status: 'running', body: 'Chatting', createdAt: now - 10_000 },
           { id: 'chat-done', runId: 'chat-run', conversationId: 'chat-run', source: 'gateway-chat', role: 'system', status: 'completed', body: 'Finished', createdAt: now - 5_000, metadata: { gatewayBlock: 'run-complete' } }
         ]
@@ -1517,10 +1481,9 @@ describe('running Codex conversations', () => {
 
     const rows = summarizeRunningConversation(task, { id: 'project-1', name: 'Project One', description: 'Desc' }, task.payload.activityMessages as any[], now)
 
-    expect(rows).toHaveLength(2)
-    expect(rows.map((row) => row.gatewayConversationId)).toEqual(['steer-run', 'run-run'])
-    expect(rows[0].conversationType).toBe('steer')
-    expect(rows[1].conversationType).toBe('run')
+    expect(rows).toHaveLength(1)
+    expect(rows.map((row) => row.gatewayConversationId)).toEqual(['run-run'])
+    expect(rows[0].conversationType).toBe('run')
     expect(rows[0].liveStatus).toBe('running')
   })
 

@@ -3,7 +3,6 @@ import type { RunningGatewayConversationType, RunningGatewayGroupKey } from '@sh
 export function runningCodexConversationTypeLabel(type: RunningGatewayConversationType | string): string {
   if (type === 'plan') return 'Planlanıyor'
   if (type === 'run') return 'Çalışıyor'
-  if (type === 'steer') return 'Devam ediyor'
   if (type === 'post-run') return 'Doğrulanıyor'
   if (type === 'chat') return 'Devam ediyor'
   return 'Çalışıyor'

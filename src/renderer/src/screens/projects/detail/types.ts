@@ -74,7 +74,7 @@ export type GeneratedContextEntry = {
   metadata: Array<{ key: string; value: string }>
 }
 
-export type ChatComposerMode = 'chat' | 'plan' | 'steer'
+export type ChatComposerMode = 'chat' | 'plan'
 export type ChatAttachmentDraft = {
   id: string
   name: string
@@ -92,7 +92,7 @@ export type ChatOperationFeedbackData = {
   message: string
 }
 export type SlashCommand = {
-  id: 'review' | 'run' | 'plan' | 'steer' | 'settings' | 'attach' | 'context'
+  id: 'review' | 'run' | 'plan' | 'settings' | 'attach' | 'context'
   label: string
   hint: string
 }

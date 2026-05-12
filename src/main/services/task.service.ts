@@ -156,7 +156,6 @@ type ActiveGatewayChatRun = {
   eventsPath?: string
   finalMessagePath?: string
   stopRequested?: boolean
-  supersededBySteer?: boolean
 }
 
 type ProjectPromptSnapshot = {
@@ -202,7 +201,7 @@ const INITIAL_PROMPT_PRIORITY_CONTRACT: PromptPriorityItem[] = [
 ]
 
 const FOLLOW_UP_PROMPT_PRIORITY_CONTRACT: PromptPriorityItem[] = [
-  { name: 'User follow-up/steer', score: 100, policy: 'Treat the current user follow-up or steer instruction as the primary instruction.' },
+  { name: 'User follow-up', score: 100, policy: 'Treat the current user follow-up instruction as the primary instruction.' },
   { name: 'Generated chat context/handoff', score: 90, policy: 'Use generated chat context and NEXT_CHAT_HANDOFF summaries for continuity.' },
   { name: 'Project Instructions', score: 80, policy: 'Apply project instructions after the user follow-up and handoff context.' },
   { name: 'Agent/Skills/Tools', score: 65, policy: 'Apply effective Agent and Skill guidance; treat Agent Tools as catalog context only.' },
@@ -247,7 +246,7 @@ type TaskActivityMessage = {
   updatedAt?: number
 }
 
-type RunningGatewayConversationType = 'plan' | 'run' | 'chat' | 'steer' | 'post-run'
+type RunningGatewayConversationType = 'plan' | 'run' | 'chat' | 'post-run'
 
 type RunningGatewayConversationSummary = RunningGatewayTaskRow & {
   latestActivityBody: string
@@ -366,7 +365,7 @@ function runningConversationTypeOf(message: TaskActivityMessage): RunningGateway
   if (phase === 'POST-RUNNING') return 'post-run'
   if (phase === 'RUN') return 'run'
   const metadata = asRecord(message.metadata)
-  return typeof metadata.mode === 'string' && metadata.mode === 'steer' ? 'steer' : 'chat'
+  return 'chat'
 }
 
 function runningConversationLabel(type: RunningGatewayConversationType): string {
@@ -1736,7 +1735,7 @@ function buildChatContextFileContent(input: {
   context?: unknown
   followUpContext?: string
   includeTaskContext?: boolean
-  mode: 'chat' | 'plan' | 'steer'
+  mode: 'chat' | 'plan'
   promptShape: GatewayPromptShape
 }): string {
   const contextRecord = input.context && typeof input.context === 'object' && !Array.isArray(input.context) ? input.context as Record<string, unknown> : {}
@@ -1794,7 +1793,7 @@ export function gatewayChatPrompt(input: {
   message: string
   transcript: TaskActivityMessage[]
   context?: unknown
-  mode?: 'chat' | 'plan' | 'steer'
+  mode?: 'chat' | 'plan'
   followUpContext?: string
   contextFilePath?: string
   includeTaskContext?: boolean
@@ -1803,17 +1802,6 @@ export function gatewayChatPrompt(input: {
   languages?: GatewayLanguagePair
   promptShape?: GatewayPromptShape
 }): string {
-  if (input.mode === 'steer') {
-    return renderPrompt('chat', input.promptShape, () => [
-      'User steer instruction:',
-      input.message,
-      '',
-      'Steer policy: apply only the user-written instruction above to the selected active conversation. Do not reinterpret, expand, or re-run the original running/planned prompt from task context.'
-    ].join('\n'), () => [
-      { name: 'user_steer_instruction', value: input.message },
-      { name: 'steer_policy', value: 'Apply only the user-written instruction to the selected active conversation. Do not reinterpret, expand, or re-run the original running/planned prompt from task context.' }
-    ])
-  }
   const hasFollowUpContext = Boolean(input.followUpContext?.trim())
   const transcriptRows = input.transcript
     .slice(hasFollowUpContext ? -10 : -24)
@@ -1828,9 +1816,7 @@ export function gatewayChatPrompt(input: {
     .join('\n\n')
   const modeInstruction = input.mode === 'plan'
     ? 'The user invoked /plan. Stay in planning mode: reason about the work, propose a clear plan, and do not make code or file changes unless the user explicitly asks.'
-    : input.mode === 'steer'
-      ? 'The user is steering an existing Codex conversation. Treat the user steer instruction and task comments as high-signal guidance for continuing the existing conversation; if this follows an interrupted active turn, resume from the latest transcript and change direction without repeating completed work.'
-      : hasFollowUpContext
+    : hasFollowUpContext
         ? 'Continue the task chat normally. Primary instruction is the user follow-up prompt; use generated chat context and handoff summaries for continuity.'
         : 'Continue the task chat normally. Primary instruction is the user follow-up prompt; use task details as supporting context.'
   const attachments = input.attachments?.length
@@ -1850,9 +1836,7 @@ export function gatewayChatPrompt(input: {
     : hasFollowUpContext
       ? compactFollowUpTaskMetadata(input.task, routedContext ?? input.context)
       : compactGatewayPromptContext(input.task, routedContext)
-  const userPromptLabel = input.mode === 'steer'
-    ? 'User steer instruction'
-    : input.mode === 'plan'
+  const userPromptLabel = input.mode === 'plan'
       ? 'User prompt'
       : 'User follow-up'
   const followUpContext = input.followUpContext?.trim()
@@ -3723,22 +3707,6 @@ export class TaskService {
     }, 1_500).unref?.()
   }
 
-  private async interruptActiveGatewayConversationForSteer(taskId: string, conversationId: string): Promise<{ count: number; interruptedRunId?: string; codexSessionId?: string }> {
-    const matches = Array.from(this.activeGatewayChatRuns.values()).filter((run) => (
-      run.taskId === taskId && run.conversationId === conversationId
-    ))
-    for (const run of matches) {
-      run.stopRequested = true
-      run.supersededBySteer = true
-    }
-    const primary = matches[0]
-    return {
-      count: matches.length,
-      interruptedRunId: primary?.runId,
-      codexSessionId: await extractCodexSessionIdFromFile(primary?.eventsPath)
-    }
-  }
-
   async stopGatewayConversation(payload: { actorToken?: string; taskId?: string; conversationId?: string }): Promise<ServiceResponse<{ stopped: number }>> {
     return this.gatewayChatStop(payload)
   }
@@ -5008,7 +4976,6 @@ export class TaskService {
             if (spawnFailed) return
             await streamer.flush()
             if (activeRun.stopRequested) {
-              if (activeRun.supersededBySteer) return
               await this.appendTaskActivityMessages(taskId, [
                 {
                   runId,
@@ -5690,7 +5657,6 @@ export class TaskService {
               return
             }
             if (activeRun.stopRequested) {
-              if (activeRun.supersededBySteer) return
               await this.appendTaskActivityMessages(taskId, [
                 {
                   runId,
@@ -5909,10 +5875,7 @@ export class TaskService {
     const taskId = access.data.task.id
     const taskTitle = access.data.task.title
     const runId = plannerRunId(taskId)
-    const requestedMode = payload.mode === 'plan' ? 'plan' : payload.mode === 'steer' ? 'steer' : 'chat'
-    if (requestedMode === 'steer' && !payload.conversationId?.trim()) {
-      return errorResponse(ErrorCodes.Validation, 'Conversation id is required for steer messages')
-    }
+    const requestedMode = payload.mode === 'plan' ? 'plan' : 'chat'
     const hasPlanPrefix = message.toLowerCase().startsWith('/plan')
     const normalizedMessage = hasPlanPrefix
       ? message.replace(/^\/plan\s*/i, '').trim()
@@ -5978,9 +5941,6 @@ export class TaskService {
       promptShape
     }), 'utf8')
     const reasoningEffort = projectGatewayReasoningEffort(project, mode === 'plan' ? 'plan' : 'run', payload.reasoningEffort)
-    const steerInterrupt = mode === 'steer'
-      ? await this.interruptActiveGatewayConversationForSteer(taskId, conversationId)
-      : { count: 0, interruptedRunId: undefined, codexSessionId: undefined }
     const prompt = gatewayChatPrompt({
       task: access.data.task,
       message: effectiveMessage,
@@ -5994,15 +5954,11 @@ export class TaskService {
       language,
       promptShape
     })
-    const resumeArgs = mode === 'steer' && steerInterrupt.count === 0 && steerInterrupt.codexSessionId
-      ? ['resume', steerInterrupt.codexSessionId]
-      : []
     const execArgs = [
       'exec',
-      ...resumeArgs,
       '--json',
       '--output-last-message', finalMessagePath,
-      ...(resumeArgs.length > 0 ? [] : ['--cd', runtimeWorkspacePath]),
+      '--cd', runtimeWorkspacePath,
       '--model', model,
       '-c', codexReasoningConfigArg(reasoningEffort),
       '--skip-git-repo-check',
@@ -6044,10 +6000,6 @@ export class TaskService {
         status: 'running',
         body: mode === 'plan'
           ? executionMode === 'exec' ? 'Codex is revising the plan...' : 'Opening Codex terminal to revise the plan...'
-          : mode === 'steer'
-            ? steerInterrupt.count > 0
-              ? 'Codex is applying the steer instruction in this conversation...'
-              : 'Codex is applying the steer instruction...'
           : executionMode === 'exec' ? 'Codex is thinking...' : 'Opening Codex terminal...',
         metadata: {
           executionMode,
@@ -6057,10 +6009,7 @@ export class TaskService {
           attemptedCodexPaths,
           codexEnvPath,
           mode,
-          contextFilePath,
-          steerInterruptedRuns: steerInterrupt.count,
-          interruptedRunId: steerInterrupt.interruptedRunId,
-          resumedFromSessionId: steerInterrupt.codexSessionId
+          contextFilePath
         }
       }
     ])
@@ -6150,7 +6099,6 @@ export class TaskService {
         if (spawnFailed) return
         await streamer.flush()
         if (activeRun.stopRequested) {
-          if (activeRun.supersededBySteer) return
           await this.appendTaskActivityMessages(taskId, [
             {
               runId,

@@ -33,7 +33,7 @@ export interface ChatPopupState {
   chatHistoryCount: number
   contextEntries: GeneratedContextEntry[]
   chatSettingsOpen: boolean
-  chatMode?: 'chat' | 'plan' | 'steer'
+  chatMode?: 'chat' | 'plan'
   selectedChatCanStop: boolean
   chatStopping: boolean
   gatewayPlanLaunching: boolean
@@ -111,7 +111,6 @@ interface ChatPopupHandlers {
   onSlashCommandApply: (command: SlashCommand) => void
   onSlashCommandIndexChange: (updater: (value: number) => number) => void
   onClearSlashDraft: () => void
-  onSteerMessageClick: (conversationId: string) => void
   onSend: () => void
   onPlannerQuestionAnswer: (answer: string) => void
 }
@@ -123,7 +122,6 @@ const slashCommands: SlashCommand[] = [
   { id: 'review', label: '/review', hint: 'Prepare a code review prompt' },
   { id: 'run', label: '/run', hint: 'Start a Codex run for the task' },
   { id: 'plan', label: '/plan', hint: 'Start Codex planning for the task' },
-  { id: 'steer', label: '/steer', hint: 'Send only the typed input as a steer instruction' },
   { id: 'settings', label: '/settings', hint: 'Open Codex chat settings' },
   { id: 'attach', label: '/attach', hint: 'Choose files to attach' },
   { id: 'context', label: '/context', hint: 'Toggle task context in the prompt' }
@@ -188,7 +186,7 @@ interface ChatPopupParams {
   setSelectedChatConversationId: Setter<string>
   isStartingNewChat: boolean
   setIsStartingNewChat: Setter<boolean>
-  setChatComposerMode: Setter<'chat' | 'plan' | 'steer'>
+  setChatComposerMode: Setter<'chat' | 'plan'>
   setGatewayRunFeedback: Setter<ChatOperationFeedbackData | null>
   setChatDraft: Setter<string>
   setChatAttachments: Setter<ChatAttachmentDraft[]>
@@ -200,7 +198,7 @@ interface ChatPopupParams {
   selectedTaskAgent: Agent | null
   taskContextSkills: Skill[]
   taskContextTools: AiTool[]
-  chatMode: 'chat' | 'plan' | 'steer'
+  chatMode: 'chat' | 'plan'
   setSlashCommandIndex: Setter<number>
   setChatSettingsOpen: Setter<boolean>
   setChatModel: Setter<string>
@@ -746,15 +744,6 @@ export function useProjectChatPopup({
     onClearSlashDraft: () => {
       setChatComposerMode('chat')
       setChatDraft((value) => value.replace(/(?:^|\s)\/[a-z]*$/i, ''))
-    },
-    onSteerMessageClick: (conversationId) => {
-      if (!conversationId) return
-      setIsStartingNewChat(false)
-      setSelectedChatConversationId(conversationId)
-      setChatComposerMode('steer')
-      setGatewayRunFeedback(null)
-      closeSettingsOnCompactViewport()
-      requestAnimationFrame(() => chatDraftTextareaRef.current?.focus())
     },
     onSend: () => {
       closeSettingsOnCompactViewport()

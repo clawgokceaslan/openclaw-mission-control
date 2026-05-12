@@ -66,7 +66,6 @@ export const OPENCLAW_METHODS: OpenClawMethodDefinition[] = [
   { method: 'sessions.resolve', group: 'Sessions', access: 'read', description: 'Resolves or canonicalizes a session target.', sampleParams: { sessionKey: 'openmissioncontrol:<gatewayId>:test' } },
   { method: 'sessions.create', group: 'Sessions', access: 'write', description: 'Creates a session.', sampleParams: { key: 'openmissioncontrol:<gatewayId>:test' } },
   { method: 'sessions.send', group: 'Sessions', access: 'write', description: 'Sends a message into a session.', sampleParams: { sessionKey: 'openmissioncontrol:<gatewayId>:test', message: 'Hello' } },
-  { method: 'sessions.steer', group: 'Sessions', access: 'write', description: 'Interrupts and steers an active session.', sampleParams: { sessionKey: 'openmissioncontrol:<gatewayId>:test', message: 'Adjust course' } },
   { method: 'sessions.abort', group: 'Sessions', access: 'write', description: 'Aborts active work for a session.', sampleParams: { sessionKey: 'openmissioncontrol:<gatewayId>:test' } },
   { method: 'sessions.patch', group: 'Sessions', access: 'write', description: 'Creates or updates a session.', sampleParams: { key: 'openmissioncontrol:<gatewayId>:test', label: 'OpenMissionControl Gateway Test' } },
   { method: 'sessions.reset', group: 'Sessions', access: 'write', description: 'Resets a session.', sampleParams: { sessionKey: 'openmissioncontrol:<gatewayId>:test' } },

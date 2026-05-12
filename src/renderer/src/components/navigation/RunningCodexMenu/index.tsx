@@ -319,7 +319,7 @@ export function RunningGatewayMenu() {
             <div className={styles.runningCodexEmpty}>
               <LuMessageSquare size={18} />
               <strong>No active conversations</strong>
-              <span>Queued and active Codex plan, run, chat, steer, and post-run conversations will appear here.</span>
+              <span>Queued and active Codex plan, run, chat, and post-run conversations will appear here.</span>
             </div>
           )}
           <footer>

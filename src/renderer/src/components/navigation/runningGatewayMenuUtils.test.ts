@@ -6,7 +6,6 @@ describe('running Codex menu helpers', () => {
     expect(runningCodexConversationTypeLabel('plan')).toBe('Planlanıyor')
     expect(runningCodexConversationTypeLabel('run')).toBe('Çalışıyor')
     expect(runningCodexConversationTypeLabel('chat')).toBe('Devam ediyor')
-    expect(runningCodexConversationTypeLabel('steer')).toBe('Devam ediyor')
     expect(runningCodexConversationTypeLabel('post-run')).toBe('Doğrulanıyor')
     expect(runningCodexConversationTypeLabel('mystery')).toBe('Çalışıyor')
     expect(runningCodexLiveStatusLabel('queued')).toBe('Sırada')

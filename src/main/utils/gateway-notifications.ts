@@ -4,7 +4,7 @@ import { safeConsole } from './safe-output.js'
 import { electronRuntime } from './electron-runtime.js'
 
 export type GatewayNotificationKind = 'completed' | 'failed' | 'stopped' | 'question'
-export type GatewayNotificationMode = 'chat' | 'plan' | 'run' | 'steer'
+export type GatewayNotificationMode = 'chat' | 'plan' | 'run'
 
 export type GatewayNotificationInput = {
   kind: GatewayNotificationKind
@@ -20,7 +20,7 @@ export type GatewayNotificationInput = {
 }
 
 type LegacyGatewayChatNotificationInput = Omit<GatewayNotificationInput, 'kind' | 'mode'> & {
-  mode: Extract<GatewayNotificationMode, 'chat' | 'plan' | 'steer'>
+  mode: Extract<GatewayNotificationMode, 'chat' | 'plan'>
   success: boolean
 }
 
