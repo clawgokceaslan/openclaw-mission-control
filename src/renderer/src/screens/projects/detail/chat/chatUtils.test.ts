@@ -439,7 +439,7 @@ describe('chat utils helpers', () => {
     expect(preserveScrollTopAfterPrepend(40, 1_000, 1_480)).toBe(520)
   })
 
-  it('appends activity messages to the matching task payload without duplicating ids', () => {
+  it('appends and merges activity messages without duplicating ids', () => {
     const task: TaskEntity = {
       id: 'task-1',
       projectId: 'project-1',
@@ -463,7 +463,14 @@ describe('chat utils helpers', () => {
 
     expect((updated[0].payload?.activityMessages as TaskActivityMessage[]).map((item) => item.id)).toEqual(['old', 'new'])
     expect(updated[0].updatedAt).toBe(6)
-    expect(appendActivityMessageToTasks(updated, 'task-1', nextMessage)).toBe(updated)
+    const replaced = appendActivityMessageToTasks(updated, 'task-1', message({ id: 'new', body: 'final body', createdAt: 5, updatedAt: 8 }))
+    const replacedMessages = replaced[0].payload?.activityMessages as TaskActivityMessage[]
+    expect(replacedMessages.map((item) => item.id)).toEqual(['old', 'new'])
+    expect(replacedMessages[1]).toMatchObject({ body: 'final body', updatedAt: 8 })
+    const appended = appendActivityMessageToTasks(replaced, 'task-1', message({ id: 'new', body: ' plus delta', createdAt: 5, updatedAt: 9, metadata: { streamAppend: true } }))
+    const appendedMessages = appended[0].payload?.activityMessages as TaskActivityMessage[]
+    expect(appendedMessages.map((item) => item.id)).toEqual(['old', 'new'])
+    expect(appendedMessages[1]).toMatchObject({ body: 'final body plus delta', metadata: { streamAppend: true }, updatedAt: 9 })
   })
 
   it('groups codex runtime rows into a readable work block and leaves user/completion rows outside', () => {
@@ -487,6 +494,22 @@ describe('chat utils helpers', () => {
       'Created 1 file'
     ])
     expect(block?.summaryRows[1].messages[0].body).toContain('passed')
+  })
+
+  it('keeps a running work block id stable while new rows arrive', () => {
+    const firstItems = groupCodexTranscriptMessages([
+      message({ id: 'thinking-stable', runId: 'run-stable', conversationId: 'conversation-stable', role: 'thinking', status: 'running', createdAt: 1_000, metadata: { gatewayBlock: 'thinking', runStatus: 'running' } }),
+      message({ id: 'assistant-stable', runId: 'run-stable', conversationId: 'conversation-stable', role: 'assistant', status: 'running', body: 'Starting response.', createdAt: 2_000, metadata: { gatewayBlock: 'assistant', runStatus: 'running' } })
+    ], 3_000)
+    const nextItems = groupCodexTranscriptMessages([
+      message({ id: 'thinking-stable', runId: 'run-stable', conversationId: 'conversation-stable', role: 'thinking', status: 'running', createdAt: 1_000, metadata: { gatewayBlock: 'thinking', runStatus: 'running' } }),
+      message({ id: 'assistant-stable', runId: 'run-stable', conversationId: 'conversation-stable', role: 'assistant', status: 'running', body: 'Starting response.', createdAt: 2_000, metadata: { gatewayBlock: 'assistant', runStatus: 'running' } }),
+      message({ id: 'tool-stable', runId: 'run-stable', conversationId: 'conversation-stable', role: 'tool', status: 'completed', body: 'Command: npm test\nStatus: completed', createdAt: 3_000, metadata: { gatewayBlock: 'command', command: 'npm test', runStatus: 'running' } })
+    ], 4_000)
+
+    const firstBlock = firstItems[0].kind === 'work-block' ? firstItems[0].block : null
+    const nextBlock = nextItems[0].kind === 'work-block' ? nextItems[0].block : null
+    expect(firstBlock?.id).toBe(nextBlock?.id)
   })
 
   it('describes running search activity without command jargon', () => {

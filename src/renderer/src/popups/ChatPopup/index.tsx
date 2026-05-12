@@ -632,6 +632,7 @@ export function ChatPopup({
     ...(localStatusMessage ? [localStatusMessage] : [])
   ]
   const transcriptItems = groupCodexTranscriptMessages(transcriptMessages)
+  const latestTranscriptItemId = transcriptItems.at(-1)?.id ?? ''
   const selectedContextEntry = contextEntries.find((entry) => entry.id === selectedContextEntryId) ?? contextEntries[0] ?? null
   const showContextHistory = visibleMessages.length > 0 || contextEntries.length > 0
   const conversationStatusMeta = (conversation: ChatConversationSummary) => {
@@ -948,7 +949,7 @@ export function ChatPopup({
                 <div className={styles.chatMessageList}>
                   {transcriptItems.map((item) => (
                     item.kind === 'work-block'
-                      ? <CodexWorkBlock key={item.id} block={item.block} />
+                      ? <CodexWorkBlock key={item.id} block={item.block} animateLatestAssistant={selectedChatIsRunning && item.id === latestTranscriptItemId} />
                       : <GatewayChatMessageItem key={item.id} message={item.message} onSteerMessageClick={onSteerMessageClick} />
                   ))}
                 </div>

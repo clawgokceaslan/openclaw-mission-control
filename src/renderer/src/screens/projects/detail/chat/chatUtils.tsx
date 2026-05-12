@@ -1200,7 +1200,7 @@ function createCodexWorkBlock(messages: TaskActivityMessage[], now: number, term
     ? [...messages].reverse().find((message) => isFreshRunningMessage(message, now) && isWorkBlockToolMessage(message))
     : undefined
   return {
-    id: `work-${first.conversationId ?? first.runId}-${first.runId}-${first.id}-${messages.at(-1)?.id ?? first.id}`,
+    id: `work-${first.conversationId ?? first.runId}-${first.runId}-${first.id}`,
     runId: first.runId,
     conversationId: first.conversationId,
     source: first.source,
@@ -1406,16 +1406,30 @@ export function appendActivityMessageToTasks(
   const nextTasks = tasks.map((task) => {
     if (task.id !== taskId) return task
     const currentMessages = activityMessagesFromTask(task)
-    if (currentMessages.some((item) => item.id === message.id)) return task
+    const existingMessageIndex = currentMessages.findIndex((item) => item.id === message.id)
     const payload = task.payload && typeof task.payload === 'object' && !Array.isArray(task.payload)
       ? task.payload as Record<string, unknown>
       : {}
+    const nextActivityMessages = [...currentMessages]
+    if (existingMessageIndex >= 0) {
+      const existingMessage = nextActivityMessages[existingMessageIndex]
+      nextActivityMessages[existingMessageIndex] = {
+        ...existingMessage,
+        ...message,
+        body: message.metadata?.streamAppend === true ? `${existingMessage.body}${message.body}` : message.body,
+        metadata: { ...(existingMessage.metadata ?? {}), ...(message.metadata ?? {}) },
+        createdAt: existingMessage.createdAt,
+        updatedAt: Math.max(existingMessage.updatedAt ?? existingMessage.createdAt, message.updatedAt ?? message.createdAt)
+      }
+    } else {
+      nextActivityMessages.push(message)
+    }
     changed = true
     return {
       ...task,
       payload: {
         ...payload,
-        activityMessages: [...currentMessages, message].slice(-limit)
+        activityMessages: nextActivityMessages.slice(-limit)
       },
       updatedAt: Math.max(task.updatedAt ?? 0, message.updatedAt ?? message.createdAt)
     }

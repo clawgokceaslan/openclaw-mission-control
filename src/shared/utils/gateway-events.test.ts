@@ -118,4 +118,51 @@ describe('parseGatewayEvents', () => {
       text: 'I found the event stream shape.'
     })
   })
+
+  it('keeps message ids and append markers for streamed assistant deltas', () => {
+    const result = parseGatewayEvents([
+      JSON.stringify({
+        type: 'item.delta',
+        item: {
+          id: 'assistant-message-1',
+          type: 'agent_message_delta',
+          delta: 'First '
+        }
+      }),
+      JSON.stringify({
+        type: 'item.delta',
+        item: {
+          id: 'assistant-message-1',
+          type: 'agent_message_delta',
+          delta: 'second.'
+        }
+      }),
+      JSON.stringify({
+        type: 'item.completed',
+        item: {
+          id: 'assistant-message-1',
+          type: 'agent_message',
+          text: 'First second.'
+        }
+      })
+    ].join('\n'))
+
+    expect(result.messages).toHaveLength(3)
+    expect(result.messages[0]).toMatchObject({
+      role: 'assistant',
+      text: 'First ',
+      messageId: 'assistant-message-1',
+      append: true
+    })
+    expect(result.messages[1]).toMatchObject({
+      text: 'second.',
+      messageId: 'assistant-message-1',
+      append: true
+    })
+    expect(result.messages[2]).toMatchObject({
+      text: 'First second.',
+      messageId: 'assistant-message-1'
+    })
+    expect(result.messages[2].append).toBeUndefined()
+  })
 })

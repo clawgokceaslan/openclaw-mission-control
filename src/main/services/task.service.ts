@@ -3646,7 +3646,7 @@ export class TaskService {
       }
     })
     const payload = asPayload(task.payload)
-    const activityMessages = [...taskActivityMessagesFromPayload(payload), ...nextMessages].slice(-ACTIVITY_MESSAGE_LIMIT)
+    const activityMessages = appendOrMergeActivityMessages(taskActivityMessagesFromPayload(payload), nextMessages, ACTIVITY_MESSAGE_LIMIT)
     await this.repo.update(task.id, { payload: { ...payload, activityMessages } })
     for (const nextMessage of nextMessages) {
       this.eventBus?.emit(IPC_CHANNELS.events.taskActivity, {

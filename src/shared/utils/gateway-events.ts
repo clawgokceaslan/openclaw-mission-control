@@ -18,6 +18,8 @@ export type GatewayMessageEvent = {
   kind: 'message'
   role: 'assistant' | 'user' | 'system' | 'tool' | 'thinking'
   text: string
+  messageId?: string
+  append?: boolean
   durationMs?: number
   startedAt?: number
   endedAt?: number
@@ -148,6 +150,20 @@ function commandTextFromValue(value: unknown): string {
   return ''
 }
 
+function stringFromKeys(record: Record<string, unknown> | undefined, keys: string[]): string {
+  if (!record) return ''
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'string' && value.trim()) return value
+  }
+  return ''
+}
+
+function normalizedMessageRole(value: unknown): GatewayMessageEvent['role'] | undefined {
+  if (value !== 'assistant' && value !== 'user' && value !== 'system' && value !== 'tool' && value !== 'thinking') return undefined
+  return value
+}
+
 function extractJsonObjects(text: string): string[] {
   const objects: string[] = []
   let start = -1
@@ -198,11 +214,19 @@ function normalizeEvent(rawEvent: Record<string, unknown>): GatewayNormalizedEve
   const payload = asRecord(rawEvent.payload)
   const payloadType = typeof payload?.type === 'string' ? payload.type : ''
   if (type === 'response_item' && payload) {
-    return normalizeEvent({ type: 'item.completed', item: payload, usage: rawEvent.usage ?? payload.usage })
+    return normalizeEvent({ type: 'item.completed', item: payload, id: rawEvent.id ?? payload.id, usage: rawEvent.usage ?? payload.usage })
   }
   if (type === 'event_msg' && payload) {
     if (payloadType === 'agent_message' && typeof payload.message === 'string') {
-      return [{ kind: 'message', role: 'assistant', text: payload.message }]
+      return [{ kind: 'message', role: 'assistant', text: payload.message, messageId: stringFromKeys(payload, ['id', 'message_id', 'messageId', 'item_id', 'itemId']) || undefined }]
+    }
+    if (payloadType === 'agent_message_delta') {
+      const text = stringFromKeys(payload, ['delta', 'message', 'text', 'content'])
+      return text ? [{ kind: 'message', role: 'assistant', text, messageId: stringFromKeys(payload, ['id', 'message_id', 'messageId', 'item_id', 'itemId']) || undefined, append: true }] : []
+    }
+    if (payloadType === 'agent_reasoning' || payloadType === 'agent_reasoning_delta') {
+      const text = stringFromKeys(payload, ['delta', 'message', 'text', 'summary'])
+      return text ? [{ kind: 'message', role: 'thinking', text, messageId: stringFromKeys(payload, ['id', 'message_id', 'messageId', 'item_id', 'itemId']) || undefined, append: payloadType.endsWith('_delta') }] : []
     }
     if (payloadType === 'exec_command_begin' || payloadType === 'exec_command_end') {
       return [{
@@ -217,6 +241,7 @@ function normalizeEvent(rawEvent: Record<string, unknown>): GatewayNormalizedEve
   const item = asRecord(rawEvent.item)
   const itemType = typeof item?.type === 'string' ? item.type : ''
   const usage = normalizeUsage(rawEvent.usage ?? rawEvent.token_usage ?? item?.usage)
+  const itemMessageId = stringFromKeys(item, ['id', 'message_id', 'messageId']) || stringFromKeys(rawEvent, ['id', 'item_id', 'itemId', 'message_id', 'messageId']) || undefined
 
   if (itemType === 'command_execution' && item) {
     return [{
@@ -228,8 +253,14 @@ function normalizeEvent(rawEvent: Record<string, unknown>): GatewayNormalizedEve
     }]
   }
 
-  if (itemType === 'agent_message' && typeof item?.text === 'string') {
-    return [{ kind: 'message', role: 'assistant', text: item.text }]
+  if ((itemType === 'agent_message' || itemType === 'assistant_message') && item) {
+    const text = stringFromKeys(item, ['text', 'message', 'content'])
+    return text ? [{ kind: 'message', role: 'assistant', text, messageId: itemMessageId }] : []
+  }
+
+  if (itemType === 'agent_message_delta' && item) {
+    const text = stringFromKeys(item, ['delta', 'text_delta', 'textDelta', 'message', 'text', 'content'])
+    return text ? [{ kind: 'message', role: 'assistant', text, messageId: itemMessageId, append: true }] : []
   }
 
   if ((itemType === 'reasoning' || itemType === 'reasoning_summary') && item) {
@@ -247,16 +278,28 @@ function normalizeEvent(rawEvent: Record<string, unknown>): GatewayNormalizedEve
       kind: 'message',
       role: 'thinking',
       text,
+      messageId: itemMessageId,
       durationMs,
       startedAt,
       endedAt
     }] : []
   }
 
+  if ((itemType === 'reasoning_delta' || itemType === 'reasoning_summary_delta') && item) {
+    const text = stringFromKeys(item, ['delta', 'text_delta', 'textDelta', 'text', 'summary'])
+    return text ? [{ kind: 'message', role: 'thinking', text, messageId: itemMessageId, append: true }] : []
+  }
+
   if (['message', 'user_message', 'system_message', 'tool_message'].includes(itemType) && item) {
-    const role = itemType === 'user_message' ? 'user' : itemType === 'system_message' ? 'system' : itemType === 'tool_message' ? 'tool' : 'assistant'
-    const text = typeof item.text === 'string' ? item.text : typeof item.content === 'string' ? item.content : ''
-    return text ? [{ kind: 'message', role, text }] : []
+    const role = itemType === 'user_message' ? 'user' : itemType === 'system_message' ? 'system' : itemType === 'tool_message' ? 'tool' : normalizedMessageRole(item.role) ?? 'assistant'
+    const text = stringFromKeys(item, ['text', 'content', 'message'])
+    return text ? [{ kind: 'message', role, text, messageId: itemMessageId }] : []
+  }
+
+  if (['message_delta', 'user_message_delta', 'system_message_delta', 'tool_message_delta'].includes(itemType) && item) {
+    const role = itemType === 'user_message_delta' ? 'user' : itemType === 'system_message_delta' ? 'system' : itemType === 'tool_message_delta' ? 'tool' : normalizedMessageRole(item.role) ?? 'assistant'
+    const text = stringFromKeys(item, ['delta', 'text_delta', 'textDelta', 'content_delta', 'contentDelta', 'text', 'content', 'message'])
+    return text ? [{ kind: 'message', role, text, messageId: itemMessageId, append: true }] : []
   }
 
   if (type === 'turn.completed' || usage) {

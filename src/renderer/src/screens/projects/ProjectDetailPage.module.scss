@@ -6332,7 +6332,7 @@
   font-size: 0.93rem;
   font-weight: 760;
   line-height: 1.45;
-  margin: -2px 0 12px;
+  margin: 12px 0 0;
   overflow-wrap: anywhere;
 
   svg {
@@ -6345,9 +6345,6 @@
   min-width: 0;
   display: inline-block;
   max-width: 100%;
-  animation:
-    codexActivityReveal 760ms steps(34, end),
-    codexActivityFade 180ms ease-out;
 }
 
 .codexWorkChevron {
@@ -6371,7 +6368,6 @@
   font-size: 0.94rem;
   font-weight: 650;
   line-height: 1.58;
-  animation: codexWorkTextIn 220ms ease-out;
 
   p {
     margin: 0 0 10px;
@@ -6384,6 +6380,10 @@
 
 .codexWorkThinkingText {
   color: color-mix(in srgb, var(--omc-text-muted) 92%, var(--omc-text-strong) 8%);
+}
+
+.codexWorkTextLive {
+  animation: codexWorkTextIn 180ms ease-out;
 }
 
 .codexWorkSummaryDetails {
@@ -6903,26 +6903,6 @@
   }
 }
 
-@keyframes codexActivityReveal {
-  from {
-    clip-path: inset(0 100% 0 0);
-  }
-
-  to {
-    clip-path: inset(0 0 0 0);
-  }
-}
-
-@keyframes codexActivityFade {
-  from {
-    opacity: 0.3;
-  }
-
-  to {
-    opacity: 1;
-  }
-}
-
 @keyframes codexWorkTextIn {
   from {
     opacity: 0;
@@ -6936,8 +6916,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .codexWorkActivityText,
-  .codexWorkText {
+  .codexWorkTextLive {
     animation: none;
   }
 }

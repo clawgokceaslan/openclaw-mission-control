@@ -483,6 +483,7 @@ type GatewayChatMessageItemProps = {
 
 type CodexWorkBlockProps = {
   block: CodexWorkBlockData
+  animateLatestAssistant?: boolean
 }
 
 function workSummaryIcon(kind: CodexWorkSummaryKind) {
@@ -508,11 +509,15 @@ function commandFallbackBody(message: TaskActivityMessage): string {
   return command ? `${status}: ${command}` : status
 }
 
-function renderWorkTextMessage(message: TaskActivityMessage) {
+function renderWorkTextMessage(message: TaskActivityMessage, animateText = false) {
   const body = workTextBody(message)
   if (!body) return null
   return (
-    <div key={message.id} className={`${styles.codexWorkText} ${message.role === 'thinking' ? styles.codexWorkThinkingText : ''}`}>
+    <div key={message.id} className={[
+      styles.codexWorkText,
+      message.role === 'thinking' ? styles.codexWorkThinkingText : '',
+      animateText ? styles.codexWorkTextLive : ''
+    ].filter(Boolean).join(' ')}>
       {renderMarkdownLite(body)}
     </div>
   )
@@ -574,7 +579,11 @@ function renderWorkSummary(summary: CodexWorkSummaryRow) {
   )
 }
 
-export const CodexWorkBlock = memo(function CodexWorkBlock({ block }: CodexWorkBlockProps) {
+export const CodexWorkBlock = memo(function CodexWorkBlock({ block, animateLatestAssistant = false }: CodexWorkBlockProps) {
+  const latestAssistantMessageId = animateLatestAssistant
+    ? [...block.messages].reverse().find((message) => message.role === 'assistant')?.id
+    : undefined
+
   return (
     <article className={`${styles.chatMessage} ${styles.codexTranscriptRow} ${styles.codexWorkBlock}`}>
       <details className={styles.codexWorkDetails} open>
@@ -583,19 +592,19 @@ export const CodexWorkBlock = memo(function CodexWorkBlock({ block }: CodexWorkB
           <span>{formatGatewayWorkDuration(block.durationMs, block.isRunning)}</span>
           {block.isRunning ? <span className={styles.thinkingDots}><i /><i /><i /></span> : null}
         </summary>
-        {block.isRunning && block.activityLabel ? (
-          <div className={styles.codexWorkActivityLine}>
-            <LuSearch size={14} />
-            <span key={block.activityLabel} className={styles.codexWorkActivityText}>{block.activityLabel}</span>
-          </div>
-        ) : null}
         <div className={styles.codexWorkBody}>
           {block.entries.map((entry) => (
             entry.kind === 'text'
-              ? renderWorkTextMessage(entry.message)
+              ? renderWorkTextMessage(entry.message, Boolean(latestAssistantMessageId && entry.message.id === latestAssistantMessageId))
               : renderWorkSummary(entry.summary)
           ))}
         </div>
+        {block.isRunning && block.activityLabel ? (
+          <div className={styles.codexWorkActivityLine}>
+            <LuSearch size={14} />
+            <span className={styles.codexWorkActivityText}>{block.activityLabel}</span>
+          </div>
+        ) : null}
       </details>
     </article>
   )
