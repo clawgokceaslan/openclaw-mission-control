@@ -123,7 +123,7 @@ const slashCommands: SlashCommand[] = [
   { id: 'review', label: '/review', hint: 'Prepare a code review prompt' },
   { id: 'run', label: '/run', hint: 'Start a Codex run for the task' },
   { id: 'plan', label: '/plan', hint: 'Start Codex planning for the task' },
-  { id: 'steer', label: '/steer', hint: 'Steer a running Codex conversation' },
+  { id: 'steer', label: '/steer', hint: 'Send only the typed input as a steer instruction' },
   { id: 'settings', label: '/settings', hint: 'Open Codex chat settings' },
   { id: 'attach', label: '/attach', hint: 'Choose files to attach' },
   { id: 'context', label: '/context', hint: 'Toggle task context in the prompt' }

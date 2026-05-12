@@ -40,8 +40,8 @@ describe('shouldStartNewGatewayChatConversation', () => {
 })
 
 describe('effectiveGatewayChatMode', () => {
-  it('treats a plain message to the selected running conversation as steer', () => {
-    expect(effectiveGatewayChatMode('chat', true, false)).toBe('steer')
+  it('does not rewrite plain messages to steer automatically', () => {
+    expect(effectiveGatewayChatMode('chat', true, false)).toBe('chat')
   })
 
   it('does not rewrite explicit plan or new chat messages', () => {

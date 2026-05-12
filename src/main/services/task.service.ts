@@ -68,6 +68,11 @@ type TaskPayload = Record<string, unknown> & {
   customFields?: Record<string, unknown>
 }
 
+type NormalizeStatusOptions = {
+  allowEmpty?: boolean
+  label?: string
+}
+
 type PlannerBridgeContext = {
   actorToken?: string
   projectId: string
@@ -185,6 +190,9 @@ type EffectiveCapabilityContext = {
 
 const CAPABILITY_TOOL_EXECUTION_POLICY = 'Agent Tools are capability catalog context only in this flow. Do not execute catalog command templates or function/code bodies unless a future approved tool runtime explicitly enables runnable tool invocation and approval for that tool.'
 
+const PLANNER_TASK_JSON_ROOT_KEYS = new Set(['title', 'description', 'status', 'tags', 'checklist', 'comments', 'customFields', 'subtasks'])
+const PLANNER_TASK_JSON_SUBTASK_KEYS = new Set(['title', 'description', 'status', 'tags', 'checklist', 'comments', 'customFields', 'dueAt'])
+
 const INITIAL_PROMPT_PRIORITY_CONTRACT: PromptPriorityItem[] = [
   { name: 'Task/User Objective', score: 100, policy: 'Start from the task objective or user request.' },
   { name: 'Task Details', score: 95, policy: 'Use task details, description, comments, subtasks, checklist, and attachments as the main work context.' },
@@ -261,6 +269,64 @@ function asPayload(value: unknown): TaskPayload {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function statusCompareKey(value: string): string {
+  return value.trim().toLocaleLowerCase('tr')
+}
+
+function allowedStatusList(statuses: ProjectStatus[]): string {
+  return statuses
+    .map((status) => `${status.name} (${status.id})`)
+    .join(', ')
+}
+
+function statusValidationMessage(label: string, detail: string, statuses: ProjectStatus[]): string {
+  const allowed = allowedStatusList(statuses)
+  return allowed ? `${label} ${detail}. Allowed statuses: ${allowed}` : `${label} ${detail}.`
+}
+
+function normalizeStatusFromList(statuses: ProjectStatus[], status: unknown, options: NormalizeStatusOptions = {}): ServiceResponse<string> {
+  const ordered = [...statuses].sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt)
+  const fallback = ordered.find((item) => item.category === 'not_started') ?? ordered[0]
+  const label = options.label ?? 'Status'
+  const allowEmpty = options.allowEmpty !== false
+  if (!fallback) return errorResponse(ErrorCodes.Validation, 'Project has no statuses')
+  if (status === undefined || status === null) {
+    return allowEmpty
+      ? okResponse(fallback.id)
+      : errorResponse(ErrorCodes.Validation, statusValidationMessage(label, 'is required', ordered))
+  }
+  if (typeof status !== 'string') {
+    return errorResponse(ErrorCodes.Validation, statusValidationMessage(label, 'must be a status id or name', ordered))
+  }
+  const trimmed = status.trim()
+  if (!trimmed) {
+    return allowEmpty
+      ? okResponse(fallback.id)
+      : errorResponse(ErrorCodes.Validation, statusValidationMessage(label, 'is required', ordered))
+  }
+  const legacy: Record<string, string> = {
+    pending: 'not_started',
+    todo: 'not_started',
+    not_started: 'not_started',
+    active: 'active',
+    running: 'active',
+    failed: 'active',
+    completed: 'done',
+    done: 'done',
+    closed: 'closed'
+  }
+  const legacyCategory = legacy[statusCompareKey(trimmed)]
+  if (legacyCategory) {
+    return okResponse((ordered.find((item) => item.category === legacyCategory) ?? fallback).id)
+  }
+  const found = ordered.find((item) => item.id === trimmed)
+    ?? ordered.find((item) => statusCompareKey(item.name) === statusCompareKey(trimmed))
+  if (!found) {
+    return errorResponse(ErrorCodes.Validation, statusValidationMessage(label, `"${trimmed}" is not part of this project`, ordered))
+  }
+  return okResponse(found.id)
 }
 
 function activityTimeOf(message: TaskActivityMessage): number {
@@ -470,6 +536,43 @@ function customFieldEntries(values: Record<string, unknown> | undefined, customF
     const name = field?.name ?? fieldId
     return name ? [{ name, value }] : []
   })
+}
+
+function plannerTaskJsonShapeIssues(value: unknown, path = 'task'): string[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+  const issues: string[] = []
+  const record = value as Record<string, unknown>
+  for (const key of Object.keys(record)) {
+    if (!PLANNER_TASK_JSON_ROOT_KEYS.has(key)) {
+      issues.push(`${path}.${key} is not allowed. Allowed root fields: ${Array.from(PLANNER_TASK_JSON_ROOT_KEYS).join(', ')}.`)
+    }
+  }
+  if (record.subtasks !== undefined && Array.isArray(record.subtasks)) {
+    record.subtasks.forEach((rawSubtask, index) => {
+      if (!rawSubtask || typeof rawSubtask !== 'object' || Array.isArray(rawSubtask)) return
+      for (const key of Object.keys(rawSubtask as Record<string, unknown>)) {
+        if (!PLANNER_TASK_JSON_SUBTASK_KEYS.has(key)) {
+          issues.push(`${path}.subtasks[${index}].${key} is not allowed. Allowed subtask fields: ${Array.from(PLANNER_TASK_JSON_SUBTASK_KEYS).join(', ')}.`)
+        }
+      }
+    })
+  }
+  return issues
+}
+
+function plannerTaskJsonPickAllowedFields(record: Record<string, unknown>, allowed: Set<string>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(record).filter(([key]) => allowed.has(key)))
+}
+
+function sanitizePlannerTaskJsonRecord(record: Record<string, unknown>): Record<string, unknown> {
+  const sanitized = plannerTaskJsonPickAllowedFields(record, PLANNER_TASK_JSON_ROOT_KEYS)
+  if (Array.isArray(sanitized.subtasks)) {
+    sanitized.subtasks = sanitized.subtasks.map((rawSubtask) => {
+      if (!rawSubtask || typeof rawSubtask !== 'object' || Array.isArray(rawSubtask)) return rawSubtask
+      return plannerTaskJsonPickAllowedFields(rawSubtask as Record<string, unknown>, PLANNER_TASK_JSON_SUBTASK_KEYS)
+    })
+  }
+  return sanitized
 }
 
 function plannerTaskJson(task: TaskEntity, customFields: Array<{ id: string; name: string; type?: string }>): Record<string, unknown> {
@@ -1249,7 +1352,8 @@ export function plannerJsonGuidance() {
       primaryExecutionPlan: 'Subtasks are the primary execution plan that will later be exported into the selected task data file: Task.md, Task.json, or Task.toon.',
       noGenericWork: 'No generic tasks or checklist items such as Test yap, Run tests, Fix bugs, Implement feature, Implement UI, or Check everything.',
       overrideProjectGuide: 'These planner rules are non-negotiable and override weaker or conflicting project plan guide instructions, including any instruction that says user input is not needed.',
-      comments: 'Important decisions, risks, assumptions, and execution notes should be added to task or subtask comments with authorName "Planner"; existing user comments must be preserved.'
+      comments: 'Important decisions, risks, assumptions, and execution notes should be added to task or subtask comments with authorName "Planner"; existing user comments must be preserved.',
+      status: 'Planner update JSON must include root status from currentTaskJson.status unless intentionally changing to an allowed status id or name.'
     },
     subtaskPolicy: [
       'Create subtasks for cohesive implementation areas, independent workflows, separate ownership boundaries, or meaningful verification paths.',
@@ -1282,10 +1386,12 @@ export function initialPlannerPrompt(
   const taskObjective = `Task/User Objective (priority 100): You are planning an Open Mission Control task inside Codex TUI. Plan the current task from currentTaskJson task-detail data for source task ${taskId}.`
   const taskContextPolicy = [
     'Task Details (priority 95): Use currentTaskJson.title and currentTaskJson.description as the authoritative task title and description/content sources.',
+    'Use currentTaskJson.status as the authoritative root task status source; if changing status intentionally, use only an allowed status id or name from context.allowed.statuses.',
     'Use task description for the general goal, implementation scope, and overall AI guidance.',
     'Use task comments for important flows, risks, dependencies, edge cases, and decision notes. Preserve existing user comments.',
     'Plan from currentTaskJson task-detail data: title, description/content, custom fields, checklist, comments, tags, and subtasks.',
-    'Do not replace task details with chat headings, user prompt labels, or gateway payload text.'
+    'Do not replace task details or status with chat headings, user prompt labels, planning labels, or gateway payload text.',
+    `The planned task JSON root may only contain these fields: ${Array.from(PLANNER_TASK_JSON_ROOT_KEYS).join(', ')}.`
   ]
   const sharedRules = [
     'Non-negotiable planner rules in this prompt override weaker or conflicting project Plan Guide instructions, including any instruction that says user input is not needed.',
@@ -1489,6 +1595,7 @@ export function validatePlannerTaskJsonQuality(normalized: NormalizedTaskJsonImp
   const issues: string[] = []
   if (!normalized.title.trim()) issues.push('Task title is required for planner updates.')
   if (!normalized.description.trim()) issues.push('Task description is required for planner updates.')
+  if (!normalized.status.trim()) issues.push('Task status is required for planner updates.')
   if (normalized.subtasks.length === 0) issues.push('At least one planned subtask is required.')
   if (normalized.subtasks.length > 10) issues.push('At most 10 planned subtasks are allowed.')
 
@@ -1696,6 +1803,17 @@ export function gatewayChatPrompt(input: {
   languages?: GatewayLanguagePair
   promptShape?: GatewayPromptShape
 }): string {
+  if (input.mode === 'steer') {
+    return renderPrompt('chat', input.promptShape, () => [
+      'User steer instruction:',
+      input.message,
+      '',
+      'Steer policy: apply only the user-written instruction above to the selected active conversation. Do not reinterpret, expand, or re-run the original running/planned prompt from task context.'
+    ].join('\n'), () => [
+      { name: 'user_steer_instruction', value: input.message },
+      { name: 'steer_policy', value: 'Apply only the user-written instruction to the selected active conversation. Do not reinterpret, expand, or re-run the original running/planned prompt from task context.' }
+    ])
+  }
   const hasFollowUpContext = Boolean(input.followUpContext?.trim())
   const transcriptRows = input.transcript
     .slice(hasFollowUpContext ? -10 : -24)
@@ -1822,6 +1940,39 @@ const CODEX_RAW_OUTPUT_LIMIT = 2_000
 const CODEX_DIFF_PATCH_LIMIT = 10_000
 const CODEX_STREAM_FLUSH_MS = 850
 const CODEX_STREAM_BATCH_LIMIT = 8
+
+function codexStreamActivityId(context: CodexActivityStreamContext, event: GatewayNormalizedEvent): string | undefined {
+  if (event.kind !== 'message' || !event.messageId?.trim()) return undefined
+  const digest = createHash('sha1').update(event.messageId.trim()).digest('hex').slice(0, 16)
+  return `codex-activity-${context.runId}-${event.role}-${digest}`
+}
+
+function mergeActivityMessage(existing: TaskActivityMessage, incoming: TaskActivityMessage): TaskActivityMessage {
+  const existingMetadata = asRecord(existing.metadata)
+  const incomingMetadata = asRecord(incoming.metadata)
+  const metadata = { ...existingMetadata, ...incomingMetadata }
+  return {
+    ...existing,
+    ...incoming,
+    body: incomingMetadata.streamAppend === true ? `${existing.body}${incoming.body}` : incoming.body,
+    metadata,
+    createdAt: existing.createdAt,
+    updatedAt: Math.max(existing.updatedAt ?? existing.createdAt, incoming.updatedAt ?? incoming.createdAt)
+  }
+}
+
+function appendOrMergeActivityMessages(currentMessages: TaskActivityMessage[], nextMessages: TaskActivityMessage[], limit: number): TaskActivityMessage[] {
+  const merged = [...currentMessages]
+  for (const message of nextMessages) {
+    const existingIndex = merged.findIndex((item) => item.id === message.id)
+    if (existingIndex === -1) {
+      merged.push(message)
+      continue
+    }
+    merged[existingIndex] = mergeActivityMessage(merged[existingIndex], message)
+  }
+  return merged.slice(-limit)
+}
 
 function truncateCodexText(value: string, limit: number): { text: string; truncated: boolean } {
   if (value.length <= limit) return { text: value, truncated: false }
@@ -1966,6 +2117,7 @@ function createCodexActivityStreamer(context: CodexActivityStreamContext, append
       if (!body) return
       if (event.role === 'assistant') assistantSeen = true
       pushMessage({
+        id: codexStreamActivityId(context, event),
         runId: context.runId,
         conversationId: context.conversationId,
         source: context.source,
@@ -1976,6 +2128,8 @@ function createCodexActivityStreamer(context: CodexActivityStreamContext, append
           gatewayBlock: event.role === 'thinking' ? 'thinking' : event.role === 'assistant' ? 'assistant' : 'message',
           runStatus: 'running',
           eventsPath: context.eventsPath,
+          streamMessageId: event.messageId,
+          streamAppend: event.append === true,
           thinkingDurationMs: event.durationMs,
           thinkingStartedAt: event.startedAt,
           thinkingEndedAt: event.endedAt
@@ -3541,26 +3695,9 @@ export class TaskService {
     return okResponse(agent.id)
   }
 
-  private async normalizeStatus(projectId: string, orgId: string, status: unknown): Promise<ServiceResponse<string>> {
+  private async normalizeStatus(projectId: string, orgId: string, status: unknown, options: NormalizeStatusOptions = {}): Promise<ServiceResponse<string>> {
     const statuses = await this.statuses.ensureProjectDefaults(projectId, orgId)
-    const fallback = statuses.find((item) => item.category === 'not_started') ?? statuses[0]
-    if (!fallback) return errorResponse(ErrorCodes.Validation, 'Project has no statuses')
-    if (status === undefined || status === null || status === '') return okResponse(fallback.id)
-    if (typeof status !== 'string') return errorResponse(ErrorCodes.Validation, 'Status is invalid')
-    const legacy: Record<string, string> = {
-      pending: 'not_started',
-      running: 'active',
-      failed: 'active',
-      completed: 'done'
-    }
-    const legacyCategory = legacy[status]
-    if (legacyCategory) {
-      return okResponse((statuses.find((item) => item.category === legacyCategory) ?? fallback).id)
-    }
-    const found = statuses.find((item) => item.id === status)
-    const foundByName = found ?? statuses.find((item) => item.name.trim().toLocaleLowerCase('tr') === status.trim().toLocaleLowerCase('tr'))
-    if (!foundByName) return errorResponse(ErrorCodes.Validation, 'Status is not part of this project')
-    return okResponse(foundByName.id)
+    return normalizeStatusFromList(statuses, status, options)
   }
 
   private reviewTargetStatus(statuses: ProjectStatus[]): ProjectStatus | undefined {
@@ -3795,7 +3932,7 @@ export class TaskService {
       return errorResponse(ErrorCodes.Validation, error instanceof Error ? error.message : 'Invalid import JSON')
     }
 
-    const statusResponse = await this.normalizeStatus(projectId, actor.user.organizationId, imported.status || undefined)
+    const statusResponse = await this.normalizeStatus(projectId, actor.user.organizationId, imported.status || targetTask?.status || undefined, { label: 'Task status' })
     if (!statusResponse.ok) return errorResponse(statusResponse.error?.code ?? ErrorCodes.Validation, statusResponse.error?.message ?? 'Project has no statuses')
     const rootStatus = statusResponse.data ?? ''
     const rootPayload = {
@@ -3948,6 +4085,10 @@ export class TaskService {
           source: 'currentTaskJson.description',
           aliases: ['description', 'content'],
           value: typeof currentTaskJson.description === 'string' ? currentTaskJson.description : taskForContextWithSkills.description ?? ''
+        },
+        status: {
+          source: 'currentTaskJson.status',
+          value: typeof currentTaskJson.status === 'string' ? currentTaskJson.status : taskForContextWithSkills.status
         }
       },
       effectiveAgent: effectiveAgentContext,
@@ -3970,7 +4111,7 @@ export class TaskService {
       jsonFormat: {
         root: ['title', 'description', 'status', 'tags', 'checklist', 'comments', 'customFields', 'subtasks'],
         subtask: ['title', 'description', 'status', 'tags', 'checklist', 'comments', 'customFields', 'dueAt'],
-        note: 'Use tag names or ids. customFields is an array of { name, value }. checklist is an array of { title, checked }. comments is an array of { body, authorName }. omc_update_task_from_json updates the scoped source task.',
+        note: 'Use currentTaskJson.status for root status unless intentionally changing to an allowed status id or name. Use tag names or ids. customFields is an array of { name, value }. checklist is an array of { title, checked }. comments is an array of { body, authorName }. omc_update_task_from_json updates the scoped source task.',
         ...plannerJsonGuidance()
       }
     })
@@ -3988,6 +4129,10 @@ export class TaskService {
       const normalizer = new TaskJsonImportNormalizer(actor.user.organizationId, this.agents, this.tags, this.skills, this.customFields)
       const normalizedItems = []
       for (const item of items) {
+        const shapeIssues = plannerTaskJsonShapeIssues(item.json, item.fromArray ? `tasks[${item.index}]` : 'task')
+        if (shapeIssues.length > 0) {
+          return errorResponse(ErrorCodes.Validation, `Planner JSON field check failed: ${shapeIssues[0]}`, { issues: shapeIssues })
+        }
         let normalized: NormalizedTaskJsonImport
         try {
           normalized = await normalizer.normalize(item.json)
@@ -4001,6 +4146,21 @@ export class TaskService {
             return errorResponse(ErrorCodes.Validation, `Planner JSON quality check failed: ${qualityIssues[0]}`, { issues: qualityIssues })
           }
         }
+        if (normalized.status.trim()) {
+          const statusResponse = await this.normalizeStatus(projectId, actor.user.organizationId, normalized.status, {
+            allowEmpty: false,
+            label: item.fromArray ? `tasks[${item.index}].status` : 'status'
+          })
+          if (!statusResponse.ok) return statusResponse as ServiceResponse<Record<string, unknown>>
+        }
+        for (const [subtaskIndex, subtask] of normalized.subtasks.entries()) {
+          if (!subtask.status.trim()) continue
+          const statusResponse = await this.normalizeStatus(projectId, actor.user.organizationId, subtask.status, {
+            allowEmpty: false,
+            label: item.fromArray ? `tasks[${item.index}].subtasks[${subtaskIndex}].status` : `subtasks[${subtaskIndex}].status`
+          })
+          if (!statusResponse.ok) return statusResponse as ServiceResponse<Record<string, unknown>>
+        }
         normalizedItems.push(normalized)
       }
       if (items[0]?.fromArray) {
@@ -4012,6 +4172,7 @@ export class TaskService {
             index,
             title: normalized.title,
             description: normalized.description,
+            status: normalized.status,
             tagIds: normalized.tagIds,
             checklistCount: normalized.checklistItems.length,
             commentCount: normalized.comments.length,
@@ -4027,6 +4188,7 @@ export class TaskService {
         normalized: {
           title: normalized.title,
           description: normalized.description,
+          status: normalized.status,
           tagIds: normalized.tagIds,
           checklistCount: normalized.checklistItems.length,
           commentCount: normalized.comments.length,
@@ -4041,6 +4203,10 @@ export class TaskService {
           description: {
             ok: Boolean(normalized.description.trim()),
             source: 'planned-task.json description/content, copied from or intentionally updating currentTaskJson.description'
+          },
+          status: {
+            ok: Boolean(normalized.status.trim()),
+            source: 'planned-task.json status, copied from currentTaskJson.status or intentionally set to an allowed status id/name'
           }
         }
       })
@@ -4127,6 +4293,7 @@ export class TaskService {
     const payloadDescription = asPayload(task.payload).description
     record.title = task.title
     record.description = task.description ?? (typeof payloadDescription === 'string' ? payloadDescription : '')
+    record.status = task.status
 
     const mergeComments = (preserved: TaskComment[], incoming: TaskComment[]): TaskComment[] => {
       const seen = new Set<string>()
@@ -4183,7 +4350,7 @@ export class TaskService {
       record.comments = mergeComments(asComments(record.comments), preservedNotes)
     }
 
-    return JSON.stringify(record, null, 2)
+    return JSON.stringify(sanitizePlannerTaskJsonRecord(record), null, 2)
   }
 
   async plannerUpdateFromJson(payload: PlannerJsonRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<TaskJsonImportResult>> {
@@ -6188,9 +6355,13 @@ export class TaskService {
       if (!agentIdResponse.ok) return agentIdResponse as ServiceResponse<TaskEntity>
       nextAgentId = agentIdResponse.data
     }
-    const nextStatusResponse = await this.normalizeStatus(current.projectId, access.data.actorOrgId, payload.status ?? current.status)
-    if (!nextStatusResponse.ok) return nextStatusResponse as ServiceResponse<TaskEntity>
-    const nextStatus = nextStatusResponse.data ?? current.status
+    const hasStatusPatch = Object.prototype.hasOwnProperty.call(payload, 'status')
+    let nextStatus = current.status
+    if (hasStatusPatch) {
+      const nextStatusResponse = await this.normalizeStatus(current.projectId, access.data.actorOrgId, payload.status, { allowEmpty: false, label: 'Task status' })
+      if (!nextStatusResponse.ok) return nextStatusResponse as ServiceResponse<TaskEntity>
+      nextStatus = nextStatusResponse.data ?? current.status
+    }
     const payloadForUpdate = nextStatus !== current.status
       ? await this.payloadWithPrependStatusOrder(current.projectId, nextStatus, nextPayload)
       : nextPayload
@@ -6229,7 +6400,7 @@ export class TaskService {
     if (!payload?.taskId || !payload?.title?.trim()) return errorResponse(ErrorCodes.Validation, 'Task id and title required')
     const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
     if (!access.ok || !access.data) return access as ServiceResponse<TaskSubtask>
-    const statusResponse = await this.normalizeStatus(access.data.task.projectId, access.data.actorOrgId, payload.status)
+    const statusResponse = await this.normalizeStatus(access.data.task.projectId, access.data.actorOrgId, payload.status, { label: 'Subtask status' })
     if (!statusResponse.ok) return statusResponse as ServiceResponse<TaskSubtask>
     const created = await this.subtaskRepo.create({
       taskId: payload.taskId,
@@ -6248,7 +6419,7 @@ export class TaskService {
     if (!access.ok || !access.data) return access as ServiceResponse<TaskSubtask>
     let nextStatus = payload.status
     if (Object.prototype.hasOwnProperty.call(payload, 'status')) {
-      const statusResponse = await this.normalizeStatus(access.data.task.projectId, access.data.actorOrgId, payload.status)
+      const statusResponse = await this.normalizeStatus(access.data.task.projectId, access.data.actorOrgId, payload.status, { allowEmpty: false, label: 'Subtask status' })
       if (!statusResponse.ok) return statusResponse as ServiceResponse<TaskSubtask>
       nextStatus = statusResponse.data
     }

@@ -144,7 +144,7 @@ describe('gatewayChatPrompt', () => {
     expect(prompt).toContain('Subtask comments:\nSubtask: Context Subtask\n- Margaret, 2023-11-14T22:18:20.000Z: Context subtask comment.')
   })
 
-  it('keeps steer mode and includes comments as high-signal guidance', () => {
+  it('keeps steer scoped to the user-written input only', () => {
     const prompt = gatewayChatPrompt({
       task: taskWithComments(),
       message: 'Change direction.',
@@ -152,11 +152,11 @@ describe('gatewayChatPrompt', () => {
       mode: 'steer'
     })
 
-    expect(prompt).toContain('Treat the user steer instruction and task comments as high-signal guidance')
     expect(prompt).toContain('User steer instruction:\nChange direction.')
-    expect(prompt).toContain('Important task comments:')
-    expect(prompt.indexOf('User steer instruction:')).toBeLessThan(prompt.indexOf('Important task comments:'))
-    expect(prompt.indexOf('Important task comments:')).toBeLessThan(prompt.indexOf('Recent chat transcript:'))
+    expect(prompt).toContain('Steer policy: apply only the user-written instruction')
+    expect(prompt).not.toContain('Important task comments:')
+    expect(prompt).not.toContain('Recent chat transcript:')
+    expect(prompt).not.toContain('Task description:')
   })
 
   it('references compact chat context files in prompt shapes', () => {
@@ -398,6 +398,24 @@ function plannedTask(overrides: Partial<NormalizedTaskJsonImport> = {}): Normali
   }
 }
 
+const plannerStatuses: ProjectStatus[] = [
+  { id: 'status-todo', organizationId: 'org-1', projectId: 'project-1', name: 'Not started', category: 'not_started', color: '#8A99B4', sortOrder: 0, isDefault: true, createdAt: 1, updatedAt: 1 },
+  { id: 'status-active', organizationId: 'org-1', projectId: 'project-1', name: 'In Progress', category: 'active', color: '#2F80ED', sortOrder: 1, isDefault: false, createdAt: 1, updatedAt: 1 },
+  { id: 'status-review', organizationId: 'org-1', projectId: 'project-1', name: 'Review', category: 'active', color: '#8B5CF6', sortOrder: 2, isDefault: false, createdAt: 1, updatedAt: 1 }
+]
+
+function plannerValidationService() {
+  const service = Object.create(TaskService.prototype) as TaskService & any
+  service.auth = { requireActor: async () => ({ user: { organizationId: 'org-1' } }) }
+  service.findProjectOrg = async () => 'org-1'
+  service.statuses = { ensureProjectDefaults: async () => plannerStatuses }
+  service.agents = {}
+  service.tags = { list: async () => [] }
+  service.skills = {}
+  service.customFields = { list: async () => [] }
+  return service
+}
+
 describe('planner quality gate', () => {
   it('accepts detailed planner JSON', () => {
     expect(validatePlannerTaskJsonQuality(plannedTask())).toEqual([])
@@ -423,11 +441,13 @@ describe('planner quality gate', () => {
     const issues = validatePlannerTaskJsonQuality(plannedTask({
       title: '',
       description: '',
+      status: '',
       subtasks: []
     }))
 
     expect(issues).toContain('Task title is required for planner updates.')
     expect(issues).toContain('Task description is required for planner updates.')
+    expect(issues).toContain('Task status is required for planner updates.')
     expect(issues).toContain('At least one planned subtask is required.')
   })
 
@@ -473,20 +493,72 @@ describe('planner quality gate', () => {
     expect(imported).toBe(false)
   })
 
-  it('reports invalid batch planner JSON with the failing task index', async () => {
+  it('preserves current task status and strips non-contract fields before planner update import', async () => {
     const service = Object.create(TaskService.prototype) as TaskService & any
-    service.auth = { requireActor: async () => ({ user: { organizationId: 'org-1' } }) }
-    service.findProjectOrg = async () => 'org-1'
-    service.agents = {}
-    service.tags = { list: async () => [] }
-    service.skills = {}
-    service.customFields = { list: async () => [] }
+    service.enrichTasks = async () => [{
+      id: 'task-1',
+      projectId: 'project-1',
+      title: 'Current task title',
+      status: 'status-active',
+      description: 'Current task description',
+      payload: { description: 'Payload description' },
+      comments: [],
+      subtasks: [{
+        id: 'subtask-1',
+        taskId: 'task-1',
+        title: 'Focused work',
+        status: 'status-todo',
+        sortOrder: 0,
+        payload: { comments: [] },
+        createdAt: 1,
+        updatedAt: 1
+      }],
+      createdAt: 1,
+      updatedAt: 1
+    }]
+
+    const output = await service.plannerUpdateJsonWithPreservedContent({
+      id: 'task-1',
+      projectId: 'project-1',
+      title: 'Current task title',
+      status: 'status-active',
+      payload: {},
+      result: {},
+      createdAt: 1,
+      updatedAt: 1
+    }, JSON.stringify({
+      title: 'Gateway heading',
+      description: 'Gateway payload text',
+      status: 'Gateway payload status',
+      gatewayBlock: 'plan payload',
+      projectId: 'project-1',
+      subtasks: [{
+        title: 'Focused work',
+        description: 'Detailed guidance.',
+        status: 'status-todo',
+        planLabel: 'Step 1'
+      }]
+    }))
+    const parsed = JSON.parse(output)
+
+    expect(parsed).toMatchObject({
+      title: 'Current task title',
+      description: 'Current task description',
+      status: 'status-active'
+    })
+    expect(parsed).not.toHaveProperty('gatewayBlock')
+    expect(parsed).not.toHaveProperty('projectId')
+    expect(parsed.subtasks[0]).not.toHaveProperty('planLabel')
+  })
+
+  it('reports invalid batch planner JSON with the failing task index', async () => {
+    const service = plannerValidationService()
 
     const response = await service.plannerValidateJson({
       actorToken: 'actor',
       projectId: 'project-1',
       json: [
-        plannedTask({ title: 'First planned task' }),
+        { title: 'First planned task', description: 'Detailed task description.', status: 'status-active' },
         { description: 'Missing title' }
       ]
     })
@@ -496,13 +568,7 @@ describe('planner quality gate', () => {
   })
 
   it('validates batch create JSON without requiring planner-update subtasks', async () => {
-    const service = Object.create(TaskService.prototype) as TaskService & any
-    service.auth = { requireActor: async () => ({ user: { organizationId: 'org-1' } }) }
-    service.findProjectOrg = async () => 'org-1'
-    service.agents = {}
-    service.tags = { list: async () => [] }
-    service.skills = {}
-    service.customFields = { list: async () => [] }
+    const service = plannerValidationService()
 
     const response = await service.plannerValidateJson({
       actorToken: 'actor',
@@ -519,6 +585,73 @@ describe('planner quality gate', () => {
       expect.objectContaining({ title: 'Discovery task', subtaskCount: 0 }),
       expect.objectContaining({ title: 'Delivery task', subtaskCount: 0 })
     ])
+  })
+
+  it('requires a root status for planner updates', async () => {
+    const service = plannerValidationService()
+
+    const response = await service.plannerValidateJson({
+      actorToken: 'actor',
+      projectId: 'project-1',
+      json: {
+        title: 'Detailed planned task',
+        description: 'Keep the task grounded in currentTaskJson.',
+        subtasks: [{ title: 'Focused work', description: 'Detailed guidance.', status: 'status-todo' }]
+      }
+    })
+
+    expect(response.ok).toBe(false)
+    expect(response.error?.message).toContain('Task status is required for planner updates.')
+  })
+
+  it('validates planner status ids and names before update', async () => {
+    const service = plannerValidationService()
+
+    const valid = await service.plannerValidateJson({
+      actorToken: 'actor',
+      projectId: 'project-1',
+      json: {
+        title: 'Detailed planned task',
+        description: 'Keep the task grounded in currentTaskJson.',
+        status: 'In Progress',
+        subtasks: [{ title: 'Focused work', description: 'Detailed guidance.', status: 'status-review' }]
+      }
+    })
+    const invalid = await service.plannerValidateJson({
+      actorToken: 'actor',
+      projectId: 'project-1',
+      json: {
+        title: 'Detailed planned task',
+        description: 'Keep the task grounded in currentTaskJson.',
+        status: 'Gateway payload status',
+        subtasks: [{ title: 'Focused work', description: 'Detailed guidance.', status: 'status-todo' }]
+      }
+    })
+
+    expect(valid.ok).toBe(true)
+    expect(valid.data?.normalized).toMatchObject({ status: 'In Progress' })
+    expect(invalid.ok).toBe(false)
+    expect(invalid.error?.message).toContain('status "Gateway payload status" is not part of this project')
+    expect(invalid.error?.message).toContain('Allowed statuses')
+  })
+
+  it('rejects planner JSON fields outside the update contract', async () => {
+    const service = plannerValidationService()
+
+    const response = await service.plannerValidateJson({
+      actorToken: 'actor',
+      projectId: 'project-1',
+      json: {
+        title: 'Detailed planned task',
+        description: 'Keep the task grounded in currentTaskJson.',
+        status: 'status-active',
+        gatewayBlock: 'plan payload',
+        subtasks: [{ title: 'Focused work', description: 'Detailed guidance.', status: 'status-todo', planLabel: 'Step 1' }]
+      }
+    })
+
+    expect(response.ok).toBe(false)
+    expect(response.error?.message).toContain('task.gatewayBlock is not allowed')
   })
 
   it('creates batch planner JSON tasks and adds a trace comment to the source task', async () => {
@@ -970,6 +1103,67 @@ describe('task JSON update tag preservation', () => {
     expect(response.ok).toBe(true)
     expect(setTaskTagsCalls).toEqual([['tag-new']])
     expect(response.data?.task?.tags?.map((tag: any) => tag.id)).toEqual(['tag-new'])
+  })
+})
+
+describe('task status update contract', () => {
+  function createStatusUpdateService() {
+    const eventBus = new EventEmitter()
+    const taskUpdatedEvents: unknown[] = []
+    eventBus.on(IPC_CHANNELS.events.taskUpdated, (payload) => taskUpdatedEvents.push(payload))
+    let task: TaskEntity = {
+      id: 'task-1',
+      projectId: 'project-1',
+      title: 'Task',
+      status: 'status-active',
+      payload: {},
+      result: {},
+      createdAt: 1,
+      updatedAt: 1
+    }
+    const updates: Array<Partial<TaskEntity>> = []
+    const service = Object.create(TaskService.prototype) as any
+    service.eventBus = eventBus
+    service.ensureTaskAccess = async () => ({ ok: true, data: { actorOrgId: 'org-1', task } })
+    service.statuses = { ensureProjectDefaults: async () => plannerStatuses }
+    service.repo = {
+      list: async () => [task],
+      update: async (_id: string, patch: Partial<TaskEntity>) => {
+        updates.push(patch)
+        task = { ...task, ...patch, updatedAt: 2 }
+        return task
+      }
+    }
+    service.enrichTasks = async (rows: TaskEntity[]) => rows
+    return { service, updates, taskUpdatedEvents }
+  }
+
+  it('normalizes valid task status names and ids on update', async () => {
+    const { service, updates, taskUpdatedEvents } = createStatusUpdateService()
+
+    const byName = await service.update({ actorToken: 'actor', id: 'task-1', status: 'Review' })
+    const byId = await service.update({ actorToken: 'actor', id: 'task-1', status: 'status-active' })
+
+    expect(byName.ok).toBe(true)
+    expect(byName.data?.status).toBe('status-review')
+    expect(byId.ok).toBe(true)
+    expect(byId.data?.status).toBe('status-active')
+    expect(updates.map((patch) => patch.status)).toEqual(['status-review', 'status-active'])
+    expect(taskUpdatedEvents).toHaveLength(2)
+  })
+
+  it('rejects invalid or empty task status update payloads clearly', async () => {
+    const { service, updates } = createStatusUpdateService()
+
+    const invalid = await service.update({ actorToken: 'actor', id: 'task-1', status: 'Chat heading' })
+    const empty = await service.update({ actorToken: 'actor', id: 'task-1', status: '' })
+
+    expect(invalid.ok).toBe(false)
+    expect(invalid.error?.message).toContain('Task status "Chat heading" is not part of this project')
+    expect(invalid.error?.message).toContain('Allowed statuses')
+    expect(empty.ok).toBe(false)
+    expect(empty.error?.message).toContain('Task status is required')
+    expect(updates).toEqual([])
   })
 })
 

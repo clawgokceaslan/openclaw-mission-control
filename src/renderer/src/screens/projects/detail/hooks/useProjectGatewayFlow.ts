@@ -28,8 +28,8 @@ export function shouldStartNewGatewayChatConversation(isStartingNewChat: boolean
   return isStartingNewChat && requestedChatMode !== 'steer'
 }
 
-export function effectiveGatewayChatMode(requestedChatMode: GatewayChatMode, selectedConversationIsRunning: boolean, isStartingNewChat: boolean): GatewayChatMode {
-  return requestedChatMode === 'chat' && selectedConversationIsRunning && !isStartingNewChat ? 'steer' : requestedChatMode
+export function effectiveGatewayChatMode(requestedChatMode: GatewayChatMode, _selectedConversationIsRunning: boolean, _isStartingNewChat: boolean): GatewayChatMode {
+  return requestedChatMode
 }
 
 function revokeChatAttachmentPreviews(attachments: ChatAttachmentDraft[]): void {
@@ -501,6 +501,10 @@ export function useProjectGatewayFlow({
       setGatewayRunFeedback({ kind: 'error', message: 'Select a conversation before sending a steer message.' })
       return
     }
+    if (effectiveChatMode === 'steer' && effectiveSelectedChatSummary?.source === 'gateway-plan') {
+      setGatewayRunFeedback({ kind: 'error', message: 'Steer applies only to the text you write for active chat/run conversations. Use planner clarification or /plan for plan conversations.' })
+      return
+    }
 
     setChatSending(true)
     setGatewayRunFeedback(null)
@@ -750,7 +754,7 @@ export function useProjectGatewayFlow({
     if (command.id === 'steer') {
       setChatDraft((value) => value.replace(trailingSlashCommandToken, ''))
       if (!selectedChatConversationId) {
-        setGatewayRunFeedback({ kind: 'error', message: 'Choose a running conversation from the steer list above the input.' })
+        setGatewayRunFeedback({ kind: 'error', message: 'Choose an active chat/run target, then write the steer instruction in the input.' })
         return
       }
       setChatComposerMode('steer')

@@ -654,6 +654,7 @@ export function ChatPopup({
   const selectedChatStatusMeta = selectedChatSummary ? conversationStatusMeta(selectedChatSummary) : null
   const steerableConversations = conversations
     .filter((conversation) => runningConversationIds.has(conversation.id))
+    .filter((conversation) => conversation.source !== 'gateway-plan')
     .sort((a, b) => b.at - a.at)
   const sendButtonStopsConversation = selectedChatCanStop && activeCommand !== 'plan' && !canSendChat
   const runModelLabel = chatRunModel || chatModel || 'Not set'
@@ -1075,7 +1076,7 @@ export function ChatPopup({
                 </div>
               ) : null}
               {steerableConversations.length > 0 ? (
-                <div className={styles.chatSteerTargetTable} role="table" aria-label="Running conversations available for steering">
+                <div className={styles.chatSteerTargetTable} role="table" aria-label="Active chat and run conversations available as steer targets">
                   <div className={styles.chatSteerTargetHeader} role="row">
                     <span role="columnheader">Target</span>
                     <span role="columnheader">Status</span>
@@ -1092,7 +1093,7 @@ export function ChatPopup({
                         onClick={() => onSteerMessageClick(conversation.id)}
                         role="row"
                         aria-pressed={isSelectedSteerTarget}
-                        title={`Steer ${conversation.title}`}
+                        title={`Use ${conversation.title} as the steer target`}
                       >
                         <span role="cell" className={styles.chatSteerTargetTitle}>
                           <b className={`${styles.chatConversationSourceBadge} ${conversationSourceClass(conversation)}`}>{conversation.title}</b>
@@ -1100,7 +1101,7 @@ export function ChatPopup({
                         </span>
                         <span role="cell" className={`${styles.chatStatusBadge} ${conversationStatusClass(conversation)}`}>{conversationStatusLabel(conversation)}</span>
                         <span role="cell" className={styles.chatSteerTargetModel}>{conversation.model || 'Default'}</span>
-                        <span role="cell" className={styles.chatSteerTargetAction}>{isSelectedSteerTarget ? 'Selected' : 'Steer'}</span>
+                        <span role="cell" className={styles.chatSteerTargetAction}>{isSelectedSteerTarget ? 'Targeted' : 'Target'}</span>
                       </button>
                     )
                   })}
@@ -1131,7 +1132,7 @@ export function ChatPopup({
                   onChange={(event) => onDraftChange(event.target.value, event.currentTarget)}
                   onFocus={() => onComposerFocusChange(true)}
                   onBlur={() => onComposerFocusChange(false)}
-                  placeholder={activeCommand === 'plan' ? 'Add planning instructions...' : activeCommand === 'steer' ? 'Ask for follow-up changes' : 'Message Codex or type / for commands...'}
+                  placeholder={activeCommand === 'plan' ? 'Add planning instructions...' : activeCommand === 'steer' ? 'Write the steer instruction to send...' : 'Message Codex or type / for commands...'}
                   onKeyDown={(event) => {
                     if (slashMenuOpen && slashCommands.length > 0) {
                       if (event.key === 'ArrowDown') { event.preventDefault(); onSlashCommandIndexChange((value) => (value + 1) % slashCommands.length); return }
@@ -1154,7 +1155,7 @@ export function ChatPopup({
                   {activeCommand ? (
                     <span className={styles.chatActiveCommandBadge}>
                       <b>{activeCommand === 'plan' ? 'Plan' : 'Steer'}</b>
-                      <small>{activeCommand === 'plan' ? 'Planning' : 'Steering'}</small>
+                      <small>{activeCommand === 'plan' ? 'Planning' : 'Input only'}</small>
                       <button type="button" onClick={onClearSlashDraft} aria-label={`${activeCommand} komutunu kaldır`} title="Komutu kaldır">
                         <LuX size={12} />
                       </button>
