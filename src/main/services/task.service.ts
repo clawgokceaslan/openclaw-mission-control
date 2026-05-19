@@ -49,7 +49,7 @@ import { AppSettingsRepository, WorkspaceRepository } from '../../db/repositorie
 import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
 import { GATEWAY_LANGUAGE_KEY, DEFAULT_AGENT_KEY } from './app-settings.service.js'
 import { TaskJsonImportNormalizer } from './task-json-import.js'
-import type { NormalizedTaskJsonImport } from './task-json-import.js'
+import type { NormalizedImportedSubtask, NormalizedTaskJsonImport } from './task-json-import.js'
 import { safeConsole } from '../utils/safe-output.js'
 import { showGatewayNotification } from '../utils/gateway-notifications.js'
 import { codexProcessEnv, isCodexCliNotFoundError, resolveCodexExecutable } from '../utils/codex-cli-resolver.js'
@@ -268,6 +268,15 @@ function asPayload(value: unknown): TaskPayload {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function parseJsonIfString(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value
+  }
 }
 
 function statusCompareKey(value: string): string {
@@ -3893,9 +3902,54 @@ export class TaskService {
     if (!projectOrg || projectOrg !== actor.user.organizationId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
     if (payload.taskId && !targetTask) return errorResponse(ErrorCodes.NotFound, 'Task not found')
 
+    const normalizer = new TaskJsonImportNormalizer(actor.user.organizationId, this.agents, this.tags, this.skills, this.customFields)
+
+    if (!targetTask && Array.isArray(parseJsonIfString(payload.json))) {
+      let importedTasks: NormalizedTaskJsonImport[]
+      try {
+        importedTasks = await normalizer.normalizeMany(payload.json)
+      } catch (error) {
+        return errorResponse(ErrorCodes.Validation, error instanceof Error ? error.message : 'Invalid import JSON')
+      }
+      if (importedTasks.length === 0) return errorResponse(ErrorCodes.Validation, 'JSON array must include at least one task.')
+
+      const statusPlan: Array<{ rootStatus: string; subtaskStatuses: string[] }> = []
+      for (const [index, imported] of importedTasks.entries()) {
+        const rootStatusResponse = await this.normalizeStatus(projectId, actor.user.organizationId, imported.status || undefined, { label: `tasks[${index}].status` })
+        if (!rootStatusResponse.ok) {
+          return errorResponse(rootStatusResponse.error?.code ?? ErrorCodes.Validation, rootStatusResponse.error?.message ?? `tasks[${index}].status is invalid`)
+        }
+        const rootStatus = rootStatusResponse.data ?? ''
+        const subtaskStatuses: string[] = []
+        for (const [subtaskIndex, subtask] of imported.subtasks.entries()) {
+          const subtaskStatusResponse = await this.normalizeStatus(projectId, actor.user.organizationId, subtask.status || rootStatus, { label: `tasks[${index}].subtasks[${subtaskIndex}].status` })
+          if (!subtaskStatusResponse.ok) {
+            return errorResponse(subtaskStatusResponse.error?.code ?? ErrorCodes.Validation, subtaskStatusResponse.error?.message ?? `tasks[${index}].subtasks[${subtaskIndex}].status is invalid`)
+          }
+          subtaskStatuses.push(subtaskStatusResponse.data ?? rootStatus)
+        }
+        statusPlan.push({ rootStatus, subtaskStatuses })
+      }
+
+      const createdTasks: TaskEntity[] = []
+      const warnings = new Set<string>()
+      for (const [index, imported] of importedTasks.entries()) {
+        const task = await this.applyNormalizedTaskJsonImport({
+          projectId,
+          imported,
+          rootStatus: statusPlan[index].rootStatus,
+          subtaskStatuses: statusPlan[index].subtaskStatuses
+        })
+        createdTasks.push(task)
+        imported.warnings.forEach((warning) => warnings.add(`tasks[${index}]: ${warning}`))
+      }
+      for (const task of createdTasks) this.emitTaskUpdated(projectId, task.id, 'created')
+      return okResponse({ task: createdTasks[0], tasks: createdTasks, warnings: Array.from(warnings) })
+    }
+
     let imported
     try {
-      imported = await new TaskJsonImportNormalizer(actor.user.organizationId, this.agents, this.tags, this.skills, this.customFields).normalize(payload.json)
+      imported = await normalizer.normalize(payload.json)
     } catch (error) {
       return errorResponse(ErrorCodes.Validation, error instanceof Error ? error.message : 'Invalid import JSON')
     }
@@ -3903,6 +3957,31 @@ export class TaskService {
     const statusResponse = await this.normalizeStatus(projectId, actor.user.organizationId, imported.status || targetTask?.status || undefined, { label: 'Task status' })
     if (!statusResponse.ok) return errorResponse(statusResponse.error?.code ?? ErrorCodes.Validation, statusResponse.error?.message ?? 'Project has no statuses')
     const rootStatus = statusResponse.data ?? ''
+    const subtaskStatuses: string[] = []
+    for (const [index, subtask] of imported.subtasks.entries()) {
+      const subtaskStatusResponse = await this.normalizeStatus(projectId, actor.user.organizationId, subtask.status || rootStatus, { label: `subtasks[${index}].status` })
+      if (!subtaskStatusResponse.ok) return errorResponse(subtaskStatusResponse.error?.code ?? ErrorCodes.Validation, subtaskStatusResponse.error?.message ?? 'Subtask status is invalid')
+      subtaskStatuses.push(subtaskStatusResponse.data ?? rootStatus)
+    }
+    const task = await this.applyNormalizedTaskJsonImport({
+      projectId,
+      targetTask,
+      imported,
+      rootStatus,
+      subtaskStatuses
+    })
+    this.emitTaskUpdated(projectId, task.id, targetTask ? 'updated' : 'created')
+    return okResponse({ task, warnings: imported.warnings })
+  }
+
+  private async applyNormalizedTaskJsonImport(input: {
+    projectId: string
+    targetTask?: TaskEntity
+    imported: NormalizedTaskJsonImport
+    rootStatus: string
+    subtaskStatuses: string[]
+  }): Promise<TaskEntity> {
+    const { projectId, targetTask, imported, rootStatus, subtaskStatuses } = input
     const rootPayload = {
       ...(targetTask?.payload ?? {}),
       description: imported.description,
@@ -3931,36 +4010,37 @@ export class TaskService {
         payload: createPayload,
         result: {}
       })
-    if (!taskRow) return errorResponse(ErrorCodes.NotFound, 'Task not found')
+    if (!taskRow) throw new Error('Task not found')
 
     if (!targetTask || imported.tagIds.length > 0) await this.taskTagRepo.setTaskTags(taskRow.id, imported.tagIds)
     if (!targetTask) await this.taskSkillRepo.setTaskSkills(taskRow.id, imported.skillIds)
     await this.subtaskRepo.removeByTask(taskRow.id)
-    for (const subtask of imported.subtasks) {
-      const subtaskStatusResponse = await this.normalizeStatus(projectId, actor.user.organizationId, subtask.status || rootStatus)
-      if (!subtaskStatusResponse.ok) return errorResponse(subtaskStatusResponse.error?.code ?? ErrorCodes.Validation, subtaskStatusResponse.error?.message ?? 'Subtask status is invalid')
-      const created = await this.subtaskRepo.create({ taskId: taskRow.id, title: subtask.title, status: subtaskStatusResponse.data ?? rootStatus })
-      await this.subtaskRepo.update(created.id, {
-        payload: {
-          description: subtask.description,
-          agentId: subtask.agentId ?? '',
-          assigneeId: subtask.agentId ?? '',
-          assigneeName: subtask.assigneeName,
-          tagIds: subtask.tagIds,
-          skillIds: subtask.skillIds,
-          customFields: subtask.customFieldValues,
-          checklistItems: subtask.checklistItems,
-          comments: subtask.comments,
-          inputFormatId: '',
-          outputFormatId: '',
-          ...(subtask.dueAt ? { dueAt: subtask.dueAt } : {})
-        }
-      })
+    for (const [index, subtask] of imported.subtasks.entries()) {
+      await this.createImportedSubtask(taskRow.id, subtask, subtaskStatuses[index] ?? rootStatus)
     }
 
     const [task] = await this.enrichTasks([taskRow])
-    this.emitTaskUpdated(projectId, task.id, targetTask ? 'updated' : 'created')
-    return okResponse({ task, warnings: imported.warnings })
+    return task
+  }
+
+  private async createImportedSubtask(taskId: string, subtask: NormalizedImportedSubtask, status: string): Promise<void> {
+    const created = await this.subtaskRepo.create({ taskId, title: subtask.title, status })
+    await this.subtaskRepo.update(created.id, {
+      payload: {
+        description: subtask.description,
+        agentId: subtask.agentId ?? '',
+        assigneeId: subtask.agentId ?? '',
+        assigneeName: subtask.assigneeName,
+        tagIds: subtask.tagIds,
+        skillIds: subtask.skillIds,
+        customFields: subtask.customFieldValues,
+        checklistItems: subtask.checklistItems,
+        comments: subtask.comments,
+        inputFormatId: '',
+        outputFormatId: '',
+        ...(subtask.dueAt ? { dueAt: subtask.dueAt } : {})
+      }
+    })
   }
 
   async plannerContext(payload: PlannerContextRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<Record<string, unknown>>> {

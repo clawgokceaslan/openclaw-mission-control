@@ -1089,6 +1089,115 @@ describe('task JSON update tag preservation', () => {
     expect(setTaskTagsCalls).toEqual([['tag-new']])
     expect(response.data?.task?.tags?.map((tag: any) => tag.id)).toEqual(['tag-new'])
   })
+
+  it('imports a JSON array as multiple tasks with nested details', async () => {
+    const service = Object.create(TaskService.prototype) as any
+    const createdTasks: TaskEntity[] = []
+    const createdSubtasks: Array<{ taskId: string; title: string; status: string; payload?: Record<string, unknown> }> = []
+    const tagCalls: Array<{ taskId: string; tagIds: string[] }> = []
+    service.auth = { requireActor: async () => ({ user: { organizationId: 'org-1' } }) }
+    service.projects = { get: async () => ({ id: 'project-1', organizationId: 'org-1' }) }
+    service.repo = {
+      list: async () => createdTasks,
+      create: async (input: any) => {
+        const task: TaskEntity = { id: `task-${createdTasks.length + 1}`, createdAt: 1, updatedAt: 1, ...input }
+        createdTasks.push(task)
+        return task
+      }
+    }
+    service.statuses = {
+      ensureProjectDefaults: async () => [
+        { id: 'status-todo', organizationId: 'org-1', projectId: 'project-1', name: 'Not started', category: 'not_started', color: '#8A99B4', sortOrder: 0, isDefault: true, createdAt: 1, updatedAt: 1 },
+        { id: 'status-active', organizationId: 'org-1', projectId: 'project-1', name: 'In Progress', category: 'active', color: '#2F80ED', sortOrder: 1, isDefault: false, createdAt: 1, updatedAt: 1 },
+        { id: 'status-review', organizationId: 'org-1', projectId: 'project-1', name: 'Review', category: 'active', color: '#8B5CF6', sortOrder: 2, isDefault: false, createdAt: 1, updatedAt: 1 }
+      ]
+    }
+    service.agents = {}
+    service.tags = { list: async () => [], create: async (input: any) => ({ id: `tag-${input.name}`, ...input }) }
+    service.skills = {}
+    service.customFields = { list: async () => [], create: async (input: any) => ({ id: `field-${input.name}`, ...input }) }
+    service.taskTagRepo = {
+      setTaskTags: async (taskId: string, tagIds: string[]) => { tagCalls.push({ taskId, tagIds }) },
+      listByTaskIds: async () => ({})
+    }
+    service.taskSkillRepo = {
+      setTaskSkills: async () => undefined,
+      listByTaskIds: async () => ({})
+    }
+    service.subtaskRepo = {
+      removeByTask: async () => undefined,
+      create: async (input: any) => {
+        createdSubtasks.push(input)
+        return { id: `subtask-${createdSubtasks.length}`, taskId: input.taskId, title: input.title, status: input.status, sortOrder: 0, createdAt: 1, updatedAt: 1 }
+      },
+      update: async (id: string, patch: any) => {
+        const index = Number(id.replace('subtask-', '')) - 1
+        createdSubtasks[index] = { ...createdSubtasks[index], ...patch }
+      },
+      listByTaskIds: async () => ({})
+    }
+    service.eventBus = new EventEmitter()
+
+    const response = await service.importJson({
+      actorToken: 'actor',
+      projectId: 'project-1',
+      json: [
+        {
+          title: 'First task',
+          description: 'First description',
+          status: 'In Progress',
+          tags: ['frontend'],
+          checklist: [{ title: 'Check one' }],
+          comments: [{ body: 'Comment one' }],
+          subtasks: [{ title: 'Nested task', status: 'Review', checklist: [{ title: 'Nested check' }] }]
+        },
+        { title: 'Second task', description: 'Second description' }
+      ]
+    })
+
+    expect(response.ok).toBe(true)
+    expect(response.data?.tasks?.map((task) => task.title)).toEqual(['First task', 'Second task'])
+    expect(createdTasks.map((task) => task.status)).toEqual(['status-active', 'status-todo'])
+    expect(tagCalls).toEqual([{ taskId: 'task-1', tagIds: ['tag-frontend'] }, { taskId: 'task-2', tagIds: [] }])
+    expect(createdSubtasks[0]).toMatchObject({ taskId: 'task-1', title: 'Nested task', status: 'status-review' })
+    expect(createdSubtasks[0].payload?.checklistItems).toHaveLength(1)
+  })
+
+  it('rejects an invalid JSON array item before creating any task', async () => {
+    const service = Object.create(TaskService.prototype) as any
+    let createCount = 0
+    service.auth = { requireActor: async () => ({ user: { organizationId: 'org-1' } }) }
+    service.projects = { get: async () => ({ id: 'project-1', organizationId: 'org-1' }) }
+    service.repo = {
+      list: async () => [],
+      create: async () => {
+        createCount += 1
+        return { id: `task-${createCount}` }
+      }
+    }
+    service.statuses = {
+      ensureProjectDefaults: async () => [
+        { id: 'status-todo', organizationId: 'org-1', projectId: 'project-1', name: 'Not started', category: 'not_started', color: '#8A99B4', sortOrder: 0, isDefault: true, createdAt: 1, updatedAt: 1 }
+      ]
+    }
+    service.agents = {}
+    service.tags = { list: async () => [] }
+    service.skills = {}
+    service.customFields = { list: async () => [] }
+
+    const response = await service.importJson({
+      actorToken: 'actor',
+      projectId: 'project-1',
+      json: [
+        { title: 'Valid task' },
+        { title: 'Invalid task', status: 'Definitely not a status' }
+      ]
+    })
+
+    expect(response.ok).toBe(false)
+    expect(response.error?.message).toContain('tasks[1].status')
+    expect(createCount).toBe(0)
+  })
 })
 
 describe('task status update contract', () => {

@@ -1,4 +1,4 @@
-import { LuMessageSquare, LuPlus, LuRefreshCw, LuSettings2, LuSignal } from 'react-icons/lu'
+import { LuFiles, LuMessageSquare, LuPlus, LuRefreshCw, LuSettings2, LuSignal } from 'react-icons/lu'
 import type { Project } from '@shared/types/entities'
 import { ProjectViewBar } from '../ProjectViewBar'
 import styles from '@renderer/screens/projects/ProjectDetailPage.module.scss'
@@ -10,6 +10,7 @@ interface ProjectDetailHeaderProps {
   onTaskTitleChange: (value: string) => void
   onQuickCreate: () => void
   onOpenCreateTask: () => void
+  onOpenBulkImport: () => void
   onOpenProjectPrompts: () => void
   onOpenAnalytics: () => void
   onOpenStatusSettings: () => void
@@ -28,6 +29,7 @@ export function ProjectDetailHeader({
   onTaskTitleChange,
   onQuickCreate,
   onOpenCreateTask,
+  onOpenBulkImport,
   onOpenProjectPrompts,
   onOpenAnalytics,
   onOpenStatusSettings,
@@ -61,6 +63,7 @@ export function ProjectDetailHeader({
           <button type="button" className={styles.plusBtn} onClick={onOpenCreateTask} disabled={busy}>
             <LuPlus size={18} />
           </button>
+          <button type="button" className={styles.iconBtn} onClick={onOpenBulkImport} disabled={busy} aria-label="Import task JSON array" title="Import task JSON array"><LuFiles size={16} /></button>
           <button type="button" className={styles.iconBtn} onClick={onSyncProject} disabled={syncDisabled} aria-label="Sync project exports"><LuRefreshCw size={16} /></button>
           <button
             type="button"

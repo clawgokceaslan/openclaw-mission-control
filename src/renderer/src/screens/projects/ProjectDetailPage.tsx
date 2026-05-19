@@ -85,6 +85,7 @@ import type {
   ThreadEntry
 } from './detail/types'
 import { PlanChoiceModal } from '@renderer/popups/PlanChoiceModal'
+import { BulkTaskJsonImportPopup } from '@renderer/popups/BulkTaskJsonImport'
 import styles from './ProjectDetailPage.module.scss'
 
 const DETAIL_RATIO_KEY = 'omc:task-modal:detail-ratio'
@@ -486,6 +487,9 @@ export function ProjectDetailPage() {
   const lastGatewayModelRefreshRef = useRef<string | null>(null)
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false)
   const [isRecentChatsView, setIsRecentChatsView] = useState(false)
+  const [isBulkTaskImportOpen, setIsBulkTaskImportOpen] = useState(false)
+  const [isBulkTaskImporting, setIsBulkTaskImporting] = useState(false)
+  const [bulkTaskImportCount, setBulkTaskImportCount] = useState(0)
   const [pendingChatOpen, setPendingChatOpen] = useState<{ taskId: string; conversationId: string } | null>(null)
   const [defaultAgentId, setDefaultAgentId] = useState<string>('')
   const [gatewayLanguage, setGatewayLanguage] = useState<string>(DEFAULT_GATEWAY_LANGUAGE)
@@ -2587,6 +2591,30 @@ export function ProjectDetailPage() {
     setSelectedSubtaskId(null)
   }
 
+  const importProjectTasksJson = async (jsonText: string, _expectedCount: number) => {
+    if (!projectId) throw new Error('Project id required')
+    setIsBulkTaskImporting(true)
+    setBulkTaskImportCount(0)
+    try {
+      const response = await invokeBridge<TaskJsonImportResult>(IPC_CHANNELS.tasks.importJson, {
+        actorToken: token,
+        projectId,
+        json: jsonText
+      })
+      if (!response.ok || !response.data?.tasks) {
+        throw new Error(response.error?.message ?? 'Bulk task JSON import failed')
+      }
+      setBulkTaskImportCount(response.data.tasks.length)
+      await refreshProjectAndSelectedTask()
+      return {
+        importedCount: response.data.tasks.length,
+        warnings: response.data.warnings ?? []
+      }
+    } finally {
+      setIsBulkTaskImporting(false)
+    }
+  }
+
   const saveChecklistItems = async (items: TaskChecklistItem[]) => {
     if (!selectedTask) return
     const response = await invokeBridge<TaskEntity>(IPC_CHANNELS.tasks.update, {
@@ -3309,6 +3337,10 @@ export function ProjectDetailPage() {
         onTaskTitleChange={setTaskTitle}
         onQuickCreate={() => void handleQuickCreate()}
         onOpenCreateTask={() => openCreateTask(defaultStatus)}
+        onOpenBulkImport={() => {
+          setBulkTaskImportCount(0)
+          setIsBulkTaskImportOpen(true)
+        }}
         onOpenProjectPrompts={openProjectPromptSettings}
         onOpenAnalytics={() => setIsAnalyticsOpen(true)}
         onOpenStatusSettings={openStatusEditor}
@@ -3345,6 +3377,17 @@ export function ProjectDetailPage() {
           />
         </Suspense>
       ) : null}
+
+      <BulkTaskJsonImportPopup
+        open={isBulkTaskImportOpen}
+        busy={isBulkTaskImporting}
+        importedCount={bulkTaskImportCount}
+        onClose={() => {
+          if (isBulkTaskImporting) return
+          setIsBulkTaskImportOpen(false)
+        }}
+        onImport={importProjectTasksJson}
+      />
 
       {error ? <p className={styles.error}>{error}</p> : null}
       {projectSyncMessage ? <p className={styles.notice}>{projectSyncMessage}</p> : null}

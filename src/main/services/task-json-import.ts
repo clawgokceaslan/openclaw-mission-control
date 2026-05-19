@@ -59,6 +59,23 @@ function parseJsonObject(value: unknown): ImportObject {
   return value as ImportObject
 }
 
+function parseJsonArray(value: unknown): ImportObject[] {
+  let parsed = value
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value)
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : 'Enter valid JSON.')
+    }
+  }
+  if (!Array.isArray(parsed)) throw new Error('JSON root must be an array.')
+  if (parsed.length === 0) throw new Error('JSON array must include at least one task.')
+  return parsed.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error(`tasks[${index}]: item must be an object.`)
+    return item as ImportObject
+  })
+}
+
 function stringList(value: unknown, fieldName: string): string[] {
   if (value === undefined || value === null) return []
   if (!Array.isArray(value)) throw new Error(`${fieldName} must be an array.`)
@@ -198,6 +215,20 @@ export class TaskJsonImportNormalizer {
       subtasks,
       warnings: Array.from(new Set(warnings))
     }
+  }
+
+  async normalizeMany(json: unknown): Promise<NormalizedTaskJsonImport[]> {
+    const items = parseJsonArray(json)
+    const normalized: NormalizedTaskJsonImport[] = []
+    for (const [index, item] of items.entries()) {
+      try {
+        normalized.push(await this.normalize(item))
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Invalid import JSON'
+        throw new Error(`tasks[${index}]: ${message}`)
+      }
+    }
+    return normalized
   }
 
   toTemplatePayload(normalized: NormalizedTaskJsonImport): TaskTemplatePayload {
