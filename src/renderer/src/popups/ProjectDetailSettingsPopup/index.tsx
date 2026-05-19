@@ -76,6 +76,24 @@ const PROJECT_TOOL_CREATOR_STEPS: Array<{ id: ProjectToolCreatorStep; label: str
   { id: 'context', label: 'Connect', detail: 'Runbook, workspace and agents' }
 ]
 
+const PROJECT_TOOL_CREATOR_GUIDANCE: Record<ProjectToolCreatorStep, { title: string; body: string; items: string[] }> = {
+  basics: {
+    title: 'Contract first',
+    body: 'Start with the agent-facing contract so unfinished tools can still be saved as clear drafts.',
+    items: ['Name the capability plainly.', 'Pick the nearest runtime type.', 'Write usage notes before implementation detail.']
+  },
+  implementation: {
+    title: 'Runnable surface',
+    body: 'Keep schemas, commands and function metadata together so the project context remains reviewable.',
+    items: ['Use JSON objects for schemas.', 'Separate prepare and run commands.', 'Leave incomplete tools inactive as drafts.']
+  },
+  context: {
+    title: 'Project context',
+    body: 'Attach the operational notes and agent links that should travel with this project.',
+    items: ['Add a short runbook.', 'Keep workspace hints concrete.', 'Link only relevant project agents.']
+  }
+}
+
 function parseToolSchema(value: string, label: string): Record<string, unknown> | undefined {
   if (!value.trim()) return undefined
   const parsed = JSON.parse(value)
@@ -456,6 +474,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
 
   const projectToolStepIndex = PROJECT_TOOL_CREATOR_STEPS.findIndex((step) => step.id === toolCreatorStep)
   const projectToolDraftName = projectToolDraft.name.trim()
+  const projectToolGuidance = PROJECT_TOOL_CREATOR_GUIDANCE[toolCreatorStep]
 
   const handleCreateProjectTool = async (saveAsDraft = false) => {
     const name = projectToolDraftName || (saveAsDraft ? 'Untitled project tool draft' : '')
@@ -1343,79 +1362,98 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
               </div>
             </div>
             <div className={styles.body}>
-              <div className={styles.settingsPanel}>
-                {toolCreatorStep === 'basics' ? (
-                  <div className={styles.settingsFormGrid}>
-                    <label>
-                      <span>Name *</span>
-                      <input autoFocus value={projectToolDraft.name} onChange={(event) => updateProjectToolDraft('name', event.target.value)} placeholder="List changed files" />
-                    </label>
-                    <label>
-                      <span>Type</span>
-                      <AppSelect
-                        value={PROJECT_TOOL_TYPE_OPTIONS.find((option) => option.value === projectToolDraft.toolType) ?? PROJECT_TOOL_TYPE_OPTIONS[0]}
-                        options={PROJECT_TOOL_TYPE_OPTIONS}
-                        onChange={(option) => updateProjectToolDraft('toolType', (option?.value as AiToolType | undefined) ?? 'local_command')}
-                      />
-                    </label>
-                    <label>
-                      <span>AI usage notes</span>
-                      <textarea value={projectToolDraft.descriptionMarkdown} onChange={(event) => updateProjectToolDraft('descriptionMarkdown', event.target.value)} rows={6} placeholder="When to use, required inputs, expected result." />
-                    </label>
-                    <label>
-                      <span>Working directory hint</span>
-                      <input value={projectToolDraft.workingDirectoryHint} onChange={(event) => updateProjectToolDraft('workingDirectoryHint', event.target.value)} placeholder="Project runtime workspace" />
-                    </label>
+              <div className={`${styles.settingsPanel} ${styles.toolCreatorPanel}`}>
+                <div className={styles.toolCreatorMain}>
+                  {toolCreatorStep === 'basics' ? (
+                    <div className={styles.settingsFormGrid}>
+                      <div className={styles.toolCreatorTwoColumn}>
+                        <label>
+                          <span>Name *</span>
+                          <input autoFocus value={projectToolDraft.name} onChange={(event) => updateProjectToolDraft('name', event.target.value)} placeholder="List changed files" />
+                        </label>
+                        <label>
+                          <span>Type</span>
+                          <AppSelect
+                            value={PROJECT_TOOL_TYPE_OPTIONS.find((option) => option.value === projectToolDraft.toolType) ?? PROJECT_TOOL_TYPE_OPTIONS[0]}
+                            options={PROJECT_TOOL_TYPE_OPTIONS}
+                            onChange={(option) => updateProjectToolDraft('toolType', (option?.value as AiToolType | undefined) ?? 'local_command')}
+                          />
+                        </label>
+                      </div>
+                      <label>
+                        <span>AI usage notes</span>
+                        <textarea value={projectToolDraft.descriptionMarkdown} onChange={(event) => updateProjectToolDraft('descriptionMarkdown', event.target.value)} rows={10} placeholder="When to use, required inputs, expected result." />
+                      </label>
+                      <label>
+                        <span>Working directory hint</span>
+                        <input value={projectToolDraft.workingDirectoryHint} onChange={(event) => updateProjectToolDraft('workingDirectoryHint', event.target.value)} placeholder="Project runtime workspace" />
+                      </label>
+                    </div>
+                  ) : toolCreatorStep === 'implementation' ? (
+                    <div className={styles.settingsFormGrid}>
+                      <label>
+                        <span>Function name</span>
+                        <input value={projectToolDraft.functionName} onChange={(event) => updateProjectToolDraft('functionName', event.target.value)} placeholder="list_changed_files" />
+                      </label>
+                      <div className={styles.toolCreatorTwoColumn}>
+                        <label>
+                          <span>Input schema JSON</span>
+                          <textarea value={projectToolDraft.inputSchemaJson} onChange={(event) => updateProjectToolDraft('inputSchemaJson', event.target.value)} rows={12} placeholder={'{\n  "type": "object",\n  "properties": {}\n}'} />
+                        </label>
+                        <label>
+                          <span>Output schema JSON</span>
+                          <textarea value={projectToolDraft.outputSchemaJson} onChange={(event) => updateProjectToolDraft('outputSchemaJson', event.target.value)} rows={12} placeholder={'{\n  "type": "object",\n  "properties": {}\n}'} />
+                        </label>
+                      </div>
+                      <div className={styles.toolCreatorTwoColumn}>
+                        <label>
+                          <span>Command template</span>
+                          <textarea value={projectToolDraft.commandTemplate} onChange={(event) => updateProjectToolDraft('commandTemplate', event.target.value)} rows={6} placeholder="npm test -- --runInBand" />
+                        </label>
+                        <label>
+                          <span>Prepare command</span>
+                          <textarea value={projectToolDraft.prepareCommand} onChange={(event) => updateProjectToolDraft('prepareCommand', event.target.value)} rows={6} placeholder="npm install" />
+                        </label>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={styles.settingsFormGrid}>
+                      <label>
+                        <span>Execution flow</span>
+                        <textarea value={projectToolDraft.executionFlowMarkdown} onChange={(event) => updateProjectToolDraft('executionFlowMarkdown', event.target.value)} rows={7} placeholder="1. Prepare inputs&#10;2. Validate output" />
+                      </label>
+                      <div className={styles.toolCreatorTwoColumn}>
+                        <label>
+                          <span>Code language</span>
+                          <input value={projectToolDraft.codeLanguage} onChange={(event) => updateProjectToolDraft('codeLanguage', event.target.value)} placeholder="typescript" />
+                        </label>
+                        <label>
+                          <span>Attach to agents</span>
+                          <AppSelect
+                            mode="multi"
+                            value={agentOptions.filter((option) => projectToolDraft.agentIds.includes(option.value))}
+                            options={agentOptions}
+                            placeholder="No agent links"
+                            onChange={(options) => updateProjectToolDraft('agentIds', Array.isArray(options) ? options.map((option) => option.value) : [])}
+                          />
+                        </label>
+                      </div>
+                      <label>
+                        <span>Code body</span>
+                        <textarea value={projectToolDraft.codeBody} onChange={(event) => updateProjectToolDraft('codeBody', event.target.value)} rows={13} placeholder="// Optional implementation notes or code snippet" />
+                      </label>
+                    </div>
+                  )}
+                </div>
+                <aside className={styles.toolCreatorAside}>
+                  <div>
+                    <h4>{projectToolGuidance.title}</h4>
+                    <p>{projectToolGuidance.body}</p>
                   </div>
-                ) : toolCreatorStep === 'implementation' ? (
-                  <div className={styles.settingsFormGrid}>
-                    <label>
-                      <span>Function name</span>
-                      <input value={projectToolDraft.functionName} onChange={(event) => updateProjectToolDraft('functionName', event.target.value)} placeholder="list_changed_files" />
-                    </label>
-                    <label>
-                      <span>Input schema JSON</span>
-                      <textarea value={projectToolDraft.inputSchemaJson} onChange={(event) => updateProjectToolDraft('inputSchemaJson', event.target.value)} rows={7} placeholder={'{\n  "type": "object",\n  "properties": {}\n}'} />
-                    </label>
-                    <label>
-                      <span>Output schema JSON</span>
-                      <textarea value={projectToolDraft.outputSchemaJson} onChange={(event) => updateProjectToolDraft('outputSchemaJson', event.target.value)} rows={7} placeholder={'{\n  "type": "object",\n  "properties": {}\n}'} />
-                    </label>
-                    <label>
-                      <span>Command template</span>
-                      <textarea value={projectToolDraft.commandTemplate} onChange={(event) => updateProjectToolDraft('commandTemplate', event.target.value)} rows={4} placeholder="npm test -- --runInBand" />
-                    </label>
-                    <label>
-                      <span>Prepare command</span>
-                      <textarea value={projectToolDraft.prepareCommand} onChange={(event) => updateProjectToolDraft('prepareCommand', event.target.value)} rows={3} placeholder="npm install" />
-                    </label>
+                  <div className={styles.toolCreatorChecklist}>
+                    {projectToolGuidance.items.map((item) => <span key={item}>{item}</span>)}
                   </div>
-                ) : (
-                  <div className={styles.settingsFormGrid}>
-                    <label>
-                      <span>Execution flow</span>
-                      <textarea value={projectToolDraft.executionFlowMarkdown} onChange={(event) => updateProjectToolDraft('executionFlowMarkdown', event.target.value)} rows={4} placeholder="1. Prepare inputs&#10;2. Validate output" />
-                    </label>
-                    <label>
-                      <span>Code language</span>
-                      <input value={projectToolDraft.codeLanguage} onChange={(event) => updateProjectToolDraft('codeLanguage', event.target.value)} placeholder="typescript" />
-                    </label>
-                    <label>
-                      <span>Code body</span>
-                      <textarea value={projectToolDraft.codeBody} onChange={(event) => updateProjectToolDraft('codeBody', event.target.value)} rows={7} placeholder="// Optional implementation notes or code snippet" />
-                    </label>
-                    <label>
-                      <span>Attach to agents</span>
-                      <AppSelect
-                        mode="multi"
-                        value={agentOptions.filter((option) => projectToolDraft.agentIds.includes(option.value))}
-                        options={agentOptions}
-                        placeholder="No agent links"
-                        onChange={(options) => updateProjectToolDraft('agentIds', Array.isArray(options) ? options.map((option) => option.value) : [])}
-                      />
-                    </label>
-                  </div>
-                )}
+                </aside>
               </div>
             </div>
             <footer className={styles.footer}>
