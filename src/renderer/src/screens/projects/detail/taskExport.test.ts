@@ -284,4 +284,43 @@ describe('buildTaskMarkdown', () => {
     expect(buildToolsMarkdown(context)).toContain('git status --short')
     expect(buildToolsMarkdown(context)).toContain('Project default: Mission project via agent Runtime Agent')
   })
+
+  it('exports linked project tools while keeping legacy defaults readable', () => {
+    const projectTool = {
+      id: 'tool-project',
+      organizationId: 'org-1',
+      name: 'Inspect workspace',
+      slug: 'inspect-workspace',
+      status: 'active' as const,
+      toolType: 'local_command' as const,
+      descriptionMarkdown: 'Inspect project files.',
+      commandTemplate: 'find . -maxdepth 2 -type f',
+      approvalRequired: true,
+      createdAt: 1,
+      updatedAt: 1
+    }
+    const context = {
+      task: { ...task(), agentId: null, skills: [] },
+      project: {
+        id: 'project-1',
+        organizationId: 'org-1',
+        name: 'Mission project',
+        archived: false,
+        metrics: { defaultAgentId: 'agent-1', management: { toolIds: ['tool-project'] } },
+        createdAt: 1,
+        updatedAt: 1
+      },
+      projectGroup: null,
+      agents: [],
+      tools: [projectTool],
+      skills: [],
+      tags: [],
+      customFields: [],
+      projectStatuses: []
+    }
+
+    expect(buildToolsMarkdown(context)).toContain('Inspect workspace')
+    expect(buildToolsMarkdown(context)).toContain('Project: Mission project')
+    expect(buildToolsMarkdown(context)).toContain('find . -maxdepth 2 -type f')
+  })
 })

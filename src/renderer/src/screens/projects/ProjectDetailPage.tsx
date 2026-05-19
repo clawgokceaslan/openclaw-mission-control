@@ -10,7 +10,7 @@ import { GATEWAY_REASONING_EFFORT_OPTIONS, DEFAULT_GATEWAY_LANGUAGE, gatewayMode
 import { gatewayChatLifecycleStatusKey, gatewayChatPhaseActionLabel, gatewayLifecycleStatusMeta, inferGatewayChatPhase, type GatewayChatPhase } from '@shared/utils/gateway-chat-phase'
 import { invokeBridge, subscribeToChannel, unsubscribeFromChannel } from '@renderer/utils/api'
 import { clearRendererDiagnosticContext, setRendererDiagnosticContext } from '@renderer/utils/rendererResilience'
-import { Agent, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, CustomField } from '@shared/types/entities'
+import { Agent, AiTool, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskJsonImportResult, TaskSubtask, CustomField } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { LoadingState } from '@renderer/components/loading'
@@ -48,6 +48,8 @@ import {
   nextStatusTopOrder,
   projectDefaultAgentId,
   projectDefaultSkillIds,
+  projectLinkedAgentIds,
+  projectLinkedToolIds,
   readTaskGatewayOverride,
   reorderTasksForDrop,
   taskGatewayId,
@@ -211,6 +213,8 @@ export function ProjectDetailPage() {
     setTasks,
     agents,
     setAgents,
+    tools,
+    setTools,
     gateways,
     setGateways,
     mcpServers,
@@ -768,6 +772,8 @@ export function ProjectDetailPage() {
       createWorkspaceFromDraft,
       updateProjectWorkspace,
       saveProjectDefaultsSettings,
+      saveProjectManagementSettings,
+      createProjectTool,
       saveProjectMcpSettings,
       saveProjectGatewaySettings,
       updateProjectGroupMembership,
@@ -795,6 +801,7 @@ export function ProjectDetailPage() {
     tags,
     skills,
     agents,
+    tools,
     customFields,
     tasks,
     refresh,
@@ -1268,6 +1275,9 @@ export function ProjectDetailPage() {
     return skills.filter((skill) => skillIds.has(skill.id)).sort((a, b) => a.name.localeCompare(b.name, 'tr'))
   }, [project, skills])
 
+  const linkedProjectAgentIds = useMemo(() => projectLinkedAgentIds(project), [project])
+  const linkedProjectToolIds = useMemo(() => projectLinkedToolIds(project), [project])
+
   const selectedTaskAgentIsDefault = Boolean(selectedTask && !selectedTask.agentId && (projectDefaultAgent || defaultAgent))
   const selectedTaskAgentDefaultLabel = selectedTask && !selectedTask.agentId
     ? projectDefaultAgent ? 'Project default' : defaultAgent ? 'Default' : undefined
@@ -1410,8 +1420,8 @@ export function ProjectDetailPage() {
       agentId: selectedTask.agentId || selectedTaskAgent?.id || null,
       skills: selectedTaskSkills
     }
-    return { task: effectiveTask, project, projectGroup: projectGroupForExport, agents, skills, tags, customFields, projectStatuses, gatewayLanguage: projectGatewayLanguage, gatewayPlanReasoningEffort: projectGatewayPlanReasoningEffort, gatewayRunReasoningEffort: projectGatewayRunReasoningEffort }
-  }, [agents, customFields, project, projectGatewayLanguage, projectGatewayPlanReasoningEffort, projectGatewayRunReasoningEffort, projectGroupForExport, projectStatuses, selectedTask, selectedTaskAgent, selectedTaskSkills, skills, tags])
+    return { task: effectiveTask, project, projectGroup: projectGroupForExport, agents, tools, skills, tags, customFields, projectStatuses, gatewayLanguage: projectGatewayLanguage, gatewayPlanReasoningEffort: projectGatewayPlanReasoningEffort, gatewayRunReasoningEffort: projectGatewayRunReasoningEffort }
+  }, [agents, customFields, project, projectGatewayLanguage, projectGatewayPlanReasoningEffort, projectGatewayRunReasoningEffort, projectGroupForExport, projectStatuses, selectedTask, selectedTaskAgent, selectedTaskSkills, skills, tags, tools])
   const openRecentChat = (row: ProjectRecentChatRow) => {
     setPendingChatOpen({ taskId: row.taskId, conversationId: row.conversationId })
     navigateToTaskDetail(row.taskId)
@@ -3241,11 +3251,16 @@ export function ProjectDetailPage() {
     onSetGatewayModelError: setGatewayModelError,
     gatewaySaving,
     agents,
+    tools,
     skills,
     mcpServers,
     defaultAgentId: projectDefaultAgentId(project),
     defaultSkillIds: projectDefaultSkillIds(project),
+    projectAgentIds: linkedProjectAgentIds,
+    projectToolIds: linkedProjectToolIds,
     onSaveProjectDefaultsSettings: saveProjectDefaultsSettings,
+    onSaveProjectManagementSettings: saveProjectManagementSettings,
+    onCreateProjectTool: createProjectTool,
     onSaveProjectMcpSettings: saveProjectMcpSettings,
     onSaveProjectGatewaySettings: saveProjectGatewaySettings,
     onRefreshGatewayModels: refreshGatewayModels,

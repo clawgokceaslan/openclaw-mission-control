@@ -129,7 +129,7 @@ Projects are the main container for work. A project includes:
 - Default output instruction.
 - Gateway settings under `metrics.gateway`.
 - Project rules, plan guide, and post-run prompt under project metrics.
-- Default agent and default skills.
+- Agent/tool management under `metrics.management`, with legacy-compatible `defaultAgentId`, `defaultSkillIds`, `agentIds`, and `toolIds` mirrored at the top level of `metrics`.
 - Linked MCP servers.
 
 Project services can list, create, update, delete, move workspace, and export workspace content. Moving a workspace relocates project/task attachment payloads into the new project folder where possible.
@@ -369,7 +369,7 @@ Agents describe reusable AI personas or operating instructions. An agent include
 - Linked MCP servers.
 - Configuration payload.
 
-Agents can be assigned directly to a task or used as the project default. During export, effective agent resolution prefers the task agent, then the project default agent. Agent details are placed in `Agents.md`; task files contain references to that file.
+Agents can be linked to a project from Project settings. One linked agent can also be the project default. During export, effective agent resolution prefers the task agent, then the project default agent. Agent details are placed in `Agents.md`; task files contain references to that file. The old `metrics.defaultAgentId` field remains readable for existing task exports and databases.
 
 ## Skills
 
@@ -405,6 +405,13 @@ Tool records can include:
 - Linked agents.
 
 Tools are exported as capability context for agents. In the current gateway prompt policy, tools are catalog context only. AI agents should not execute catalog command templates or code bodies unless a future approved runtime explicitly enables tool invocation and approval.
+
+Project settings now exposes tools alongside agents. Users can link existing catalog tools to the project or start a two-step tool creator from the same panel:
+
+- Step 1: type, name, AI usage notes, and basic working context.
+- Step 2: schemas, command/code/runbook details, and agent links.
+
+When the creator is launched from Project settings, the saved tool is automatically added to the project's `metrics.management.toolIds`. The standalone Tools page uses the same two-step shape. The older agent-tool relationship still works and remains the source for exported `Tools.md`; project tool links are management metadata and catalog context until a runtime explicitly enables invocation.
 
 ## MCP Servers
 

@@ -1,6 +1,6 @@
 import { Dispatch, useCallback, useMemo, useReducer } from 'react'
 import { AppSelectOption } from '@renderer/components/select/AppSelect'
-import { Agent, CustomField, Gateway, McpServer, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, TaskEntity, TaskTemplate, Workspace, Tag } from '@shared/types/entities'
+import { Agent, AiTool, CustomField, Gateway, McpServer, OutputFormat, Project, ProjectGroup, ProjectStatus, Skill, StatusTemplate, TaskEntity, TaskTemplate, Workspace, Tag } from '@shared/types/entities'
 import { ChatAttachmentDraft, ChatComposerMode, GatewayRunFeedback, CustomFieldDraftRow, DataFormatRole, DetailTab, DetailViewMode, ProjectPromptTab, ProjectSettingsTab, TaskHistoryItem, TextDraftRow, ThreadEntry } from '../types'
 import { createLocalId } from '../projectDetailUtils'
 
@@ -9,6 +9,7 @@ export interface ProjectDetailDataState {
   projectGroups: ProjectGroup[]
   tasks: TaskEntity[]
   agents: Agent[]
+  tools: AiTool[]
   gateways: Gateway[]
   mcpServers: McpServer[]
   tags: Tag[]
@@ -240,6 +241,7 @@ export const PROJECT_DETAIL_INITIAL_STATE: ProjectDetailState = {
     projectGroups: [],
     tasks: [],
     agents: [],
+    tools: [],
     gateways: [],
     mcpServers: [],
     tags: [],

@@ -11,7 +11,7 @@ import { downloadMarkdownFile } from '../projects/detail/taskExport'
 import { toolTypeLabel } from './toolFilters'
 import styles from './ToolsPage.module.scss'
 
-type ToolTab = 'overview' | 'code' | 'schema' | 'command' | 'flow' | 'agents'
+type ToolTab = 'basics' | 'configuration'
 
 type ToolFormState = {
   id?: string
@@ -70,44 +70,20 @@ const TOOL_TYPE_OPTIONS: AppSelectOption[] = [
 const FORM_TOOL_TYPE_OPTIONS = TOOL_TYPE_OPTIONS.filter((option) => option.value !== 'all')
 const FORM_STATUS_OPTIONS = STATUS_OPTIONS.filter((option) => option.value !== 'all')
 const TABS: Array<{ id: ToolTab; label: string; summary: string }> = [
-  { id: 'overview', label: 'Overview', summary: 'Name, type, purpose and approval policy.' },
-  { id: 'code', label: 'Code', summary: 'Implementation snippet or reference code for the AI.' },
-  { id: 'schema', label: 'Function / Schema', summary: 'Callable function name plus input/output contracts.' },
-  { id: 'command', label: 'Command', summary: 'Future local command runtime definition.' },
-  { id: 'flow', label: 'Execution Flow', summary: 'Step-by-step preparation, validation and result handling.' },
-  { id: 'agents', label: 'Agent Links', summary: 'Agents that receive this tool as catalog context.' }
+  { id: 'basics', label: 'Type & basics', summary: 'Name, type, purpose, status and approval policy.' },
+  { id: 'configuration', label: 'Schema & links', summary: 'Code, command, schemas, runbook and agent/project links.' }
 ]
 
 const TAB_GUIDANCE: Record<ToolTab, { title: string; body: string; checklist: string[] }> = {
-  overview: {
+  basics: {
     title: 'Start with the AI-facing contract',
     body: 'Define what this capability is, when an agent should consider it, and what boundary applies while execution is disabled.',
     checklist: ['Use a clear action-oriented name.', 'Pick the closest tool type.', 'Write usage notes as instructions for the agent.']
   },
-  code: {
-    title: 'Document the implementation surface',
-    body: 'Paste code, pseudo-code, or the function body that explains how the tool should work. This is stored as catalog context only.',
-    checklist: ['Keep secrets out of the snippet.', 'Prefer runnable examples over prose.', 'Mention important dependencies in comments.']
-  },
-  schema: {
-    title: 'Describe inputs and outputs precisely',
-    body: 'Schemas should be JSON objects. Use this section to make the future function/tool call shape unambiguous.',
-    checklist: ['Name the function in snake_case.', 'Keep input schema explicit.', 'Use output schema to describe the expected result.']
-  },
-  command: {
-    title: 'Prepare the future local command path',
-    body: 'Define preparation and command templates, but do not rely on them executing in v1. Gateway exports will mark these as definitions.',
-    checklist: ['Use a workspace-relative directory hint.', 'Separate install/setup from execution.', 'Keep the command deterministic.']
-  },
-  flow: {
-    title: 'Make the runbook obvious',
-    body: 'Write the exact sequence an agent should understand before a future runtime invokes this tool.',
-    checklist: ['List preparation steps.', 'Define approval and validation checkpoints.', 'Explain how output should be interpreted.']
-  },
-  agents: {
-    title: 'Attach the catalog entry to agents',
-    body: 'Linked active tools appear in agent exports and gateway task snapshots as context. They remain non-invokable in this phase.',
-    checklist: ['Attach only relevant agents.', 'Keep inactive experiments detached.', 'Review exported TOOL.md before runtime work.']
+  configuration: {
+    title: 'Shape the runtime contract and links',
+    body: 'Add schemas, implementation notes, commands, execution flow and agent links in one pass. The project settings panel can also start this same two-step flow inside project context.',
+    checklist: ['Keep schemas as JSON objects.', 'Separate preparation from command execution.', 'Attach only relevant agents.']
   }
 }
 
@@ -210,7 +186,7 @@ export function ToolsPage() {
   const [notice, setNotice] = useState<string | null>(null)
   const [form, setForm] = useState<ToolFormState>(emptyForm)
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null)
-  const [activeTab, setActiveTab] = useState<ToolTab>('overview')
+  const [activeTab, setActiveTab] = useState<ToolTab>('basics')
   const [deleteTarget, setDeleteTarget] = useState<AiTool | null>(null)
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const start = total === 0 ? 0 : ((page - 1) * PAGE_SIZE) + 1
@@ -222,12 +198,8 @@ export function ToolsPage() {
   const activeGuidance = TAB_GUIDANCE[activeTab]
 
   const tabComplete = (tab: ToolTab): boolean => {
-    if (tab === 'overview') return Boolean(form.name.trim() && form.descriptionMarkdown.trim())
-    if (tab === 'code') return Boolean(form.codeBody.trim())
-    if (tab === 'schema') return Boolean(form.functionName.trim() || form.inputSchemaJson.trim() || form.outputSchemaJson.trim())
-    if (tab === 'command') return Boolean(form.commandTemplate.trim() || form.prepareCommand.trim() || form.workingDirectoryHint.trim())
-    if (tab === 'flow') return Boolean(form.executionFlowMarkdown.trim())
-    return form.agentIds.length > 0
+    if (tab === 'basics') return Boolean(form.name.trim() && form.descriptionMarkdown.trim())
+    return Boolean(form.functionName.trim() || form.inputSchemaJson.trim() || form.outputSchemaJson.trim() || form.commandTemplate.trim() || form.agentIds.length > 0)
   }
 
   const goToNextTab = () => {
@@ -271,13 +243,13 @@ export function ToolsPage() {
 
   const openCreate = () => {
     setForm(emptyForm)
-    setActiveTab('overview')
+    setActiveTab('basics')
     setModalMode('create')
   }
 
   const openEdit = (tool: AiTool) => {
     setForm(formFromTool(tool))
-    setActiveTab('overview')
+    setActiveTab('basics')
     setModalMode('edit')
   }
 
@@ -299,7 +271,7 @@ export function ToolsPage() {
       setError(null)
     } catch (parseError) {
       setError(parseError instanceof Error ? parseError.message : 'Schema must be valid JSON.')
-      setActiveTab('schema')
+      setActiveTab('configuration')
     }
   }
 
@@ -316,7 +288,7 @@ export function ToolsPage() {
       outputSchemaJson = parseSchema(form.outputSchemaJson, 'Output schema')
     } catch (parseError) {
       setError(parseError instanceof Error ? parseError.message : 'Schema must be valid JSON.')
-      setActiveTab('schema')
+      setActiveTab('configuration')
       return
     }
     setLoading(true)
@@ -494,7 +466,7 @@ export function ToolsPage() {
                     </ul>
                   </div>
 
-                  {activeTab === 'overview' ? (
+                  {activeTab === 'basics' ? (
                     <>
                       <div className={styles.formGrid}>
                         <label>
@@ -527,7 +499,7 @@ export function ToolsPage() {
                     </>
                   ) : null}
 
-                  {activeTab === 'code' ? (
+                  {activeTab === 'configuration' ? (
                     <>
                       <label>
                         <span>Code language</span>
@@ -544,7 +516,7 @@ export function ToolsPage() {
                     </>
                   ) : null}
 
-                  {activeTab === 'schema' ? (
+                  {activeTab === 'configuration' ? (
                     <>
                       <label>
                         <span>Function name</span>
@@ -573,7 +545,7 @@ export function ToolsPage() {
                     </>
                   ) : null}
 
-                  {activeTab === 'command' ? (
+                  {activeTab === 'configuration' ? (
                     <>
                       <label>
                         <span>Working directory hint</span>
@@ -598,7 +570,7 @@ export function ToolsPage() {
                     </>
                   ) : null}
 
-                  {activeTab === 'flow' ? (
+                  {activeTab === 'configuration' ? (
                     <CodeEditor
                       label="Execution flow"
                       language="markdown"
@@ -609,7 +581,7 @@ export function ToolsPage() {
                     />
                   ) : null}
 
-                  {activeTab === 'agents' ? (
+                  {activeTab === 'configuration' ? (
                     <label>
                       <span>Attach to agents</span>
                       <AppSelect mode="multi" value={selectedAgentOptions} options={agentOptions} placeholder="Select active agents..." onChange={(options) => updateForm('agentIds', options.map((option) => option.value))} />

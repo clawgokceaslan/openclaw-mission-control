@@ -117,7 +117,7 @@ export class ProjectRepository extends BaseRepository<Project> {
   }
 
   private map(row: any): Project {
-    const metrics = this.parseJson<Record<string, unknown>>(row.metrics_json) ?? {}
+    const metrics = this.normalizeManagementMetrics(this.parseJson<Record<string, unknown>>(row.metrics_json) ?? {})
     return {
       id: row.id,
       organizationId: row.organization_id,
@@ -129,6 +129,8 @@ export class ProjectRepository extends BaseRepository<Project> {
       generalContext: this.normalizeProjectPrompt(metrics.generalContext),
       generalPrompt: this.normalizeProjectPrompt(metrics.generalPrompt),
       defaultOutput: this.normalizeProjectPrompt(metrics.defaultOutput),
+      agentIds: this.stringIds((metrics.management as Record<string, unknown> | undefined)?.agentIds ?? metrics.agentIds),
+      toolIds: this.stringIds((metrics.management as Record<string, unknown> | undefined)?.toolIds ?? metrics.toolIds),
       createdAt: row.created_at,
       updatedAt: row.updated_at
     }
@@ -173,5 +175,40 @@ export class ProjectRepository extends BaseRepository<Project> {
 
   private normalizeProjectPrompt(value: unknown): string {
     return typeof value === 'string' ? value : ''
+  }
+
+  private normalizeManagementMetrics(metrics: Record<string, unknown>): Record<string, unknown> {
+    const existing = metrics.management && typeof metrics.management === 'object' && !Array.isArray(metrics.management)
+      ? metrics.management as Record<string, unknown>
+      : {}
+    const defaultAgentId = typeof metrics.defaultAgentId === 'string' && metrics.defaultAgentId.trim()
+      ? metrics.defaultAgentId
+      : typeof existing.defaultAgentId === 'string'
+        ? existing.defaultAgentId
+        : null
+    const defaultSkillIds = this.stringIds(metrics.defaultSkillIds ?? existing.defaultSkillIds)
+    const agentIds = Array.from(new Set([...this.stringIds(existing.agentIds ?? metrics.agentIds), ...(defaultAgentId ? [defaultAgentId] : [])]))
+    const toolIds = this.stringIds(existing.toolIds ?? metrics.toolIds ?? metrics.defaultToolIds)
+    return {
+      ...metrics,
+      defaultAgentId,
+      defaultSkillIds,
+      agentIds,
+      toolIds,
+      management: {
+        ...existing,
+        version: 1,
+        defaultAgentId,
+        defaultSkillIds,
+        agentIds,
+        toolIds
+      }
+    }
+  }
+
+  private stringIds(value: unknown): string[] {
+    return Array.isArray(value)
+      ? Array.from(new Set(value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)))
+      : []
   }
 }

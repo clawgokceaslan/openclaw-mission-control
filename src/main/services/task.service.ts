@@ -44,6 +44,7 @@ import { ProjectRepository } from '../../db/repositories/project-repo.js'
 import { CustomFieldRepository, TagRepository } from '../../db/repositories/custom-field-repo.js'
 import { SkillRepository } from '../../db/repositories/skill-repo.js'
 import { AgentRepository } from '../../db/repositories/agent-repo.js'
+import { ToolRepository } from '../../db/repositories/tool-repo.js'
 import { StatusRepository } from '../../db/repositories/status-repo.js'
 import { AppSettingsRepository, WorkspaceRepository } from '../../db/repositories/workspace-repo.js'
 import { GatewayRepository } from '../../db/repositories/gateway-repo.js'
@@ -988,6 +989,22 @@ function projectDefaultAgentId(project: { metrics?: Record<string, unknown> | nu
 function projectDefaultSkillIds(project: { metrics?: Record<string, unknown> | null }): string[] {
   const value = project.metrics?.defaultSkillIds
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : []
+}
+
+function stringIds(value: unknown): string[] {
+  return Array.isArray(value)
+    ? Array.from(new Set(value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)))
+    : []
+}
+
+function projectLinkedToolIds(project: { metrics?: Record<string, unknown> | null }): string[] {
+  const management = project.metrics?.management
+  const record = management && typeof management === 'object' && !Array.isArray(management) ? management as Record<string, unknown> : {}
+  return Array.from(new Set([
+    ...stringIds(record.toolIds),
+    ...stringIds(project.metrics?.toolIds),
+    ...stringIds(project.metrics?.defaultToolIds)
+  ]))
 }
 
 type ProjectInstructionAudience = 'plan' | 'run' | 'chat'
@@ -3420,6 +3437,8 @@ export class TaskService {
   private readonly codexTerminalRuns = new Map<string, GatewayTerminalRun>()
   private readonly activeGatewayChatRuns = new Map<string, ActiveGatewayChatRun>()
   private readonly pausedPlannerRunIds = new Set<string>()
+  private readonly tools?: ToolRepository
+  private readonly eventBus?: EventEmitter
 
   constructor(
     private readonly auth: AuthService,
@@ -3436,8 +3455,16 @@ export class TaskService {
     private readonly workspaces: WorkspaceRepository,
     private readonly gateways: GatewayRepository,
     private readonly appSettings: AppSettingsRepository,
-    private readonly eventBus?: EventEmitter
-  ) { }
+    toolsOrEventBus?: ToolRepository | EventEmitter,
+    eventBus?: EventEmitter
+  ) {
+    if (toolsOrEventBus && 'listByIds' in toolsOrEventBus) {
+      this.tools = toolsOrEventBus
+      this.eventBus = eventBus
+    } else {
+      this.eventBus = toolsOrEventBus as EventEmitter | undefined
+    }
+  }
 
   private async findProjectOrg(projectId: string): Promise<string | undefined> {
     const project = await this.projects.get(projectId)
@@ -3494,6 +3521,13 @@ export class TaskService {
     const inheritedSkillIds = new Set(projectDefaultSkillIds(project ?? {}))
     if (inheritedSkillIds.size === 0) return []
     return (await this.skills.list(organizationId)).filter((skill) => inheritedSkillIds.has(skill.id))
+  }
+
+  private async effectiveProjectTools(organizationId: string, project?: { metrics?: Record<string, unknown> | null }): Promise<AiTool[]> {
+    if (!this.tools) return []
+    const toolIds = projectLinkedToolIds(project ?? {})
+    if (toolIds.length === 0) return []
+    return (await this.tools.listByIds(organizationId, toolIds)).filter((tool) => tool.status === 'active')
   }
 
   private async finishPlannerBridgeRuntime(context: PlannerBridgeContext): Promise<void> {
@@ -4069,6 +4103,7 @@ export class TaskService {
     const effectiveSkills = (task.skills?.length ?? 0) > 0
       ? task.skills ?? []
       : skills.filter((skill) => inheritedSkillIds.has(skill.id))
+    const effectiveProjectTools = await this.effectiveProjectTools(access.data.actorOrgId, project)
     const taskForContextWithSkills = (taskForContext.skills?.length ?? 0) > 0 || effectiveSkills.length === 0
       ? taskForContext
       : { ...taskForContext, skills: effectiveSkills }
@@ -4094,7 +4129,7 @@ export class TaskService {
     const capabilityContext = capabilityContextFromOptions({
       effectiveAgent: effectiveAgentContext,
       effectiveSkills,
-      effectiveTools: activeToolsFromAgent(effectiveAgentContext)
+      effectiveTools: [...activeToolsFromAgent(effectiveAgentContext), ...effectiveProjectTools]
     })
     const activityMessages = taskActivityMessagesFromPayload(task.payload)
     const contextSummary = gatewayCompactContextSummary(taskForContextWithSkills, activityMessages)
@@ -4571,6 +4606,7 @@ export class TaskService {
     const reasoningEffort = projectGatewayReasoningEffort(project, 'run', payload.reasoningEffort)
     const effectiveAgent = await this.effectiveAgentForTask(access.data.task, access.data.actorOrgId, project)
     const effectiveSkills = await this.effectiveSkillsForTask(access.data.task, access.data.actorOrgId, project)
+    const effectiveProjectTools = await this.effectiveProjectTools(access.data.actorOrgId, project)
 
     const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-gateway-run-'))
     let bridge: { url: string; close: () => Promise<void> } | null = null
@@ -4624,7 +4660,7 @@ export class TaskService {
         projectPrompt,
         effectiveAgent,
         effectiveSkills,
-        effectiveTools: activeToolsFromAgent(effectiveAgent)
+        effectiveTools: [...activeToolsFromAgent(effectiveAgent), ...effectiveProjectTools]
       })
       const workspaceRunPath = join(runtimeWorkspacePath, '.omc', 'runs', runId)
       workspaceRunPathForCleanup = workspaceRunPath
@@ -5430,6 +5466,7 @@ export class TaskService {
     const reasoningEffort = projectGatewayReasoningEffort(project, 'plan', payload.reasoningEffort)
     const effectiveAgent = await this.effectiveAgentForTask(access.data.task, access.data.actorOrgId, project)
     const effectiveSkills = await this.effectiveSkillsForTask(access.data.task, access.data.actorOrgId, project)
+    const effectiveProjectTools = await this.effectiveProjectTools(access.data.actorOrgId, project)
     const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-gateway-planner-'))
     let bridge: { url: string; close: () => Promise<void> } | null = null
     let preserveRunFolderOnError = false
@@ -5526,7 +5563,7 @@ export class TaskService {
           projectPrompt,
           effectiveAgent,
           effectiveSkills,
-          effectiveTools: activeToolsFromAgent(effectiveAgent),
+          effectiveTools: [...activeToolsFromAgent(effectiveAgent), ...effectiveProjectTools],
           clarificationMode
         }),
         plannerClarificationPrompt({ conversationId, clarificationMessage, transcript, language, promptShape })

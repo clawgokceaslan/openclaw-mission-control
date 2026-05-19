@@ -54,6 +54,56 @@ export function projectDefaultSkillIds(project: Project | null): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : []
 }
 
+function stringIds(value: unknown): string[] {
+  return Array.isArray(value)
+    ? Array.from(new Set(value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)))
+    : []
+}
+
+function projectManagement(project: Project | null): Record<string, unknown> {
+  const value = project?.metrics?.management
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+export function projectLinkedAgentIds(project: Project | null): string[] {
+  const management = projectManagement(project)
+  const direct = stringIds(management.agentIds)
+  const legacy = stringIds(project?.metrics?.agentIds)
+  const defaultAgentId = projectDefaultAgentId(project)
+  return Array.from(new Set([...direct, ...legacy, ...(defaultAgentId ? [defaultAgentId] : [])]))
+}
+
+export function projectLinkedToolIds(project: Project | null): string[] {
+  const management = projectManagement(project)
+  return Array.from(new Set([
+    ...stringIds(management.toolIds),
+    ...stringIds(project?.metrics?.toolIds),
+    ...stringIds(project?.metrics?.defaultToolIds)
+  ]))
+}
+
+export function buildProjectManagementMetrics(project: Project | null, draft: { defaultAgentId: string | null; defaultSkillIds: string[]; agentIds: string[]; toolIds: string[] }): Record<string, unknown> {
+  const defaultAgentId = draft.defaultAgentId || null
+  const defaultSkillIds = stringIds(draft.defaultSkillIds)
+  const agentIds = Array.from(new Set([...stringIds(draft.agentIds), ...(defaultAgentId ? [defaultAgentId] : [])]))
+  const toolIds = stringIds(draft.toolIds)
+  return {
+    ...(project?.metrics ?? {}),
+    defaultAgentId,
+    defaultSkillIds,
+    agentIds,
+    toolIds,
+    management: {
+      ...(projectManagement(project)),
+      version: 1,
+      defaultAgentId,
+      defaultSkillIds,
+      agentIds,
+      toolIds
+    }
+  }
+}
+
 export function codexConfigOf(gateway?: { template?: unknown; endpoint?: string | null } | null): CodexCliGatewayConfig {
   const template = gateway?.template && typeof gateway.template === 'object' && !Array.isArray(gateway.template)
     ? gateway.template as Partial<CodexCliGatewayConfig>

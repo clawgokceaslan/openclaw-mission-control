@@ -26,6 +26,8 @@ export interface Project {
   defaultOutput?: string
   archived: boolean
   metrics?: Record<string, unknown>
+  agentIds?: string[]
+  toolIds?: string[]
   mcpServers?: McpServer[]
   mcpServerIds?: string[]
   createdAt: number

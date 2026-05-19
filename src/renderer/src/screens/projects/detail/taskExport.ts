@@ -2,12 +2,14 @@ import { strToU8, zipSync } from 'fflate'
 import type { Agent, AiTool, CustomField, McpServer, Project, ProjectGroup, ProjectStatus, Skill, Tag, TaskAttachment, TaskChecklistItem, TaskComment, TaskEntity, TaskSubtask } from '@shared/types/entities'
 import { normalizeGatewayPromptShape, type GatewayPromptShape } from '@shared/utils/gateway-prompt-shape'
 import { parseToonRecord, serializeToonRecord, stringifyCompactJson } from '@shared/utils/toon'
+import { projectLinkedToolIds } from './projectDetailUtils'
 
 type ExportContext = {
   task: TaskEntity
   project?: Project | null
   projectGroup?: ProjectGroup | null
   agents: Agent[]
+  tools?: AiTool[]
   skills: Skill[]
   tags: Tag[]
   customFields: CustomField[]
@@ -789,6 +791,13 @@ export function buildToolsMarkdown(context: ExportContext): string {
       mcpRefs.set(server.id, current)
     }
   }
+  const addProjectTool = (toolId: string, source: string) => {
+    const tool = (context.tools ?? []).find((item) => item.id === toolId)
+    if (!tool || tool.status !== 'active') return
+    const current = refs.get(tool.id) ?? { tool, sources: [] }
+    current.sources.push(source)
+    refs.set(tool.id, current)
+  }
   const addSkillMcp = (skillId: string | undefined | null, source: string) => {
     if (!skillId) return
     const skill = context.skills.find((item) => item.id === skillId) ?? (context.task.skills ?? []).find((item) => item.id === skillId)
@@ -800,6 +809,7 @@ export function buildToolsMarkdown(context: ExportContext): string {
     }
   }
   addAgentTools(effectiveTaskAgentId(context), effectiveSourceLabel(context, 'agent'))
+  for (const toolId of projectLinkedToolIds(context.project ?? null)) addProjectTool(toolId, `Project: ${context.project?.name ?? context.task.projectId}`)
   for (const [index, subtask] of (context.task.subtasks ?? []).entries()) addAgentTools(getSubtaskAgentId(subtask), subtaskLabel(subtask, index))
   for (const skillId of effectiveTaskSkillIds(context)) addSkillMcp(skillId, effectiveSourceLabel(context, 'skills'))
   for (const [index, subtask] of (context.task.subtasks ?? []).entries()) {

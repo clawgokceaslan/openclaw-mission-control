@@ -2,10 +2,11 @@ import { useEffect, useMemo } from 'react'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { normalizeGatewayPromptShape } from '@shared/utils/gateway-prompt-shape'
 import { AppSelectOption } from '@renderer/components/select/AppSelect'
-import type { Gateway, Project, ProjectGatewaySettings, ProjectGroup, ProjectStatus, StatusTemplate, Workspace, Tag, Skill, Agent, CustomField, TaskEntity } from '@shared/types/entities'
+import type { AiTool, Gateway, Project, ProjectGatewaySettings, ProjectGroup, ProjectStatus, StatusTemplate, Workspace, Tag, Skill, Agent, CustomField, TaskEntity } from '@shared/types/entities'
 import { invokeBridge } from '@renderer/utils/api'
 import {
   codexConfigOf,
+  buildProjectManagementMetrics,
   createLocalId,
   projectGatewaySettings,
   projectWorkspaceFolder
@@ -24,6 +25,7 @@ interface UseProjectWorkspaceSettingsContext {
   tags: Tag[]
   skills: Skill[]
   agents: Agent[]
+  tools: AiTool[]
   customFields: CustomField[]
   tasks: TaskEntity[]
   refresh: () => Promise<void>
@@ -41,6 +43,7 @@ interface UseProjectWorkspaceSettingsContext {
     | 'setGatewaySaving'
     | 'setError'
     | 'setProject'
+    | 'setTools'
     | 'setWorkspaces'
     | 'setWorkspaceDraftName'
     | 'setWorkspaceDraftPath'
@@ -118,6 +121,8 @@ interface UseProjectWorkspaceSettingsResult {
     createWorkspaceFromDraft: () => Promise<Workspace | null>
     updateProjectWorkspace: (workspaceId: string | null) => Promise<void>
     saveProjectDefaultsSettings: (draft: { defaultAgentId: string | null; defaultSkillIds: string[] }) => Promise<Project>
+    saveProjectManagementSettings: (draft: { defaultAgentId: string | null; defaultSkillIds: string[]; agentIds: string[]; toolIds: string[] }) => Promise<Project>
+    createProjectTool: (draft: { name: string; status: AiTool['status']; toolType: AiTool['toolType']; descriptionMarkdown: string; codeLanguage: string; codeBody: string; functionName: string; commandTemplate: string; prepareCommand: string; workingDirectoryHint: string; inputSchemaJson?: Record<string, unknown>; outputSchemaJson?: Record<string, unknown>; executionFlowMarkdown: string; approvalRequired: boolean; timeoutSeconds?: number | null; agentIds: string[] }) => Promise<AiTool>
     saveProjectMcpSettings: (serverIds: string[]) => Promise<Project>
     saveProjectGatewaySettings: (draft?: { gatewayId?: string; runtimeWorkspaceId?: string; planModel?: string; runModel?: string; language?: string; promptShape?: ProjectGatewaySettings['promptShape']; planReasoningEffort?: string; runReasoningEffort?: string }) => Promise<ProjectGatewaySettings>
     updateProjectGroupMembership: (nextGroupId: string | null) => Promise<void>
@@ -146,6 +151,7 @@ export function useProjectWorkspaceSettings({
   tags,
   skills,
   agents,
+  tools,
   customFields,
   tasks,
   refresh,
@@ -164,6 +170,7 @@ export function useProjectWorkspaceSettings({
     setGatewaySaving,
     setError,
     setProject,
+    setTools,
     setWorkspaces,
     setWorkspaceDraftName,
     setWorkspaceDraftPath,
@@ -345,6 +352,46 @@ export function useProjectWorkspaceSettings({
     return response.data
   }
 
+  const saveProjectManagementSettings = async (draft: { defaultAgentId: string | null; defaultSkillIds: string[]; agentIds: string[]; toolIds: string[] }): Promise<Project> => {
+    if (!project) throw new Error('Project is not loaded')
+    const response = await invokeBridge<Project>(IPC_CHANNELS.projects.update, {
+      actorToken: token,
+      id: project.id,
+      metrics: buildProjectManagementMetrics(project, draft)
+    })
+    if (!response.ok || !response.data) {
+      const message = response.error?.message ?? 'Unable to save project agent and tool links'
+      setError(message)
+      throw new Error(message)
+    }
+    setProject(response.data)
+    setError(null)
+    await refresh()
+    return response.data
+  }
+
+  const createProjectTool = async (draft: { name: string; status: AiTool['status']; toolType: AiTool['toolType']; descriptionMarkdown: string; codeLanguage: string; codeBody: string; functionName: string; commandTemplate: string; prepareCommand: string; workingDirectoryHint: string; inputSchemaJson?: Record<string, unknown>; outputSchemaJson?: Record<string, unknown>; executionFlowMarkdown: string; approvalRequired: boolean; timeoutSeconds?: number | null; agentIds: string[] }): Promise<AiTool> => {
+    if (!project) throw new Error('Project is not loaded')
+    const response = await invokeBridge<AiTool>(IPC_CHANNELS.tools.create, {
+      actorToken: token,
+      ...draft
+    })
+    if (!response.ok || !response.data) {
+      const message = response.error?.message ?? 'Unable to create project tool'
+      setError(message)
+      throw new Error(message)
+    }
+    const created = response.data
+    setTools((current) => [created, ...current.filter((item) => item.id !== created.id)])
+    await saveProjectManagementSettings({
+      defaultAgentId: typeof project.metrics?.defaultAgentId === 'string' ? project.metrics.defaultAgentId : null,
+      defaultSkillIds: Array.isArray(project.metrics?.defaultSkillIds) ? project.metrics.defaultSkillIds.filter((item): item is string => typeof item === 'string') : [],
+      agentIds: Array.isArray(project.agentIds) ? project.agentIds : [],
+      toolIds: Array.from(new Set([...(Array.isArray(project.toolIds) ? project.toolIds : []), created.id]))
+    })
+    return created
+  }
+
   const saveProjectMcpSettings = async (serverIds: string[]): Promise<Project> => {
     if (!project) throw new Error('Project is not loaded')
     const normalizedServerIds = Array.from(new Set(serverIds.filter(Boolean)))
@@ -504,6 +551,7 @@ export function useProjectWorkspaceSettings({
       project,
       projectGroup: projectGroupForExport,
       agents,
+      tools,
       skills,
       tags,
       customFields,
@@ -725,6 +773,8 @@ export function useProjectWorkspaceSettings({
       createWorkspaceFromDraft,
       updateProjectWorkspace,
       saveProjectDefaultsSettings,
+      saveProjectManagementSettings,
+      createProjectTool,
       saveProjectMcpSettings,
       saveProjectGatewaySettings,
       updateProjectGroupMembership,

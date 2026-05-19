@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AppSelectOption } from '@renderer/components/select/AppSelect'
 import { AppSelect } from '@renderer/components/select/AppSelect'
-import { LuCable, LuCircleCheck, LuExternalLink, LuServer, LuTriangleAlert } from 'react-icons/lu'
+import { LuCable, LuCircleCheck, LuExternalLink, LuPlus, LuServer, LuTriangleAlert } from 'react-icons/lu'
 import { LoadingState } from '@renderer/components/loading'
-import type { Agent, Gateway, McpServer, Project, ProjectGatewaySettings, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Workspace } from '@shared/types/entities'
+import type { Agent, AiTool, AiToolStatus, AiToolType, Gateway, McpServer, Project, ProjectGatewaySettings, ProjectGroup, ProjectStatus, ProjectStatusCategory, Skill, StatusTemplate, Workspace } from '@shared/types/entities'
 import { GATEWAY_LANGUAGE_OPTIONS, GATEWAY_REASONING_EFFORT_OPTIONS, gatewayModelReasoningEfforts, gatewayModelSupportsReasoning, normalizeGatewayLanguage, normalizeGatewayReasoningEffort } from '@shared/utils/gateway-language'
 import { GATEWAY_PROMPT_SHAPES, normalizeGatewayPromptShape } from '@shared/utils/gateway-prompt-shape'
 import type { ProjectSettingsTab } from '@renderer/screens/projects/detail/types'
@@ -21,6 +21,58 @@ type SettingsSaveFeedback = {
   state: 'saving' | 'success' | 'error'
   title: string
   message: string
+}
+
+type ProjectToolDraft = {
+  name: string
+  status: AiToolStatus
+  toolType: AiToolType
+  descriptionMarkdown: string
+  codeLanguage: string
+  codeBody: string
+  functionName: string
+  commandTemplate: string
+  prepareCommand: string
+  workingDirectoryHint: string
+  inputSchemaJson: string
+  outputSchemaJson: string
+  executionFlowMarkdown: string
+  approvalRequired: boolean
+  timeoutSeconds: string
+  agentIds: string[]
+}
+
+const PROJECT_TOOL_INITIAL: ProjectToolDraft = {
+  name: '',
+  status: 'active',
+  toolType: 'local_command',
+  descriptionMarkdown: '',
+  codeLanguage: 'typescript',
+  codeBody: '',
+  functionName: '',
+  commandTemplate: '',
+  prepareCommand: '',
+  workingDirectoryHint: '',
+  inputSchemaJson: '',
+  outputSchemaJson: '',
+  executionFlowMarkdown: '',
+  approvalRequired: true,
+  timeoutSeconds: '120',
+  agentIds: []
+}
+
+const PROJECT_TOOL_TYPE_OPTIONS: AppSelectOption[] = [
+  { label: 'Local command', value: 'local_command' },
+  { label: 'Function', value: 'function' },
+  { label: 'Code', value: 'code' },
+  { label: 'Reference', value: 'reference' }
+]
+
+function parseToolSchema(value: string, label: string): Record<string, unknown> | undefined {
+  if (!value.trim()) return undefined
+  const parsed = JSON.parse(value)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${label} must be a JSON object.`)
+  return parsed as Record<string, unknown>
 }
 
 function saveFeedbackTab(tab: ProjectSettingsTab): ProjectSettingsTab {
@@ -131,11 +183,16 @@ export interface ProjectDetailSettingsPopupProps {
     onSaveProjectGatewaySettings: (draft?: { gatewayId?: string; runtimeWorkspaceId?: string; planModel?: string; runModel?: string; language?: string; promptShape?: ProjectGatewaySettings['promptShape']; planReasoningEffort?: string; runReasoningEffort?: string }) => ProjectGatewaySettings | void | Promise<ProjectGatewaySettings | void>
     onRefreshGatewayModels?: (gatewayId: string) => Promise<void> | void
     agents?: Agent[]
+    tools?: AiTool[]
     skills?: Skill[]
     mcpServers?: McpServer[]
     defaultAgentId: string
     defaultSkillIds: string[]
+    projectAgentIds?: string[]
+    projectToolIds?: string[]
     onSaveProjectDefaultsSettings: (draft: { defaultAgentId: string | null; defaultSkillIds: string[] }) => Project | void | Promise<Project | void>
+    onSaveProjectManagementSettings?: (draft: { defaultAgentId: string | null; defaultSkillIds: string[]; agentIds: string[]; toolIds: string[] }) => Project | void | Promise<Project | void>
+    onCreateProjectTool?: (draft: Omit<ProjectToolDraft, 'inputSchemaJson' | 'outputSchemaJson' | 'timeoutSeconds'> & { inputSchemaJson?: Record<string, unknown>; outputSchemaJson?: Record<string, unknown>; timeoutSeconds?: number | null }) => AiTool | Promise<AiTool>
     onSaveProjectMcpSettings: (serverIds: string[]) => Project | void | Promise<Project | void>
     onOpenMcpPage: () => void
 
@@ -191,6 +248,11 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
   const [runReasoningDraft, setRunReasoningDraft] = useState(normalizeGatewayReasoningEffort(scope.gatewayRunReasoningEffort))
   const [defaultAgentIdDraft, setDefaultAgentIdDraft] = useState(scope.defaultAgentId)
   const [defaultSkillIdsDraft, setDefaultSkillIdsDraft] = useState<string[]>(scope.defaultSkillIds ?? [])
+  const [projectAgentIdsDraft, setProjectAgentIdsDraft] = useState<string[]>(scope.projectAgentIds ?? [])
+  const [projectToolIdsDraft, setProjectToolIdsDraft] = useState<string[]>(scope.projectToolIds ?? [])
+  const [toolCreatorOpen, setToolCreatorOpen] = useState(false)
+  const [toolCreatorStep, setToolCreatorStep] = useState<'basics' | 'configuration'>('basics')
+  const [projectToolDraft, setProjectToolDraft] = useState<ProjectToolDraft>(PROJECT_TOOL_INITIAL)
   const [mcpServerIdsDraft, setMcpServerIdsDraft] = useState<string[]>(projectMcpServerIds(scope.project))
   const [workspaceTargetIdDraft, setWorkspaceTargetIdDraft] = useState(scope.selectedWorkspaceId ?? '')
   const [saveFeedbackByTab, setSaveFeedbackByTab] = useState<Partial<Record<ProjectSettingsTab, SettingsSaveFeedback>>>({})
@@ -212,10 +274,15 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
     setRunReasoningDraft(normalizeGatewayReasoningEffort(scope.gatewayRunReasoningEffort))
     setDefaultAgentIdDraft(scope.defaultAgentId)
     setDefaultSkillIdsDraft(scope.defaultSkillIds ?? [])
+    setProjectAgentIdsDraft(scope.projectAgentIds ?? [])
+    setProjectToolIdsDraft(scope.projectToolIds ?? [])
+    setToolCreatorOpen(false)
+    setToolCreatorStep('basics')
+    setProjectToolDraft(PROJECT_TOOL_INITIAL)
     setMcpServerIdsDraft(projectMcpServerIds(scope.project))
     setWorkspaceTargetIdDraft(scope.selectedWorkspaceId ?? '')
     setSaveFeedbackByTab({})
-  }, [open, scope.project, scope.project?.id, hydratedProjectId, scope.projectSettingsTab, scope.gatewayId, scope.gatewayRuntimeWorkspaceId, scope.gatewayDefaultModel, scope.gatewayDefaultPlanModel, scope.gatewayDefaultRunModel, scope.gatewayLanguage, scope.codexPromptShape, scope.gatewayPlanReasoningEffort, scope.gatewayRunReasoningEffort, scope.defaultAgentId, scope.defaultSkillIds, scope.selectedWorkspaceId])
+  }, [open, scope.project, scope.project?.id, hydratedProjectId, scope.projectSettingsTab, scope.gatewayId, scope.gatewayRuntimeWorkspaceId, scope.gatewayDefaultModel, scope.gatewayDefaultPlanModel, scope.gatewayDefaultRunModel, scope.gatewayLanguage, scope.codexPromptShape, scope.gatewayPlanReasoningEffort, scope.gatewayRunReasoningEffort, scope.defaultAgentId, scope.defaultSkillIds, scope.projectAgentIds, scope.projectToolIds, scope.selectedWorkspaceId])
 
   useEffect(() => {
     if (!open) setHydratedProjectId(null)
@@ -258,6 +325,10 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
   const selectedRunReasoningOption = useMemo(() => runReasoningOptions.find((option) => option.value === runReasoningDraft) ?? runReasoningOptions.find((option) => option.value === 'medium') ?? runReasoningOptions[0] ?? null, [runReasoningDraft, runReasoningOptions])
   const agentOptions = useMemo<AppSelectOption[]>(() => (scope.agents ?? []).map((agent) => ({ label: agent.name, value: agent.id })).sort((a, b) => a.label.localeCompare(b.label, 'tr')), [scope.agents])
   const selectedDefaultAgentOption = useMemo(() => agentOptions.find((option) => option.value === defaultAgentIdDraft) ?? null, [agentOptions, defaultAgentIdDraft])
+  const selectedProjectAgentOptions = useMemo(() => agentOptions.filter((option) => projectAgentIdsDraft.includes(option.value)), [agentOptions, projectAgentIdsDraft])
+  const toolOptions = useMemo<AppSelectOption[]>(() => (scope.tools ?? []).map((tool) => ({ label: tool.name, value: tool.id })).sort((a, b) => a.label.localeCompare(b.label, 'tr')), [scope.tools])
+  const selectedProjectToolOptions = useMemo(() => toolOptions.filter((option) => projectToolIdsDraft.includes(option.value)), [projectToolIdsDraft, toolOptions])
+  const linkedProjectTools = useMemo(() => (scope.tools ?? []).filter((tool) => projectToolIdsDraft.includes(tool.id)), [projectToolIdsDraft, scope.tools])
   const skillOptions = useMemo<AppSelectOption[]>(() => (scope.skills ?? []).filter((skill) => skill.status === 'active' || skill.enabled || defaultSkillIdsDraft.includes(skill.id)).map((skill) => ({ label: skill.name, value: skill.id })).sort((a, b) => a.label.localeCompare(b.label, 'tr')), [defaultSkillIdsDraft, scope.skills])
   const selectedDefaultSkillOptions = useMemo(() => skillOptions.filter((option) => defaultSkillIdsDraft.includes(option.value)), [defaultSkillIdsDraft, skillOptions])
   const allMcpServers = useMemo(() => mergeMcpServers(scope.mcpServers ?? [], scope.project?.mcpServers ?? []), [scope.mcpServers, scope.project?.mcpServers])
@@ -341,23 +412,69 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
     setSaveFeedback(feedbackTab, {
       state: 'saving',
       title: 'Saving',
-      message: activeTab === 'agents' ? 'Project agent default is being saved.' : 'Project skill defaults are being saved.'
+      message: activeTab === 'agents' ? 'Project agents and tools are being saved.' : 'Project skill defaults are being saved.'
     })
     try {
-      await s.onSaveProjectDefaultsSettings({
-        defaultAgentId: defaultAgentIdDraft || null,
-        defaultSkillIds: defaultSkillIdsDraft
-      })
+      if (activeTab === 'agents' && s.onSaveProjectManagementSettings) {
+        await s.onSaveProjectManagementSettings({
+          defaultAgentId: defaultAgentIdDraft || null,
+          defaultSkillIds: defaultSkillIdsDraft,
+          agentIds: projectAgentIdsDraft,
+          toolIds: projectToolIdsDraft
+        })
+      } else {
+        await s.onSaveProjectDefaultsSettings({
+          defaultAgentId: defaultAgentIdDraft || null,
+          defaultSkillIds: defaultSkillIdsDraft
+        })
+      }
       setSaveFeedback(feedbackTab, {
         state: 'success',
         title: 'Saved',
-        message: activeTab === 'agents' ? 'Project agent default is up to date.' : 'Project skill defaults are up to date.'
+        message: activeTab === 'agents' ? 'Project agent and tool links are up to date.' : 'Project skill defaults are up to date.'
       })
     } catch (error) {
       setSaveFeedback(feedbackTab, {
         state: 'error',
         title: 'Save failed',
         message: error instanceof Error ? error.message : 'Unable to save project defaults'
+      })
+    }
+  }
+
+  const updateProjectToolDraft = <K extends keyof ProjectToolDraft>(key: K, value: ProjectToolDraft[K]) => {
+    setProjectToolDraft((current) => ({ ...current, [key]: value }))
+  }
+
+  const handleCreateProjectTool = async () => {
+    if (!projectToolDraft.name.trim() || !s.onCreateProjectTool) return
+    setSaveFeedback('agents', {
+      state: 'saving',
+      title: 'Creating tool',
+      message: 'Project tool definition is being created and linked.'
+    })
+    try {
+      const created = await s.onCreateProjectTool({
+        ...projectToolDraft,
+        name: projectToolDraft.name.trim(),
+        inputSchemaJson: parseToolSchema(projectToolDraft.inputSchemaJson, 'Input schema'),
+        outputSchemaJson: parseToolSchema(projectToolDraft.outputSchemaJson, 'Output schema'),
+        timeoutSeconds: projectToolDraft.timeoutSeconds.trim() ? Number(projectToolDraft.timeoutSeconds) : null
+      })
+      if (created?.id) setProjectToolIdsDraft((current) => Array.from(new Set([...current, created.id])))
+      setToolCreatorOpen(false)
+      setToolCreatorStep('basics')
+      setProjectToolDraft(PROJECT_TOOL_INITIAL)
+      setSaveFeedback('agents', {
+        state: 'success',
+        title: 'Tool linked',
+        message: 'The new tool is attached to this project.'
+      })
+    } catch (error) {
+      setSaveFeedback('agents', {
+        state: 'error',
+        title: 'Tool create failed',
+        message: error instanceof Error ? error.message : 'Unable to create project tool'
       })
     }
   }
@@ -523,7 +640,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                 className={`${styles.tab} ${activeTab === tab ? styles.tabActive : ''}`}
                 onClick={() => handleTabChange(tab)}
               >
-                {tab === 'projectGroup' ? 'Project group' : tab === 'models' ? 'Models' : tab === 'language' ? 'Language' : tab === 'promptShape' ? 'Prompt format' : tab === 'workspace' ? 'Workspace' : tab === 'agents' ? 'Agents' : tab === 'skills' ? 'Skills' : tab === 'mcp' ? 'MCP' : 'Statuses'}
+                {tab === 'projectGroup' ? 'Project group' : tab === 'models' ? 'Models' : tab === 'language' ? 'Language' : tab === 'promptShape' ? 'Prompt format' : tab === 'workspace' ? 'Workspace' : tab === 'agents' ? 'Agents & tools' : tab === 'skills' ? 'Skills' : tab === 'mcp' ? 'MCP' : 'Statuses'}
               </button>
             ))}
           </div>
@@ -721,13 +838,17 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
             <div className={styles.settingsPanel}>
               <div className={styles.settingsPanelHeader}>
                 <div>
-                  <h4>Agents</h4>
-                  <p>Select the project agent inherited by Task Detail when a task has no explicit agent.</p>
+                  <h4>Agents & tools</h4>
+                  <p>Link project capabilities, choose the inherited agent, and create catalog tools without leaving this project.</p>
                 </div>
+                <button type="button" className={styles.tabActionButton} onClick={() => setToolCreatorOpen(true)} disabled={!s.onCreateProjectTool}>
+                  <LuPlus size={15} />
+                  New tool
+                </button>
               </div>
               <div className={styles.settingsFormGrid}>
                 <label>
-                  <span>Project agent</span>
+                  <span>Default inherited agent</span>
                   <AppSelect
                     value={selectedDefaultAgentOption}
                     options={agentOptions}
@@ -736,6 +857,34 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     onChange={(option) => {
                       if (Array.isArray(option)) return
                       setDefaultAgentIdDraft(option?.value ?? '')
+                      if (option?.value) setProjectAgentIdsDraft((current) => Array.from(new Set([...current, option.value])))
+                      clearActiveSaveFeedback()
+                    }}
+                  />
+                </label>
+                <label>
+                  <span>Linked project agents</span>
+                  <AppSelect
+                    mode="multi"
+                    value={selectedProjectAgentOptions}
+                    options={agentOptions}
+                    placeholder="No project agents linked"
+                    onChange={(options) => {
+                      const ids = Array.isArray(options) ? options.map((option) => option.value) : []
+                      setProjectAgentIdsDraft(Array.from(new Set([...ids, ...(defaultAgentIdDraft ? [defaultAgentIdDraft] : [])])))
+                      clearActiveSaveFeedback()
+                    }}
+                  />
+                </label>
+                <label>
+                  <span>Linked project tools</span>
+                  <AppSelect
+                    mode="multi"
+                    value={selectedProjectToolOptions}
+                    options={toolOptions}
+                    placeholder="No project tools linked"
+                    onChange={(options) => {
+                      setProjectToolIdsDraft(Array.isArray(options) ? options.map((option) => option.value) : [])
                       clearActiveSaveFeedback()
                     }}
                   />
@@ -746,7 +895,31 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                   <span>Inherited agent</span>
                   <strong>{selectedDefaultAgentOption?.label ?? 'None'}</strong>
                 </div>
+                <div>
+                  <span>Project capability links</span>
+                  <strong>{projectAgentIdsDraft.length} agent(s), {projectToolIdsDraft.length} tool(s)</strong>
+                </div>
               </div>
+              {linkedProjectTools.length > 0 ? (
+                <div className={styles.settingsMiniTable}>
+                  <div>
+                    <span>Tool</span>
+                    <span>Type</span>
+                    <span>Status</span>
+                    <span>Linked agents</span>
+                  </div>
+                  {linkedProjectTools.map((tool) => (
+                    <div key={tool.id}>
+                      <strong>{tool.name}</strong>
+                      <span>{tool.toolType.replace('_', ' ')}</span>
+                      <span>{tool.status}</span>
+                      <span>{tool.agentIds?.length ?? tool.agents?.length ?? 0}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className={styles.settingsEmptyState}>No project tools linked.</div>
+              )}
               {s.projectAgentRows.length > 0 ? (
                 <div className={styles.settingsMiniTable}>
                   <div>
@@ -1117,8 +1290,8 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
             </>
           ) : activeTab === 'agents' ? (
             <>
-              <span>The project agent is inherited by tasks without an explicit task agent and is sent to Codex.</span>
-              <button type="button" onClick={() => void handleSaveDefaultsSettings()}>Save agent</button>
+              <span>Task-level agent and skill choices still override project defaults; linked project tools remain catalog context.</span>
+              <button type="button" onClick={() => void handleSaveDefaultsSettings()}>Save agents & tools</button>
             </>
           ) : (
             <>
@@ -1128,6 +1301,107 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
           )}
         </footer>
       </section>
+
+      {toolCreatorOpen ? (
+        <>
+          <div className={`${styles.backdrop} ${styles.nestedBackdrop}`} onClick={() => setToolCreatorOpen(false)} />
+          <section className={`${styles.shell} ${styles.nestedModal}`} role="dialog" aria-modal="true" aria-label="Create project tool">
+            <header className={styles.header}>
+              <div>
+                <h3>Create project tool</h3>
+                <p>Two-step catalog definition that will be linked to this project after save.</p>
+              </div>
+              <button type="button" onClick={() => setToolCreatorOpen(false)} aria-label="Close tool creator">×</button>
+            </header>
+            <div className={styles.tabs}>
+              <div className={styles.tabList}>
+                {([
+                  { id: 'basics' as const, label: 'Type & basics' },
+                  { id: 'configuration' as const, label: 'Schema & links' }
+                ]).map((step) => (
+                  <button
+                    key={step.id}
+                    type="button"
+                    className={`${styles.tab} ${toolCreatorStep === step.id ? styles.tabActive : ''}`}
+                    onClick={() => setToolCreatorStep(step.id)}
+                  >
+                    {step.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className={styles.body}>
+              <div className={styles.settingsPanel}>
+                {toolCreatorStep === 'basics' ? (
+                  <div className={styles.settingsFormGrid}>
+                    <label>
+                      <span>Name *</span>
+                      <input autoFocus value={projectToolDraft.name} onChange={(event) => updateProjectToolDraft('name', event.target.value)} placeholder="List changed files" />
+                    </label>
+                    <label>
+                      <span>Type</span>
+                      <AppSelect
+                        value={PROJECT_TOOL_TYPE_OPTIONS.find((option) => option.value === projectToolDraft.toolType) ?? PROJECT_TOOL_TYPE_OPTIONS[0]}
+                        options={PROJECT_TOOL_TYPE_OPTIONS}
+                        onChange={(option) => updateProjectToolDraft('toolType', (option?.value as AiToolType | undefined) ?? 'local_command')}
+                      />
+                    </label>
+                    <label>
+                      <span>AI usage notes</span>
+                      <textarea value={projectToolDraft.descriptionMarkdown} onChange={(event) => updateProjectToolDraft('descriptionMarkdown', event.target.value)} rows={6} placeholder="When to use, required inputs, expected result." />
+                    </label>
+                    <label>
+                      <span>Working directory hint</span>
+                      <input value={projectToolDraft.workingDirectoryHint} onChange={(event) => updateProjectToolDraft('workingDirectoryHint', event.target.value)} placeholder="Project runtime workspace" />
+                    </label>
+                  </div>
+                ) : (
+                  <div className={styles.settingsFormGrid}>
+                    <label>
+                      <span>Function name</span>
+                      <input value={projectToolDraft.functionName} onChange={(event) => updateProjectToolDraft('functionName', event.target.value)} placeholder="list_changed_files" />
+                    </label>
+                    <label>
+                      <span>Attach to agents</span>
+                      <AppSelect
+                        mode="multi"
+                        value={agentOptions.filter((option) => projectToolDraft.agentIds.includes(option.value))}
+                        options={agentOptions}
+                        placeholder="No agent links"
+                        onChange={(options) => updateProjectToolDraft('agentIds', Array.isArray(options) ? options.map((option) => option.value) : [])}
+                      />
+                    </label>
+                    <label>
+                      <span>Input schema JSON</span>
+                      <textarea value={projectToolDraft.inputSchemaJson} onChange={(event) => updateProjectToolDraft('inputSchemaJson', event.target.value)} rows={7} placeholder={'{\n  "type": "object",\n  "properties": {}\n}'} />
+                    </label>
+                    <label>
+                      <span>Output schema JSON</span>
+                      <textarea value={projectToolDraft.outputSchemaJson} onChange={(event) => updateProjectToolDraft('outputSchemaJson', event.target.value)} rows={7} placeholder={'{\n  "type": "object",\n  "properties": {}\n}'} />
+                    </label>
+                    <label>
+                      <span>Command template</span>
+                      <textarea value={projectToolDraft.commandTemplate} onChange={(event) => updateProjectToolDraft('commandTemplate', event.target.value)} rows={4} placeholder="npm test -- --runInBand" />
+                    </label>
+                    <label>
+                      <span>Execution flow</span>
+                      <textarea value={projectToolDraft.executionFlowMarkdown} onChange={(event) => updateProjectToolDraft('executionFlowMarkdown', event.target.value)} rows={4} placeholder="1. Prepare inputs&#10;2. Validate output" />
+                    </label>
+                  </div>
+                )}
+              </div>
+            </div>
+            <footer className={styles.footer}>
+              <span>{toolCreatorStep === 'basics' ? 'Continue to schema, command, and agent links.' : 'Schema errors are shown here without closing the project settings panel.'}</span>
+              {toolCreatorStep === 'basics' ? (
+                <button type="button" onClick={() => setToolCreatorStep('configuration')} disabled={!projectToolDraft.name.trim()}>Next</button>
+              ) : (
+                <button type="button" onClick={() => void handleCreateProjectTool()} disabled={!projectToolDraft.name.trim()}>Create & link</button>
+              )}
+            </footer>
+          </section>
+        </>
+      ) : null}
 
       {s.isStatusTemplatePickerOpen ? (
         <StatusTemplatePickerModal

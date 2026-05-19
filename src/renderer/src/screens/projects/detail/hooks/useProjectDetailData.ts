@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import type {
   Agent,
+  AiTool,
   CustomField,
   Gateway,
   McpServer,
@@ -35,6 +36,7 @@ export interface ProjectDetailDataContext {
       | 'setSkills'
       | 'setCustomFields'
       | 'setAgents'
+      | 'setTools'
       | 'setGateways'
       | 'setMcpServers'
       | 'setOutputFormats'
@@ -67,6 +69,7 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
     setSkills,
     setCustomFields,
     setAgents,
+    setTools,
     setGateways,
     setMcpServers,
     setOutputFormats,
@@ -96,6 +99,7 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
       skillsResponse,
       customFieldsResponse,
       agentsResponse,
+      toolsResponse,
       gatewaysResponse,
       mcpServersResponse,
       outputFormatsResponse,
@@ -111,6 +115,7 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
       loadList<Skill[]>(IPC_CHANNELS.skills.list, token),
       loadList<CustomField[]>(IPC_CHANNELS.customFields.list, token),
       loadList<Agent[]>(IPC_CHANNELS.agents.list, token),
+      invokeBridge<{ rows: AiTool[]; total: number }>(IPC_CHANNELS.tools.listPage, { actorToken: token, page: 1, pageSize: 100 }),
       loadList<Gateway[]>(IPC_CHANNELS.gateways.list, token),
       loadList<McpServer[]>(IPC_CHANNELS.mcp.list, token),
       loadList<OutputFormat[]>(IPC_CHANNELS.outputFormats.list, token),
@@ -133,6 +138,7 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
     setSkills(Array.isArray(skillsResponse.data) ? skillsResponse.data : [])
     setCustomFields(Array.isArray(customFieldsResponse.data) ? customFieldsResponse.data : [])
     setAgents(Array.isArray(agentsResponse.data) ? agentsResponse.data : [])
+    setTools(Array.isArray(toolsResponse.data?.rows) ? toolsResponse.data.rows : [])
     setGateways(Array.isArray(gatewaysResponse.data) ? gatewaysResponse.data : [])
     setMcpServers(Array.isArray(mcpServersResponse.data) ? mcpServersResponse.data : [])
     setOutputFormats(Array.isArray(outputFormatsResponse.data) ? outputFormatsResponse.data : [])
@@ -150,6 +156,8 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
         ? taskResponse.error?.message ?? 'Unable to load tasks'
         : !outputFormatsResponse.ok
           ? outputFormatsResponse.error?.message ?? 'Unable to load data formats'
+          : !toolsResponse.ok
+            ? toolsResponse.error?.message ?? 'Unable to load tools'
           : !taskTemplatesResponse.ok
             ? taskTemplatesResponse.error?.message ?? 'Unable to load task templates'
             : !mcpServersResponse.ok
@@ -166,6 +174,7 @@ export function useProjectDetailData({ token, projectId, state }: ProjectDetailD
     setSkills,
     setCustomFields,
     setAgents,
+    setTools,
     setGateways,
     setMcpServers,
     setOutputFormats,

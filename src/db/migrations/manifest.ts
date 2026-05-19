@@ -71,7 +71,8 @@ export function resolveMigrations(basePath: string): MigrationPlan[] {
     '024_user_avatar_path.sql',
     '025_run_pipelines.sql',
     '026_ai_tools.sql',
-    '027_mcp_servers.sql'
+    '027_mcp_servers.sql',
+    '028_project_capability_management.sql'
   ]
   return filenames.map((filename) => {
     const searchPaths = [

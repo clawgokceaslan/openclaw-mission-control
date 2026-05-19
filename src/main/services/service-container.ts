@@ -221,7 +221,7 @@ export async function createAppContext(): Promise<AppContext> {
   const appSettingsRepo = new AppSettingsRepository(db)
 
   const auth = new AuthService(authRepo, eventBus)
-  const tasks = new TaskService(auth, taskRepo, taskSubtaskRepo, taskTagRepo, taskSkillRepo, projectRepo, tagRepo, skillRepo, customFieldRepo, agentRepo, statusRepo, workspaceRepo, gatewayRepo, appSettingsRepo, eventBus)
+  const tasks = new TaskService(auth, taskRepo, taskSubtaskRepo, taskTagRepo, taskSkillRepo, projectRepo, tagRepo, skillRepo, customFieldRepo, agentRepo, statusRepo, workspaceRepo, gatewayRepo, appSettingsRepo, toolRepo, eventBus)
   const planPipelines = new PlanPipelineService(auth, planPipelineRepo, projectRepo, taskRepo, eventBus)
   const runPipelines = new RunPipelineService(auth, runPipelineRepo, planPipelineRepo, projectRepo, taskRepo, tasks, eventBus)
   planPipelines.setRunPipelineCreator((organizationId, planBatchId, actorToken, createdByName) =>

@@ -6,6 +6,10 @@
   backdrop-filter: blur(3px);
 }
 
+.nestedBackdrop {
+  z-index: 72;
+}
+
 .shell {
   position: fixed;
   z-index: 71;
@@ -27,6 +31,16 @@
 
 .projectSettingsModal {
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+}
+
+.nestedModal {
+  z-index: 73;
+  width: min(760px, calc(100vw - 56px));
+  max-height: min(760px, calc(100vh - 72px));
+
+  .body {
+    padding: 16px 20px;
+  }
 }
 
 .header {
