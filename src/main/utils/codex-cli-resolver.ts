@@ -7,7 +7,7 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 
-export type CodexExecutableResolution = {
+export type CliExecutableResolution = {
   command: string
   attempted: string[]
   original: string
@@ -15,16 +15,27 @@ export type CodexExecutableResolution = {
   nodeCommand?: string
 }
 
-export class CodexCliNotFoundError extends Error {
+export type CodexExecutableResolution = CliExecutableResolution
+
+export class CliNotFoundError extends Error {
   readonly code = 'ENOENT'
   readonly attempted: string[]
   readonly original: string
+  readonly cliName: string
 
-  constructor(original: string, attempted: string[]) {
-    super(codexCliNotFoundMessage(original, attempted))
-    this.name = 'CodexCliNotFoundError'
+  constructor(cliName: string, original: string, attempted: string[]) {
+    super(cliNotFoundMessage(cliName, original, attempted))
+    this.name = 'CliNotFoundError'
+    this.cliName = cliName
     this.original = original
     this.attempted = attempted
+  }
+}
+
+export class CodexCliNotFoundError extends CliNotFoundError {
+  constructor(original: string, attempted: string[]) {
+    super('Codex CLI', original, attempted)
+    this.name = 'CodexCliNotFoundError'
   }
 }
 
@@ -97,7 +108,7 @@ async function optionalExecutable(command: string): Promise<string | undefined> 
   return undefined
 }
 
-function codexEnvPath(command: string, nodeCommand?: string): string {
+function cliEnvPath(command: string, nodeCommand?: string): string {
   return unique([
     dirname(command),
     nodeCommand ? dirname(nodeCommand) : '',
@@ -106,16 +117,20 @@ function codexEnvPath(command: string, nodeCommand?: string): string {
   ]).join(delimiter)
 }
 
-export function codexProcessEnv(resolution: Pick<CodexExecutableResolution, 'envPath'>): NodeJS.ProcessEnv {
+export function codexProcessEnv(resolution: Pick<CliExecutableResolution, 'envPath'>): NodeJS.ProcessEnv {
   return {
     ...process.env,
     PATH: resolution.envPath
   }
 }
 
-export function codexCliNotFoundMessage(original: string, attempted: string[]): string {
+export function cliNotFoundMessage(cliName: string, original: string, attempted: string[]): string {
   const tried = attempted.length > 0 ? ` Tried: ${attempted.join(', ')}.` : ''
-  return `Codex CLI not found for "${original}".${tried} Set the Codex command/path in Gateway settings.`
+  return `${cliName} not found for "${original}".${tried} Set the command/path in Gateway settings.`
+}
+
+export function codexCliNotFoundMessage(original: string, attempted: string[]): string {
+  return cliNotFoundMessage('Codex CLI', original, attempted).replace('Set the command/path', 'Set the Codex command/path')
 }
 
 export function isCodexCliNotFoundError(error: unknown): error is CodexCliNotFoundError {
@@ -127,19 +142,29 @@ export function isCodexCliNotFoundError(error: unknown): error is CodexCliNotFou
   )
 }
 
-export async function resolveCodexExecutable(input?: string): Promise<CodexExecutableResolution> {
-  const original = input?.trim() || 'codex'
+export function isCliNotFoundError(error: unknown): error is CliNotFoundError {
+  return error instanceof CliNotFoundError || (
+    Boolean(error)
+      && typeof error === 'object'
+      && (error as { code?: unknown }).code === 'ENOENT'
+      && Array.isArray((error as { attempted?: unknown }).attempted)
+      && typeof (error as { original?: unknown }).original === 'string'
+  )
+}
+
+async function resolveCliExecutable(input: string | undefined, fallbackCommand: string, cliName: string): Promise<CliExecutableResolution> {
+  const original = input?.trim() || fallbackCommand
   const attempted: string[] = []
-  const withRuntime = async (command: string): Promise<CodexExecutableResolution> => {
+  const withRuntime = async (command: string): Promise<CliExecutableResolution> => {
     const nodeCommand = await optionalExecutable('node')
-    return { command, attempted: unique(attempted), original, envPath: codexEnvPath(command, nodeCommand), nodeCommand }
+    return { command, attempted: unique(attempted), original, envPath: cliEnvPath(command, nodeCommand), nodeCommand }
   }
 
   if (isAbsolute(original) || hasPathSeparator(original)) {
     const candidate = isAbsolute(original) ? original : resolve(original)
     attempted.push(candidate)
     if (await executable(candidate)) return withRuntime(candidate)
-    throw new CodexCliNotFoundError(original, unique(attempted))
+    throw cliName === 'Codex CLI' ? new CodexCliNotFoundError(original, unique(attempted)) : new CliNotFoundError(cliName, original, unique(attempted))
   }
 
   for (const candidate of executableCandidates(original)) {
@@ -153,5 +178,13 @@ export async function resolveCodexExecutable(input?: string): Promise<CodexExecu
     if (await executable(shellCandidate)) return withRuntime(shellCandidate)
   }
 
-  throw new CodexCliNotFoundError(original, unique(attempted))
+  throw cliName === 'Codex CLI' ? new CodexCliNotFoundError(original, unique(attempted)) : new CliNotFoundError(cliName, original, unique(attempted))
+}
+
+export async function resolveCodexExecutable(input?: string): Promise<CodexExecutableResolution> {
+  return resolveCliExecutable(input, 'codex', 'Codex CLI')
+}
+
+export async function resolveClaudeExecutable(input?: string): Promise<CliExecutableResolution> {
+  return resolveCliExecutable(input, 'claude', 'Claude CLI')
 }

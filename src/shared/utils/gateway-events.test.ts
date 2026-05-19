@@ -165,4 +165,34 @@ describe('parseGatewayEvents', () => {
     })
     expect(result.messages[2].append).toBeUndefined()
   })
+
+  it('normalizes Claude stream-json assistant messages and final results', () => {
+    const result = parseGatewayEvents([
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          id: 'msg_1',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Claude is working.' }]
+        }
+      }),
+      JSON.stringify({
+        type: 'result',
+        result: 'Done with Claude.',
+        usage: { input_tokens: 42, output_tokens: 7 }
+      })
+    ].join('\n'))
+
+    expect(result.messages).toHaveLength(2)
+    expect(result.messages[0]).toMatchObject({
+      role: 'assistant',
+      text: 'Claude is working.',
+      messageId: 'msg_1'
+    })
+    expect(result.messages[1]).toMatchObject({
+      role: 'assistant',
+      text: 'Done with Claude.'
+    })
+    expect(formatUsageSummary(result.usage)).toBe('42 input · 7 output · 49 total')
+  })
 })

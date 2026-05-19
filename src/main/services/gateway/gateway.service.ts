@@ -9,6 +9,7 @@ import {
   Gateway,
   GatewayCommand,
   GatewayHistoryItem,
+  ClaudeCliGatewayConfig,
   CodexCliGatewayConfig,
   CodexCliModel,
   OpenClawGatewayConfig,
@@ -22,7 +23,7 @@ import { OpenClawGatewayClient, OpenClawGatewayRuntimeRegistry } from './rpc-cli
 import { createOpenClawDeviceIdentity } from './device-identity.js'
 import { OPENCLAW_METHODS, isKnownOpenClawMethod } from './method-catalog.js'
 import { ACTIVE_GATEWAY_KEY } from '../app-settings.service.js'
-import { codexProcessEnv, resolveCodexExecutable } from '../../utils/codex-cli-resolver.js'
+import { codexProcessEnv, resolveClaudeExecutable, resolveCodexExecutable } from '../../utils/codex-cli-resolver.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -44,21 +45,52 @@ function maskToken(token: string): string {
   return '••••••••'
 }
 
+function gatewayProvider(input: UpsertGatewayRequest, current?: Gateway): 'codex_cli' | 'claude_cli' {
+  const currentProvider = (current?.template as { provider?: unknown } | undefined)?.provider
+  return input.provider === 'claude_cli' || currentProvider === 'claude_cli' ? 'claude_cli' : 'codex_cli'
+}
+
+function gatewayExecutionMode(inputMode: unknown, currentMode: unknown): 'terminal' | 'exec' {
+  return inputMode === 'exec' || inputMode === 'terminal'
+    ? inputMode
+    : currentMode === 'exec' || currentMode === 'terminal'
+      ? currentMode
+      : 'terminal'
+}
+
+function cliGatewayConfig(input: UpsertGatewayRequest, current?: Gateway): CodexCliGatewayConfig | ClaudeCliGatewayConfig {
+  return gatewayProvider(input, current) === 'claude_cli'
+    ? claudeCliConfig(input, current)
+    : codexCliConfig(input, current)
+}
+
 function codexCliConfig(input: UpsertGatewayRequest, current?: Gateway): CodexCliGatewayConfig {
   const currentTemplate = (current?.template ?? {}) as Partial<CodexCliGatewayConfig>
   const codexPath = input.codexPath?.trim() || currentTemplate.codexPath || current?.endpoint || 'codex'
-  const executionMode = input.codexExecutionMode === 'exec' || input.codexExecutionMode === 'terminal'
-    ? input.codexExecutionMode
-    : currentTemplate.executionMode === 'exec' || currentTemplate.executionMode === 'terminal'
-      ? currentTemplate.executionMode
-      : 'terminal'
   return {
     provider: 'codex_cli',
     codexPath,
-    executionMode,
+    executionMode: gatewayExecutionMode(input.codexExecutionMode, currentTemplate.executionMode),
     models: currentTemplate.models,
     lastModelRefreshAt: currentTemplate.lastModelRefreshAt,
     lastModelRefreshError: currentTemplate.lastModelRefreshError
+  }
+}
+
+function claudeCliConfig(input: UpsertGatewayRequest, current?: Gateway): ClaudeCliGatewayConfig {
+  const currentTemplate = (current?.template ?? {}) as Partial<ClaudeCliGatewayConfig>
+  const claudePath = input.claudePath?.trim() || input.codexPath?.trim() || currentTemplate.claudePath || current?.endpoint || 'claude'
+  const apiKeyEnvVar = input.apiKeyEnvVar?.trim() || currentTemplate.apiKeyEnvVar || 'ANTHROPIC_API_KEY'
+  return {
+    provider: 'claude_cli',
+    claudePath,
+    executionMode: gatewayExecutionMode(input.claudeExecutionMode ?? input.codexExecutionMode, currentTemplate.executionMode),
+    apiKeyEnvVar,
+    models: currentTemplate.models,
+    lastModelRefreshAt: currentTemplate.lastModelRefreshAt,
+    lastModelRefreshError: currentTemplate.lastModelRefreshError,
+    lastAuthCheckAt: currentTemplate.lastAuthCheckAt,
+    lastAuthCheckError: currentTemplate.lastAuthCheckError
   }
 }
 
@@ -168,11 +200,11 @@ export class GatewayService {
     const gateway = await this.repo.create({
       organizationId: actor.user.organizationId,
       name: payload.name!.trim(),
-      endpoint: (payload.gatewayPath?.trim() || 'codex'),
+      endpoint: payload.provider === 'claude_cli' ? (payload.claudePath?.trim() || payload.gatewayPath?.trim() || 'claude') : (payload.codexPath?.trim() || payload.gatewayPath?.trim() || 'codex'),
       token: '',
-      template: codexCliConfig(payload)
+      template: cliGatewayConfig(payload)
     })
-    await this.repo.appendHistory(gateway.id, 'gateway.created', { provider: 'codex_cli' })
+    await this.repo.appendHistory(gateway.id, 'gateway.created', { provider: gatewayProvider(payload) })
     return okResponse(this.maskGateway(gateway))
   }
 
@@ -183,11 +215,13 @@ export class GatewayService {
     if (validation) return validation
     const updated = await this.repo.update(current.id, {
       name: payload.name?.trim(),
-      endpoint: payload.gatewayPath?.trim() || current.endpoint || 'codex',
-      template: codexCliConfig(payload, current)
+      endpoint: gatewayProvider(payload, current) === 'claude_cli'
+        ? (payload.claudePath?.trim() || payload.codexPath?.trim() || payload.gatewayPath?.trim() || current.endpoint || 'claude')
+        : (payload.codexPath?.trim() || payload.gatewayPath?.trim() || current.endpoint || 'codex'),
+      template: cliGatewayConfig(payload, current)
     })
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Gateway not found')
-    await this.repo.appendHistory(updated.id, 'gateway.updated', { provider: 'codex_cli' })
+    await this.repo.appendHistory(updated.id, 'gateway.updated', { provider: gatewayProvider(payload, current) })
     return okResponse(this.maskGateway(updated))
   }
 
@@ -225,32 +259,32 @@ export class GatewayService {
 
   async templates(payload: { actorToken?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<Array<{ id: string; name: string; sample: string }>>> {
     await this.auth.requireActor(payload?.actorToken)
-    return okResponse([{ id: 'codex_cli', name: 'Codex CLI', sample: 'Local Codex CLI' }])
+    return okResponse([
+      { id: 'codex_cli', name: 'Codex CLI', sample: 'Local Codex CLI' },
+      { id: 'claude_cli', name: 'Claude CLI', sample: 'Local Anthropic Claude CLI' }
+    ])
   }
 
   async gatewayModels(payload: { actorToken?: string; gatewayId?: string }, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }>> {
     const gateway = await this.requireGateway(payload?.actorToken, payload?.gatewayId)
     if ('ok' in gateway) return gateway as ServiceResponse<{ gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }>
-    const template = codexCliConfig({}, gateway)
-    const codexPath = template.codexPath || gateway.endpoint || 'codex'
-    const args = ['debug', 'models']
+    const provider = gatewayProvider({}, gateway)
+    const template = cliGatewayConfig({}, gateway)
     try {
-      const resolved = await resolveCodexExecutable(codexPath)
-      const { stdout } = await execFileAsync(resolved.command, args, { timeout: 20_000, maxBuffer: 1024 * 1024 * 8, env: codexProcessEnv(resolved) })
-      const models = normalizeGatewayModels(stdout)
-      if (models.length === 0) throw new Error('Codex CLI returned no models')
+      const models = provider === 'claude_cli'
+        ? await this.refreshClaudeModels(gateway, template as ClaudeCliGatewayConfig)
+        : await this.refreshCodexModels(gateway, template as CodexCliGatewayConfig)
+      if (models.length === 0) throw new Error(`${provider === 'claude_cli' ? 'Claude' : 'Codex'} CLI returned no models`)
       const updated = await this.repo.update(gateway.id, {
-        endpoint: resolved.command,
         template: {
           ...template,
-          codexPath: resolved.command,
           models,
           lastModelRefreshAt: Date.now(),
           lastModelRefreshError: undefined
         }
       })
       const masked = this.maskGateway(updated ?? gateway)
-      await this.repo.appendHistory(gateway.id, 'codex.models.refreshed', { count: models.length })
+      await this.repo.appendHistory(gateway.id, `${provider === 'claude_cli' ? 'claude' : 'codex'}.models.refreshed`, { count: models.length })
       return okResponse({ gateway: masked, models, cached: false })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -261,9 +295,27 @@ export class GatewayService {
           lastModelRefreshError: message
         }
       })
-      await this.repo.appendHistory(gateway.id, 'codex.models.refresh_failed', { error: message })
+      await this.repo.appendHistory(gateway.id, `${provider === 'claude_cli' ? 'claude' : 'codex'}.models.refresh_failed`, { error: message })
       return okResponse({ gateway: this.maskGateway(updated ?? gateway), models: cached, cached: cached.length > 0, error: message })
     }
+  }
+
+  private async refreshCodexModels(gateway: Gateway, template: CodexCliGatewayConfig): Promise<CodexCliModel[]> {
+    const resolved = await resolveCodexExecutable(template.codexPath || gateway.endpoint || 'codex')
+    const { stdout } = await execFileAsync(resolved.command, ['debug', 'models'], { timeout: 20_000, maxBuffer: 1024 * 1024 * 8, env: codexProcessEnv(resolved) })
+    const updated = await this.repo.update(gateway.id, { endpoint: resolved.command, template: { ...template, codexPath: resolved.command } })
+    void updated
+    return normalizeGatewayModels(stdout)
+  }
+
+  private async refreshClaudeModels(gateway: Gateway, template: ClaudeCliGatewayConfig): Promise<CodexCliModel[]> {
+    const resolved = await resolveClaudeExecutable(template.claudePath || gateway.endpoint || 'claude')
+    await execFileAsync(resolved.command, ['--version'], { timeout: 10_000, maxBuffer: 1024 * 64, env: codexProcessEnv(resolved) })
+    await this.repo.update(gateway.id, { endpoint: resolved.command, template: { ...template, claudePath: resolved.command } })
+    return [
+      { id: 'sonnet', label: 'Claude Sonnet', source: 'claude', recommended: true, supportsReasoning: true, reasoningEfforts: ['low', 'medium', 'high', 'xhigh'] },
+      { id: 'opus', label: 'Claude Opus', source: 'claude', supportsReasoning: true, reasoningEfforts: ['low', 'medium', 'high', 'xhigh'] }
+    ]
   }
 
   async connect(payload: { actorToken?: string; gatewayId?: string }): Promise<ServiceResponse<Gateway>> {
@@ -680,7 +732,7 @@ export class GatewayService {
   private validateUpsert(payload: UpsertGatewayRequest, creating: boolean, current?: Gateway): ServiceResponse<never> | null {
     if (creating && !payload.name?.trim()) return errorResponse(ErrorCodes.Validation, 'Gateway name required')
     const codexPath = payload.gatewayPath?.trim() || current?.endpoint || 'codex'
-    if (!codexPath.trim()) return errorResponse(ErrorCodes.Validation, 'Codex CLI path required')
+    if (!codexPath.trim()) return errorResponse(ErrorCodes.Validation, 'CLI path required')
     return null
   }
 

@@ -53,7 +53,7 @@ import { TaskJsonImportNormalizer } from './task-json-import.js'
 import type { NormalizedImportedSubtask, NormalizedTaskJsonImport } from './task-json-import.js'
 import { safeConsole } from '../utils/safe-output.js'
 import { showGatewayNotification } from '../utils/gateway-notifications.js'
-import { codexProcessEnv, isCodexCliNotFoundError, resolveCodexExecutable } from '../utils/codex-cli-resolver.js'
+import { codexProcessEnv, isCliNotFoundError, resolveClaudeExecutable, resolveCodexExecutable, type CliExecutableResolution } from '../utils/codex-cli-resolver.js'
 import { formatUsageSummary, parseGatewayEvents, type GatewayNormalizedEvent, type GatewayUsageSummary } from '../../shared/utils/gateway-events.js'
 import { gatewayLanguageDisplayName, normalizeGatewayLanguage, normalizeGatewayReasoningEffort, type GatewayLanguagePair } from '../../shared/utils/gateway-language.js'
 import { gatewayMetadataBlock, inferGatewayChatPhase, type GatewayChatPhase } from '../../shared/utils/gateway-chat-phase.js'
@@ -229,6 +229,7 @@ export type PlannerQuestionPayload = {
 }
 
 type GatewayExecutionMode = 'terminal' | 'exec'
+type CliGatewayProvider = 'codex_cli' | 'claude_cli'
 
 type TaskActivityMessage = {
   id: string
@@ -886,6 +887,11 @@ function codexReasoningConfigArg(reasoningEffort: string): string {
   return `model_reasoning_effort="${normalizeGatewayReasoningEffort(reasoningEffort)}"`
 }
 
+function claudeEffortArg(reasoningEffort: string): string {
+  const normalized = normalizeGatewayReasoningEffort(reasoningEffort)
+  return normalized === 'xhigh' ? 'xhigh' : normalized
+}
+
 function codexMcpProxyConfigArgs(proxyScriptPath: string, sessionPath: string): string[] {
   return [
     `mcp_servers.omc_proxy.command=${JSON.stringify('node')}`,
@@ -1249,25 +1255,130 @@ function codexTrustedProjectConfig(path: string): string {
   return `projects.${JSON.stringify(path)}.trust_level="trusted"`
 }
 
-function codexCliConfig(value: unknown): { codexPath: string; executionMode: GatewayExecutionMode } {
+function codexCliConfig(value: unknown): { provider: CliGatewayProvider; codexPath: string; claudePath: string; executionMode: GatewayExecutionMode; apiKeyEnvVar: string } {
   const template = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+  const provider = template.provider === 'claude_cli' ? 'claude_cli' : 'codex_cli'
   return {
+    provider,
     codexPath: typeof template.codexPath === 'string' && template.codexPath.trim() ? template.codexPath.trim() : 'codex',
-    executionMode: template.executionMode === 'exec' ? 'exec' : 'terminal'
+    claudePath: typeof template.claudePath === 'string' && template.claudePath.trim() ? template.claudePath.trim() : 'claude',
+    executionMode: template.executionMode === 'exec' ? 'exec' : 'terminal',
+    apiKeyEnvVar: typeof template.apiKeyEnvVar === 'string' && template.apiKeyEnvVar.trim() ? template.apiKeyEnvVar.trim() : 'ANTHROPIC_API_KEY'
   }
 }
 
-async function codexLaunchConfig(value: unknown): Promise<{ codexPath: string; configuredCodexPath: string; executionMode: GatewayExecutionMode; attemptedCodexPaths: string[]; codexEnvPath: string; codexEnv: NodeJS.ProcessEnv }> {
+async function codexLaunchConfig(value: unknown): Promise<{ provider: CliGatewayProvider; cliLabel: string; codexPath: string; configuredCodexPath: string; executionMode: GatewayExecutionMode; attemptedCodexPaths: string[]; codexEnvPath: string; codexEnv: NodeJS.ProcessEnv; apiKeyEnvVar?: string }> {
   const config = codexCliConfig(value)
-  const resolved = await resolveCodexExecutable(config.codexPath)
+  const resolved: CliExecutableResolution = config.provider === 'claude_cli'
+    ? await resolveClaudeExecutable(config.claudePath)
+    : await resolveCodexExecutable(config.codexPath)
+  const env = codexProcessEnv(resolved)
+  if (config.provider === 'claude_cli' && config.apiKeyEnvVar && process.env[config.apiKeyEnvVar] && !env.ANTHROPIC_API_KEY) {
+    env.ANTHROPIC_API_KEY = process.env[config.apiKeyEnvVar]
+  }
   return {
+    provider: config.provider,
+    cliLabel: config.provider === 'claude_cli' ? 'Claude' : 'Codex',
     codexPath: resolved.command,
-    configuredCodexPath: config.codexPath,
+    configuredCodexPath: config.provider === 'claude_cli' ? config.claudePath : config.codexPath,
     executionMode: config.executionMode,
     attemptedCodexPaths: resolved.attempted,
     codexEnvPath: resolved.envPath,
-    codexEnv: codexProcessEnv(resolved)
+    codexEnv: env,
+    apiKeyEnvVar: config.provider === 'claude_cli' ? config.apiKeyEnvVar : undefined
   }
+}
+
+function gatewayExecArgs(input: {
+  provider: CliGatewayProvider
+  model: string
+  prompt: string
+  runtimeWorkspacePath: string
+  finalMessagePath: string
+  reasoningEffort: string
+  mcpConfigArgs?: string[]
+  exportWorkspacePath?: string
+  resumeSessionId?: string
+}): string[] {
+  if (input.provider === 'claude_cli') {
+    return [
+      '-p',
+      '--output-format', 'stream-json',
+      '--include-partial-messages',
+      '--model', input.model,
+      '--effort', claudeEffortArg(input.reasoningEffort),
+      '--permission-mode', 'bypassPermissions',
+      '--tools', 'default',
+      '--setting-sources', 'user,project,local',
+      '--no-session-persistence',
+      ...(input.exportWorkspacePath ? ['--add-dir', input.exportWorkspacePath] : []),
+      input.prompt
+    ]
+  }
+  if (input.resumeSessionId) {
+    return [
+      'exec',
+      'resume',
+      '--json',
+      '--output-last-message', input.finalMessagePath,
+      '--model', input.model,
+      '-c', codexReasoningConfigArg(input.reasoningEffort),
+      ...(input.mcpConfigArgs ?? []).flatMap((configArg) => ['-c', configArg]),
+      '--skip-git-repo-check',
+      '--dangerously-bypass-approvals-and-sandbox',
+      input.resumeSessionId,
+      input.prompt
+    ]
+  }
+  return [
+    'exec',
+    '--json',
+    '--output-last-message', input.finalMessagePath,
+    '--cd', input.runtimeWorkspacePath,
+    '--model', input.model,
+    '-c', codexReasoningConfigArg(input.reasoningEffort),
+    ...(input.mcpConfigArgs ?? []).flatMap((configArg) => ['-c', configArg]),
+    '--skip-git-repo-check',
+    '--dangerously-bypass-approvals-and-sandbox',
+    '--color', 'never',
+    input.prompt
+  ]
+}
+
+function gatewayTerminalCommand(input: {
+  provider: CliGatewayProvider
+  cliPath: string
+  runtimeWorkspacePath: string
+  exportWorkspacePath?: string
+  model: string
+  prompt: string
+  reasoningEffort: string
+  mcpConfigArgs?: string[]
+}): string {
+  if (input.provider === 'claude_cli') {
+    return [
+      shellQuote(input.cliPath),
+      ...(input.exportWorkspacePath ? ['--add-dir', shellQuote(input.exportWorkspacePath)] : []),
+      '--model', shellQuote(input.model),
+      '--effort', shellQuote(claudeEffortArg(input.reasoningEffort)),
+      '--permission-mode', 'bypassPermissions',
+      '--tools', 'default',
+      shellQuote(input.prompt)
+    ].join(' ')
+  }
+  return [
+    shellQuote(input.cliPath),
+    '--cd', shellQuote(input.runtimeWorkspacePath),
+    ...(input.exportWorkspacePath ? ['--add-dir', shellQuote(input.exportWorkspacePath)] : []),
+    '--model', shellQuote(input.model),
+    '--sandbox', 'workspace-write',
+    '--dangerously-bypass-approvals-and-sandbox',
+    '-c', shellQuote(codexReasoningConfigArg(input.reasoningEffort)),
+    ...(input.mcpConfigArgs ?? []).flatMap((configArg) => ['-c', shellQuote(configArg)]),
+    '-c', shellQuote(codexTrustedProjectConfig(input.runtimeWorkspacePath)),
+    ...(input.exportWorkspacePath ? ['-c', shellQuote(codexTrustedProjectConfig(input.exportWorkspacePath))] : []),
+    shellQuote(input.prompt)
+  ].join(' ')
 }
 
 function taskActivityMessagesFromPayload(payload: unknown): TaskActivityMessage[] {
@@ -4535,8 +4646,8 @@ export class TaskService {
       || stringOrEmpty(taskGateway.model)
       || stringOrEmpty(projectGateway.runModel)
       || stringOrEmpty(projectGateway.defaultModel)
-    if (!gatewayId) return errorResponse(ErrorCodes.Validation, 'Task or project has no Codex gateway configured')
-    if (!model) return errorResponse(ErrorCodes.Validation, 'Task or project has no Codex run model configured')
+    if (!gatewayId) return errorResponse(ErrorCodes.Validation, 'Task or project has no CLI gateway configured')
+    if (!model) return errorResponse(ErrorCodes.Validation, 'Task or project has no gateway run model configured')
 
     const taskPayload = asPayload(task.payload)
     const taskMarkdown = [
@@ -4575,8 +4686,8 @@ export class TaskService {
 
   async runGateway(payload: RunTaskGatewayRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<{ runFolderPath: string; workspacePath: string; exportWorkspacePath: string; runtimeWorkspacePath: string; model: string; gatewayId: string; command: string; executionMode?: GatewayExecutionMode; runId?: string; conversationId?: string; pid?: number; eventsPath?: string; finalMessagePath?: string }>> {
     if (!payload?.taskId || !payload.projectId) return errorResponse(ErrorCodes.Validation, 'Task and project id are required')
-    if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex gateway is required')
-    if (!payload.model?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex model is required')
+    if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'CLI gateway is required')
+    if (!payload.model?.trim()) return errorResponse(ErrorCodes.Validation, 'Gateway model is required')
     const zipBuffer = zipBufferFromPayload(payload.zipBytes)
     const hasSnapshotPayload = Boolean(
       payload.taskMarkdown?.trim()
@@ -4595,11 +4706,11 @@ export class TaskService {
     if (!project || project.id !== access.data.task.projectId) return errorResponse(ErrorCodes.NotFound, 'Project not found')
     if (project.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
     const gateway = await this.gateways.get(payload.gatewayId)
-    if (!gateway || gateway.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Codex gateway is invalid')
+    if (!gateway || gateway.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'CLI gateway is invalid')
     const runtimeWorkspaceId = projectGatewayRuntimeWorkspaceId(project)
-    if (!runtimeWorkspaceId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is required')
+    if (!runtimeWorkspaceId) return errorResponse(ErrorCodes.Validation, 'Project gateway runtime workspace is required')
     const runtimeWorkspace = await this.workspaces.get(runtimeWorkspaceId)
-    if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
+    if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project gateway runtime workspace is invalid')
     const projectPrompt = projectPromptSnapshot(project)
     const language = await resolveGatewayLanguageSetting(this.appSettings, access.data.actorOrgId, project, payload)
     const promptShape = projectGatewayPromptShape(project)
@@ -4643,8 +4754,8 @@ export class TaskService {
 
       const model = payload.model.trim()
       const taskId = access.data.task.id
-      const { codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, codexEnv, executionMode } = await codexLaunchConfig(gateway.template)
-      const wrapperPath = join(runFolderPath, 'run-codex.sh')
+      const { provider, cliLabel, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, codexEnv, executionMode, apiKeyEnvVar } = await codexLaunchConfig(gateway.template)
+      const wrapperPath = join(runFolderPath, provider === 'claude_cli' ? 'run-claude.sh' : 'run-codex.sh')
       const finishFilePath = join(runFolderPath, 'codex-finished.signal')
       const runTerminalTitle = terminalTitle(`OMC Codex ${access.data.task.id}`)
       const runId = plannerRunId(access.data.task.id)
@@ -4683,7 +4794,7 @@ export class TaskService {
       const sessionPath = join(runtimeWorkspacePath, sessionRelativePath)
       const mcpProxyPath = join(runtimeWorkspacePath, mcpProxyRelativePath)
       const effectiveMcpServers = effectiveMcpServersForRun(project, effectiveAgent, effectiveSkills)
-      const codexMcpConfigArgs = codexMcpProxyConfigArgs(mcpProxyPath, sessionPath)
+      const codexMcpConfigArgs = provider === 'codex_cli' ? codexMcpProxyConfigArgs(mcpProxyPath, sessionPath) : []
       await mkdir(workspaceRunPath, { recursive: true })
       await writeFile(clientScriptPath, omcPlannerClientScript(), 'utf8')
       await chmod(clientScriptPath, 0o700)
@@ -4720,34 +4831,10 @@ export class TaskService {
         runtimeWorkspacePath,
         language
       }), 'utf8')
-      const codexCommand = [
-        shellQuote(codexPath),
-        '--cd', shellQuote(runtimeWorkspacePath),
-        '--add-dir', shellQuote(exportWorkspacePath),
-        '--model', shellQuote(model),
-        '--sandbox', 'workspace-write',
-        '--dangerously-bypass-approvals-and-sandbox',
-        '-c', shellQuote(codexReasoningConfigArg(reasoningEffort)),
-        ...codexMcpConfigArgs.flatMap((configArg) => ['-c', shellQuote(configArg)]),
-        '-c', shellQuote(codexTrustedProjectConfig(runtimeWorkspacePath)),
-        '-c', shellQuote(codexTrustedProjectConfig(exportWorkspacePath)),
-        shellQuote(prompt)
-      ].join(' ')
+      const codexCommand = gatewayTerminalCommand({ provider, cliPath: codexPath, runtimeWorkspacePath, exportWorkspacePath, model, prompt, reasoningEffort, mcpConfigArgs: codexMcpConfigArgs })
       const execEventsPath = join(runFolderPath, 'gateway-events.jsonl')
       const execFinalMessagePath = join(runFolderPath, 'final-message.md')
-      const execArgs = [
-        'exec',
-        '--json',
-        '--output-last-message', execFinalMessagePath,
-        '--cd', runtimeWorkspacePath,
-        '--model', model,
-        '-c', codexReasoningConfigArg(reasoningEffort),
-        ...codexMcpConfigArgs.flatMap((configArg) => ['-c', configArg]),
-        '--skip-git-repo-check',
-        '--dangerously-bypass-approvals-and-sandbox',
-        '--color', 'never',
-        prompt
-      ]
+      const execArgs = gatewayExecArgs({ provider, model, prompt, runtimeWorkspacePath, finalMessagePath: execFinalMessagePath, reasoningEffort, mcpConfigArgs: codexMcpConfigArgs, exportWorkspacePath })
       const execCommand = [shellQuote(codexPath), ...execArgs.map(shellQuote)].join(' ')
       const loginShellCommand = [
         'set -e',
@@ -4831,8 +4918,8 @@ export class TaskService {
             source: 'gateway-run',
             role: 'system',
             status: 'running',
-            body: `Started Codex exec run with ${model}.`,
-            metadata: { gatewayId: gateway.id, model, language, reasoningEffort, effectiveAgent, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath }
+            body: `Started ${cliLabel} exec run with ${model}.`,
+            metadata: { provider, gatewayId: gateway.id, model, language, reasoningEffort, effectiveAgent, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, apiKeyEnvVar }
           },
           {
             runId,
@@ -4847,7 +4934,7 @@ export class TaskService {
             source: 'gateway-run',
             role: 'thinking',
             status: 'running',
-            body: 'Codex is working through the task...',
+            body: `${cliLabel} is working through the task...`,
             metadata: { executionMode, eventsPath: execEventsPath }
           }
         ])
@@ -4910,34 +4997,8 @@ export class TaskService {
             primaryFinalMessage,
             primaryChanges
           })
-          const sessionId = extractCodexSessionId(primaryEventRaw)
-          const postArgs = sessionId
-            ? [
-                'exec',
-                'resume',
-                '--json',
-                '--output-last-message', postFinalMessagePath,
-                '--model', model,
-                '-c', codexReasoningConfigArg(reasoningEffort),
-                ...codexMcpConfigArgs.flatMap((configArg) => ['-c', configArg]),
-                '--skip-git-repo-check',
-                '--dangerously-bypass-approvals-and-sandbox',
-                sessionId,
-                postPrompt
-              ]
-            : [
-                'exec',
-                '--json',
-                '--output-last-message', postFinalMessagePath,
-                '--cd', runtimeWorkspacePath,
-                '--model', model,
-                '-c', codexReasoningConfigArg(reasoningEffort),
-                ...codexMcpConfigArgs.flatMap((configArg) => ['-c', configArg]),
-                '--skip-git-repo-check',
-                '--dangerously-bypass-approvals-and-sandbox',
-                '--color', 'never',
-                postPrompt
-              ]
+          const sessionId = provider === 'codex_cli' ? extractCodexSessionId(primaryEventRaw) : ''
+          const postArgs = gatewayExecArgs({ provider, model, prompt: postPrompt, runtimeWorkspacePath, finalMessagePath: postFinalMessagePath, reasoningEffort, mcpConfigArgs: codexMcpConfigArgs, resumeSessionId: sessionId })
           const postCommand = [shellQuote(codexPath), ...postArgs.map(shellQuote)].join(' ')
           await this.appendTaskActivityMessages(taskId, [
             {
@@ -4947,7 +5008,7 @@ export class TaskService {
               phase: 'POST-RUNNING',
               role: 'system',
               status: 'running',
-              body: 'Starting Codex post-run prompt.',
+              body: `Starting ${cliLabel} post-run prompt.`,
               metadata: { gatewayBlock: 'post-run-start', parentRunId: runId, sessionId, command: postCommand, model, language, reasoningEffort }
             },
             {
@@ -5034,7 +5095,7 @@ export class TaskService {
                   phase: 'POST-RUNNING',
                   role: 'system',
                   status: postCode === 0 ? 'completed' : 'failed',
-                  body: postCode === 0 ? 'Codex post-run prompt completed.' : `Codex post-run prompt failed with code ${postCode ?? 'unknown'}.`,
+                    body: postCode === 0 ? `${cliLabel} post-run prompt completed.` : `${cliLabel} post-run prompt failed with code ${postCode ?? 'unknown'}.`,
                   metadata: { gatewayBlock: 'run-complete', parentRunId: runId, code: postCode, signal: postSignal, eventsPath: postEventsPath, finalMessagePath: postFinalMessagePath, usage: postUsage }
                 })
                 if (postCode === 0) {
@@ -5046,7 +5107,7 @@ export class TaskService {
                     phase: 'POST-RUNNING',
                     role: 'assistant',
                     status: 'completed',
-                    body: codexFinalAssistantBody(postFinalMessage, 'Codex post-run prompt completed.', hasStreamedAssistantMessage),
+                    body: codexFinalAssistantBody(postFinalMessage, `${cliLabel} post-run prompt completed.`, hasStreamedAssistantMessage),
                     metadata: { code: postCode, signal: postSignal, eventsPath: postEventsPath, finalMessagePath: postFinalMessagePath, usage: postUsage, gatewayBlock: hasStreamedAssistantMessage ? 'final-handoff' : 'final-fallback' }
                   })
                 } else {
@@ -5057,7 +5118,7 @@ export class TaskService {
                     phase: 'POST-RUNNING',
                     role: 'error',
                     status: 'failed',
-                    body: postFinalMessage.trim() || `Codex post-run prompt exited with code ${postCode ?? 'unknown'}.`,
+                    body: postFinalMessage.trim() || `${cliLabel} post-run prompt exited with code ${postCode ?? 'unknown'}.`,
                     metadata: { code: postCode, signal: postSignal, eventsPath: postEventsPath, finalMessagePath: postFinalMessagePath, usage: postUsage, rawTail: postEventSummary.rawTail }
                   })
                 }
@@ -5099,7 +5160,7 @@ export class TaskService {
                   source: 'gateway-run',
                   role: 'system',
                   status: 'completed',
-                  body: 'Codex run stopped.',
+                  body: `${cliLabel} run stopped.`,
                   metadata: { code, signal, eventsPath: execEventsPath, stopped: true, stopRequested: true, gatewayBlock: 'run-complete' }
                 },
                 {
@@ -5150,7 +5211,7 @@ export class TaskService {
               source: 'gateway-run',
               role: 'system',
               status: code === 0 ? 'completed' : 'failed',
-              body: code === 0 ? 'Codex run completed.' : `Codex run failed with code ${code ?? 'unknown'}.`,
+              body: code === 0 ? `${cliLabel} run completed.` : `${cliLabel} run failed with code ${code ?? 'unknown'}.`,
               metadata: { gatewayBlock: 'run-complete', code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage }
             })
             if (code === 0) {
@@ -5160,7 +5221,7 @@ export class TaskService {
                 source: 'gateway-run',
                 role: 'assistant',
                 status: 'completed',
-                body: codexFinalAssistantBody(finalMessage, 'Codex exec completed.', hasStreamedAssistantMessage),
+                body: codexFinalAssistantBody(finalMessage, `${cliLabel} exec completed.`, hasStreamedAssistantMessage),
                 metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, gatewayBlock: hasStreamedAssistantMessage ? 'final-handoff' : 'final-fallback' }
               })
               await this.appendTaskActivityMessages(taskId, terminalMessages, { emitTaskUpdatedAction: 'activity_complete' })
@@ -5177,7 +5238,7 @@ export class TaskService {
                 source: 'gateway-run',
                 role: 'error',
                 status: 'failed',
-                body: finalMessage.trim() || `Codex exec exited with code ${code ?? 'unknown'}.`,
+                body: finalMessage.trim() || `${cliLabel} exec exited with code ${code ?? 'unknown'}.`,
                 metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, rawTail: eventSummary.rawTail }
               })
               await this.appendTaskActivityMessages(taskId, terminalMessages, { emitTaskUpdatedAction: 'activity_complete' })
@@ -5217,8 +5278,8 @@ export class TaskService {
           source: 'gateway-run',
           role: 'system',
           status: 'running',
-          body: `Started Codex terminal run with ${model}.`,
-          metadata: { gatewayId: gateway.id, model, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath }
+          body: `Started ${cliLabel} terminal run with ${model}.`,
+          metadata: { provider, gatewayId: gateway.id, model, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, apiKeyEnvVar }
         },
         {
           runId,
@@ -5233,7 +5294,7 @@ export class TaskService {
           source: 'gateway-run',
           role: 'thinking',
           status: 'running',
-          body: 'Codex terminal is running this task...',
+          body: `${cliLabel} terminal is running this task...`,
           metadata: { executionMode, runtimeWorkspacePath, runFolderPath }
         }
       ])
@@ -5273,8 +5334,8 @@ export class TaskService {
         await rm(runFolderPath, { recursive: true, force: true })
         if (workspaceRunPathForCleanup) await rm(workspaceRunPathForCleanup, { recursive: true, force: true })
       }
-      const message = error instanceof Error ? error.message : 'Unable to launch Codex terminal'
-      if (isCodexCliNotFoundError(error)) {
+      const message = error instanceof Error ? error.message : 'Unable to launch CLI terminal'
+      if (isCliNotFoundError(error)) {
         await this.appendTaskActivityMessage(access.data.task.id, {
           runId: plannerRunId(access.data.task.id),
           source: 'gateway-run',
@@ -5444,8 +5505,8 @@ export class TaskService {
 
   async planWithGateway(payload: PlanTaskGatewayRequest, _meta?: Record<string, unknown>): Promise<ServiceResponse<PlannerLaunchResult>> {
     if (!payload?.taskId || !payload.projectId) return errorResponse(ErrorCodes.Validation, 'Task and project id are required')
-    if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex gateway is required')
-    if (!payload.model?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex model is required')
+    if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'CLI gateway is required')
+    if (!payload.model?.trim()) return errorResponse(ErrorCodes.Validation, 'Gateway model is required')
 
     const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
     if (!access.ok || !access.data) {
@@ -5455,11 +5516,11 @@ export class TaskService {
     if (!project || project.id !== access.data.task.projectId) return errorResponse(ErrorCodes.NotFound, 'Project not found')
     if (project.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
     const gateway = await this.gateways.get(payload.gatewayId)
-    if (!gateway || gateway.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Codex gateway is invalid')
+    if (!gateway || gateway.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'CLI gateway is invalid')
     const runtimeWorkspaceId = projectGatewayRuntimeWorkspaceId(project)
-    if (!runtimeWorkspaceId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is required')
+    if (!runtimeWorkspaceId) return errorResponse(ErrorCodes.Validation, 'Project gateway runtime workspace is required')
     const runtimeWorkspace = await this.workspaces.get(runtimeWorkspaceId)
-    if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
+    if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project gateway runtime workspace is invalid')
     const projectPrompt = projectPromptSnapshot(project)
     const language = await resolveGatewayLanguageSetting(this.appSettings, access.data.actorOrgId, project, payload)
     const promptShape = projectGatewayPromptShape(project)
@@ -5484,7 +5545,7 @@ export class TaskService {
       const clarificationMessage = payload.clarificationMessage?.trim() ?? ''
       const clarificationMode = clarificationMessage ? 'direct' : normalizePlannerClarificationMode(payload.clarificationMode)
       const model = payload.model.trim()
-      const { codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, codexEnv, executionMode } = await codexLaunchConfig(gateway.template)
+      const { provider, cliLabel, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, codexEnv, executionMode, apiKeyEnvVar } = await codexLaunchConfig(gateway.template)
       const helperRelativePath = plannerRunRelativePath(runId, 'omc-task-client.mjs')
       const sessionRelativePath = plannerRunRelativePath(runId, 'session.json')
       const mcpProxyRelativePath = plannerRunRelativePath(runId, 'omc-mcp-proxy.mjs')
@@ -5515,7 +5576,7 @@ export class TaskService {
       const sessionPath = join(runtimeWorkspacePath, sessionRelativePath)
       const mcpProxyPath = join(runtimeWorkspacePath, mcpProxyRelativePath)
       const effectiveMcpServers = effectiveMcpServersForRun(project, effectiveAgent, effectiveSkills)
-      const codexMcpConfigArgs = codexMcpProxyConfigArgs(mcpProxyPath, sessionPath)
+      const codexMcpConfigArgs = provider === 'codex_cli' ? codexMcpProxyConfigArgs(mcpProxyPath, sessionPath) : []
       await mkdir(workspaceRunPath, { recursive: true })
       await writeFile(clientScriptPath, omcPlannerClientScript(), 'utf8')
       await chmod(clientScriptPath, 0o700)
@@ -5568,32 +5629,10 @@ export class TaskService {
         }),
         plannerClarificationPrompt({ conversationId, clarificationMessage, transcript, language, promptShape })
       ].join(' ')
-      const codexCommand = [
-        shellQuote(codexPath),
-        '--cd', shellQuote(runtimeWorkspacePath),
-        '--model', shellQuote(model),
-        '--sandbox', 'workspace-write',
-        '--dangerously-bypass-approvals-and-sandbox',
-        '-c', shellQuote(codexReasoningConfigArg(reasoningEffort)),
-        ...codexMcpConfigArgs.flatMap((configArg) => ['-c', shellQuote(configArg)]),
-        '-c', shellQuote(codexTrustedProjectConfig(runtimeWorkspacePath)),
-        shellQuote(prompt)
-      ].join(' ')
+      const codexCommand = gatewayTerminalCommand({ provider, cliPath: codexPath, runtimeWorkspacePath, model, prompt, reasoningEffort, mcpConfigArgs: codexMcpConfigArgs })
       const execEventsPath = join(runFolderPath, 'gateway-events.jsonl')
       const execFinalMessagePath = join(runFolderPath, 'final-message.md')
-      const execArgs = [
-        'exec',
-        '--json',
-        '--output-last-message', execFinalMessagePath,
-        '--cd', runtimeWorkspacePath,
-        '--model', model,
-        '-c', codexReasoningConfigArg(reasoningEffort),
-        ...codexMcpConfigArgs.flatMap((configArg) => ['-c', configArg]),
-        '--skip-git-repo-check',
-        '--dangerously-bypass-approvals-and-sandbox',
-        '--color', 'never',
-        prompt
-      ]
+      const execArgs = gatewayExecArgs({ provider, model, prompt, runtimeWorkspacePath, finalMessagePath: execFinalMessagePath, reasoningEffort, mcpConfigArgs: codexMcpConfigArgs })
       const execCommand = [shellQuote(codexPath), ...execArgs.map(shellQuote)].join(' ')
       const wrapperPath = join(runFolderPath, 'run-gateway-planner.sh')
       const wrapper = [
@@ -5617,7 +5656,7 @@ export class TaskService {
         'trap cleanup EXIT',
         `cd ${shellQuote(runtimeWorkspacePath)}`,
         'printf \'\\033]0;%s\\007\' "$TERMINAL_TITLE"',
-        'echo "Open Mission Control Codex task planning"',
+        `echo "Open Mission Control ${cliLabel} task planning"`,
         `echo "Project: ${project.name.replace(/"/g, '\\"')}"`,
         `echo "Source task: ${access.data.task.title.replace(/"/g, '\\"')}"`,
         'echo "Open Mission Control helper API is scoped to this project and task."',
@@ -5674,8 +5713,8 @@ export class TaskService {
             source: 'gateway-plan',
             role: 'system',
             status: 'running',
-            body: `Started Codex exec planner with ${model}.`,
-            metadata: { gatewayId: gateway.id, model, language, reasoningEffort, clarificationMode, effectiveAgent, executionMode, runtimeWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath }
+            body: `Started ${cliLabel} exec planner with ${model}.`,
+            metadata: { provider, gatewayId: gateway.id, model, language, reasoningEffort, clarificationMode, effectiveAgent, executionMode, runtimeWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, apiKeyEnvVar }
           },
           {
             runId,
@@ -5692,7 +5731,7 @@ export class TaskService {
             source: 'gateway-plan',
             role: 'thinking',
             status: 'running',
-            body: 'Codex is planning the task...',
+            body: `${cliLabel} is planning the task...`,
             metadata: { executionMode, eventsPath: execEventsPath }
           }
         ])
@@ -5781,7 +5820,7 @@ export class TaskService {
                   source: 'gateway-plan',
                   role: 'system',
                   status: 'completed',
-                  body: 'Codex planner stopped.',
+                  body: `${cliLabel} planner stopped.`,
                   metadata: { gatewayBlock: 'run-complete', code, signal, stopped: true, stopRequested: true, eventsPath: execEventsPath }
                 },
                 {
@@ -5834,7 +5873,7 @@ export class TaskService {
               source: 'gateway-plan',
               role: 'system',
               status: code === 0 ? 'completed' : 'failed',
-              body: code === 0 ? 'Codex planner completed.' : `Codex planner failed with code ${code ?? 'unknown'}.`,
+              body: code === 0 ? `${cliLabel} planner completed.` : `${cliLabel} planner failed with code ${code ?? 'unknown'}.`,
               metadata: { gatewayBlock: 'run-complete', code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage }
             })
             if (code === 0) {
@@ -5845,7 +5884,7 @@ export class TaskService {
                 source: 'gateway-plan',
                 role: 'assistant',
                 status: 'completed',
-                body: codexFinalAssistantBody(finalMessage, 'Codex planner completed.', hasStreamedAssistantMessage),
+                body: codexFinalAssistantBody(finalMessage, `${cliLabel} planner completed.`, hasStreamedAssistantMessage),
                 metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, gatewayBlock: hasStreamedAssistantMessage ? 'final-handoff' : 'final-fallback' }
               })
             } else {
@@ -5855,7 +5894,7 @@ export class TaskService {
                 source: 'gateway-plan',
                 role: 'error',
                 status: 'failed',
-                body: finalMessage.trim() || `Codex planner exited with code ${code ?? 'unknown'}.`,
+                body: finalMessage.trim() || `${cliLabel} planner exited with code ${code ?? 'unknown'}.`,
                 metadata: { code, signal, eventsPath: execEventsPath, finalMessagePath: execFinalMessagePath, usage, rawTail: eventSummary.rawTail }
               })
             }
@@ -5886,7 +5925,7 @@ export class TaskService {
         })
       }
 
-      if (process.platform !== 'darwin') return errorResponse(ErrorCodes.Validation, 'Codex task planning currently requires macOS Terminal.app.')
+      if (process.platform !== 'darwin') return errorResponse(ErrorCodes.Validation, `${cliLabel} task planning currently requires macOS Terminal.app.`)
       await this.appendTaskActivityMessages(taskId, [
         {
           runId,
@@ -5894,8 +5933,8 @@ export class TaskService {
           source: 'gateway-plan',
           role: 'system',
           status: 'running',
-          body: `Started Codex terminal planner with ${model}.`,
-          metadata: { gatewayId: gateway.id, model, clarificationMode, executionMode, runtimeWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath }
+          body: `Started ${cliLabel} terminal planner with ${model}.`,
+          metadata: { provider, gatewayId: gateway.id, model, clarificationMode, executionMode, runtimeWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, apiKeyEnvVar }
         },
         {
           runId,
@@ -5912,7 +5951,7 @@ export class TaskService {
           source: 'gateway-plan',
           role: 'thinking',
           status: 'running',
-          body: 'Codex terminal is planning this task...',
+          body: `${cliLabel} terminal is planning this task...`,
           metadata: { executionMode, runtimeWorkspacePath, runFolderPath }
         }
       ])
@@ -5950,8 +5989,8 @@ export class TaskService {
         await rm(runFolderPath, { recursive: true, force: true })
         if (workspaceRunPathForCleanup) await rm(workspaceRunPathForCleanup, { recursive: true, force: true })
       }
-      const message = error instanceof Error ? error.message : 'Unable to launch Codex task planning'
-      if (isCodexCliNotFoundError(error)) {
+      const message = error instanceof Error ? error.message : 'Unable to launch CLI task planning'
+      if (isCliNotFoundError(error)) {
         await this.appendTaskActivityMessage(access.data.task.id, {
           runId: plannerRunId(access.data.task.id),
           conversationId: payload.conversationId?.trim() || plannerRunId(access.data.task.id),
@@ -5972,8 +6011,8 @@ export class TaskService {
     const message = payload.message?.trim() ?? ''
     const hasAttachmentPayload = Array.isArray(payload.attachments) && payload.attachments.length > 0
     if (!message && !hasAttachmentPayload) return errorResponse(ErrorCodes.Validation, 'Message is required')
-    if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex gateway is required')
-    if (!payload.model?.trim()) return errorResponse(ErrorCodes.Validation, 'Codex model is required')
+    if (!payload.gatewayId?.trim()) return errorResponse(ErrorCodes.Validation, 'CLI gateway is required')
+    if (!payload.model?.trim()) return errorResponse(ErrorCodes.Validation, 'Gateway model is required')
 
     const access = await this.ensureTaskAccess(payload.actorToken, payload.taskId)
     if (!access.ok || !access.data) return errorResponse(access.error?.code ?? ErrorCodes.Forbidden, access.error?.message ?? 'Access denied', access.error?.details)
@@ -5981,11 +6020,11 @@ export class TaskService {
     if (!project || project.id !== access.data.task.projectId) return errorResponse(ErrorCodes.NotFound, 'Project not found')
     if (project.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Forbidden, 'Access denied')
     const gateway = await this.gateways.get(payload.gatewayId)
-    if (!gateway || gateway.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Codex gateway is invalid')
+    if (!gateway || gateway.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'CLI gateway is invalid')
     const runtimeWorkspaceId = projectGatewayRuntimeWorkspaceId(project)
-    if (!runtimeWorkspaceId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is required')
+    if (!runtimeWorkspaceId) return errorResponse(ErrorCodes.Validation, 'Project gateway runtime workspace is required')
     const runtimeWorkspace = await this.workspaces.get(runtimeWorkspaceId)
-    if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project Codex runtime workspace is invalid')
+    if (!runtimeWorkspace || runtimeWorkspace.organizationId !== access.data.actorOrgId) return errorResponse(ErrorCodes.Validation, 'Project gateway runtime workspace is invalid')
     const language = await resolveGatewayLanguageSetting(this.appSettings, access.data.actorOrgId, project, payload)
     const promptShape = projectGatewayPromptShape(project)
 
@@ -6009,8 +6048,8 @@ export class TaskService {
     try {
       launchConfig = await codexLaunchConfig(gateway.template)
     } catch (error) {
-      const messageText = error instanceof Error ? error.message : 'Unable to launch Codex chat'
-      if (isCodexCliNotFoundError(error)) {
+      const messageText = error instanceof Error ? error.message : 'Unable to launch CLI chat'
+      if (isCliNotFoundError(error)) {
         await this.appendTaskActivityMessage(taskId, {
           runId,
           conversationId,
@@ -6024,7 +6063,7 @@ export class TaskService {
       }
       return errorResponse(ErrorCodes.Internal, messageText)
     }
-    const { codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, codexEnv, executionMode } = launchConfig
+    const { provider, cliLabel, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, codexEnv, executionMode, apiKeyEnvVar } = launchConfig
     const model = payload.model.trim()
     const runtimeWorkspacePath = runtimeWorkspace.rootPath
     const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-gateway-chat-'))
@@ -6071,18 +6110,7 @@ export class TaskService {
       language,
       promptShape
     })
-    const execArgs = [
-      'exec',
-      '--json',
-      '--output-last-message', finalMessagePath,
-      '--cd', runtimeWorkspacePath,
-      '--model', model,
-      '-c', codexReasoningConfigArg(reasoningEffort),
-      '--skip-git-repo-check',
-      '--dangerously-bypass-approvals-and-sandbox',
-      '--color', 'never',
-      prompt
-    ]
+    const execArgs = gatewayExecArgs({ provider, model, prompt, runtimeWorkspacePath, finalMessagePath, reasoningEffort })
     const execCommand = [shellQuote(codexPath), ...execArgs.map(shellQuote)].join(' ')
 
     await mkdir(runtimeWorkspacePath, { recursive: true })
@@ -6116,8 +6144,8 @@ export class TaskService {
         role: 'thinking',
         status: 'running',
         body: mode === 'plan'
-          ? executionMode === 'exec' ? 'Codex is revising the plan...' : 'Opening Codex terminal to revise the plan...'
-          : executionMode === 'exec' ? 'Codex is thinking...' : 'Opening Codex terminal...',
+          ? executionMode === 'exec' ? `${cliLabel} is revising the plan...` : `Opening ${cliLabel} terminal to revise the plan...`
+          : executionMode === 'exec' ? `${cliLabel} is thinking...` : `Opening ${cliLabel} terminal...`,
         metadata: {
           executionMode,
           runtimeWorkspacePath,
@@ -6125,6 +6153,8 @@ export class TaskService {
           configuredCodexPath,
           attemptedCodexPaths,
           codexEnvPath,
+          provider,
+          apiKeyEnvVar,
           mode,
           contextFilePath
         }
@@ -6134,16 +6164,7 @@ export class TaskService {
     if (executionMode === 'terminal') {
       if (process.platform !== 'darwin') return errorResponse(ErrorCodes.Validation, 'Codex terminal chat currently requires macOS Terminal.app.')
       const wrapperPath = join(runFolderPath, 'run-gateway-chat.sh')
-      const codexCommand = [
-        shellQuote(codexPath),
-        '--cd', shellQuote(runtimeWorkspacePath),
-        '--model', shellQuote(model),
-        '--sandbox', 'workspace-write',
-        '--dangerously-bypass-approvals-and-sandbox',
-        '-c', shellQuote(codexReasoningConfigArg(reasoningEffort)),
-        '-c', shellQuote(codexTrustedProjectConfig(runtimeWorkspacePath)),
-        shellQuote(prompt)
-      ].join(' ')
+      const codexCommand = gatewayTerminalCommand({ provider, cliPath: codexPath, runtimeWorkspacePath, model, prompt, reasoningEffort })
       await writeFile(wrapperPath, ['#!/bin/zsh', 'set -e', `export PATH=${shellQuote(codexEnvPath)}`, `cd ${shellQuote(runtimeWorkspacePath)}`, codexCommand].join('\n'), 'utf8')
       await chmod(wrapperPath, 0o700)
       const terminalCommand = `/bin/zsh ${shellQuote(wrapperPath)}`
@@ -6159,7 +6180,7 @@ export class TaskService {
         source: activitySource,
         role: 'system',
         status: 'running',
-        body: 'Codex terminal chat launched.',
+        body: `${cliLabel} terminal chat launched.`,
         metadata: { command: codexCommand, runFolderPath }
       })
       return okResponse({ runId, conversationId, executionMode, command: codexCommand, runFolderPath, runtimeWorkspacePath })
@@ -6223,7 +6244,7 @@ export class TaskService {
               source: activitySource,
               role: 'system',
               status: 'completed',
-              body: 'Codex chat stopped.',
+              body: `${cliLabel} chat stopped.`,
               metadata: { code, signal, eventsPath, stopped: true, gatewayBlock: 'run-complete' }
             },
             {
@@ -6270,7 +6291,7 @@ export class TaskService {
           source: activitySource,
           role: 'system',
           status: code === 0 ? 'completed' : 'failed',
-          body: code === 0 ? 'Codex chat completed.' : `Codex chat failed with code ${code ?? 'unknown'}.`,
+          body: code === 0 ? `${cliLabel} chat completed.` : `${cliLabel} chat failed with code ${code ?? 'unknown'}.`,
           metadata: { gatewayBlock: 'run-complete', code, signal, eventsPath, finalMessagePath, usage }
         })
         if (code === 0) {
@@ -6281,7 +6302,7 @@ export class TaskService {
             source: activitySource,
             role: 'assistant',
             status: 'completed',
-            body: codexFinalAssistantBody(finalMessage, mode === 'plan' ? 'Codex plan revision completed.' : 'Codex chat completed.', hasStreamedAssistantMessage),
+            body: codexFinalAssistantBody(finalMessage, mode === 'plan' ? `${cliLabel} plan revision completed.` : `${cliLabel} chat completed.`, hasStreamedAssistantMessage),
             metadata: { code, signal, eventsPath, finalMessagePath, usage, gatewayBlock: hasStreamedAssistantMessage ? 'final-handoff' : 'final-fallback' }
           })
         } else {
@@ -6291,7 +6312,7 @@ export class TaskService {
             source: activitySource,
             role: 'error',
             status: 'failed',
-            body: finalMessage.trim() || `Codex chat exited with code ${code ?? 'unknown'}.`,
+            body: finalMessage.trim() || `${cliLabel} chat exited with code ${code ?? 'unknown'}.`,
             metadata: { code, signal, eventsPath, finalMessagePath, usage, rawTail: eventSummary.rawTail }
           })
         }

@@ -746,13 +746,17 @@ export interface UpsertGatewayRequest {
   apiBaseUrl?: string
   token?: string
   clearToken?: boolean
+  gatewayPath?: string
   workspaceRoot?: string
   allowSelfSignedTls?: boolean
   disableDevicePairing?: boolean
   autoConnect?: boolean
   codexPath?: string
-  provider?: 'codex_cli'
+  claudePath?: string
+  provider?: 'codex_cli' | 'claude_cli'
   codexExecutionMode?: 'terminal' | 'exec'
+  claudeExecutionMode?: 'terminal' | 'exec'
+  apiKeyEnvVar?: string
 }
 
 export interface WorkspaceRequest {

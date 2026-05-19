@@ -5,7 +5,7 @@ import styles from './GatewaysPage.module.scss'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
-import { CodexCliGatewayConfig, CodexCliModel, Gateway } from '@shared/types/entities'
+import { ClaudeCliGatewayConfig, CodexCliGatewayConfig, CodexCliModel, Gateway } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 
 interface GatewayFormState {
@@ -34,13 +34,26 @@ const emptyForm: GatewayFormState = {
   executionMode: 'terminal'
 }
 
-function configOf(gateway: Gateway): CodexCliGatewayConfig {
+function configOf(gateway: Gateway): (CodexCliGatewayConfig | ClaudeCliGatewayConfig) & { commandPath: string } {
   const template = gateway.template && typeof gateway.template === 'object' && !Array.isArray(gateway.template)
-    ? gateway.template as Partial<CodexCliGatewayConfig>
+    ? gateway.template as Partial<CodexCliGatewayConfig & ClaudeCliGatewayConfig>
     : {}
+  if (template.provider === 'claude_cli') {
+    return {
+      provider: 'claude_cli',
+      claudePath: typeof template.claudePath === 'string' && template.claudePath.trim() ? template.claudePath : gateway.endpoint || 'claude',
+      commandPath: typeof template.claudePath === 'string' && template.claudePath.trim() ? template.claudePath : gateway.endpoint || 'claude',
+      executionMode: template.executionMode === 'exec' ? 'exec' : 'terminal',
+      apiKeyEnvVar: typeof template.apiKeyEnvVar === 'string' ? template.apiKeyEnvVar : 'ANTHROPIC_API_KEY',
+      models: Array.isArray(template.models) ? template.models : [],
+      lastModelRefreshAt: typeof template.lastModelRefreshAt === 'number' ? template.lastModelRefreshAt : undefined,
+      lastModelRefreshError: typeof template.lastModelRefreshError === 'string' ? template.lastModelRefreshError : undefined
+    }
+  }
   return {
     provider: 'codex_cli',
     codexPath: typeof template.codexPath === 'string' && template.codexPath.trim() ? template.codexPath : gateway.endpoint || 'codex',
+    commandPath: typeof template.codexPath === 'string' && template.codexPath.trim() ? template.codexPath : gateway.endpoint || 'codex',
     executionMode: template.executionMode === 'exec' ? 'exec' : 'terminal',
     models: Array.isArray(template.models) ? template.models : [],
     lastModelRefreshAt: typeof template.lastModelRefreshAt === 'number' ? template.lastModelRefreshAt : undefined,
@@ -52,7 +65,7 @@ function formFromGateway(gateway: Gateway): GatewayFormState {
   return {
     id: gateway.id,
     name: gateway.name,
-    cliProvider: 'codex_cli',
+    cliProvider: configOf(gateway).provider === 'claude_cli' ? 'claude_cli' : 'codex_cli',
     executionMode: configOf(gateway).executionMode ?? 'terminal'
   }
 }
@@ -116,7 +129,7 @@ export function GatewaysPage({ embedded = false, onOpenGateway }: GatewaysPagePr
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase()
     if (!needle) return items
-    return items.filter((item) => `${item.name} ${configOf(item).codexPath ?? item.endpoint}`.toLowerCase().includes(needle))
+    return items.filter((item) => `${item.name} ${configOf(item).commandPath ?? item.endpoint}`.toLowerCase().includes(needle))
   }, [items, search])
 
   const invokeAction = async (channel: string, payload: Record<string, unknown>, success: string) => {
@@ -188,17 +201,16 @@ export function GatewaysPage({ embedded = false, onOpenGateway }: GatewaysPagePr
   const submitGateway = async (event: FormEvent) => {
     event.preventDefault()
     if (!modal) return
-    if (modal.cliProvider === 'claude_cli') {
-      setError('Claude CLI is not available yet.')
-      return
-    }
     const payload = {
       id: modal.id,
       name: modal.name,
-      endpoint: 'codex',
+      endpoint: modal.cliProvider === 'claude_cli' ? 'claude' : 'codex',
       codexPath: 'codex',
-      provider: 'codex_cli',
-      codexExecutionMode: modal.executionMode
+      claudePath: 'claude',
+      provider: modal.cliProvider,
+      codexExecutionMode: modal.executionMode,
+      claudeExecutionMode: modal.executionMode,
+      apiKeyEnvVar: 'ANTHROPIC_API_KEY'
     }
     const ok = await invokeAction(
       modal.id ? IPC_CHANNELS.gateways.update : IPC_CHANNELS.gateways.create,
@@ -295,9 +307,9 @@ export function GatewaysPage({ embedded = false, onOpenGateway }: GatewaysPagePr
                   )}
                   {isActive ? <b className={styles.activeBadge}>Active</b> : null}
                 </span>
-                <small>Local CLI</small>
+                <small>{config.commandPath}</small>
               </span>
-              <span>Codex CLI</span>
+              <span>{config.provider === 'claude_cli' ? 'Claude CLI' : 'Codex CLI'}</span>
               <span>
                 <b className={`${styles.statusPill} ${styles[gateway.status]}`}>{gateway.status}</b>
               </span>
@@ -370,12 +382,12 @@ export function GatewaysPage({ embedded = false, onOpenGateway }: GatewaysPagePr
                   Exec / Headless
                 </button>
               </div>
-              <small>{modal.executionMode === 'exec' ? 'Runs codex exec in the background and writes output to Chat.' : 'Opens external Terminal.app with the interactive Codex TUI.'}</small>
+              <small>{modal.executionMode === 'exec' ? 'Runs the selected CLI headlessly and writes output to Chat.' : 'Opens external Terminal.app with the selected CLI.'}</small>
             </div>
-            {modal.cliProvider === 'claude_cli' ? <p className={styles.error}>Claude CLI is not available yet.</p> : null}
+            {modal.cliProvider === 'claude_cli' ? <p className={styles.notice}>Claude uses the local <code>claude</code> command and <code>ANTHROPIC_API_KEY</code> or <code>claude auth login</code>.</p> : null}
             <footer>
               <button type="button" onClick={() => setModal(null)}>Cancel</button>
-              <button className={styles.primaryButton} type="submit" disabled={modal.cliProvider === 'claude_cli'}>{modal.id ? 'Save changes' : 'Create gateway'}</button>
+              <button className={styles.primaryButton} type="submit">{modal.id ? 'Save changes' : 'Create gateway'}</button>
             </footer>
           </form>
         </div>

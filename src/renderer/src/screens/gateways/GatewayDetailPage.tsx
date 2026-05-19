@@ -5,6 +5,7 @@ import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge } from '@renderer/utils/api'
 import {
+  ClaudeCliGatewayConfig,
   CodexCliGatewayConfig,
   CodexCliModel,
   Gateway,
@@ -16,18 +17,32 @@ type TabKey = 'overview' | 'events' | 'settings'
 
 interface SettingsState {
   name: string
+  provider: 'codex_cli' | 'claude_cli'
   executionMode: 'terminal' | 'exec'
 }
 
 type GatewayModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }
 
-function configOf(gateway: Gateway): CodexCliGatewayConfig {
+function configOf(gateway: Gateway): (CodexCliGatewayConfig | ClaudeCliGatewayConfig) & { commandPath: string } {
   const template = gateway.template && typeof gateway.template === 'object' && !Array.isArray(gateway.template)
-    ? gateway.template as Partial<CodexCliGatewayConfig>
+    ? gateway.template as Partial<CodexCliGatewayConfig & ClaudeCliGatewayConfig>
     : {}
+  if (template.provider === 'claude_cli') {
+    return {
+      provider: 'claude_cli',
+      claudePath: typeof template.claudePath === 'string' && template.claudePath.trim() ? template.claudePath : gateway.endpoint || 'claude',
+      commandPath: typeof template.claudePath === 'string' && template.claudePath.trim() ? template.claudePath : gateway.endpoint || 'claude',
+      executionMode: template.executionMode === 'exec' ? 'exec' : 'terminal',
+      apiKeyEnvVar: typeof template.apiKeyEnvVar === 'string' ? template.apiKeyEnvVar : 'ANTHROPIC_API_KEY',
+      models: Array.isArray(template.models) ? template.models : [],
+      lastModelRefreshAt: typeof template.lastModelRefreshAt === 'number' ? template.lastModelRefreshAt : undefined,
+      lastModelRefreshError: typeof template.lastModelRefreshError === 'string' ? template.lastModelRefreshError : undefined
+    }
+  }
   return {
     provider: 'codex_cli',
     codexPath: typeof template.codexPath === 'string' && template.codexPath.trim() ? template.codexPath : gateway.endpoint || 'codex',
+    commandPath: typeof template.codexPath === 'string' && template.codexPath.trim() ? template.codexPath : gateway.endpoint || 'codex',
     executionMode: template.executionMode === 'exec' ? 'exec' : 'terminal',
     models: Array.isArray(template.models) ? template.models : [],
     lastModelRefreshAt: typeof template.lastModelRefreshAt === 'number' ? template.lastModelRefreshAt : undefined,
@@ -38,6 +53,7 @@ function configOf(gateway: Gateway): CodexCliGatewayConfig {
 function settingsFromGateway(gateway: Gateway): SettingsState {
   return {
     name: gateway.name,
+    provider: configOf(gateway).provider === 'claude_cli' ? 'claude_cli' : 'codex_cli',
     executionMode: configOf(gateway).executionMode ?? 'terminal'
   }
 }
@@ -110,10 +126,13 @@ export function GatewayDetailPage({ gatewayId: gatewayIdProp, embedded = false, 
     await action(IPC_CHANNELS.gateways.update, {
       id: gatewayId,
       name: settings.name,
-      endpoint: 'codex',
+      endpoint: settings.provider === 'claude_cli' ? 'claude' : 'codex',
       codexPath: 'codex',
-      provider: 'codex_cli',
-      codexExecutionMode: settings.executionMode
+      claudePath: 'claude',
+      provider: settings.provider,
+      codexExecutionMode: settings.executionMode,
+      claudeExecutionMode: settings.executionMode,
+      apiKeyEnvVar: 'ANTHROPIC_API_KEY'
     }, 'Gateway settings saved.')
   }
 
@@ -155,8 +174,8 @@ export function GatewayDetailPage({ gatewayId: gatewayIdProp, embedded = false, 
       {gateway && config && (
         <div className={styles.overview}>
           <div><small>Status</small><b className={`${styles.statusPill} ${styles[gateway.status]}`}>{gateway.status}</b></div>
-          <div><small>CLI</small><b>Codex CLI</b></div>
-          <div><small>Command</small><b>{config.codexPath || 'codex'}</b></div>
+          <div><small>CLI</small><b>{config.provider === 'claude_cli' ? 'Claude CLI' : 'Codex CLI'}</b></div>
+          <div><small>Command</small><b>{config.commandPath}</b></div>
           <div><small>Mode</small><b>{config.executionMode === 'exec' ? 'Exec / Headless' : 'Terminal'}</b></div>
           <div><small>Models</small><b>{config.models?.length ?? 0} cached</b></div>
           <div><small>Updated</small><b>{formatTime(gateway.updatedAt)}</b></div>
@@ -171,17 +190,30 @@ export function GatewayDetailPage({ gatewayId: gatewayIdProp, embedded = false, 
 
       {tab === 'overview' && (
         <div className={styles.card}>
-          <h2>Codex CLI documentation</h2>
-          <p className={styles.empty}>This gateway uses the already configured local Codex terminal. Open Mission Control only inspects model metadata in this phase.</p>
+          <h2>{config.provider === 'claude_cli' ? 'Claude CLI documentation' : 'Codex CLI documentation'}</h2>
+          <p className={styles.empty}>{config.provider === 'claude_cli' ? 'This gateway uses the local Claude CLI in print mode for headless runs or Terminal.app for interactive sessions.' : 'This gateway uses the already configured local Codex terminal. Open Mission Control inspects model metadata from the CLI.'}</p>
           <div className={styles.identityGrid}>
-            <span><b>Interactive mode</b><small><code>codex</code> opens the terminal UI for repo-aware chat, edits, and command review.</small></span>
-            <span><b>Model inspect</b><small><code>codex debug models</code> reads the model catalog used by Gateway settings.</small></span>
-            <span><b>Resume</b><small><code>codex resume</code> reopens saved local transcripts.</small></span>
-            <span><b>Image input</b><small><code>codex -i screenshot.png</code> attaches screenshots or design specs.</small></span>
-            <span><b>Permissions</b><small><code>/permissions</code> controls approval and sandbox behavior inside the CLI.</small></span>
-            <span><b>Slash commands</b><small><code>/review</code>, <code>/model</code>, <code>/status</code>, and related commands remain CLI-owned.</small></span>
-            <span><b>Remote app-server</b><small>Documented by Codex, but not used by Open Mission Control in this phase.</small></span>
-            <span><b>Exec / Headless</b><small><code>codex exec</code> runs without opening Terminal when this gateway mode is enabled.</small></span>
+            {config.provider === 'claude_cli' ? (
+              <>
+                <span><b>Print mode</b><small><code>claude -p</code> runs non-interactively and streams JSON back to Chat.</small></span>
+                <span><b>Authentication</b><small>Use <code>claude auth login</code> or set <code>ANTHROPIC_API_KEY</code>.</small></span>
+                <span><b>Model aliases</b><small><code>sonnet</code> and <code>opus</code> are cached as defaults; full model ids can be typed per project.</small></span>
+                <span><b>Permissions</b><small>OMC launches Claude with tool permissions aligned to the current gateway run mode.</small></span>
+                <span><b>MCP</b><small>OMC exports MCP catalog context and keeps project policy gates active.</small></span>
+                <span><b>Exec / Headless</b><small><code>claude -p --output-format stream-json</code> runs without opening Terminal.</small></span>
+              </>
+            ) : (
+              <>
+                <span><b>Interactive mode</b><small><code>codex</code> opens the terminal UI for repo-aware chat, edits, and command review.</small></span>
+                <span><b>Model inspect</b><small><code>codex debug models</code> reads the model catalog used by Gateway settings.</small></span>
+                <span><b>Resume</b><small><code>codex resume</code> reopens saved local transcripts.</small></span>
+                <span><b>Image input</b><small><code>codex -i screenshot.png</code> attaches screenshots or design specs.</small></span>
+                <span><b>Permissions</b><small><code>/permissions</code> controls approval and sandbox behavior inside the CLI.</small></span>
+                <span><b>Slash commands</b><small><code>/review</code>, <code>/model</code>, <code>/status</code>, and related commands remain CLI-owned.</small></span>
+                <span><b>Remote app-server</b><small>Documented by Codex, but not used by Open Mission Control in this phase.</small></span>
+                <span><b>Exec / Headless</b><small><code>codex exec</code> runs without opening Terminal when this gateway mode is enabled.</small></span>
+              </>
+            )}
             <span><b>Last model refresh</b><small>{formatTime(config?.lastModelRefreshAt)}</small></span>
           </div>
           <button type="button" onClick={() => void refreshModels()}>Refresh models</button>
@@ -199,7 +231,7 @@ export function GatewayDetailPage({ gatewayId: gatewayIdProp, embedded = false, 
       {tab === 'settings' && settings && (
         <form className={styles.settingsForm} onSubmit={saveSettings}>
           <label>Name<input value={settings.name} onChange={(event) => setSettings({ ...settings, name: event.target.value })} /></label>
-          <label>CLI<input value="Codex CLI" disabled /></label>
+          <label>CLI<input value={settings.provider === 'claude_cli' ? 'Claude CLI' : 'Codex CLI'} disabled /></label>
           <div className={styles.modeField}>
             <span>Execution mode</span>
             <div className={styles.segmentedControl}>
@@ -218,7 +250,7 @@ export function GatewayDetailPage({ gatewayId: gatewayIdProp, embedded = false, 
                 Exec / Headless
               </button>
             </div>
-            <small>{settings.executionMode === 'exec' ? 'Runs codex exec in the background and writes output to Chat.' : 'Opens external Terminal.app with the interactive Codex TUI.'}</small>
+            <small>{settings.executionMode === 'exec' ? 'Runs the selected CLI in the background and writes output to Chat.' : 'Opens external Terminal.app with the selected CLI.'}</small>
           </div>
           <button type="submit">Save settings</button>
         </form>

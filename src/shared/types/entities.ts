@@ -450,12 +450,12 @@ export interface Gateway {
   status: 'online' | 'offline' | 'connecting'
   endpoint: string
   token: string
-  template?: CodexCliGatewayConfig | OpenClawGatewayConfig | Record<string, unknown>
+  template?: CodexCliGatewayConfig | ClaudeCliGatewayConfig | OpenClawGatewayConfig | Record<string, unknown>
   createdAt: number
   updatedAt: number
 }
 
-export type GatewayProvider = 'codex_cli' | 'openclaw'
+export type GatewayProvider = 'codex_cli' | 'claude_cli' | 'openclaw'
 
 export interface CodexCliModel {
   id: string
@@ -473,6 +473,18 @@ export interface CodexCliGatewayConfig {
   models?: CodexCliModel[]
   lastModelRefreshAt?: number
   lastModelRefreshError?: string
+}
+
+export interface ClaudeCliGatewayConfig {
+  provider: 'claude_cli'
+  claudePath?: string
+  executionMode?: 'terminal' | 'exec'
+  models?: CodexCliModel[]
+  apiKeyEnvVar?: string
+  lastModelRefreshAt?: number
+  lastModelRefreshError?: string
+  lastAuthCheckAt?: number
+  lastAuthCheckError?: string
 }
 export type OpenClawGatewayPairingStatus = 'not_paired' | 'requested' | 'paired' | 'rejected' | 'failed'
 

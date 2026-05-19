@@ -159,6 +159,20 @@ function stringFromKeys(record: Record<string, unknown> | undefined, keys: strin
   return ''
 }
 
+function textFromContentBlocks(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (!Array.isArray(value)) return ''
+  return value.flatMap((item): string[] => {
+    const record = asRecord(item)
+    if (!record) return []
+    if (typeof record.text === 'string' && record.text.trim()) return [record.text]
+    if (typeof record.content === 'string' && record.content.trim()) return [record.content]
+    if (typeof record.input === 'string' && record.input.trim()) return [record.input]
+    if (typeof record.name === 'string' && record.name.trim()) return [`Tool: ${record.name}`]
+    return []
+  }).join('\n\n')
+}
+
 function normalizedMessageRole(value: unknown): GatewayMessageEvent['role'] | undefined {
   if (value !== 'assistant' && value !== 'user' && value !== 'system' && value !== 'tool' && value !== 'thinking') return undefined
   return value
@@ -213,6 +227,29 @@ function normalizeEvent(rawEvent: Record<string, unknown>): GatewayNormalizedEve
   const type = typeof rawEvent.type === 'string' ? rawEvent.type : 'event'
   const payload = asRecord(rawEvent.payload)
   const payloadType = typeof payload?.type === 'string' ? payload.type : ''
+  const message = asRecord(rawEvent.message)
+  const messageRole = normalizedMessageRole(message?.role)
+  if (message && messageRole) {
+    const text = textFromContentBlocks(message.content) || stringFromKeys(message, ['text', 'message'])
+    return text ? [{ kind: 'message', role: messageRole, text, messageId: stringFromKeys(message, ['id']) || undefined }] : []
+  }
+  if (type === 'assistant' || type === 'user' || type === 'system') {
+    const text = textFromContentBlocks(rawEvent.content) || stringFromKeys(rawEvent, ['text', 'message', 'result'])
+    return text ? [{ kind: 'message', role: type, text, messageId: stringFromKeys(rawEvent, ['id', 'message_id', 'messageId']) || undefined }] : []
+  }
+  if (type === 'content_block_delta' || type === 'message_delta') {
+    const delta = asRecord(rawEvent.delta)
+    const text = stringFromKeys(delta, ['text', 'partial_json']) || stringFromKeys(rawEvent, ['text', 'content', 'delta'])
+    return text ? [{ kind: 'message', role: 'assistant', text, messageId: stringFromKeys(rawEvent, ['id', 'message_id', 'messageId']) || undefined, append: true }] : []
+  }
+  if (type === 'result') {
+    const usage = normalizeUsage(rawEvent.usage)
+    const text = stringFromKeys(rawEvent, ['result', 'message', 'text'])
+    return [
+      ...(text ? [{ kind: 'message' as const, role: 'assistant' as const, text }] : []),
+      { kind: 'status' as const, type, label: 'Result completed', usage }
+    ]
+  }
   if (type === 'response_item' && payload) {
     return normalizeEvent({ type: 'item.completed', item: payload, id: rawEvent.id ?? payload.id, usage: rawEvent.usage ?? payload.usage })
   }

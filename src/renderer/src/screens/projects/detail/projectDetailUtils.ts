@@ -1,4 +1,5 @@
 import type {
+  ClaudeCliGatewayConfig,
   CodexCliGatewayConfig,
   Project,
   ProjectGatewaySettings,
@@ -104,10 +105,21 @@ export function buildProjectManagementMetrics(project: Project | null, draft: { 
   }
 }
 
-export function codexConfigOf(gateway?: { template?: unknown; endpoint?: string | null } | null): CodexCliGatewayConfig {
+export function codexConfigOf(gateway?: { template?: unknown; endpoint?: string | null } | null): CodexCliGatewayConfig | ClaudeCliGatewayConfig {
   const template = gateway?.template && typeof gateway.template === 'object' && !Array.isArray(gateway.template)
-    ? gateway.template as Partial<CodexCliGatewayConfig>
+    ? gateway.template as Partial<CodexCliGatewayConfig & ClaudeCliGatewayConfig>
     : {}
+  if (template.provider === 'claude_cli') {
+    return {
+      provider: 'claude_cli',
+      claudePath: typeof template.claudePath === 'string' ? template.claudePath : gateway?.endpoint ?? 'claude',
+      executionMode: template.executionMode === 'exec' ? 'exec' : 'terminal',
+      apiKeyEnvVar: typeof template.apiKeyEnvVar === 'string' ? template.apiKeyEnvVar : 'ANTHROPIC_API_KEY',
+      models: Array.isArray(template.models) ? template.models : [],
+      lastModelRefreshAt: typeof template.lastModelRefreshAt === 'number' ? template.lastModelRefreshAt : undefined,
+      lastModelRefreshError: typeof template.lastModelRefreshError === 'string' ? template.lastModelRefreshError : undefined
+    }
+  }
   return {
     provider: 'codex_cli',
     codexPath: typeof template.codexPath === 'string' ? template.codexPath : gateway?.endpoint ?? 'codex',

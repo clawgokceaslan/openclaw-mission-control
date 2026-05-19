@@ -125,6 +125,57 @@ codex --remote wss://codex.example.com:4500
 Agent sync is removed. Agent definitions stay in Open Mission Control until a future Codex CLI execution flow is implemented.`
   },
   {
+    id: 'claude-cli-gateway',
+    title: 'Claude CLI Gateway',
+    category: 'Gateway',
+    summary: 'Claude CLI kurulumu, auth, model seçimi, izinler ve OMC içindeki plan/run akışı.',
+    sourceFiles: [
+      'src/main/services/task.service.ts',
+      'src/main/services/gateway/gateway.service.ts',
+      'src/main/utils/codex-cli-resolver.ts',
+      'src/renderer/src/screens/gateways/*'
+    ],
+    terms: [
+      { term: 'Claude CLI', description: 'Anthropic Claude Code komut satırı aracı; OMC headless çalıştırmada claude -p kullanır.' },
+      { term: 'Print mode', description: 'claude -p ile non-interactive çalışma ve stream-json çıktı üretimi.' },
+      { term: 'ANTHROPIC_API_KEY', description: 'Claude CLI için varsayılan API anahtarı environment değişkeni.' }
+    ],
+    markdown: `# Claude CLI Gateway
+
+Open Mission Control, Claude CLI'ı Codex gateway akışıyla aynı lifecycle'a bağlar: proje ayarlarında gateway seçilir, plan/run modeli belirlenir, task export dosyaları geçici workspace'e yazılır ve çıktı task chat'e stream edilir.
+
+## Kurulum
+
+\`\`\`bash
+claude --version
+claude auth status
+claude auth login
+\`\`\`
+
+Headless çalıştırma için \`ANTHROPIC_API_KEY\` ortam değişkeni de kullanılabilir. Project veya task export dosyalarına API anahtarı yazılmaz; OMC sadece process environment üzerinden CLI'a aktarır.
+
+## OMC ayarı
+
+1. Settings > Gateways ekranında Add gateway seçin.
+2. Provider alanında Claude CLI seçin.
+3. Execution mode için Exec / Headless seçerseniz OMC \`claude -p --output-format stream-json\` çalıştırır.
+4. Terminal mode seçerseniz macOS Terminal.app içinde Claude CLI açılır.
+5. Project settings > Models bölümünde bu gateway'i ve plan/run modellerini seçin.
+
+Varsayılan model seçenekleri \`sonnet\` ve \`opus\` olarak eklenir. Claude CLI tam model id kabul ediyorsa proje veya task model alanına tam id yazılabilir.
+
+## İzinler ve MCP
+
+Claude CLI dokümantasyonundaki \`--permission-mode\`, \`--tools\`, \`--allowedTools\` ve MCP ayarları CLI tarafında desteklenir. OMC bu MVP'de Claude'u mevcut gateway çalışma modu ile başlatır, task context içinde Agent Tools girdilerini katalog bilgisi olarak tutar ve MCP/tool çalıştırma politikasını Codex akışındaki gibi task talimatına yazar. Sırlar ve API key değerleri export edilen Task.md, Agents.md, Skills.md veya Tools.md dosyalarına yazılmaz.
+
+## Bilinen sınırlamalar
+
+- Claude CLI model kataloğu için Codex'teki \`debug models\` eşdeğeri yoktur; OMC temel \`sonnet\` ve \`opus\` seçeneklerini cache'ler.
+- Headless stream Claude'un \`stream-json\` formatından normalize edilir; farklı CLI sürümleri ek event tipleri döndürürse raw log olarak gösterilebilir.
+- Terminal mode macOS Terminal.app gerektirir.
+- MCP upstream yürütmesi OMC onay köprüsü tamamlanana kadar policy-gated katalog bağlamı olarak aktarılır.`
+  },
+  {
     id: 'task-planning-features',
     title: 'Task Planning Features',
     category: 'Planning',
