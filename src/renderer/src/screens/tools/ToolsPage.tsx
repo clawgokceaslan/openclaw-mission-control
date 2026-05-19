@@ -1,5 +1,5 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react'
-import { LuArrowRight, LuCheck, LuCode, LuDownload, LuPencil, LuPlus, LuTrash2, LuX } from 'react-icons/lu'
+import { LuArrowRight, LuCheck, LuCode, LuDownload, LuPencil, LuPlus, LuSave, LuTrash2, LuX } from 'react-icons/lu'
 import { IPC_CHANNELS, type PaginatedResponse } from '@shared/contracts/ipc'
 import type { Agent, AiTool, AiToolStatus, AiToolType } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
@@ -11,7 +11,7 @@ import { downloadMarkdownFile } from '../projects/detail/taskExport'
 import { toolTypeLabel } from './toolFilters'
 import styles from './ToolsPage.module.scss'
 
-type ToolTab = 'basics' | 'configuration'
+type ToolTab = 'basics' | 'implementation' | 'context'
 
 type ToolFormState = {
   id?: string
@@ -70,8 +70,9 @@ const TOOL_TYPE_OPTIONS: AppSelectOption[] = [
 const FORM_TOOL_TYPE_OPTIONS = TOOL_TYPE_OPTIONS.filter((option) => option.value !== 'all')
 const FORM_STATUS_OPTIONS = STATUS_OPTIONS.filter((option) => option.value !== 'all')
 const TABS: Array<{ id: ToolTab; label: string; summary: string }> = [
-  { id: 'basics', label: 'Type & basics', summary: 'Name, type, purpose, status and approval policy.' },
-  { id: 'configuration', label: 'Schema & links', summary: 'Code, command, schemas, runbook and agent/project links.' }
+  { id: 'basics', label: 'Define', summary: 'Name, type, purpose, status and approval policy.' },
+  { id: 'implementation', label: 'Configure', summary: 'Code, command templates and JSON schemas.' },
+  { id: 'context', label: 'Connect', summary: 'Runbook, workspace hint and agent links.' }
 ]
 
 const TAB_GUIDANCE: Record<ToolTab, { title: string; body: string; checklist: string[] }> = {
@@ -80,10 +81,15 @@ const TAB_GUIDANCE: Record<ToolTab, { title: string; body: string; checklist: st
     body: 'Define what this capability is, when an agent should consider it, and what boundary applies while execution is disabled.',
     checklist: ['Use a clear action-oriented name.', 'Pick the closest tool type.', 'Write usage notes as instructions for the agent.']
   },
-  configuration: {
-    title: 'Shape the runtime contract and links',
-    body: 'Add schemas, implementation notes, commands, execution flow and agent links in one pass. The project settings panel can also start this same two-step flow inside project context.',
-    checklist: ['Keep schemas as JSON objects.', 'Separate preparation from command execution.', 'Attach only relevant agents.']
+  implementation: {
+    title: 'Shape the runnable surface',
+    body: 'Keep code, commands and schemas together so the implementation details are easy to review without blocking the rest of the form.',
+    checklist: ['Keep schemas as JSON objects.', 'Separate preparation from command execution.', 'Leave drafts inactive until the contract is ready.']
+  },
+  context: {
+    title: 'Connect it to project context',
+    body: 'Add the operational runbook, workspace hint and agent links that tell Codex when this tool belongs in exported context.',
+    checklist: ['Attach only relevant agents.', 'Write execution steps as a short runbook.', 'Save unfinished work as draft when details are still missing.']
   }
 }
 
@@ -122,6 +128,12 @@ function parseSchema(value: string, label: string): Record<string, unknown> | un
 
 function agentNames(tool: AiTool): string {
   return (tool.agents ?? []).map((agent) => agent.name).filter(Boolean).join(', ') || 'No agents'
+}
+
+function isDraftTool(tool: AiTool): boolean {
+  if (tool.status !== 'inactive') return false
+  return !tool.descriptionMarkdown?.trim()
+    || !(tool.codeBody?.trim() || tool.commandTemplate?.trim() || tool.functionName?.trim() || tool.executionFlowMarkdown?.trim())
 }
 
 function lineCount(value: string): number {
@@ -199,7 +211,8 @@ export function ToolsPage() {
 
   const tabComplete = (tab: ToolTab): boolean => {
     if (tab === 'basics') return Boolean(form.name.trim() && form.descriptionMarkdown.trim())
-    return Boolean(form.functionName.trim() || form.inputSchemaJson.trim() || form.outputSchemaJson.trim() || form.commandTemplate.trim() || form.agentIds.length > 0)
+    if (tab === 'implementation') return Boolean(form.functionName.trim() || form.inputSchemaJson.trim() || form.outputSchemaJson.trim() || form.commandTemplate.trim() || form.codeBody.trim())
+    return Boolean(form.executionFlowMarkdown.trim() || form.workingDirectoryHint.trim() || form.agentIds.length > 0)
   }
 
   const goToNextTab = () => {
@@ -271,13 +284,13 @@ export function ToolsPage() {
       setError(null)
     } catch (parseError) {
       setError(parseError instanceof Error ? parseError.message : 'Schema must be valid JSON.')
-      setActiveTab('configuration')
+      setActiveTab(key === 'inputSchemaJson' || key === 'outputSchemaJson' ? 'implementation' : activeTab)
     }
   }
 
-  const submitTool = async (event: FormEvent) => {
-    event.preventDefault()
-    if (!form.name.trim()) {
+  const saveTool = async (saveAsDraft: boolean) => {
+    const name = form.name.trim() || (saveAsDraft ? 'Untitled tool draft' : '')
+    if (!name) {
       setError('Tool name is required.')
       return
     }
@@ -288,15 +301,15 @@ export function ToolsPage() {
       outputSchemaJson = parseSchema(form.outputSchemaJson, 'Output schema')
     } catch (parseError) {
       setError(parseError instanceof Error ? parseError.message : 'Schema must be valid JSON.')
-      setActiveTab('configuration')
+      setActiveTab('implementation')
       return
     }
     setLoading(true)
     const response = await invokeBridge<AiTool>(modalMode === 'edit' ? IPC_CHANNELS.tools.update : IPC_CHANNELS.tools.create, {
       actorToken: token,
       ...(modalMode === 'edit' ? { id: form.id } : {}),
-      name: form.name.trim(),
-      status: form.status,
+      name,
+      status: saveAsDraft ? 'inactive' : form.status,
       toolType: form.toolType,
       descriptionMarkdown: form.descriptionMarkdown,
       codeLanguage: form.codeLanguage,
@@ -318,9 +331,14 @@ export function ToolsPage() {
       return
     }
     closeModal()
-    setNotice('Tool saved.')
+    setNotice(saveAsDraft ? 'Draft tool saved.' : 'Tool saved.')
     await loadTools()
     await loadAgents()
+  }
+
+  const submitTool = async (event: FormEvent) => {
+    event.preventDefault()
+    await saveTool(false)
   }
 
   const removeTool = async () => {
@@ -395,7 +413,7 @@ export function ToolsPage() {
         ) : rows.length > 0 ? rows.map((tool) => (
           <div key={tool.id} className={styles.tableRow}>
             <span className={styles.primaryCell}>
-              <strong>{tool.name}</strong>
+              <strong>{tool.name} {isDraftTool(tool) ? <b className={styles.draftBadge}>Draft</b> : null}</strong>
               <small>{tool.descriptionMarkdown || tool.slug}</small>
             </span>
             <span><b className={styles.typePill}>{toolTypeLabel(tool.toolType)}</b></span>
@@ -439,7 +457,7 @@ export function ToolsPage() {
             </header>
             <form className={styles.toolForm} onSubmit={submitTool}>
               <div className={styles.toolFormContent}>
-                <aside className={styles.stepRail} aria-label="Tool editor sections">
+                <nav className={styles.stepRail} aria-label="Tool editor sections">
                   {TABS.map((tab, index) => {
                     const complete = tabComplete(tab.id)
                     return (
@@ -452,7 +470,7 @@ export function ToolsPage() {
                       </button>
                     )
                   })}
-                </aside>
+                </nav>
 
                 <section className={styles.editorPane}>
                   <div className={styles.guidanceCard}>
@@ -499,7 +517,7 @@ export function ToolsPage() {
                     </>
                   ) : null}
 
-                  {activeTab === 'configuration' ? (
+                  {activeTab === 'implementation' ? (
                     <>
                       <label>
                         <span>Code language</span>
@@ -516,7 +534,7 @@ export function ToolsPage() {
                     </>
                   ) : null}
 
-                  {activeTab === 'configuration' ? (
+                  {activeTab === 'implementation' ? (
                     <>
                       <label>
                         <span>Function name</span>
@@ -545,12 +563,8 @@ export function ToolsPage() {
                     </>
                   ) : null}
 
-                  {activeTab === 'configuration' ? (
+                  {activeTab === 'implementation' ? (
                     <>
-                      <label>
-                        <span>Working directory hint</span>
-                        <input value={form.workingDirectoryHint} onChange={(event) => updateForm('workingDirectoryHint', event.target.value)} placeholder="Project runtime workspace" />
-                      </label>
                       <CodeEditor
                         label="Prepare command"
                         language="shell"
@@ -570,23 +584,26 @@ export function ToolsPage() {
                     </>
                   ) : null}
 
-                  {activeTab === 'configuration' ? (
-                    <CodeEditor
-                      label="Execution flow"
-                      language="markdown"
-                      value={form.executionFlowMarkdown}
-                      onChange={(value) => updateForm('executionFlowMarkdown', value)}
-                      rows={18}
-                      placeholder={'1. Prepare inputs\n2. Validate command and required files\n3. Ask for explicit approval before any future execution\n4. Parse output and report failures'}
-                    />
-                  ) : null}
-
-                  {activeTab === 'configuration' ? (
-                    <label>
-                      <span>Attach to agents</span>
-                      <AppSelect mode="multi" value={selectedAgentOptions} options={agentOptions} placeholder="Select active agents..." onChange={(options) => updateForm('agentIds', options.map((option) => option.value))} />
-                      <small className={styles.fieldHelp}>Linked tools are exported as catalog context for the selected agents. They are not invoked in v1.</small>
-                    </label>
+                  {activeTab === 'context' ? (
+                    <>
+                      <label>
+                        <span>Working directory hint</span>
+                        <input value={form.workingDirectoryHint} onChange={(event) => updateForm('workingDirectoryHint', event.target.value)} placeholder="Project runtime workspace" />
+                      </label>
+                      <CodeEditor
+                        label="Execution flow"
+                        language="markdown"
+                        value={form.executionFlowMarkdown}
+                        onChange={(value) => updateForm('executionFlowMarkdown', value)}
+                        rows={18}
+                        placeholder={'1. Prepare inputs\n2. Validate command and required files\n3. Ask for explicit approval before any future execution\n4. Parse output and report failures'}
+                      />
+                      <label>
+                        <span>Attach to agents</span>
+                        <AppSelect mode="multi" value={selectedAgentOptions} options={agentOptions} placeholder="Select active agents..." onChange={(options) => updateForm('agentIds', options.map((option) => option.value))} />
+                        <small className={styles.fieldHelp}>Linked tools are exported as catalog context for the selected agents. They are not invoked in v1.</small>
+                      </label>
+                    </>
                   ) : null}
 
                   <div className={styles.sectionActions}>
@@ -600,6 +617,10 @@ export function ToolsPage() {
               </div>
               <footer className={styles.modalFooter}>
                 <button type="button" className={styles.secondaryButton} onClick={closeModal}>Cancel</button>
+                <button type="button" className={styles.secondaryButton} onClick={() => void saveTool(true)} disabled={loading}>
+                  <LuSave size={14} />
+                  Save draft
+                </button>
                 <button type="submit" className={styles.primaryButton} disabled={loading || !form.name.trim()}>{loading ? <LoadingState size="compact" messageIndex={2} /> : modalMode === 'edit' ? 'Save changes' : 'Add tool'}</button>
               </footer>
             </form>

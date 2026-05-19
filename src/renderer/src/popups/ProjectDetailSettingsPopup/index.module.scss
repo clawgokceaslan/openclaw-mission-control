@@ -126,6 +126,77 @@
   color: var(--omc-primary-strong);
 }
 
+.toolCreatorSteps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.toolCreatorStep {
+  min-width: 0;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 12px;
+  background: var(--omc-surface);
+  color: var(--omc-text);
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 3px 9px;
+  text-align: left;
+  cursor: pointer;
+
+  > span {
+    grid-row: span 2;
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--omc-input-border);
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--omc-text-muted);
+    font-size: 0.72rem;
+    font-weight: 900;
+  }
+
+  strong {
+    min-width: 0;
+    color: var(--omc-text-strong);
+    font-size: 0.84rem;
+    font-weight: 900;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  small {
+    min-width: 0;
+    color: var(--omc-text-muted);
+    font-size: 0.74rem;
+    font-weight: 750;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.toolCreatorStepActive {
+  border-color: var(--omc-primary);
+  background: var(--omc-active-bg);
+  box-shadow: inset 0 -3px 0 var(--omc-primary);
+
+  > span {
+    border-color: var(--omc-primary);
+    background: var(--omc-primary);
+    color: var(--omc-primary-text);
+  }
+
+  strong {
+    color: var(--omc-primary-strong);
+  }
+}
+
 .body {
   min-height: 0;
   overflow: auto;
@@ -170,6 +241,21 @@
       opacity: 0.55;
     }
   }
+}
+
+.footerActions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.footer .secondaryFooterButton {
+  border-color: var(--omc-input-border);
+  background: var(--omc-surface);
+  color: var(--omc-text-strong);
 }
 
 .drawerSection {
@@ -887,9 +973,18 @@
     flex-direction: column;
   }
 
+  .footerActions {
+    justify-content: stretch;
+
+    button {
+      flex: 1 1 140px;
+    }
+  }
+
   .statusEditorRow,
   .promptShapeGrid,
   .mcpSummaryGrid,
+  .toolCreatorSteps,
   .mcpServerRow,
   .statusMappingRow,
   .settingsMiniTable > div {

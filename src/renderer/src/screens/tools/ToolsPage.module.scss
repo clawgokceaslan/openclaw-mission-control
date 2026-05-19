@@ -270,7 +270,8 @@
 }
 
 .statusPill,
-.typePill {
+.typePill,
+.draftBadge {
   width: fit-content;
   border-radius: 999px;
   background: var(--omc-active-bg);
@@ -283,6 +284,13 @@
 .inactive {
   background: var(--omc-surface-muted);
   color: var(--omc-text-muted);
+}
+
+.draftBadge {
+  margin-left: 6px;
+  background: var(--omc-surface-muted);
+  color: var(--omc-text-muted);
+  vertical-align: middle;
 }
 
 .error,
@@ -385,7 +393,7 @@
 
 .toolFormContent {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
 }
 
@@ -431,11 +439,10 @@
 }
 
 .stepRail {
-  position: sticky;
-  top: 0;
   display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-  align-self: start;
+  align-self: stretch;
 }
 
 .stepButton {
@@ -474,7 +481,7 @@
 .activeStep {
   border-color: var(--omc-accent);
   background: var(--omc-active-bg);
-  box-shadow: inset 3px 0 0 var(--omc-accent);
+  box-shadow: inset 0 -3px 0 var(--omc-accent);
 }
 
 .stepBadge {
@@ -693,7 +700,7 @@
   }
 
   .stepRail {
-    position: static;
+    grid-template-columns: 1fr;
   }
 
   .toolModal,

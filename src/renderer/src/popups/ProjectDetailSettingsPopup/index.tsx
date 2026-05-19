@@ -23,6 +23,8 @@ type SettingsSaveFeedback = {
   message: string
 }
 
+type ProjectToolCreatorStep = 'basics' | 'implementation' | 'context'
+
 type ProjectToolDraft = {
   name: string
   status: AiToolStatus
@@ -66,6 +68,12 @@ const PROJECT_TOOL_TYPE_OPTIONS: AppSelectOption[] = [
   { label: 'Function', value: 'function' },
   { label: 'Code', value: 'code' },
   { label: 'Reference', value: 'reference' }
+]
+
+const PROJECT_TOOL_CREATOR_STEPS: Array<{ id: ProjectToolCreatorStep; label: string; detail: string }> = [
+  { id: 'basics', label: 'Define', detail: 'Name, type and AI usage notes' },
+  { id: 'implementation', label: 'Configure', detail: 'Function, schemas and command' },
+  { id: 'context', label: 'Connect', detail: 'Runbook, workspace and agents' }
 ]
 
 function parseToolSchema(value: string, label: string): Record<string, unknown> | undefined {
@@ -251,7 +259,7 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
   const [projectAgentIdsDraft, setProjectAgentIdsDraft] = useState<string[]>(scope.projectAgentIds ?? [])
   const [projectToolIdsDraft, setProjectToolIdsDraft] = useState<string[]>(scope.projectToolIds ?? [])
   const [toolCreatorOpen, setToolCreatorOpen] = useState(false)
-  const [toolCreatorStep, setToolCreatorStep] = useState<'basics' | 'configuration'>('basics')
+  const [toolCreatorStep, setToolCreatorStep] = useState<ProjectToolCreatorStep>('basics')
   const [projectToolDraft, setProjectToolDraft] = useState<ProjectToolDraft>(PROJECT_TOOL_INITIAL)
   const [mcpServerIdsDraft, setMcpServerIdsDraft] = useState<string[]>(projectMcpServerIds(scope.project))
   const [workspaceTargetIdDraft, setWorkspaceTargetIdDraft] = useState(scope.selectedWorkspaceId ?? '')
@@ -446,17 +454,22 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
     setProjectToolDraft((current) => ({ ...current, [key]: value }))
   }
 
-  const handleCreateProjectTool = async () => {
-    if (!projectToolDraft.name.trim() || !s.onCreateProjectTool) return
+  const projectToolStepIndex = PROJECT_TOOL_CREATOR_STEPS.findIndex((step) => step.id === toolCreatorStep)
+  const projectToolDraftName = projectToolDraft.name.trim()
+
+  const handleCreateProjectTool = async (saveAsDraft = false) => {
+    const name = projectToolDraftName || (saveAsDraft ? 'Untitled project tool draft' : '')
+    if (!name || !s.onCreateProjectTool) return
     setSaveFeedback('agents', {
       state: 'saving',
-      title: 'Creating tool',
-      message: 'Project tool definition is being created and linked.'
+      title: saveAsDraft ? 'Saving draft' : 'Creating tool',
+      message: saveAsDraft ? 'Draft project tool is being saved and linked.' : 'Project tool definition is being created and linked.'
     })
     try {
       const created = await s.onCreateProjectTool({
         ...projectToolDraft,
-        name: projectToolDraft.name.trim(),
+        name,
+        status: saveAsDraft ? 'inactive' : projectToolDraft.status,
         inputSchemaJson: parseToolSchema(projectToolDraft.inputSchemaJson, 'Input schema'),
         outputSchemaJson: parseToolSchema(projectToolDraft.outputSchemaJson, 'Output schema'),
         timeoutSeconds: projectToolDraft.timeoutSeconds.trim() ? Number(projectToolDraft.timeoutSeconds) : null
@@ -467,8 +480,8 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
       setProjectToolDraft(PROJECT_TOOL_INITIAL)
       setSaveFeedback('agents', {
         state: 'success',
-        title: 'Tool linked',
-        message: 'The new tool is attached to this project.'
+        title: saveAsDraft ? 'Draft saved' : 'Tool linked',
+        message: saveAsDraft ? 'The draft tool is attached to this project.' : 'The new tool is attached to this project.'
       })
     } catch (error) {
       setSaveFeedback('agents', {
@@ -1309,23 +1322,22 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
             <header className={styles.header}>
               <div>
                 <h3>Create project tool</h3>
-                <p>Two-step catalog definition that will be linked to this project after save.</p>
+                <p>Draft-friendly catalog definition that will be linked to this project after save.</p>
               </div>
               <button type="button" onClick={() => setToolCreatorOpen(false)} aria-label="Close tool creator">×</button>
             </header>
             <div className={styles.tabs}>
-              <div className={styles.tabList}>
-                {([
-                  { id: 'basics' as const, label: 'Type & basics' },
-                  { id: 'configuration' as const, label: 'Schema & links' }
-                ]).map((step) => (
+              <div className={styles.toolCreatorSteps}>
+                {PROJECT_TOOL_CREATOR_STEPS.map((step, index) => (
                   <button
                     key={step.id}
                     type="button"
-                    className={`${styles.tab} ${toolCreatorStep === step.id ? styles.tabActive : ''}`}
+                    className={`${styles.toolCreatorStep} ${toolCreatorStep === step.id ? styles.toolCreatorStepActive : ''}`}
                     onClick={() => setToolCreatorStep(step.id)}
                   >
-                    {step.label}
+                    <span>{index + 1}</span>
+                    <strong>{step.label}</strong>
+                    <small>{step.detail}</small>
                   </button>
                 ))}
               </div>
@@ -1355,21 +1367,11 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                       <input value={projectToolDraft.workingDirectoryHint} onChange={(event) => updateProjectToolDraft('workingDirectoryHint', event.target.value)} placeholder="Project runtime workspace" />
                     </label>
                   </div>
-                ) : (
+                ) : toolCreatorStep === 'implementation' ? (
                   <div className={styles.settingsFormGrid}>
                     <label>
                       <span>Function name</span>
                       <input value={projectToolDraft.functionName} onChange={(event) => updateProjectToolDraft('functionName', event.target.value)} placeholder="list_changed_files" />
-                    </label>
-                    <label>
-                      <span>Attach to agents</span>
-                      <AppSelect
-                        mode="multi"
-                        value={agentOptions.filter((option) => projectToolDraft.agentIds.includes(option.value))}
-                        options={agentOptions}
-                        placeholder="No agent links"
-                        onChange={(options) => updateProjectToolDraft('agentIds', Array.isArray(options) ? options.map((option) => option.value) : [])}
-                      />
                     </label>
                     <label>
                       <span>Input schema JSON</span>
@@ -1384,20 +1386,51 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                       <textarea value={projectToolDraft.commandTemplate} onChange={(event) => updateProjectToolDraft('commandTemplate', event.target.value)} rows={4} placeholder="npm test -- --runInBand" />
                     </label>
                     <label>
+                      <span>Prepare command</span>
+                      <textarea value={projectToolDraft.prepareCommand} onChange={(event) => updateProjectToolDraft('prepareCommand', event.target.value)} rows={3} placeholder="npm install" />
+                    </label>
+                  </div>
+                ) : (
+                  <div className={styles.settingsFormGrid}>
+                    <label>
                       <span>Execution flow</span>
                       <textarea value={projectToolDraft.executionFlowMarkdown} onChange={(event) => updateProjectToolDraft('executionFlowMarkdown', event.target.value)} rows={4} placeholder="1. Prepare inputs&#10;2. Validate output" />
+                    </label>
+                    <label>
+                      <span>Code language</span>
+                      <input value={projectToolDraft.codeLanguage} onChange={(event) => updateProjectToolDraft('codeLanguage', event.target.value)} placeholder="typescript" />
+                    </label>
+                    <label>
+                      <span>Code body</span>
+                      <textarea value={projectToolDraft.codeBody} onChange={(event) => updateProjectToolDraft('codeBody', event.target.value)} rows={7} placeholder="// Optional implementation notes or code snippet" />
+                    </label>
+                    <label>
+                      <span>Attach to agents</span>
+                      <AppSelect
+                        mode="multi"
+                        value={agentOptions.filter((option) => projectToolDraft.agentIds.includes(option.value))}
+                        options={agentOptions}
+                        placeholder="No agent links"
+                        onChange={(options) => updateProjectToolDraft('agentIds', Array.isArray(options) ? options.map((option) => option.value) : [])}
+                      />
                     </label>
                   </div>
                 )}
               </div>
             </div>
             <footer className={styles.footer}>
-              <span>{toolCreatorStep === 'basics' ? 'Continue to schema, command, and agent links.' : 'Schema errors are shown here without closing the project settings panel.'}</span>
-              {toolCreatorStep === 'basics' ? (
-                <button type="button" onClick={() => setToolCreatorStep('configuration')} disabled={!projectToolDraft.name.trim()}>Next</button>
-              ) : (
-                <button type="button" onClick={() => void handleCreateProjectTool()} disabled={!projectToolDraft.name.trim()}>Create & link</button>
-              )}
+              <span>{toolCreatorStep === 'basics' ? 'Start with a name when this is ready to publish, or save a draft now.' : toolCreatorStep === 'implementation' ? 'Configure the runnable surface; incomplete work can stay as draft.' : 'Link context now, or keep it as a draft until the runbook is ready.'}</span>
+              <div className={styles.footerActions}>
+                <button type="button" className={styles.secondaryFooterButton} onClick={() => void handleCreateProjectTool(true)}>Save draft</button>
+                {projectToolStepIndex > 0 ? (
+                  <button type="button" className={styles.secondaryFooterButton} onClick={() => setToolCreatorStep(PROJECT_TOOL_CREATOR_STEPS[Math.max(0, projectToolStepIndex - 1)].id)}>Back</button>
+                ) : null}
+                {projectToolStepIndex < PROJECT_TOOL_CREATOR_STEPS.length - 1 ? (
+                  <button type="button" onClick={() => setToolCreatorStep(PROJECT_TOOL_CREATOR_STEPS[Math.min(PROJECT_TOOL_CREATOR_STEPS.length - 1, projectToolStepIndex + 1)].id)}>Next</button>
+                ) : (
+                  <button type="button" onClick={() => void handleCreateProjectTool(false)} disabled={!projectToolDraftName}>Create & link</button>
+                )}
+              </div>
             </footer>
           </section>
         </>
