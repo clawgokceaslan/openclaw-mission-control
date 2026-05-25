@@ -329,8 +329,8 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
   }, [gatewayIdDraft, localGatewayModels, scope.gatewayId, scope.projectGatewayModelOptions])
   const localSelectedGatewayOption = useMemo(() => localGatewayOptions.find((option) => option.value === gatewayIdDraft) ?? null, [gatewayIdDraft, localGatewayOptions])
   const localSelectedWorkspaceOption = useMemo(() => localWorkspaceOptions.find((option) => option.value === runtimeWorkspaceIdDraft) ?? null, [localWorkspaceOptions, runtimeWorkspaceIdDraft])
-  const localSelectedPlanModelOption = useMemo(() => localModelOptions.find((option) => option.value === planModelDraft) ?? null, [localModelOptions, planModelDraft])
-  const localSelectedRunModelOption = useMemo(() => localModelOptions.find((option) => option.value === runModelDraft) ?? null, [localModelOptions, runModelDraft])
+  const localSelectedPlanModelOption = useMemo(() => localModelOptions.find((option) => option.value === planModelDraft) ?? (planModelDraft ? { label: planModelDraft, value: planModelDraft } : null), [localModelOptions, planModelDraft])
+  const localSelectedRunModelOption = useMemo(() => localModelOptions.find((option) => option.value === runModelDraft) ?? (runModelDraft ? { label: runModelDraft, value: runModelDraft } : null), [localModelOptions, runModelDraft])
   const languageOptions = useMemo<AppSelectOption[]>(() => GATEWAY_LANGUAGE_OPTIONS.map((option) => ({ label: option.label, value: option.value })), [])
   const promptShapeOptions = useMemo<AppSelectOption[]>(() => GATEWAY_PROMPT_SHAPES.map((shape) => ({ label: shape === 'json' ? 'JSON' : shape === 'toon' ? 'Toon' : 'Markdown', value: shape })), [])
   const localPlanModel = useMemo(() => localGatewayModels.find((model) => model.id === planModelDraft) ?? null, [localGatewayModels, planModelDraft])
@@ -369,13 +369,6 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
   const mcpSaving = mcpSaveFeedback?.state === 'saving'
   const workspaceTargetOption = useMemo(() => localWorkspaceOptions.find((option) => option.value === workspaceTargetIdDraft) ?? null, [localWorkspaceOptions, workspaceTargetIdDraft])
   const workspaceTarget = useMemo(() => (scope.workspaces ?? []).find((workspace) => workspace.id === workspaceTargetIdDraft) ?? null, [scope.workspaces, workspaceTargetIdDraft])
-
-  useEffect(() => {
-    if (!gatewayIdDraft) return
-    const modelIds = new Set(localModelOptions.map((option) => option.value))
-    if (planModelDraft && modelIds.size > 0 && !modelIds.has(planModelDraft)) setPlanModelDraft('')
-    if (runModelDraft && modelIds.size > 0 && !modelIds.has(runModelDraft)) setRunModelDraft('')
-  }, [gatewayIdDraft, localModelOptions, planModelDraft, runModelDraft])
 
   const handleTabChange = (tab: ProjectSettingsTab) => {
     setActiveTab(tab)
@@ -1200,7 +1193,12 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     value={localSelectedPlanModelOption}
                     options={localModelOptions}
                     placeholder={s.gatewayModelLoading ? 'Modeller hazırlanıyor...' : localModelOptions.length > 0 ? 'Select plan model' : 'Select a gateway to load models'}
-                    isDisabled={!gatewayIdDraft || localModelOptions.length === 0}
+                    isDisabled={!gatewayIdDraft}
+                    creatable
+                    onCreateOption={(value) => {
+                      setPlanModelDraft(value)
+                      clearActiveSaveFeedback()
+                    }}
                     onChange={(option) => {
                       setPlanModelDraft(option?.value ?? '')
                       clearActiveSaveFeedback()
@@ -1227,7 +1225,12 @@ export function ProjectDetailSettingsPopup({ open, onClose, scope }: ProjectDeta
                     value={localSelectedRunModelOption}
                     options={localModelOptions}
                     placeholder={s.gatewayModelLoading ? 'Modeller hazırlanıyor...' : localModelOptions.length > 0 ? 'Select run model' : 'Select a gateway to load models'}
-                    isDisabled={!gatewayIdDraft || localModelOptions.length === 0}
+                    isDisabled={!gatewayIdDraft}
+                    creatable
+                    onCreateOption={(value) => {
+                      setRunModelDraft(value)
+                      clearActiveSaveFeedback()
+                    }}
                     onChange={(option) => {
                       setRunModelDraft(option?.value ?? '')
                       clearActiveSaveFeedback()

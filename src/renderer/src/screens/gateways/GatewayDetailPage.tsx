@@ -9,6 +9,7 @@ import {
   CodexCliGatewayConfig,
   CodexCliModel,
   Gateway,
+  OpenAiCompatibleGatewayConfig,
   GatewayHistoryItem
 } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
@@ -17,16 +18,38 @@ type TabKey = 'overview' | 'events' | 'settings'
 
 interface SettingsState {
   name: string
-  provider: 'codex_cli' | 'claude_cli'
+  provider: 'codex_cli' | 'claude_cli' | 'openai_compatible'
   executionMode: 'terminal' | 'exec'
+  apiBaseUrl: string
+  apiKey: string
+  defaultModel: string
 }
 
 type GatewayModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached: boolean; error?: string }
 
-function configOf(gateway: Gateway): (CodexCliGatewayConfig | ClaudeCliGatewayConfig) & { commandPath: string } {
+function providerLabel(provider: SettingsState['provider']): string {
+  if (provider === 'claude_cli') return 'Claude CLI'
+  if (provider === 'openai_compatible') return 'OpenAI-compatible'
+  return 'Codex CLI'
+}
+
+function configOf(gateway: Gateway): (CodexCliGatewayConfig | ClaudeCliGatewayConfig | OpenAiCompatibleGatewayConfig) & { commandPath: string } {
   const template = gateway.template && typeof gateway.template === 'object' && !Array.isArray(gateway.template)
-    ? gateway.template as Partial<CodexCliGatewayConfig & ClaudeCliGatewayConfig>
+    ? gateway.template as Partial<CodexCliGatewayConfig & ClaudeCliGatewayConfig & OpenAiCompatibleGatewayConfig>
     : {}
+  if (template.provider === 'openai_compatible') {
+    return {
+      provider: 'openai_compatible',
+      apiBaseUrl: typeof template.apiBaseUrl === 'string' ? template.apiBaseUrl : gateway.endpoint,
+      commandPath: typeof template.apiBaseUrl === 'string' ? template.apiBaseUrl : gateway.endpoint,
+      codexPath: typeof template.codexPath === 'string' ? template.codexPath : 'codex',
+      executionMode: template.executionMode === 'exec' ? 'exec' : 'terminal',
+      defaultModel: typeof template.defaultModel === 'string' ? template.defaultModel : '',
+      models: Array.isArray(template.models) ? template.models : [],
+      lastModelRefreshAt: typeof template.lastModelRefreshAt === 'number' ? template.lastModelRefreshAt : undefined,
+      lastModelRefreshError: typeof template.lastModelRefreshError === 'string' ? template.lastModelRefreshError : undefined
+    }
+  }
   if (template.provider === 'claude_cli') {
     return {
       provider: 'claude_cli',
@@ -53,8 +76,11 @@ function configOf(gateway: Gateway): (CodexCliGatewayConfig | ClaudeCliGatewayCo
 function settingsFromGateway(gateway: Gateway): SettingsState {
   return {
     name: gateway.name,
-    provider: configOf(gateway).provider === 'claude_cli' ? 'claude_cli' : 'codex_cli',
-    executionMode: configOf(gateway).executionMode ?? 'terminal'
+    provider: configOf(gateway).provider === 'claude_cli' ? 'claude_cli' : configOf(gateway).provider === 'openai_compatible' ? 'openai_compatible' : 'codex_cli',
+    executionMode: configOf(gateway).executionMode ?? 'terminal',
+    apiBaseUrl: configOf(gateway).provider === 'openai_compatible' ? (configOf(gateway) as OpenAiCompatibleGatewayConfig).apiBaseUrl : '',
+    apiKey: '',
+    defaultModel: configOf(gateway).provider === 'openai_compatible' ? ((configOf(gateway) as OpenAiCompatibleGatewayConfig).defaultModel ?? '') : ''
   }
 }
 
@@ -126,7 +152,10 @@ export function GatewayDetailPage({ gatewayId: gatewayIdProp, embedded = false, 
     await action(IPC_CHANNELS.gateways.update, {
       id: gatewayId,
       name: settings.name,
-      endpoint: settings.provider === 'claude_cli' ? 'claude' : 'codex',
+      endpoint: settings.provider === 'openai_compatible' ? settings.apiBaseUrl : settings.provider === 'claude_cli' ? 'claude' : 'codex',
+      apiBaseUrl: settings.apiBaseUrl,
+      token: settings.apiKey,
+      defaultModel: settings.defaultModel,
       codexPath: 'codex',
       claudePath: 'claude',
       provider: settings.provider,
@@ -174,7 +203,7 @@ export function GatewayDetailPage({ gatewayId: gatewayIdProp, embedded = false, 
       {gateway && config && (
         <div className={styles.overview}>
           <div><small>Status</small><b className={`${styles.statusPill} ${styles[gateway.status]}`}>{gateway.status}</b></div>
-          <div><small>CLI</small><b>{config.provider === 'claude_cli' ? 'Claude CLI' : 'Codex CLI'}</b></div>
+          <div><small>Provider</small><b>{providerLabel(config.provider as SettingsState['provider'])}</b></div>
           <div><small>Command</small><b>{config.commandPath}</b></div>
           <div><small>Mode</small><b>{config.executionMode === 'exec' ? 'Exec / Headless' : 'Terminal'}</b></div>
           <div><small>Models</small><b>{config.models?.length ?? 0} cached</b></div>
@@ -190,10 +219,17 @@ export function GatewayDetailPage({ gatewayId: gatewayIdProp, embedded = false, 
 
       {tab === 'overview' && (
         <div className={styles.card}>
-          <h2>{config.provider === 'claude_cli' ? 'Claude CLI documentation' : 'Codex CLI documentation'}</h2>
-          <p className={styles.empty}>{config.provider === 'claude_cli' ? 'This gateway uses the local Claude CLI in print mode for headless runs or Terminal.app for interactive sessions.' : 'This gateway uses the already configured local Codex terminal. Open Mission Control inspects model metadata from the CLI.'}</p>
+          <h2>{config.provider === 'claude_cli' ? 'Claude CLI documentation' : config.provider === 'openai_compatible' ? 'OpenAI-compatible endpoint' : 'Codex CLI documentation'}</h2>
+          <p className={styles.empty}>{config.provider === 'claude_cli' ? 'This gateway uses the local Claude CLI in print mode for headless runs or Terminal.app for interactive sessions.' : config.provider === 'openai_compatible' ? 'This gateway points Codex runs at a self-hosted OpenAI-compatible /v1 endpoint and discovers models from /v1/models.' : 'This gateway uses the already configured local Codex terminal. Open Mission Control inspects model metadata from the CLI.'}</p>
           <div className={styles.identityGrid}>
-            {config.provider === 'claude_cli' ? (
+            {config.provider === 'openai_compatible' ? (
+              <>
+                <span><b>Base URL</b><small><code>{(config as OpenAiCompatibleGatewayConfig).apiBaseUrl}</code></small></span>
+                <span><b>Discovery</b><small><code>/v1/models</code> is queried with the configured bearer token when present.</small></span>
+                <span><b>Fallback model</b><small>{(config as OpenAiCompatibleGatewayConfig).defaultModel || 'No manual default model set.'}</small></span>
+                <span><b>Runtime</b><small>Codex CLI runs with <code>OPENAI_BASE_URL</code> and <code>OPENAI_API_KEY</code> scoped to this gateway.</small></span>
+              </>
+            ) : config.provider === 'claude_cli' ? (
               <>
                 <span><b>Print mode</b><small><code>claude -p</code> runs non-interactively and streams JSON back to Chat.</small></span>
                 <span><b>Authentication</b><small>Use <code>claude auth login</code> or set <code>ANTHROPIC_API_KEY</code>.</small></span>
@@ -231,7 +267,14 @@ export function GatewayDetailPage({ gatewayId: gatewayIdProp, embedded = false, 
       {tab === 'settings' && settings && (
         <form className={styles.settingsForm} onSubmit={saveSettings}>
           <label>Name<input value={settings.name} onChange={(event) => setSettings({ ...settings, name: event.target.value })} /></label>
-          <label>CLI<input value={settings.provider === 'claude_cli' ? 'Claude CLI' : 'Codex CLI'} disabled /></label>
+          <label>Provider<input value={providerLabel(settings.provider)} disabled /></label>
+          {settings.provider === 'openai_compatible' ? (
+            <>
+              <label>Base URL<input value={settings.apiBaseUrl} onChange={(event) => setSettings({ ...settings, apiBaseUrl: event.target.value })} placeholder="http://localhost:8000/v1" /></label>
+              <label>API key<input value={settings.apiKey} onChange={(event) => setSettings({ ...settings, apiKey: event.target.value })} placeholder="Leave blank to keep current key" type="password" /></label>
+              <label>Default model<input value={settings.defaultModel} onChange={(event) => setSettings({ ...settings, defaultModel: event.target.value })} /></label>
+            </>
+          ) : null}
           <div className={styles.modeField}>
             <span>Execution mode</span>
             <div className={styles.segmentedControl}>

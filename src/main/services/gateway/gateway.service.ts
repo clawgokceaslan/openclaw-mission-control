@@ -12,6 +12,7 @@ import {
   ClaudeCliGatewayConfig,
   CodexCliGatewayConfig,
   CodexCliModel,
+  OpenAiCompatibleGatewayConfig,
   OpenClawGatewayConfig,
   OpenClawGatewayPairingStatus,
   OpenClawGatewayTestResult
@@ -45,8 +46,11 @@ function maskToken(token: string): string {
   return '••••••••'
 }
 
-function gatewayProvider(input: UpsertGatewayRequest, current?: Gateway): 'codex_cli' | 'claude_cli' {
+type CliGatewayProvider = 'codex_cli' | 'claude_cli' | 'openai_compatible'
+
+function gatewayProvider(input: UpsertGatewayRequest, current?: Gateway): CliGatewayProvider {
   const currentProvider = (current?.template as { provider?: unknown } | undefined)?.provider
+  if (input.provider === 'openai_compatible' || currentProvider === 'openai_compatible') return 'openai_compatible'
   return input.provider === 'claude_cli' || currentProvider === 'claude_cli' ? 'claude_cli' : 'codex_cli'
 }
 
@@ -58,10 +62,11 @@ function gatewayExecutionMode(inputMode: unknown, currentMode: unknown): 'termin
       : 'terminal'
 }
 
-function cliGatewayConfig(input: UpsertGatewayRequest, current?: Gateway): CodexCliGatewayConfig | ClaudeCliGatewayConfig {
-  return gatewayProvider(input, current) === 'claude_cli'
-    ? claudeCliConfig(input, current)
-    : codexCliConfig(input, current)
+function cliGatewayConfig(input: UpsertGatewayRequest, current?: Gateway): CodexCliGatewayConfig | ClaudeCliGatewayConfig | OpenAiCompatibleGatewayConfig {
+  const provider = gatewayProvider(input, current)
+  if (provider === 'claude_cli') return claudeCliConfig(input, current)
+  if (provider === 'openai_compatible') return openAiCompatibleConfig(input, current)
+  return codexCliConfig(input, current)
 }
 
 function codexCliConfig(input: UpsertGatewayRequest, current?: Gateway): CodexCliGatewayConfig {
@@ -92,6 +97,33 @@ function claudeCliConfig(input: UpsertGatewayRequest, current?: Gateway): Claude
     lastAuthCheckAt: currentTemplate.lastAuthCheckAt,
     lastAuthCheckError: currentTemplate.lastAuthCheckError
   }
+}
+
+function openAiCompatibleConfig(input: UpsertGatewayRequest, current?: Gateway): OpenAiCompatibleGatewayConfig {
+  const currentTemplate = (current?.template ?? {}) as Partial<OpenAiCompatibleGatewayConfig>
+  const apiBaseUrl = normalizeOpenAiBaseUrl(input.apiBaseUrl ?? currentTemplate.apiBaseUrl ?? current?.endpoint ?? '')
+  const defaultModel = input.defaultModel?.trim() || currentTemplate.defaultModel || ''
+  return {
+    provider: 'openai_compatible',
+    apiBaseUrl,
+    codexPath: input.codexPath?.trim() || currentTemplate.codexPath || 'codex',
+    executionMode: gatewayExecutionMode(input.codexExecutionMode, currentTemplate.executionMode),
+    defaultModel,
+    models: currentTemplate.models,
+    lastModelRefreshAt: currentTemplate.lastModelRefreshAt,
+    lastModelRefreshError: currentTemplate.lastModelRefreshError,
+    lastModelDiscoveryStatus: currentTemplate.lastModelDiscoveryStatus
+  }
+}
+
+function normalizeOpenAiBaseUrl(value: string): string {
+  const trimmed = value.trim().replace(/\/+$/, '')
+  if (!trimmed) return ''
+  return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`
+}
+
+function openAiModelsUrl(apiBaseUrl: string): string {
+  return `${normalizeOpenAiBaseUrl(apiBaseUrl)}/models`
 }
 
 function asString(value: unknown): string | undefined {
@@ -200,8 +232,12 @@ export class GatewayService {
     const gateway = await this.repo.create({
       organizationId: actor.user.organizationId,
       name: payload.name!.trim(),
-      endpoint: payload.provider === 'claude_cli' ? (payload.claudePath?.trim() || payload.gatewayPath?.trim() || 'claude') : (payload.codexPath?.trim() || payload.gatewayPath?.trim() || 'codex'),
-      token: '',
+      endpoint: payload.provider === 'openai_compatible'
+        ? normalizeOpenAiBaseUrl(payload.apiBaseUrl?.trim() || '')
+        : payload.provider === 'claude_cli'
+          ? (payload.claudePath?.trim() || payload.gatewayPath?.trim() || 'claude')
+          : (payload.codexPath?.trim() || payload.gatewayPath?.trim() || 'codex'),
+      token: payload.provider === 'openai_compatible' ? (payload.token?.trim() ?? '') : '',
       template: cliGatewayConfig(payload)
     })
     await this.repo.appendHistory(gateway.id, 'gateway.created', { provider: gatewayProvider(payload) })
@@ -215,9 +251,16 @@ export class GatewayService {
     if (validation) return validation
     const updated = await this.repo.update(current.id, {
       name: payload.name?.trim(),
-      endpoint: gatewayProvider(payload, current) === 'claude_cli'
-        ? (payload.claudePath?.trim() || payload.codexPath?.trim() || payload.gatewayPath?.trim() || current.endpoint || 'claude')
-        : (payload.codexPath?.trim() || payload.gatewayPath?.trim() || current.endpoint || 'codex'),
+      endpoint: gatewayProvider(payload, current) === 'openai_compatible'
+        ? normalizeOpenAiBaseUrl(payload.apiBaseUrl?.trim() || current.endpoint || '')
+        : gatewayProvider(payload, current) === 'claude_cli'
+          ? (payload.claudePath?.trim() || payload.codexPath?.trim() || payload.gatewayPath?.trim() || current.endpoint || 'claude')
+          : (payload.codexPath?.trim() || payload.gatewayPath?.trim() || current.endpoint || 'codex'),
+      token: payload.clearToken
+        ? ''
+        : typeof payload.token === 'string' && payload.token !== maskToken(payload.token)
+          ? payload.token.trim()
+          : current.token,
       template: cliGatewayConfig(payload, current)
     })
     if (!updated) return errorResponse(ErrorCodes.NotFound, 'Gateway not found')
@@ -261,7 +304,8 @@ export class GatewayService {
     await this.auth.requireActor(payload?.actorToken)
     return okResponse([
       { id: 'codex_cli', name: 'Codex CLI', sample: 'Local Codex CLI' },
-      { id: 'claude_cli', name: 'Claude CLI', sample: 'Local Anthropic Claude CLI' }
+      { id: 'claude_cli', name: 'Claude CLI', sample: 'Local Anthropic Claude CLI' },
+      { id: 'openai_compatible', name: 'OpenAI-compatible', sample: 'vLLM, OpenLLM, LocalAI, Ollama' }
     ])
   }
 
@@ -273,30 +317,44 @@ export class GatewayService {
     try {
       const models = provider === 'claude_cli'
         ? await this.refreshClaudeModels(gateway, template as ClaudeCliGatewayConfig)
-        : await this.refreshCodexModels(gateway, template as CodexCliGatewayConfig)
-      if (models.length === 0) throw new Error(`${provider === 'claude_cli' ? 'Claude' : 'Codex'} CLI returned no models`)
+        : provider === 'openai_compatible'
+          ? await this.refreshOpenAiCompatibleModels(gateway, template as OpenAiCompatibleGatewayConfig)
+          : await this.refreshCodexModels(gateway, template as CodexCliGatewayConfig)
+      if (models.length === 0) throw new Error(`${provider === 'claude_cli' ? 'Claude' : provider === 'openai_compatible' ? 'OpenAI-compatible endpoint' : 'Codex CLI'} returned no models`)
       const updated = await this.repo.update(gateway.id, {
         template: {
           ...template,
           models,
           lastModelRefreshAt: Date.now(),
-          lastModelRefreshError: undefined
+          lastModelRefreshError: undefined,
+          ...(provider === 'openai_compatible' ? { lastModelDiscoveryStatus: 'ok' } : {})
         }
       })
       const masked = this.maskGateway(updated ?? gateway)
-      await this.repo.appendHistory(gateway.id, `${provider === 'claude_cli' ? 'claude' : 'codex'}.models.refreshed`, { count: models.length })
+      await this.repo.appendHistory(gateway.id, `${provider === 'claude_cli' ? 'claude' : provider === 'openai_compatible' ? 'openai_compatible' : 'codex'}.models.refreshed`, { count: models.length })
       return okResponse({ gateway: masked, models, cached: false })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       const cached = Array.isArray(template.models) ? template.models : []
+      const fallbackModel = provider === 'openai_compatible' && (template as OpenAiCompatibleGatewayConfig).defaultModel?.trim()
+        ? [{
+            id: (template as OpenAiCompatibleGatewayConfig).defaultModel!.trim(),
+            label: (template as OpenAiCompatibleGatewayConfig).defaultModel!.trim(),
+            source: 'manual',
+            supportsReasoning: true
+          } satisfies CodexCliModel]
+        : []
+      const models = cached.length > 0 ? cached : fallbackModel
       const updated = await this.repo.update(gateway.id, {
         template: {
           ...template,
-          lastModelRefreshError: message
+          models,
+          lastModelRefreshError: message,
+          ...(provider === 'openai_compatible' && fallbackModel.length > 0 ? { lastModelDiscoveryStatus: 'fallback' } : {})
         }
       })
-      await this.repo.appendHistory(gateway.id, `${provider === 'claude_cli' ? 'claude' : 'codex'}.models.refresh_failed`, { error: message })
-      return okResponse({ gateway: this.maskGateway(updated ?? gateway), models: cached, cached: cached.length > 0, error: message })
+      await this.repo.appendHistory(gateway.id, `${provider === 'claude_cli' ? 'claude' : provider === 'openai_compatible' ? 'openai_compatible' : 'codex'}.models.refresh_failed`, { error: message })
+      return okResponse({ gateway: this.maskGateway(updated ?? gateway), models, cached: cached.length > 0, error: message })
     }
   }
 
@@ -316,6 +374,33 @@ export class GatewayService {
       { id: 'sonnet', label: 'Claude Sonnet', source: 'claude', recommended: true, supportsReasoning: true, reasoningEfforts: ['low', 'medium', 'high', 'xhigh'] },
       { id: 'opus', label: 'Claude Opus', source: 'claude', supportsReasoning: true, reasoningEfforts: ['low', 'medium', 'high', 'xhigh'] }
     ]
+  }
+
+  private async refreshOpenAiCompatibleModels(gateway: Gateway, template: OpenAiCompatibleGatewayConfig): Promise<CodexCliModel[]> {
+    const apiBaseUrl = normalizeOpenAiBaseUrl(template.apiBaseUrl || gateway.endpoint)
+    if (!apiBaseUrl) throw new Error('OpenAI-compatible base URL is required')
+    const response = await fetch(openAiModelsUrl(apiBaseUrl), {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        ...(gateway.token ? { Authorization: `Bearer ${gateway.token}` } : {})
+      },
+      signal: AbortSignal.timeout(15_000)
+    })
+    if (!response.ok) throw new Error(`Model discovery failed with HTTP ${response.status}`)
+    const body = await response.json() as unknown
+    const models = collectModelRecords(body, 'openai-compatible')
+      .map((model) => ({ ...model, source: model.source ?? 'openai-compatible', supportsReasoning: model.supportsReasoning ?? true }))
+    const unique = new Map<string, CodexCliModel>()
+    for (const model of models) {
+      if (!unique.has(model.id)) unique.set(model.id, model)
+    }
+    const discovered = [...unique.values()].sort((a, b) => a.id.localeCompare(b.id))
+    if (discovered.length > 0) return discovered
+    if (template.defaultModel?.trim()) {
+      return [{ id: template.defaultModel.trim(), label: template.defaultModel.trim(), source: 'manual', supportsReasoning: true }]
+    }
+    return []
   }
 
   async connect(payload: { actorToken?: string; gatewayId?: string }): Promise<ServiceResponse<Gateway>> {
@@ -731,6 +816,17 @@ export class GatewayService {
 
   private validateUpsert(payload: UpsertGatewayRequest, creating: boolean, current?: Gateway): ServiceResponse<never> | null {
     if (creating && !payload.name?.trim()) return errorResponse(ErrorCodes.Validation, 'Gateway name required')
+    if (gatewayProvider(payload, current) === 'openai_compatible') {
+      const apiBaseUrl = payload.apiBaseUrl?.trim() || ((current?.template as Partial<OpenAiCompatibleGatewayConfig> | undefined)?.apiBaseUrl ?? current?.endpoint ?? '')
+      if (!normalizeOpenAiBaseUrl(apiBaseUrl)) return errorResponse(ErrorCodes.Validation, 'OpenAI-compatible base URL required')
+      try {
+        const url = new URL(normalizeOpenAiBaseUrl(apiBaseUrl))
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return errorResponse(ErrorCodes.Validation, 'OpenAI-compatible base URL must use http or https')
+      } catch {
+        return errorResponse(ErrorCodes.Validation, 'OpenAI-compatible base URL is invalid')
+      }
+      return null
+    }
     const codexPath = payload.gatewayPath?.trim() || current?.endpoint || 'codex'
     if (!codexPath.trim()) return errorResponse(ErrorCodes.Validation, 'CLI path required')
     return null

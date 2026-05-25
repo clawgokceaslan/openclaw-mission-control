@@ -1,6 +1,7 @@
 import type {
   ClaudeCliGatewayConfig,
   CodexCliGatewayConfig,
+  OpenAiCompatibleGatewayConfig,
   Project,
   ProjectGatewaySettings,
   TaskEntity,
@@ -105,9 +106,9 @@ export function buildProjectManagementMetrics(project: Project | null, draft: { 
   }
 }
 
-export function codexConfigOf(gateway?: { template?: unknown; endpoint?: string | null } | null): CodexCliGatewayConfig | ClaudeCliGatewayConfig {
+export function codexConfigOf(gateway?: { template?: unknown; endpoint?: string | null } | null): CodexCliGatewayConfig | ClaudeCliGatewayConfig | OpenAiCompatibleGatewayConfig {
   const template = gateway?.template && typeof gateway.template === 'object' && !Array.isArray(gateway.template)
-    ? gateway.template as Partial<CodexCliGatewayConfig & ClaudeCliGatewayConfig>
+    ? gateway.template as Partial<CodexCliGatewayConfig & ClaudeCliGatewayConfig & OpenAiCompatibleGatewayConfig>
     : {}
   if (template.provider === 'claude_cli') {
     return {
@@ -118,6 +119,19 @@ export function codexConfigOf(gateway?: { template?: unknown; endpoint?: string 
       models: Array.isArray(template.models) ? template.models : [],
       lastModelRefreshAt: typeof template.lastModelRefreshAt === 'number' ? template.lastModelRefreshAt : undefined,
       lastModelRefreshError: typeof template.lastModelRefreshError === 'string' ? template.lastModelRefreshError : undefined
+    }
+  }
+  if (template.provider === 'openai_compatible') {
+    return {
+      provider: 'openai_compatible',
+      apiBaseUrl: typeof template.apiBaseUrl === 'string' ? template.apiBaseUrl : gateway?.endpoint ?? '',
+      codexPath: typeof template.codexPath === 'string' ? template.codexPath : 'codex',
+      executionMode: template.executionMode === 'exec' ? 'exec' : 'terminal',
+      defaultModel: typeof template.defaultModel === 'string' ? template.defaultModel : '',
+      models: Array.isArray(template.models) ? template.models : [],
+      lastModelRefreshAt: typeof template.lastModelRefreshAt === 'number' ? template.lastModelRefreshAt : undefined,
+      lastModelRefreshError: typeof template.lastModelRefreshError === 'string' ? template.lastModelRefreshError : undefined,
+      lastModelDiscoveryStatus: template.lastModelDiscoveryStatus === 'ok' || template.lastModelDiscoveryStatus === 'empty' || template.lastModelDiscoveryStatus === 'failed' || template.lastModelDiscoveryStatus === 'fallback' ? template.lastModelDiscoveryStatus : undefined
     }
   }
   return {

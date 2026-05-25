@@ -5,14 +5,17 @@ import styles from './GatewaysPage.module.scss'
 import { APP_ROUTES } from '@shared/constants/ui-routes'
 import { IPC_CHANNELS } from '@shared/contracts/ipc'
 import { invokeBridge, loadList } from '@renderer/utils/api'
-import { ClaudeCliGatewayConfig, CodexCliGatewayConfig, CodexCliModel, Gateway } from '@shared/types/entities'
+import { ClaudeCliGatewayConfig, CodexCliGatewayConfig, CodexCliModel, Gateway, OpenAiCompatibleGatewayConfig } from '@shared/types/entities'
 import { useAuth } from '@renderer/providers/auth/auth-state'
 
 interface GatewayFormState {
   id?: string
   name: string
-  cliProvider: 'codex_cli' | 'claude_cli'
+  cliProvider: 'codex_cli' | 'claude_cli' | 'openai_compatible'
   executionMode: 'terminal' | 'exec'
+  apiBaseUrl: string
+  apiKey: string
+  defaultModel: string
 }
 
 type ActiveGatewayResponse = {
@@ -31,13 +34,35 @@ type GatewayModelsResponse = { gateway: Gateway; models: CodexCliModel[]; cached
 const emptyForm: GatewayFormState = {
   name: '',
   cliProvider: 'codex_cli',
-  executionMode: 'terminal'
+  executionMode: 'terminal',
+  apiBaseUrl: '',
+  apiKey: '',
+  defaultModel: ''
 }
 
-function configOf(gateway: Gateway): (CodexCliGatewayConfig | ClaudeCliGatewayConfig) & { commandPath: string } {
+function providerLabel(provider: GatewayFormState['cliProvider']): string {
+  if (provider === 'claude_cli') return 'Claude CLI'
+  if (provider === 'openai_compatible') return 'OpenAI-compatible'
+  return 'Codex CLI'
+}
+
+function configOf(gateway: Gateway): (CodexCliGatewayConfig | ClaudeCliGatewayConfig | OpenAiCompatibleGatewayConfig) & { commandPath: string } {
   const template = gateway.template && typeof gateway.template === 'object' && !Array.isArray(gateway.template)
-    ? gateway.template as Partial<CodexCliGatewayConfig & ClaudeCliGatewayConfig>
+    ? gateway.template as Partial<CodexCliGatewayConfig & ClaudeCliGatewayConfig & OpenAiCompatibleGatewayConfig>
     : {}
+  if (template.provider === 'openai_compatible') {
+    return {
+      provider: 'openai_compatible',
+      apiBaseUrl: typeof template.apiBaseUrl === 'string' ? template.apiBaseUrl : gateway.endpoint,
+      commandPath: typeof template.apiBaseUrl === 'string' ? template.apiBaseUrl : gateway.endpoint,
+      codexPath: typeof template.codexPath === 'string' ? template.codexPath : 'codex',
+      executionMode: template.executionMode === 'exec' ? 'exec' : 'terminal',
+      defaultModel: typeof template.defaultModel === 'string' ? template.defaultModel : '',
+      models: Array.isArray(template.models) ? template.models : [],
+      lastModelRefreshAt: typeof template.lastModelRefreshAt === 'number' ? template.lastModelRefreshAt : undefined,
+      lastModelRefreshError: typeof template.lastModelRefreshError === 'string' ? template.lastModelRefreshError : undefined
+    }
+  }
   if (template.provider === 'claude_cli') {
     return {
       provider: 'claude_cli',
@@ -65,8 +90,11 @@ function formFromGateway(gateway: Gateway): GatewayFormState {
   return {
     id: gateway.id,
     name: gateway.name,
-    cliProvider: configOf(gateway).provider === 'claude_cli' ? 'claude_cli' : 'codex_cli',
-    executionMode: configOf(gateway).executionMode ?? 'terminal'
+    cliProvider: configOf(gateway).provider === 'claude_cli' ? 'claude_cli' : configOf(gateway).provider === 'openai_compatible' ? 'openai_compatible' : 'codex_cli',
+    executionMode: configOf(gateway).executionMode ?? 'terminal',
+    apiBaseUrl: configOf(gateway).provider === 'openai_compatible' ? (configOf(gateway) as OpenAiCompatibleGatewayConfig).apiBaseUrl : '',
+    apiKey: '',
+    defaultModel: configOf(gateway).provider === 'openai_compatible' ? ((configOf(gateway) as OpenAiCompatibleGatewayConfig).defaultModel ?? '') : ''
   }
 }
 
@@ -204,7 +232,10 @@ export function GatewaysPage({ embedded = false, onOpenGateway }: GatewaysPagePr
     const payload = {
       id: modal.id,
       name: modal.name,
-      endpoint: modal.cliProvider === 'claude_cli' ? 'claude' : 'codex',
+      endpoint: modal.cliProvider === 'openai_compatible' ? modal.apiBaseUrl : modal.cliProvider === 'claude_cli' ? 'claude' : 'codex',
+      apiBaseUrl: modal.apiBaseUrl,
+      token: modal.apiKey,
+      defaultModel: modal.defaultModel,
       codexPath: 'codex',
       claudePath: 'claude',
       provider: modal.cliProvider,
@@ -309,7 +340,7 @@ export function GatewaysPage({ embedded = false, onOpenGateway }: GatewaysPagePr
                 </span>
                 <small>{config.commandPath}</small>
               </span>
-              <span>{config.provider === 'claude_cli' ? 'Claude CLI' : 'Codex CLI'}</span>
+              <span>{providerLabel(config.provider as GatewayFormState['cliProvider'])}</span>
               <span>
                 <b className={`${styles.statusPill} ${styles[gateway.status]}`}>{gateway.status}</b>
               </span>
@@ -343,7 +374,7 @@ export function GatewaysPage({ embedded = false, onOpenGateway }: GatewaysPagePr
             </div>
           )
         })}
-        {filtered.length === 0 && <div className={styles.empty}>No Codex CLI gateways configured.</div>}
+        {filtered.length === 0 && <div className={styles.empty}>No gateways configured.</div>}
       </div>
 
       {modal && (
@@ -362,8 +393,25 @@ export function GatewaysPage({ embedded = false, onOpenGateway }: GatewaysPagePr
               <select value={modal.cliProvider} onChange={(event) => setModal({ ...modal, cliProvider: event.target.value as GatewayFormState['cliProvider'] })}>
                 <option value="codex_cli">Codex CLI</option>
                 <option value="claude_cli">Claude CLI</option>
+                <option value="openai_compatible">OpenAI-compatible</option>
               </select>
             </label>
+            {modal.cliProvider === 'openai_compatible' ? (
+              <>
+                <label>
+                  Base URL *
+                  <input value={modal.apiBaseUrl} onChange={(event) => setModal({ ...modal, apiBaseUrl: event.target.value })} placeholder="http://localhost:8000/v1" required />
+                </label>
+                <label>
+                  API key
+                  <input value={modal.apiKey} onChange={(event) => setModal({ ...modal, apiKey: event.target.value })} placeholder={modal.id ? 'Leave blank to keep current key' : 'Optional for local servers'} type="password" />
+                </label>
+                <label>
+                  Default model
+                  <input value={modal.defaultModel} onChange={(event) => setModal({ ...modal, defaultModel: event.target.value })} placeholder="llama3.1, Qwen/Qwen2.5, gpt-oss..." />
+                </label>
+              </>
+            ) : null}
             <div className={styles.modeField}>
               <span>Execution mode</span>
               <div className={styles.segmentedControl}>
@@ -385,6 +433,7 @@ export function GatewaysPage({ embedded = false, onOpenGateway }: GatewaysPagePr
               <small>{modal.executionMode === 'exec' ? 'Runs the selected CLI headlessly and writes output to Chat.' : 'Opens external Terminal.app with the selected CLI.'}</small>
             </div>
             {modal.cliProvider === 'claude_cli' ? <p className={styles.notice}>Claude uses the local <code>claude</code> command and <code>ANTHROPIC_API_KEY</code> or <code>claude auth login</code>.</p> : null}
+            {modal.cliProvider === 'openai_compatible' ? <p className={styles.notice}>Uses <code>/v1/models</code> for discovery and falls back to the typed default model when the endpoint cannot list models.</p> : null}
             <footer>
               <button type="button" onClick={() => setModal(null)}>Cancel</button>
               <button className={styles.primaryButton} type="submit">{modal.id ? 'Save changes' : 'Create gateway'}</button>

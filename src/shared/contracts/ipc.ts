@@ -754,9 +754,12 @@ export interface UpsertGatewayRequest {
   codexPath?: string
   claudePath?: string
   provider?: 'codex_cli' | 'claude_cli'
+    | 'openai_compatible'
   codexExecutionMode?: 'terminal' | 'exec'
   claudeExecutionMode?: 'terminal' | 'exec'
   apiKeyEnvVar?: string
+  defaultModel?: string
+  discoverModels?: boolean
 }
 
 export interface WorkspaceRequest {

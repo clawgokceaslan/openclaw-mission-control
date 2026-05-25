@@ -229,7 +229,7 @@ export type PlannerQuestionPayload = {
 }
 
 type GatewayExecutionMode = 'terminal' | 'exec'
-type CliGatewayProvider = 'codex_cli' | 'claude_cli'
+type CliGatewayProvider = 'codex_cli' | 'claude_cli' | 'openai_compatible'
 
 type TaskActivityMessage = {
   id: string
@@ -1255,19 +1255,26 @@ function codexTrustedProjectConfig(path: string): string {
   return `projects.${JSON.stringify(path)}.trust_level="trusted"`
 }
 
-function codexCliConfig(value: unknown): { provider: CliGatewayProvider; codexPath: string; claudePath: string; executionMode: GatewayExecutionMode; apiKeyEnvVar: string } {
+function normalizeOpenAiBaseUrl(value: string): string {
+  const trimmed = value.trim().replace(/\/+$/, '')
+  if (!trimmed) return ''
+  return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`
+}
+
+function codexCliConfig(value: unknown): { provider: CliGatewayProvider; codexPath: string; claudePath: string; executionMode: GatewayExecutionMode; apiKeyEnvVar: string; apiBaseUrl: string } {
   const template = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
-  const provider = template.provider === 'claude_cli' ? 'claude_cli' : 'codex_cli'
+  const provider = template.provider === 'claude_cli' ? 'claude_cli' : template.provider === 'openai_compatible' ? 'openai_compatible' : 'codex_cli'
   return {
     provider,
     codexPath: typeof template.codexPath === 'string' && template.codexPath.trim() ? template.codexPath.trim() : 'codex',
     claudePath: typeof template.claudePath === 'string' && template.claudePath.trim() ? template.claudePath.trim() : 'claude',
     executionMode: template.executionMode === 'exec' ? 'exec' : 'terminal',
-    apiKeyEnvVar: typeof template.apiKeyEnvVar === 'string' && template.apiKeyEnvVar.trim() ? template.apiKeyEnvVar.trim() : 'ANTHROPIC_API_KEY'
+    apiKeyEnvVar: typeof template.apiKeyEnvVar === 'string' && template.apiKeyEnvVar.trim() ? template.apiKeyEnvVar.trim() : 'ANTHROPIC_API_KEY',
+    apiBaseUrl: typeof template.apiBaseUrl === 'string' ? normalizeOpenAiBaseUrl(template.apiBaseUrl) : ''
   }
 }
 
-async function codexLaunchConfig(value: unknown): Promise<{ provider: CliGatewayProvider; cliLabel: string; codexPath: string; configuredCodexPath: string; executionMode: GatewayExecutionMode; attemptedCodexPaths: string[]; codexEnvPath: string; codexEnv: NodeJS.ProcessEnv; apiKeyEnvVar?: string }> {
+async function codexLaunchConfig(value: unknown, gatewayToken = ''): Promise<{ provider: CliGatewayProvider; cliLabel: string; codexPath: string; configuredCodexPath: string; executionMode: GatewayExecutionMode; attemptedCodexPaths: string[]; codexEnvPath: string; codexEnv: NodeJS.ProcessEnv; apiKeyEnvVar?: string; apiBaseUrl?: string }> {
   const config = codexCliConfig(value)
   const resolved: CliExecutableResolution = config.provider === 'claude_cli'
     ? await resolveClaudeExecutable(config.claudePath)
@@ -1276,16 +1283,25 @@ async function codexLaunchConfig(value: unknown): Promise<{ provider: CliGateway
   if (config.provider === 'claude_cli' && config.apiKeyEnvVar && process.env[config.apiKeyEnvVar] && !env.ANTHROPIC_API_KEY) {
     env.ANTHROPIC_API_KEY = process.env[config.apiKeyEnvVar]
   }
+  if (config.provider === 'openai_compatible') {
+    if (config.apiBaseUrl) {
+      env.OPENAI_BASE_URL = config.apiBaseUrl
+      env.OPENAI_API_BASE = config.apiBaseUrl
+    }
+    if (gatewayToken) env.OPENAI_API_KEY = gatewayToken
+    else if (!env.OPENAI_API_KEY) env.OPENAI_API_KEY = 'not-required'
+  }
   return {
     provider: config.provider,
-    cliLabel: config.provider === 'claude_cli' ? 'Claude' : 'Codex',
+    cliLabel: config.provider === 'claude_cli' ? 'Claude' : config.provider === 'openai_compatible' ? 'OpenAI-compatible Codex' : 'Codex',
     codexPath: resolved.command,
     configuredCodexPath: config.provider === 'claude_cli' ? config.claudePath : config.codexPath,
     executionMode: config.executionMode,
     attemptedCodexPaths: resolved.attempted,
     codexEnvPath: resolved.envPath,
     codexEnv: env,
-    apiKeyEnvVar: config.provider === 'claude_cli' ? config.apiKeyEnvVar : undefined
+    apiKeyEnvVar: config.provider === 'claude_cli' ? config.apiKeyEnvVar : undefined,
+    apiBaseUrl: config.provider === 'openai_compatible' ? config.apiBaseUrl : undefined
   }
 }
 
@@ -1379,6 +1395,14 @@ function gatewayTerminalCommand(input: {
     ...(input.exportWorkspacePath ? ['-c', shellQuote(codexTrustedProjectConfig(input.exportWorkspacePath))] : []),
     shellQuote(input.prompt)
   ].join(' ')
+}
+
+function gatewayTerminalEnvExports(env: NodeJS.ProcessEnv, keys: string[]): string[] {
+  return keys
+    .flatMap((key) => {
+      const value = env[key]
+      return typeof value === 'string' && value ? [`export ${key}=${shellQuote(value)}`] : []
+    })
 }
 
 function taskActivityMessagesFromPayload(payload: unknown): TaskActivityMessage[] {
@@ -4754,7 +4778,7 @@ export class TaskService {
 
       const model = payload.model.trim()
       const taskId = access.data.task.id
-      const { provider, cliLabel, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, codexEnv, executionMode, apiKeyEnvVar } = await codexLaunchConfig(gateway.template)
+      const { provider, cliLabel, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, codexEnv, executionMode, apiKeyEnvVar, apiBaseUrl } = await codexLaunchConfig(gateway.template, gateway.token)
       const wrapperPath = join(runFolderPath, provider === 'claude_cli' ? 'run-claude.sh' : 'run-codex.sh')
       const finishFilePath = join(runFolderPath, 'codex-finished.signal')
       const runTerminalTitle = terminalTitle(`OMC Codex ${access.data.task.id}`)
@@ -4858,6 +4882,7 @@ export class TaskService {
         `RUNTIME_WORKSPACE=${shellQuote(runtimeWorkspacePath)}`,
         `HELPER_PATH=${shellQuote(helperRelativePath)}`,
         `export PATH=${shellQuote(codexEnvPath)}`,
+        ...gatewayTerminalEnvExports(codexEnv, ['OPENAI_BASE_URL', 'OPENAI_API_BASE', 'OPENAI_API_KEY']),
         'cleanup() {',
         '  local status=$?',
         '  local finish_payload="$RUN_DIR/finish-status.json"',
@@ -4919,7 +4944,7 @@ export class TaskService {
             role: 'system',
             status: 'running',
             body: `Started ${cliLabel} exec run with ${model}.`,
-            metadata: { provider, gatewayId: gateway.id, model, language, reasoningEffort, effectiveAgent, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, apiKeyEnvVar }
+            metadata: { provider, gatewayId: gateway.id, model, language, reasoningEffort, effectiveAgent, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, apiKeyEnvVar, apiBaseUrl }
           },
           {
             runId,
@@ -5279,7 +5304,7 @@ export class TaskService {
           role: 'system',
           status: 'running',
           body: `Started ${cliLabel} terminal run with ${model}.`,
-          metadata: { provider, gatewayId: gateway.id, model, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, apiKeyEnvVar }
+          metadata: { provider, gatewayId: gateway.id, model, executionMode, runtimeWorkspacePath, exportWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, apiKeyEnvVar, apiBaseUrl }
         },
         {
           runId,
@@ -5545,7 +5570,7 @@ export class TaskService {
       const clarificationMessage = payload.clarificationMessage?.trim() ?? ''
       const clarificationMode = clarificationMessage ? 'direct' : normalizePlannerClarificationMode(payload.clarificationMode)
       const model = payload.model.trim()
-      const { provider, cliLabel, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, codexEnv, executionMode, apiKeyEnvVar } = await codexLaunchConfig(gateway.template)
+      const { provider, cliLabel, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, codexEnv, executionMode, apiKeyEnvVar, apiBaseUrl } = await codexLaunchConfig(gateway.template, gateway.token)
       const helperRelativePath = plannerRunRelativePath(runId, 'omc-task-client.mjs')
       const sessionRelativePath = plannerRunRelativePath(runId, 'session.json')
       const mcpProxyRelativePath = plannerRunRelativePath(runId, 'omc-mcp-proxy.mjs')
@@ -5644,6 +5669,7 @@ export class TaskService {
         `RUNTIME_WORKSPACE=${shellQuote(runtimeWorkspacePath)}`,
         `HELPER_PATH=${shellQuote(helperRelativePath)}`,
         `export PATH=${shellQuote(codexEnvPath)}`,
+        ...gatewayTerminalEnvExports(codexEnv, ['OPENAI_BASE_URL', 'OPENAI_API_BASE', 'OPENAI_API_KEY']),
         'cleanup() {',
         '  local status=$?',
         '  local finish_payload="$RUN_DIR/finish-status.json"',
@@ -5714,7 +5740,7 @@ export class TaskService {
             role: 'system',
             status: 'running',
             body: `Started ${cliLabel} exec planner with ${model}.`,
-            metadata: { provider, gatewayId: gateway.id, model, language, reasoningEffort, clarificationMode, effectiveAgent, executionMode, runtimeWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, apiKeyEnvVar }
+            metadata: { provider, gatewayId: gateway.id, model, language, reasoningEffort, clarificationMode, effectiveAgent, executionMode, runtimeWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, apiKeyEnvVar, apiBaseUrl }
           },
           {
             runId,
@@ -5934,7 +5960,7 @@ export class TaskService {
           role: 'system',
           status: 'running',
           body: `Started ${cliLabel} terminal planner with ${model}.`,
-          metadata: { provider, gatewayId: gateway.id, model, clarificationMode, executionMode, runtimeWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, apiKeyEnvVar }
+          metadata: { provider, gatewayId: gateway.id, model, clarificationMode, executionMode, runtimeWorkspacePath, runFolderPath, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, apiKeyEnvVar, apiBaseUrl }
         },
         {
           runId,
@@ -6046,7 +6072,7 @@ export class TaskService {
     const activitySource: TaskActivityMessage['source'] = mode === 'plan' ? 'gateway-plan' : 'gateway-chat'
     let launchConfig: Awaited<ReturnType<typeof codexLaunchConfig>>
     try {
-      launchConfig = await codexLaunchConfig(gateway.template)
+      launchConfig = await codexLaunchConfig(gateway.template, gateway.token)
     } catch (error) {
       const messageText = error instanceof Error ? error.message : 'Unable to launch CLI chat'
       if (isCliNotFoundError(error)) {
@@ -6063,7 +6089,7 @@ export class TaskService {
       }
       return errorResponse(ErrorCodes.Internal, messageText)
     }
-    const { provider, cliLabel, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, codexEnv, executionMode, apiKeyEnvVar } = launchConfig
+    const { provider, cliLabel, codexPath, configuredCodexPath, attemptedCodexPaths, codexEnvPath, codexEnv, executionMode, apiKeyEnvVar, apiBaseUrl } = launchConfig
     const model = payload.model.trim()
     const runtimeWorkspacePath = runtimeWorkspace.rootPath
     const runFolderPath = await mkdtemp(join(tmpdir(), 'open-mission-control-gateway-chat-'))
@@ -6155,6 +6181,7 @@ export class TaskService {
           codexEnvPath,
           provider,
           apiKeyEnvVar,
+          apiBaseUrl,
           mode,
           contextFilePath
         }
@@ -6165,7 +6192,14 @@ export class TaskService {
       if (process.platform !== 'darwin') return errorResponse(ErrorCodes.Validation, 'Codex terminal chat currently requires macOS Terminal.app.')
       const wrapperPath = join(runFolderPath, 'run-gateway-chat.sh')
       const codexCommand = gatewayTerminalCommand({ provider, cliPath: codexPath, runtimeWorkspacePath, model, prompt, reasoningEffort })
-      await writeFile(wrapperPath, ['#!/bin/zsh', 'set -e', `export PATH=${shellQuote(codexEnvPath)}`, `cd ${shellQuote(runtimeWorkspacePath)}`, codexCommand].join('\n'), 'utf8')
+      await writeFile(wrapperPath, [
+        '#!/bin/zsh',
+        'set -e',
+        `export PATH=${shellQuote(codexEnvPath)}`,
+        ...gatewayTerminalEnvExports(codexEnv, ['OPENAI_BASE_URL', 'OPENAI_API_BASE', 'OPENAI_API_KEY']),
+        `cd ${shellQuote(runtimeWorkspacePath)}`,
+        codexCommand
+      ].join('\n'), 'utf8')
       await chmod(wrapperPath, 0o700)
       const terminalCommand = `/bin/zsh ${shellQuote(wrapperPath)}`
       await execFileAsync('osascript', [
