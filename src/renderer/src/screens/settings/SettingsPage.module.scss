@@ -176,6 +176,92 @@
   overflow-wrap: anywhere;
 }
 
+.alertVolumeRow {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(180px, 420px) auto;
+  gap: 12px;
+  align-items: center;
+
+  input {
+    width: 100%;
+    min-width: 0;
+    accent-color: var(--omc-primary);
+  }
+
+  strong {
+    color: var(--omc-text-strong);
+    font-size: 0.95rem;
+    font-weight: 850;
+    min-width: 44px;
+    text-align: right;
+  }
+}
+
+.alertSoundGrid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.alertSoundCard {
+  min-width: 0;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 10px;
+  background: var(--omc-surface-muted);
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+
+  header {
+    min-width: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+
+    h3 {
+      margin: 0;
+      color: var(--omc-text-strong);
+      font-size: 1rem;
+      font-weight: 850;
+      overflow-wrap: anywhere;
+    }
+
+    p {
+      margin: 4px 0 0;
+      color: var(--omc-text-muted);
+      font-size: 0.84rem;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+  }
+}
+
+.iconButton {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--omc-border-subtle);
+  border-radius: 9px;
+  background: var(--omc-surface);
+  color: var(--omc-text-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+
+  &:hover:not(:disabled) {
+    border-color: var(--omc-info-border);
+    background: var(--omc-active-bg);
+  }
+
+  &:disabled {
+    opacity: 0.58;
+    cursor: not-allowed;
+  }
+}
+
 .infoList {
   display: grid;
   gap: 8px;
@@ -815,6 +901,10 @@
     }
   }
 
+  .alertSoundGrid {
+    grid-template-columns: 1fr;
+  }
+
   .webServerPanel {
     .webServerUrlRow {
       button {
@@ -862,6 +952,14 @@
   .panelHeader {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .alertVolumeRow {
+    grid-template-columns: 1fr;
+
+    strong {
+      text-align: left;
+    }
   }
 
   .webServerPanel {

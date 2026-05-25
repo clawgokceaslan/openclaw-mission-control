@@ -13,6 +13,11 @@ import {
   normalizePlannerQuestionAttentionBehavior,
   type PlannerQuestionAttentionBehavior
 } from '../../shared/utils/planner-question-attention.js'
+import {
+  DEFAULT_ALERT_SOUND_SETTINGS,
+  normalizeAlertSoundSettings,
+  type AlertSoundSettings
+} from '../../shared/utils/alert-sound-settings.js'
 import { electronRuntime } from '../utils/electron-runtime.js'
 import type { DatabaseLocationState, WebServerStatusState } from '../../shared/contracts/ipc.js'
 import { getInternalHttpServerStatus } from '../internal-api/http-server.js'
@@ -22,6 +27,7 @@ const DEFAULT_AGENT_KEY = 'defaultAgentId'
 const DEFAULT_ADD_TASK_PROJECT_KEY = 'defaultAddTaskProjectId'
 const GATEWAY_LANGUAGE_KEY = 'gatewayLanguage'
 const PLANNER_QUESTION_ATTENTION_KEY = 'plannerQuestionAttention'
+const ALERT_SOUND_SETTINGS_KEY = 'alertSoundSettings'
 
 export class AppSettingsService {
   constructor(
@@ -145,6 +151,23 @@ export class AppSettingsService {
     return okResponse({ behavior })
   }
 
+  async getAlertSoundSettings(payload: { actorToken?: string }): Promise<ServiceResponse<{ settings: AlertSoundSettings }>> {
+    const actor = await this.auth.requireActor(payload?.actorToken)
+    const stored = await this.repo.get<unknown>(actor.user.organizationId, ALERT_SOUND_SETTINGS_KEY)
+    const settings = normalizeAlertSoundSettings(stored ?? DEFAULT_ALERT_SOUND_SETTINGS)
+    if (stored && JSON.stringify(stored) !== JSON.stringify(settings)) {
+      await this.repo.set(actor.user.organizationId, ALERT_SOUND_SETTINGS_KEY, settings)
+    }
+    return okResponse({ settings })
+  }
+
+  async setAlertSoundSettings(payload: { actorToken?: string; settings?: unknown }): Promise<ServiceResponse<{ settings: AlertSoundSettings }>> {
+    const actor = await this.auth.requireActor(payload?.actorToken)
+    const settings = normalizeAlertSoundSettings(payload?.settings ?? DEFAULT_ALERT_SOUND_SETTINGS)
+    await this.repo.set(actor.user.organizationId, ALERT_SOUND_SETTINGS_KEY, settings)
+    return okResponse({ settings })
+  }
+
   async getDatabaseLocation(payload: { actorToken?: string }): Promise<ServiceResponse<DatabaseLocationState>> {
     await this.auth.requireActor(payload?.actorToken)
     return okResponse(getDatabaseLocationState())
@@ -258,4 +281,4 @@ export class AppSettingsService {
   }
 }
 
-export { ACTIVE_GATEWAY_KEY, DEFAULT_AGENT_KEY, DEFAULT_ADD_TASK_PROJECT_KEY, GATEWAY_LANGUAGE_KEY, PLANNER_QUESTION_ATTENTION_KEY }
+export { ACTIVE_GATEWAY_KEY, DEFAULT_AGENT_KEY, DEFAULT_ADD_TASK_PROJECT_KEY, GATEWAY_LANGUAGE_KEY, PLANNER_QUESTION_ATTENTION_KEY, ALERT_SOUND_SETTINGS_KEY }

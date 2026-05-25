@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { LuArrowRight, LuBellOff, LuBot, LuCheck, LuClipboard, LuCog, LuCopy, LuDatabase, LuExternalLink, LuFileJson, LuFileSearch, LuFolderOpen, LuGlobe, LuHardDrive, LuLanguages, LuPower, LuRefreshCw, LuServer, LuSlidersHorizontal, LuTriangleAlert, LuWaypoints, LuWifi } from 'react-icons/lu'
+import { LuArrowRight, LuBellOff, LuBot, LuCheck, LuClipboard, LuCog, LuCopy, LuDatabase, LuExternalLink, LuFileJson, LuFileSearch, LuFolderOpen, LuGlobe, LuHardDrive, LuLanguages, LuPlay, LuPower, LuRefreshCw, LuServer, LuSlidersHorizontal, LuTriangleAlert, LuVolume2, LuWaypoints, LuWifi } from 'react-icons/lu'
 import { IPC_CHANNELS, type DatabaseLocationState, type PickDatabaseFileResponse, type PickDatabaseFolderResponse, type WebServerStatusState } from '@shared/contracts/ipc'
 import { GATEWAY_LANGUAGE_OPTIONS, DEFAULT_GATEWAY_LANGUAGE } from '@shared/utils/gateway-language'
 import { DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR, type PlannerQuestionAttentionBehavior } from '@shared/utils/planner-question-attention'
+import { ALERT_SOUND_CATEGORIES, ALERT_SOUND_VARIANTS, DEFAULT_ALERT_SOUND_SETTINGS, normalizeAlertSoundSettings, type AlertSoundCategory, type AlertSoundSettings, type AlertSoundVariant } from '@shared/utils/alert-sound-settings'
 import type { Agent } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { useAuth } from '@renderer/providers/auth/auth-state'
@@ -12,10 +13,13 @@ import { LoadingState } from '@renderer/components/loading'
 import { WorkspacesPage } from '@renderer/screens/workspaces/WorkspacesPage'
 import { GatewaysPage } from '@renderer/screens/gateways/GatewaysPage'
 import { GatewayDetailPage } from '@renderer/screens/gateways/GatewayDetailPage'
+import { playAlertSound } from '@renderer/utils/alertSounds'
 import { webServerLanMessage, webServerPrimaryUrl, webServerStatusLabel, webServerStatusTone } from './webServerViewModel'
 import styles from './SettingsPage.module.scss'
 
-type SettingsSection = 'general' | 'workspaces' | 'gateways' | 'database' | 'web-server'
+type SettingsSection = 'general' | 'alert-sounds' | 'workspaces' | 'gateways' | 'database' | 'web-server'
+
+const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'alert-sounds', 'workspaces', 'gateways', 'database', 'web-server']
 
 const databaseFallbackState: DatabaseLocationState = {
   currentFolderPath: '',
@@ -32,7 +36,7 @@ export function SettingsPage() {
   const { token } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedTab = searchParams.get('tab') as SettingsSection | null
-  const [activeSection, setActiveSection] = useState<SettingsSection>(requestedTab && ['general', 'workspaces', 'gateways', 'database', 'web-server'].includes(requestedTab) ? requestedTab : 'general')
+  const [activeSection, setActiveSection] = useState<SettingsSection>(requestedTab && SETTINGS_SECTIONS.includes(requestedTab) ? requestedTab : 'general')
   const selectedGatewayId = searchParams.get('gatewayId')
   const [agents, setAgents] = useState<Agent[]>([])
   const [defaultAgentId, setDefaultAgentId] = useState('')
@@ -42,6 +46,10 @@ export function SettingsPage() {
   const [plannerQuestionAttention, setPlannerQuestionAttention] = useState<PlannerQuestionAttentionBehavior>(DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR)
   const [plannerQuestionAttentionSaving, setPlannerQuestionAttentionSaving] = useState(false)
   const [plannerQuestionAttentionMessage, setPlannerQuestionAttentionMessage] = useState<string | null>(null)
+  const [alertSoundSettings, setAlertSoundSettings] = useState<AlertSoundSettings>(DEFAULT_ALERT_SOUND_SETTINGS)
+  const [alertSoundSaving, setAlertSoundSaving] = useState(false)
+  const [alertSoundMessage, setAlertSoundMessage] = useState<string | null>(null)
+  const [alertSoundPreviewing, setAlertSoundPreviewing] = useState<AlertSoundCategory | null>(null)
   const [defaultAgentSaving, setDefaultAgentSaving] = useState(false)
   const [defaultAgentMessage, setDefaultAgentMessage] = useState<string | null>(null)
   const [databaseState, setDatabaseState] = useState<DatabaseLocationState>(databaseFallbackState)
@@ -60,7 +68,7 @@ export function SettingsPage() {
   const [webServerAction, setWebServerAction] = useState<'open' | 'copy' | 'refresh' | 'restart' | null>(null)
 
   useEffect(() => {
-    if (requestedTab && ['general', 'workspaces', 'gateways', 'database', 'web-server'].includes(requestedTab)) {
+    if (requestedTab && SETTINGS_SECTIONS.includes(requestedTab)) {
       setActiveSection(requestedTab)
     }
   }, [requestedTab])
@@ -72,6 +80,9 @@ export function SettingsPage() {
       setDefaultAgentId('')
       setGatewayLanguage(DEFAULT_GATEWAY_LANGUAGE)
       setPlannerQuestionAttention(DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR)
+      setAlertSoundSettings(DEFAULT_ALERT_SOUND_SETTINGS)
+      setAlertSoundSaving(false)
+      setAlertSoundMessage(null)
       setDatabaseState(databaseFallbackState)
       setDatabaseFolder('')
       setSourceDatabasePath('')
@@ -92,14 +103,16 @@ export function SettingsPage() {
       invokeBridge<{ agentId: string | null }>(IPC_CHANNELS.appSettings.getDefaultAgent, { actorToken: token }),
       invokeBridge<{ language: string }>(IPC_CHANNELS.appSettings.getGatewayLanguage, { actorToken: token }),
       invokeBridge<{ behavior: PlannerQuestionAttentionBehavior }>(IPC_CHANNELS.appSettings.getPlannerQuestionAttention, { actorToken: token }),
+      invokeBridge<{ settings: AlertSoundSettings }>(IPC_CHANNELS.appSettings.getAlertSoundSettings, { actorToken: token }),
       invokeBridge<DatabaseLocationState>(IPC_CHANNELS.appSettings.getDatabaseLocation, { actorToken: token }),
       invokeBridge<WebServerStatusState>(IPC_CHANNELS.appSettings.getWebServerStatus, { actorToken: token })
-    ]).then(([agentResponse, defaultResponse, languageResponse, plannerQuestionAttentionResponse, databaseResponse, webServerResponse]) => {
+    ]).then(([agentResponse, defaultResponse, languageResponse, plannerQuestionAttentionResponse, alertSoundResponse, databaseResponse, webServerResponse]) => {
       if (cancelled) return
       setAgents(Array.isArray(agentResponse.data) ? agentResponse.data : [])
       setDefaultAgentId(defaultResponse.ok && defaultResponse.data?.agentId ? defaultResponse.data.agentId : '')
       setGatewayLanguage(languageResponse.ok && languageResponse.data?.language ? languageResponse.data.language : DEFAULT_GATEWAY_LANGUAGE)
       setPlannerQuestionAttention(plannerQuestionAttentionResponse.ok && plannerQuestionAttentionResponse.data?.behavior ? plannerQuestionAttentionResponse.data.behavior : DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR)
+      setAlertSoundSettings(alertSoundResponse.ok && alertSoundResponse.data?.settings ? normalizeAlertSoundSettings(alertSoundResponse.data.settings) : DEFAULT_ALERT_SOUND_SETTINGS)
       if (databaseResponse.ok && databaseResponse.data) {
         setDatabaseState(databaseResponse.data)
       } else {
@@ -153,6 +166,13 @@ export function SettingsPage() {
   const selectedPlannerQuestionAttentionOption = useMemo<AppSelectOption | null>(() => {
     return plannerQuestionAttentionOptions.find((option) => option.value === plannerQuestionAttention) ?? plannerQuestionAttentionOptions[0] ?? null
   }, [plannerQuestionAttention, plannerQuestionAttentionOptions])
+
+  const alertSoundVariantOptions = useMemo<AppSelectOption[]>(() => (
+    ALERT_SOUND_VARIANTS.map((variant) => ({
+      value: variant.value,
+      label: variant.label
+    }))
+  ), [])
 
   const saveDefaultAgent = async (option: AppSelectOption | null) => {
     setDefaultAgentSaving(true)
@@ -214,6 +234,59 @@ export function SettingsPage() {
       setPlannerQuestionAttentionMessage(error instanceof Error ? error.message : 'Unable to update planner question behavior.')
     } finally {
       setPlannerQuestionAttentionSaving(false)
+    }
+  }
+
+  const saveAlertSoundSettings = async (nextSettings: AlertSoundSettings, message: string) => {
+    const normalized = normalizeAlertSoundSettings(nextSettings)
+    setAlertSoundSettings(normalized)
+    setAlertSoundSaving(true)
+    setAlertSoundMessage(null)
+    try {
+      const response = await invokeBridge<{ settings: AlertSoundSettings }>(IPC_CHANNELS.appSettings.setAlertSoundSettings, {
+        actorToken: token,
+        settings: normalized
+      })
+      if (!response.ok) {
+        setAlertSoundMessage(response.error?.message ?? 'Uyarı sesi ayarları kaydedilemedi.')
+        return
+      }
+      setAlertSoundSettings(response.data?.settings ? normalizeAlertSoundSettings(response.data.settings) : normalized)
+      setAlertSoundMessage(message)
+    } catch (error) {
+      setAlertSoundMessage(error instanceof Error ? error.message : 'Uyarı sesi ayarları kaydedilemedi.')
+    } finally {
+      setAlertSoundSaving(false)
+    }
+  }
+
+  const saveAlertSoundVolume = (volume: number) => {
+    void saveAlertSoundSettings({
+      ...alertSoundSettings,
+      volume
+    }, 'Uyarı sesi yüksekliği güncellendi.')
+  }
+
+  const saveAlertSoundVariant = (category: AlertSoundCategory, option: AppSelectOption | null) => {
+    void saveAlertSoundSettings({
+      ...alertSoundSettings,
+      variants: {
+        ...alertSoundSettings.variants,
+        [category]: (option?.value as AlertSoundVariant | undefined) ?? DEFAULT_ALERT_SOUND_SETTINGS.variants[category]
+      }
+    }, 'Uyarı sesi varyantı güncellendi.')
+  }
+
+  const previewAlertSound = async (category: AlertSoundCategory) => {
+    setAlertSoundPreviewing(category)
+    setAlertSoundMessage(null)
+    try {
+      await playAlertSound(alertSoundSettings.variants[category], alertSoundSettings.volume)
+      setAlertSoundMessage(`${ALERT_SOUND_CATEGORIES.find((item) => item.value === category)?.label ?? 'Uyarı'} sesi çalındı.`)
+    } catch (error) {
+      setAlertSoundMessage(error instanceof Error ? error.message : 'Ses önizlemesi çalınamadı.')
+    } finally {
+      window.setTimeout(() => setAlertSoundPreviewing((current) => current === category ? null : current), 300)
     }
   }
 
@@ -474,6 +547,7 @@ export function SettingsPage() {
 
   const sections = [
     { id: 'general' as SettingsSection, label: 'General', icon: LuSlidersHorizontal },
+    { id: 'alert-sounds' as SettingsSection, label: 'Uyarı Sesleri', icon: LuVolume2 },
     { id: 'workspaces' as SettingsSection, label: 'Workspaces', icon: LuFolderOpen },
     { id: 'gateways' as SettingsSection, label: 'Gateways', icon: LuWaypoints },
     { id: 'database' as SettingsSection, label: 'Database', icon: LuHardDrive },
@@ -626,6 +700,81 @@ export function SettingsPage() {
                 <p className={styles.settingMessage}>Controls only the in-app planner question modal and whether Open Mission Control is brought forward when a new question arrives.</p>
                 {plannerQuestionAttentionMessage ? <p className={styles.settingMessage}>{plannerQuestionAttentionMessage}</p> : null}
               </div>
+            </div>
+          ) : null}
+
+          {activeSection === 'alert-sounds' ? (
+            <div className={styles.panel}>
+              <header className={styles.panelHeader}>
+                <span className={styles.panelIcon}><LuVolume2 size={19} /></span>
+                <div>
+                  <h2>Uyarı sesleri</h2>
+                  <p>Planla ve Çalıştır akışlarında kullanılan ses yüksekliği ve durum varyantları.</p>
+                </div>
+              </header>
+
+              <div className={styles.surfaceSection}>
+                <h3><LuVolume2 size={17} /> Ortak ses yüksekliği</h3>
+                <div className={styles.alertVolumeRow}>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value={Math.round(alertSoundSettings.volume * 100)}
+                    disabled={alertSoundSaving}
+                    aria-label="Uyarı sesi yüksekliği"
+                    onChange={(event) => setAlertSoundSettings({
+                      ...alertSoundSettings,
+                      volume: Number(event.target.value) / 100
+                    })}
+                    onBlur={(event) => saveAlertSoundVolume(Number(event.currentTarget.value) / 100)}
+                    onMouseUp={(event) => saveAlertSoundVolume(Number(event.currentTarget.value) / 100)}
+                    onTouchEnd={(event) => saveAlertSoundVolume(Number(event.currentTarget.value) / 100)}
+                  />
+                  <strong>{Math.round(alertSoundSettings.volume * 100)}%</strong>
+                </div>
+                <p className={styles.settingMessage}>Bu değer Planla ve Çalıştır uyarılarında aynı çarpan olarak uygulanır.</p>
+              </div>
+
+              <div className={styles.alertSoundGrid}>
+                {ALERT_SOUND_CATEGORIES.map((category) => {
+                  const selectedVariant = alertSoundVariantOptions.find((option) => option.value === alertSoundSettings.variants[category.value]) ?? alertSoundVariantOptions[0] ?? null
+                  const description = ALERT_SOUND_VARIANTS.find((variant) => variant.value === selectedVariant?.value)?.description ?? ''
+                  return (
+                    <section key={category.value} className={styles.alertSoundCard}>
+                      <header>
+                        <div>
+                          <h3>{category.label}</h3>
+                          <p>{description}</p>
+                        </div>
+                        <button
+                          type="button"
+                          className={styles.iconButton}
+                          onClick={() => void previewAlertSound(category.value)}
+                          disabled={alertSoundPreviewing === category.value || alertSoundSettings.volume <= 0}
+                          aria-label={`${category.label} sesini önizle`}
+                          title={`${category.label} sesini önizle`}
+                        >
+                          {alertSoundPreviewing === category.value ? <LoadingState size="compact" message="" /> : <LuPlay size={15} />}
+                        </button>
+                      </header>
+                      <AppSelect
+                        mode="single"
+                        value={selectedVariant}
+                        options={alertSoundVariantOptions}
+                        placeholder="Varyant seç"
+                        isDisabled={alertSoundSaving}
+                        onChange={(option) => {
+                          if (!Array.isArray(option)) saveAlertSoundVariant(category.value, option)
+                        }}
+                      />
+                    </section>
+                  )
+                })}
+              </div>
+
+              {alertSoundMessage ? <p className={styles.settingMessage}>{alertSoundMessage}</p> : null}
             </div>
           ) : null}
 

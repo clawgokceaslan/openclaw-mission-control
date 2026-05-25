@@ -46,6 +46,7 @@ import { InvitePage } from '@renderer/screens/InvitePage'
 import { OnboardingPage } from '@renderer/screens/OnboardingPage'
 import { CompanionPage } from '@renderer/screens/CompanionPage'
 import { GlobalCreateTaskModal } from '@renderer/components/navigation/GlobalCreateTaskModal'
+import { GatewayAlertSoundHost } from '@renderer/components/alerts/GatewayAlertSoundHost'
 import type { GlobalTaskCreateInitial } from '@renderer/components/navigation/UniversalCommand'
 import { RendererHealthReporter } from '@renderer/utils/rendererResilience'
 import { SplashOverlay } from '@renderer/components/splash/SplashOverlay'
@@ -282,6 +283,7 @@ export function App() {
         <ThemeProvider>
           <ConfirmationProvider>
             <AuthProvider>
+              <GatewayAlertSoundHost />
               <AppRouter />
             </AuthProvider>
           </ConfirmationProvider>

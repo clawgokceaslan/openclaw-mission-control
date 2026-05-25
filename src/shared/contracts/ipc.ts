@@ -44,6 +44,8 @@ export const IPC_CHANNELS = {
     setGatewayLanguage: 'app-settings:set-gateway-language',
     getPlannerQuestionAttention: 'app-settings:get-planner-question-attention',
     setPlannerQuestionAttention: 'app-settings:set-planner-question-attention',
+    getAlertSoundSettings: 'app-settings:get-alert-sound-settings',
+    setAlertSoundSettings: 'app-settings:set-alert-sound-settings',
     getDatabaseLocation: 'app-settings:get-database-location',
     getWebServerStatus: 'app-settings:get-web-server-status',
     openWebServerUrl: 'app-settings:open-web-server-url',
@@ -222,6 +224,7 @@ export const IPC_CHANNELS = {
   },
   events: {
     appNavigate: 'events:app-navigate',
+    gatewayAlertSound: 'events:gateway-alert-sound',
     gatewayStatus: 'events:gateway-status',
     taskUpdated: 'events:task-updated',
     jobProgress: 'events:job-progress',
@@ -307,6 +310,11 @@ export interface AppNavigateState extends AppNavigateOpenCreateState, AppNavigat
 export interface AppNavigateEvent {
   path: string
   state?: AppNavigateState
+}
+
+export interface GatewayAlertSoundEvent {
+  kind: 'completed' | 'failed' | 'stopped'
+  mode: 'plan' | 'run'
 }
 
 export interface SetTaskTagsRequest {
@@ -853,7 +861,7 @@ export const SERVICE_MAP = {
   auth: ['login', 'refresh', 'logout', 'me', 'inviteValidate', 'updateProfile', 'updateAvatar', 'removeAvatar', 'changePassword'],
   projects: ['list', 'get', 'create', 'update', 'moveWorkspace', 'exportWorkspace', 'remove'],
   workspaces: ['list', 'create', 'update', 'remove', 'pickFolder'],
-  appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent', 'getDefaultAddTaskProject', 'setDefaultAddTaskProject', 'getGatewayLanguage', 'setGatewayLanguage', 'getPlannerQuestionAttention', 'setPlannerQuestionAttention', 'getDatabaseLocation', 'getWebServerStatus', 'openWebServerUrl', 'pickDatabaseFolder', 'pickDatabaseFile', 'moveDatabaseLocation', 'revealDatabaseLocation'],
+  appSettings: ['getActiveGateway', 'setActiveGateway', 'getDefaultAgent', 'setDefaultAgent', 'getDefaultAddTaskProject', 'setDefaultAddTaskProject', 'getGatewayLanguage', 'setGatewayLanguage', 'getPlannerQuestionAttention', 'setPlannerQuestionAttention', 'getAlertSoundSettings', 'setAlertSoundSettings', 'getDatabaseLocation', 'getWebServerStatus', 'openWebServerUrl', 'pickDatabaseFolder', 'pickDatabaseFile', 'moveDatabaseLocation', 'revealDatabaseLocation'],
   statuses: ['list', 'listTemplates', 'createTemplate', 'updateTemplate', 'removeTemplate', 'getProjectStatuses', 'updateProjectStatuses', 'applyTemplateToProject'],
   tasks: ['list', 'listPlannedGateway', 'listRunningGateway', 'get', 'create', 'update', 'remove', 'history', 'subtasksCreate', 'subtasksUpdate', 'subtasksRemove', 'tagsSet', 'commentAdd', 'commentUpdate', 'commentRemove', 'skillsSet', 'exportSnapshot', 'runGateway', 'planWithGateway', 'gatewayChatSend', 'gatewayChatStop', 'gatewayChatResolve', 'plannerContext', 'plannerValidateJson', 'plannerCreateFromJson', 'plannerUpdateFromJson', 'importJson'],
   taskTemplates: ['list', 'create', 'update', 'remove', 'importJson'],
@@ -1102,6 +1110,20 @@ export const SERVICE_ROUTING: {
       action: 'setPlannerQuestionAttention',
       method: 'setPlannerQuestionAttention',
       channel: IPC_CHANNELS.appSettings.setPlannerQuestionAttention,
+      requiresAuth: true
+    },
+    getAlertSoundSettings: {
+      domain: 'appSettings',
+      action: 'getAlertSoundSettings',
+      method: 'getAlertSoundSettings',
+      channel: IPC_CHANNELS.appSettings.getAlertSoundSettings,
+      requiresAuth: true
+    },
+    setAlertSoundSettings: {
+      domain: 'appSettings',
+      action: 'setAlertSoundSettings',
+      method: 'setAlertSoundSettings',
+      channel: IPC_CHANNELS.appSettings.setAlertSoundSettings,
       requiresAuth: true
     },
     getDatabaseLocation: {

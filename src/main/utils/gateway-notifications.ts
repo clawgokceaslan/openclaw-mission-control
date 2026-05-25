@@ -126,6 +126,21 @@ function openProjectTaskChat(projectId: string, state: AppNavigateOpenTaskChatSt
   send()
 }
 
+function emitGatewayAlertSound(input: GatewayNotificationInput, runtime = electronRuntime): void {
+  if (input.kind === 'question' || (input.mode !== 'plan' && input.mode !== 'run')) return
+  const BrowserWindow = runtime.BrowserWindow
+  if (!BrowserWindow) return
+
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(IPC_CHANNELS.events.gatewayAlertSound, {
+        kind: input.kind,
+        mode: input.mode
+      })
+    }
+  }
+}
+
 export function shouldShowGatewayChatCompletionNotification(input: Pick<LegacyGatewayChatCompletionNotificationInput, 'executionMode' | 'stopped'>): boolean {
   return input.executionMode === 'exec'
 }
@@ -139,10 +154,10 @@ export function buildGatewayNotificationOptions(
     title: copy.title,
     subtitle: copy.subtitle,
     body: copy.body,
-    silent: false
+    silent: input.mode === 'plan' || input.mode === 'run'
   }
 
-  if (platform === 'darwin') {
+  if (platform === 'darwin' && options.silent === false) {
     options.sound = 'Glass'
     options.closeButtonText = 'Open'
   }
@@ -161,6 +176,8 @@ export function buildGatewayNotificationOptions(
 
 export function showGatewayNotification(input: GatewayNotificationInput, runtime = electronRuntime): void {
   if (input.kind === 'question') return
+
+  emitGatewayAlertSound(input, runtime)
 
   const Notification = runtime.Notification
   if (!Notification || !Notification.isSupported()) return

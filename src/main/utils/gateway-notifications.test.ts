@@ -94,13 +94,20 @@ describe('codex notifications', () => {
       title: 'Completed · Run · Task Alpha',
       subtitle: 'Codex Run completed',
       body: 'Codex Run completed. Task: Task Alpha. Model: gpt-5.3-codex. Click to open the related chat.',
-      silent: false
+      silent: true
     })
     expect(instances[0].shown).toBe(true)
+    expect(sent[0]).toEqual([
+      IPC_CHANNELS.events.gatewayAlertSound,
+      {
+        kind: 'completed',
+        mode: 'run'
+      }
+    ])
 
     instances[0].click?.()
 
-    expect(sent).toEqual([[
+    expect(sent[1]).toEqual([
       IPC_CHANNELS.events.appNavigate,
       {
         path: '/projects/project-1',
@@ -110,7 +117,7 @@ describe('codex notifications', () => {
           openTaskChat: true
         }
       }
-    ]])
+    ])
   })
 
   it('includes the exit code for failed notifications', () => {
@@ -177,17 +184,15 @@ describe('codex notifications', () => {
 
   it('sets stronger native notification options by platform', () => {
     expect(buildGatewayNotificationOptions({ ...baseNotification, kind: 'completed' }, 'darwin')).toMatchObject({
-      silent: false,
-      sound: 'Glass',
-      closeButtonText: 'Open'
+      silent: true
     })
     expect(buildGatewayNotificationOptions({ ...baseNotification, kind: 'failed' }, 'linux')).toMatchObject({
-      silent: false,
+      silent: true,
       urgency: 'critical',
       timeoutType: 'never'
     })
     expect(buildGatewayNotificationOptions({ ...baseNotification, kind: 'question' }, 'win32')).toMatchObject({
-      silent: false,
+      silent: true,
       timeoutType: 'never'
     })
   })
