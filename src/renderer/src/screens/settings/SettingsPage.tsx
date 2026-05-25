@@ -4,7 +4,7 @@ import { LuArrowRight, LuBellOff, LuBot, LuCheck, LuClipboard, LuCog, LuCopy, Lu
 import { IPC_CHANNELS, type DatabaseLocationState, type PickDatabaseFileResponse, type PickDatabaseFolderResponse, type WebServerStatusState } from '@shared/contracts/ipc'
 import { GATEWAY_LANGUAGE_OPTIONS, DEFAULT_GATEWAY_LANGUAGE } from '@shared/utils/gateway-language'
 import { DEFAULT_PLANNER_QUESTION_ATTENTION_BEHAVIOR, type PlannerQuestionAttentionBehavior } from '@shared/utils/planner-question-attention'
-import { ALERT_SOUND_CATEGORIES, ALERT_SOUND_VARIANTS, DEFAULT_ALERT_SOUND_SETTINGS, normalizeAlertSoundSettings, type AlertSoundCategory, type AlertSoundSettings, type AlertSoundVariant } from '@shared/utils/alert-sound-settings'
+import { ALERT_SOUND_CATEGORIES, ALERT_SOUND_VARIANTS_BY_CATEGORY, DEFAULT_ALERT_SOUND_SETTINGS, normalizeAlertSoundSettings, type AlertSoundCategory, type AlertSoundSettings, type AlertSoundVariant } from '@shared/utils/alert-sound-settings'
 import type { Agent } from '@shared/types/entities'
 import { AppSelect, type AppSelectOption } from '@renderer/components/select/AppSelect'
 import { useAuth } from '@renderer/providers/auth/auth-state'
@@ -167,12 +167,12 @@ export function SettingsPage() {
     return plannerQuestionAttentionOptions.find((option) => option.value === plannerQuestionAttention) ?? plannerQuestionAttentionOptions[0] ?? null
   }, [plannerQuestionAttention, plannerQuestionAttentionOptions])
 
-  const alertSoundVariantOptions = useMemo<AppSelectOption[]>(() => (
-    ALERT_SOUND_VARIANTS.map((variant) => ({
-      value: variant.value,
-      label: variant.label
-    }))
-  ), [])
+  const alertSoundVariantOptionsByCategory = useMemo<Record<AlertSoundCategory, AppSelectOption[]>>(() => ({
+    success: ALERT_SOUND_VARIANTS_BY_CATEGORY.success.map((variant) => ({ value: variant.value, label: variant.label })),
+    error: ALERT_SOUND_VARIANTS_BY_CATEGORY.error.map((variant) => ({ value: variant.value, label: variant.label })),
+    warning: ALERT_SOUND_VARIANTS_BY_CATEGORY.warning.map((variant) => ({ value: variant.value, label: variant.label })),
+    completed: ALERT_SOUND_VARIANTS_BY_CATEGORY.completed.map((variant) => ({ value: variant.value, label: variant.label }))
+  }), [])
 
   const saveDefaultAgent = async (option: AppSelectOption | null) => {
     setDefaultAgentSaving(true)
@@ -739,8 +739,10 @@ export function SettingsPage() {
 
               <div className={styles.alertSoundGrid}>
                 {ALERT_SOUND_CATEGORIES.map((category) => {
-                  const selectedVariant = alertSoundVariantOptions.find((option) => option.value === alertSoundSettings.variants[category.value]) ?? alertSoundVariantOptions[0] ?? null
-                  const description = ALERT_SOUND_VARIANTS.find((variant) => variant.value === selectedVariant?.value)?.description ?? ''
+                  const categoryVariants = ALERT_SOUND_VARIANTS_BY_CATEGORY[category.value]
+                  const variantOptions = alertSoundVariantOptionsByCategory[category.value]
+                  const selectedVariant = variantOptions.find((option) => option.value === alertSoundSettings.variants[category.value]) ?? variantOptions[0] ?? null
+                  const description = categoryVariants.find((variant) => variant.value === selectedVariant?.value)?.description ?? ''
                   return (
                     <section key={category.value} className={styles.alertSoundCard}>
                       <header>
@@ -762,7 +764,7 @@ export function SettingsPage() {
                       <AppSelect
                         mode="single"
                         value={selectedVariant}
-                        options={alertSoundVariantOptions}
+                        options={variantOptions}
                         placeholder="Varyant seç"
                         isDisabled={alertSoundSaving}
                         onChange={(option) => {

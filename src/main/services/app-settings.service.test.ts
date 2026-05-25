@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AppSettingsService, ALERT_SOUND_SETTINGS_KEY, GATEWAY_LANGUAGE_KEY, DEFAULT_ADD_TASK_PROJECT_KEY, DEFAULT_AGENT_KEY, PLANNER_QUESTION_ATTENTION_KEY } from './app-settings.service.js'
+import { ALERT_SOUND_CATEGORIES, ALERT_SOUND_VARIANTS } from '../../shared/utils/alert-sound-settings.js'
 
 function serviceWithAgents(agents: Map<string, any>, store = new Map<string, unknown>(), projects = new Map<string, any>()) {
   const auth = {
@@ -143,10 +144,12 @@ describe('AppSettingsService alert sound settings', () => {
 
     expect(response.ok).toBe(true)
     expect(response.data?.settings.volume).toBe(0.7)
-    expect(response.data?.settings.variants.completed).toBe('bright')
+    expect(response.data?.settings.variants.completed).toBe('completed-bright')
+    expect(ALERT_SOUND_CATEGORIES).toHaveLength(4)
+    expect(ALERT_SOUND_VARIANTS).toHaveLength(20)
   })
 
-  it('saves normalized alert sound settings', async () => {
+  it('saves normalized alert sound settings and migrates legacy variants per category', async () => {
     const store = new Map<string, unknown>()
     const service = serviceWithAgents(new Map(), store)
 
@@ -164,7 +167,10 @@ describe('AppSettingsService alert sound settings', () => {
 
     expect(response.ok).toBe(true)
     expect(response.data?.settings.volume).toBe(1)
-    expect(response.data?.settings.variants.error).toBe('pulse')
+    expect(response.data?.settings.variants.success).toBe('success-bloom')
+    expect(response.data?.settings.variants.error).toBe('error-pulse')
+    expect(response.data?.settings.variants.warning).toBe('warning-nudge')
+    expect(response.data?.settings.variants.completed).toBe('completed-bright')
     expect(store.get(ALERT_SOUND_SETTINGS_KEY)).toEqual(response.data?.settings)
   })
 })
